@@ -34,20 +34,27 @@ pub fn parse(text: &str) -> Result<Hotkey, String> {
 }
 
 pub fn format(hotkey: Hotkey) -> String {
-    let mut out = String::new();
+    let mut out = format_modifiers(hotkey.modifiers);
+    if !out.is_empty() {
+        out.push('+');
+    }
+    out.push_str(&format_key(hotkey.vk));
+    out
+}
+
+pub fn format_modifiers(modifiers: u32) -> String {
+    let mut parts: Vec<&str> = Vec::with_capacity(4);
     for (flag, name) in [
         (MOD_WIN, "Win"),
         (MOD_CONTROL, "Ctrl"),
         (MOD_ALT, "Alt"),
         (MOD_SHIFT, "Shift"),
     ] {
-        if hotkey.modifiers & flag != 0 {
-            out.push_str(name);
-            out.push('+');
+        if modifiers & flag != 0 {
+            parts.push(name);
         }
     }
-    out.push_str(&format_key(hotkey.vk));
-    out
+    parts.join("+")
 }
 
 fn parse_key(token: &str) -> Option<u32> {

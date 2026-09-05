@@ -24,6 +24,13 @@ fn main() {
     unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
 
     logging::init();
+
+    // The exe has no console, so without this a panic disappears completely:
+    // the tray icon just vanishes and the log ends mid-sentence.
+    std::panic::set_hook(Box::new(|info| {
+        log::error!("panic: {info}");
+    }));
+
     let mut config = Config::load();
 
     // The registry is the truth for autostart, so a value removed by hand or by
@@ -36,7 +43,8 @@ fn main() {
         }
     }
 
-    host::run(config, modules::load_active_modules());
+    let open_detector = std::env::args().any(|arg| arg == "--open-detector");
+    host::run(config, modules::load_active_modules(), open_detector);
 
     unsafe { CloseHandle(mutex) };
 }

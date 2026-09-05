@@ -1,9 +1,9 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
-use windows_sys::Win32::UI::Shell::ShellExecuteW;
+use windows_sys::Win32::UI::Shell::{ShellExecuteW, NIN_BALLOONUSERCLICK};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, PostQuitMessage,
     RegisterClassW, RegisterWindowMessageW, TranslateMessage, MSG, SW_SHOWNORMAL, WM_CONTEXTMENU,
@@ -27,10 +27,14 @@ const MENU_EXIT: u32 = 5;
 const MENU_MODULE_BASE: u32 = 100;
 const MENU_MODULE_ACTION_BASE: u32 = 1000;
 
+const DETECTOR_ID: &str = "shortcut_detector";
+const DETECTOR_OPEN_ACTION: u32 = 1;
+
 struct RegisteredHotkey {
     action_id: u32,
     global_id: i32,
     label: &'static str,
+    hotkey: Hotkey,
     keys: String,
     ok: bool,
 }
@@ -47,14 +51,17 @@ struct Host {
     slots: Vec<ModuleSlot>,
     tray: Tray,
     next_hotkey_id: i32,
-    taskbar_created: u32,
 }
 
 thread_local! {
     static HOST: RefCell<Option<Host>> = const { RefCell::new(None) };
+    /// Kept outside Host so the WndProc can check it without borrowing. Windows
+    /// re-enters a WndProc whenever it likes, and a borrow taken on every single
+    /// message would turn that into a crash.
+    static TASKBAR_CREATED: Cell<u32> = const { Cell::new(0) };
 }
 
-pub fn run(config: Config, modules: Vec<Box<dyn WinCraftModule>>) {
+pub fn run(config: Config, modules: Vec<Box<dyn WinCraftModule>>, open_detector: bool) {
     let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
 
     let class_name = wide(CLASS_NAME);
@@ -104,8 +111,9 @@ pub fn run(config: Config, modules: Vec<Box<dyn WinCraftModule>>) {
             .collect(),
         tray: Tray::new(hwnd, hinstance),
         next_hotkey_id: 1,
-        taskbar_created: unsafe { RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()) },
     };
+    TASKBAR_CREATED
+        .with(|cell| cell.set(unsafe { RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()) }));
 
     host.merge_module_defaults();
     let wanted: Vec<usize> = (0..host.slots.len())
@@ -126,6 +134,10 @@ pub fn run(config: Config, modules: Vec<Box<dyn WinCraftModule>>) {
     log::info!("WinCraft {} is running", env!("CARGO_PKG_VERSION"));
 
     HOST.with(|cell| *cell.borrow_mut() = Some(host));
+
+    if open_detector {
+        open_shortcut_detector();
+    }
 
     let mut msg: MSG = unsafe { std::mem::zeroed() };
     while unsafe { GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) } > 0 {
@@ -229,6 +241,7 @@ impl Host {
                 action_id,
                 global_id,
                 label,
+                hotkey,
                 keys,
                 ok,
             });
@@ -364,6 +377,42 @@ impl Host {
     }
 }
 
+/// The list the ShortcutDetector marks as WinCraft's own.
+///
+/// It takes an immutable borrow, so calling it while the host is mutably
+/// borrowed panics instead of quietly misbehaving. That is the re-entrancy rule
+/// with teeth: a module may call this from its own WndProc, never from inside
+/// on_hotkey or on_tray_action.
+pub fn registered_hotkeys() -> Vec<(String, String, Hotkey)> {
+    HOST.with(|cell| {
+        let borrowed = cell.borrow();
+        let Some(host) = borrowed.as_ref() else {
+            return Vec::new();
+        };
+        let mut found = Vec::new();
+        for slot in host.slots.iter().filter(|slot| slot.enabled) {
+            let module = slot.module.metadata().name;
+            for entry in slot.registered.iter().filter(|entry| entry.ok) {
+                found.push((module.to_string(), entry.label.to_string(), entry.hotkey));
+            }
+        }
+        found
+    })
+}
+
+fn open_shortcut_detector() {
+    with_host(|host| {
+        let slot = host
+            .slots
+            .iter_mut()
+            .find(|slot| slot.enabled && slot.module.metadata().id == DETECTOR_ID);
+        match slot {
+            Some(slot) => slot.module.on_tray_action(DETECTOR_OPEN_ACTION),
+            None => log::info!("no enabled {DETECTOR_ID} module to open"),
+        }
+    });
+}
+
 fn open_in_notepad(path: &std::path::Path) {
     let args = wide(&format!("\"{}\"", path.display()));
     unsafe {
@@ -378,8 +427,18 @@ fn open_in_notepad(path: &std::path::Path) {
     };
 }
 
+/// Skips the work instead of panicking when the host is already borrowed.
+/// Creating a window inside a callback lets Windows send other messages to the
+/// host window before the first call has returned; dropping those is right,
+/// crashing the tray program is not.
 fn with_host<R>(f: impl FnOnce(&mut Host) -> R) -> Option<R> {
-    HOST.with(|cell| cell.borrow_mut().as_mut().map(f))
+    HOST.with(|cell| match cell.try_borrow_mut() {
+        Ok(mut borrowed) => borrowed.as_mut().map(f),
+        Err(_) => {
+            log::warn!("host message arrived while the host was busy, ignored");
+            None
+        }
+    })
 }
 
 fn handle_menu_choice(choice: u32) {
@@ -446,7 +505,7 @@ unsafe extern "system" fn wnd_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    let taskbar_created = with_host(|host| host.taskbar_created).unwrap_or(0);
+    let taskbar_created = TASKBAR_CREATED.with(|cell| cell.get());
     if taskbar_created != 0 && msg == taskbar_created {
         with_host(|host| host.tray.add());
         return 0;
@@ -472,6 +531,10 @@ unsafe extern "system" fn wnd_proc(
         }
         WM_TRAY_CALLBACK => {
             let event = (lparam as u32) & 0xFFFF;
+            if event == NIN_BALLOONUSERCLICK {
+                open_shortcut_detector();
+                return 0;
+            }
             if event == WM_LBUTTONUP || event == WM_RBUTTONUP || event == WM_CONTEXTMENU {
                 // The borrow must end before TrackPopupMenu: it runs its own
                 // message loop, which re-enters this WndProc and would panic on

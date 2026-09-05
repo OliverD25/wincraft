@@ -25,6 +25,10 @@ features = [
     "Win32_System_SystemInformation",
     "Win32_Security",
     "Win32_Storage_FileSystem",
+    "Win32_UI_Controls",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
 ]
 
 [build-dependencies]
