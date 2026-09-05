@@ -5,7 +5,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD
 use windows_sys::Win32::UI::WindowsAndMessaging::WM_DISPLAYCHANGE;
 
 use crate::core::traits::{
-    HostContext, Hotkey, HotkeyAction, ModuleMetadata, TrayAction, WinCraftModule,
+    FieldKind, HostContext, Hotkey, HotkeyAction, ModuleMetadata, SettingField, TrayAction,
+    WinCraftModule,
 };
 use overlay::Overlay;
 
@@ -82,12 +83,39 @@ impl WinCraftModule for ScreenDimmer {
             name: "ScreenDimmer",
             description: "Dim or blank monitors with click-through overlays.",
             author: "community",
-            version: "1.0.0",
+            version: "1.1.0",
+            readme: include_str!("README.md"),
         }
     }
 
     fn default_settings(&self) -> serde_json::Value {
         serde_json::json!({ "idle_opacity": 1.0, "hover_opacity": 0.7 })
+    }
+
+    fn settings_fields(&self) -> Vec<SettingField> {
+        vec![
+            SettingField {
+                key: "idle_opacity",
+                label: "Darkness",
+                help: "How solid the overlay is normally. 1.0 is fully black.",
+                kind: FieldKind::Slider { min: 0.0, max: 1.0, step: 0.05 },
+            },
+            SettingField {
+                key: "hover_opacity",
+                label: "Darkness under the pointer",
+                help: "How solid it is while your pointer is on that monitor.",
+                kind: FieldKind::Slider { min: 0.0, max: 1.0, step: 0.05 },
+            },
+        ]
+    }
+
+    fn on_settings_changed(&mut self, settings: &serde_json::Value) -> bool {
+        self.idle_alpha = alpha_from(settings, "idle_opacity", 1.0);
+        self.hover_alpha = alpha_from(settings, "hover_opacity", 0.7);
+        for item in &mut self.overlays {
+            item.set_alphas(self.idle_alpha, self.hover_alpha);
+        }
+        true
     }
 
     fn init(&mut self, ctx: &HostContext) -> Result<(), String> {

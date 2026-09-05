@@ -2,6 +2,7 @@
 
 mod core;
 mod modules;
+mod store;
 
 use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, HANDLE};
 use windows_sys::Win32::System::Threading::CreateMutexW;
@@ -15,6 +16,17 @@ use crate::core::{autostart, host, logging, wide};
 const SINGLE_INSTANCE_MUTEX: &str = r"Local\WinCraft.SingleInstance";
 
 fn main() {
+    // Before the single-instance guard on purpose: regenerating the index is a
+    // one-shot job a contributor runs while WinCraft may already be in the tray.
+    if std::env::args().any(|arg| arg == "--write-plugin-index") {
+        logging::init();
+        match store::index::write_committed_copy() {
+            Ok(path) => log::info!("wrote {}", path.display()),
+            Err(err) => log::error!("{err}"),
+        }
+        return;
+    }
+
     let Some(mutex) = claim_single_instance() else {
         return;
     };

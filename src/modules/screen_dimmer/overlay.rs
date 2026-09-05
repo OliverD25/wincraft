@@ -122,6 +122,13 @@ impl Overlay {
         self.visible = true;
     }
 
+    /// The last-applied byte is kept, so the hover timer notices the difference
+    /// on its next tick and repaints once instead of on every frame.
+    pub fn set_alphas(&mut self, idle: u8, hover: u8) {
+        let (_, _, last) = unpack(unsafe { GetWindowLongPtrW(self.hwnd, GWLP_USERDATA) });
+        unsafe { SetWindowLongPtrW(self.hwnd, GWLP_USERDATA, pack(idle, hover, last)) };
+    }
+
     pub fn hide(&mut self) {
         if !self.visible {
             return;

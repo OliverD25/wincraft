@@ -7,7 +7,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD
 use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyWindow, IsWindow};
 
 use crate::core::traits::{
-    HostContext, Hotkey, HotkeyAction, ModuleMetadata, TrayAction, WinCraftModule,
+    FieldKind, HostContext, Hotkey, HotkeyAction, ModuleMetadata, SettingField, TrayAction,
+    WinCraftModule,
 };
 
 const ACTION_OPEN: u32 = 1;
@@ -52,12 +53,33 @@ impl WinCraftModule for ShortcutDetector {
             name: "ShortcutDetector",
             description: "Find taken and free global key combinations, and test a shortcut before you assign it.",
             author: "community",
-            version: "1.0.0",
+            version: "1.1.0",
+            readme: include_str!("README.md"),
         }
     }
 
     fn default_settings(&self) -> serde_json::Value {
         serde_json::json!({ "show_free_by_default": false })
+    }
+
+    fn settings_fields(&self) -> Vec<SettingField> {
+        vec![SettingField {
+            key: "show_free_by_default",
+            label: "Show free combinations",
+            help: "Start with every untaken combination already listed.",
+            kind: FieldKind::Toggle,
+        }]
+    }
+
+    fn on_settings_changed(&mut self, settings: &serde_json::Value) -> bool {
+        self.show_free_by_default = settings
+            .get("show_free_by_default")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        if let Some(hwnd) = self.live_window() {
+            window::set_show_free_default(hwnd, self.show_free_by_default);
+        }
+        true
     }
 
     fn init(&mut self, ctx: &HostContext) -> Result<(), String> {
