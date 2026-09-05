@@ -3,6 +3,7 @@
 mod core;
 mod modules;
 mod store;
+mod ui;
 
 use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, HANDLE};
 use windows_sys::Win32::System::Threading::CreateMutexW;
@@ -55,8 +56,13 @@ fn main() {
         }
     }
 
-    let open_detector = std::env::args().any(|arg| arg == "--open-detector");
-    host::run(config, modules::load_active_modules(), open_detector);
+    let args: Vec<String> = std::env::args().collect();
+    let flags = host::StartupFlags {
+        open_detector: args.iter().any(|arg| arg == "--open-detector"),
+        open_palette: args.iter().any(|arg| arg == "--open-palette"),
+        open_settings: args.iter().any(|arg| arg == "--open-settings"),
+    };
+    host::run(config, modules::load_active_modules(), flags);
 
     unsafe { CloseHandle(mutex) };
 }

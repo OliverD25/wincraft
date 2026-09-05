@@ -4,8 +4,10 @@ pub mod config;
 pub mod host;
 pub mod hotkeys;
 pub mod logging;
+pub mod theme;
 pub mod traits;
 pub mod tray;
+pub mod ui_bridge;
 
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;

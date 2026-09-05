@@ -1,22 +1,40 @@
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
+use std::sync::mpsc::Receiver;
+use std::sync::Arc;
 
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows_sys::Win32::Graphics::Dwm::{
+    DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+};
+use windows_sys::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
+};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
+use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, SetFocus, UnregisterHotKey};
 use windows_sys::Win32::UI::Shell::{ShellExecuteW, NIN_BALLOONUSERCLICK};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, PostQuitMessage,
-    RegisterClassW, RegisterWindowMessageW, TranslateMessage, MSG, SW_SHOWNORMAL, WM_CONTEXTMENU,
-    WM_DESTROY, WM_DISPLAYCHANGE, WM_HOTKEY, WM_LBUTTONUP, WM_POWERBROADCAST, WM_RBUTTONUP,
-    WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
+    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetCursorPos, GetForegroundWindow,
+    GetMessageW, GetWindowThreadProcessId, PostQuitMessage, RegisterClassW,
+    RegisterWindowMessageW, SetForegroundWindow, TranslateMessage, MSG, SW_SHOWNORMAL,
+    WM_CONTEXTMENU, WM_DESTROY, WM_DISPLAYCHANGE, WM_HOTKEY, WM_LBUTTONUP, WM_POWERBROADCAST,
+    WM_RBUTTONUP, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
 };
 
 use crate::core::about::{self, AboutHotkey, AboutModule};
+use serde_json::Value;
+
 use crate::core::config::{Config, PluginConfig, DEFAULT_PALETTE_HOTKEY};
 use crate::core::traits::{HostContext, Hotkey, WinCraftModule};
 use crate::core::tray::{show_menu, MenuItem, Tray, WM_TRAY_CALLBACK};
+use crate::core::ui_bridge::{
+    self, ActionKind, CommandId, FieldInfo, HostCommand, HostRequest, HostSetting,
+    HotkeyInfo, MonitorRect, Page, PaletteEntry, PluginInfo, UiChannel, UiCommand, UiSnapshot,
+    WM_APP_UI,
+};
 use crate::core::{autostart, config, hotkeys, wide};
+use crate::ui;
 
 const CLASS_NAME: &str = "WinCraftHost";
 
@@ -25,6 +43,8 @@ const MENU_EDIT_CONFIG: u32 = 2;
 const MENU_OPEN_LOG: u32 = 3;
 const MENU_AUTOSTART: u32 = 4;
 const MENU_EXIT: u32 = 5;
+const MENU_PALETTE: u32 = 6;
+const MENU_SETTINGS: u32 = 7;
 const MENU_MODULE_BASE: u32 = 100;
 const MENU_MODULE_ACTION_BASE: u32 = 1000;
 
@@ -58,6 +78,16 @@ struct Host {
     tray: Tray,
     next_hotkey_id: i32,
     palette_hotkey: Option<(Hotkey, bool)>,
+    to_ui: Arc<UiChannel>,
+    host_rx: Receiver<HostRequest>,
+    palette_hwnd: HWND,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct StartupFlags {
+    pub open_detector: bool,
+    pub open_palette: bool,
+    pub open_settings: bool,
 }
 
 thread_local! {
@@ -68,7 +98,7 @@ thread_local! {
     static TASKBAR_CREATED: Cell<u32> = const { Cell::new(0) };
 }
 
-pub fn run(config: Config, modules: Vec<Box<dyn WinCraftModule>>, open_detector: bool) {
+pub fn run(config: Config, modules: Vec<Box<dyn WinCraftModule>>, flags: StartupFlags) {
     let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
 
     let class_name = wide(CLASS_NAME);
@@ -105,6 +135,9 @@ pub fn run(config: Config, modules: Vec<Box<dyn WinCraftModule>>, open_detector:
         return;
     }
 
+    let bridge = ui_bridge::create();
+    bridge.to_host.set_host_window(hwnd);
+
     let mut host = Host {
         hwnd,
         config,
@@ -120,6 +153,9 @@ pub fn run(config: Config, modules: Vec<Box<dyn WinCraftModule>>, open_detector:
         tray: Tray::new(hwnd, hinstance),
         next_hotkey_id: 1,
         palette_hotkey: None,
+        to_ui: Arc::clone(&bridge.to_ui),
+        host_rx: bridge.host_rx,
+        palette_hwnd: std::ptr::null_mut(),
     };
     TASKBAR_CREATED
         .with(|cell| cell.set(unsafe { RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()) }));
@@ -136,13 +172,27 @@ pub fn run(config: Config, modules: Vec<Box<dyn WinCraftModule>>, open_detector:
         host.enable_slot(index);
     }
     host.save_config();
+
+    ui::start(
+        bridge.ui_rx,
+        Arc::clone(&bridge.to_ui),
+        Arc::clone(&bridge.to_host),
+        host.snapshot(),
+    );
+
     host.tray.add();
     log::info!("WinCraft {} is running", env!("CARGO_PKG_VERSION"));
 
     HOST.with(|cell| *cell.borrow_mut() = Some(host));
 
-    if open_detector {
+    if flags.open_detector {
         open_shortcut_detector();
+    }
+    if flags.open_palette {
+        show_palette();
+    }
+    if flags.open_settings {
+        with_host(|host| host.to_ui.send(UiCommand::ShowSettings(Page::General)));
     }
 
     let mut msg: MSG = unsafe { std::mem::zeroed() };
@@ -160,21 +210,25 @@ pub fn run(config: Config, modules: Vec<Box<dyn WinCraftModule>>, open_detector:
 impl Host {
     fn load_plugin_configs(&mut self) {
         for index in 0..self.slots.len() {
-            let slot = &self.slots[index];
-            let meta = slot.module.metadata();
-            let defaults: Vec<(&str, String)> = slot
-                .module
-                .hotkey_actions()
-                .iter()
-                .map(|action| (action.name, hotkeys::format(action.default)))
-                .collect();
-            let settings = slot.module.default_settings();
-
-            let mut plugin = PluginConfig::load(meta.id);
-            plugin.merge_defaults(&defaults, &settings);
-            self.plugins.insert(meta.id.to_string(), plugin);
-            self.save_plugin(meta.id);
+            self.load_plugin_config(index);
         }
+    }
+
+    fn load_plugin_config(&mut self, index: usize) {
+        let slot = &self.slots[index];
+        let meta = slot.module.metadata();
+        let defaults: Vec<(&str, String)> = slot
+            .module
+            .hotkey_actions()
+            .iter()
+            .map(|action| (action.name, hotkeys::format(action.default)))
+            .collect();
+        let settings = slot.module.default_settings();
+
+        let mut plugin = PluginConfig::load(meta.id);
+        plugin.merge_defaults(&defaults, &settings);
+        self.plugins.insert(meta.id.to_string(), plugin);
+        self.save_plugin(meta.id);
     }
 
     fn register_palette_hotkey(&mut self) {
@@ -306,7 +360,19 @@ impl Host {
     }
 
     fn menu_items(&self) -> Vec<MenuItem> {
-        let mut items = Vec::new();
+        let mut items = vec![
+            MenuItem::Entry {
+                id: MENU_PALETTE,
+                label: "Open palette".to_string(),
+                checked: false,
+            },
+            MenuItem::Entry {
+                id: MENU_SETTINGS,
+                label: "Settings\u{2026}".to_string(),
+                checked: false,
+            },
+            MenuItem::Separator,
+        ];
         for (index, slot) in self.slots.iter().enumerate() {
             let meta = slot.module.metadata();
             items.push(MenuItem::Entry {
@@ -324,9 +390,7 @@ impl Host {
                 }
             }
         }
-        if !self.slots.is_empty() {
-            items.push(MenuItem::Separator);
-        }
+        items.push(MenuItem::Separator);
         items.push(MenuItem::Entry {
             id: MENU_AUTOSTART,
             label: "Start with Windows".to_string(),
@@ -399,6 +463,355 @@ impl Host {
         about::text(&modules)
     }
 
+    fn hotkey_infos(&self, index: usize) -> Vec<HotkeyInfo> {
+        let slot = &self.slots[index];
+        let meta = slot.module.metadata();
+        if slot.enabled {
+            return slot
+                .registered
+                .iter()
+                .map(|entry| HotkeyInfo {
+                    action: self.action_name(index, entry.action_id).to_string(),
+                    label: entry.label.to_string(),
+                    binding: entry.keys.clone(),
+                    registered: entry.ok,
+                })
+                .collect();
+        }
+        slot.module
+            .hotkey_actions()
+            .iter()
+            .map(|action| HotkeyInfo {
+                action: action.name.to_string(),
+                label: action.label.to_string(),
+                binding: hotkeys::format(self.resolve_hotkey(meta.id, action.name, action.default)),
+                registered: true,
+            })
+            .collect()
+    }
+
+    fn action_name(&self, index: usize, action_id: u32) -> &'static str {
+        self.slots[index]
+            .module
+            .hotkey_actions()
+            .into_iter()
+            .find(|action| action.id == action_id)
+            .map(|action| action.name)
+            .unwrap_or("")
+    }
+
+    fn snapshot(&self) -> UiSnapshot {
+        let plugins: Vec<PluginInfo> = (0..self.slots.len())
+            .map(|index| {
+                let slot = &self.slots[index];
+                let meta = slot.module.metadata();
+                let settings = self
+                    .plugin(meta.id)
+                    .map(|plugin| plugin.settings.clone())
+                    .unwrap_or_else(|| serde_json::json!({}));
+                PluginInfo {
+                    id: meta.id.to_string(),
+                    name: meta.name.to_string(),
+                    version: meta.version.to_string(),
+                    author: meta.author.to_string(),
+                    description: meta.description.to_string(),
+                    readme: meta.readme.to_string(),
+                    enabled: slot.enabled,
+                    config_path: config::plugin_path(meta.id),
+                    hotkeys: self.hotkey_infos(index),
+                    fields: slot
+                        .module
+                        .settings_fields()
+                        .into_iter()
+                        .map(|field| FieldInfo {
+                            key: field.key.to_string(),
+                            label: field.label.to_string(),
+                            help: field.help.to_string(),
+                            kind: field.kind,
+                            value: settings.get(field.key).cloned().unwrap_or(Value::Null),
+                        })
+                        .collect(),
+                }
+            })
+            .collect();
+
+        UiSnapshot {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            start_with_windows: self.config.start_with_windows,
+            theme: self.config.theme,
+            palette_hotkey: self.config.palette_hotkey.clone(),
+            palette_hotkey_registered: self.palette_hotkey.map(|(_, ok)| ok).unwrap_or(false),
+            config_path: config::config_path(),
+            log_path: config::log_path(),
+            commands: self.palette_entries(&plugins),
+            plugins,
+        }
+    }
+
+    fn palette_entries(&self, plugins: &[PluginInfo]) -> Vec<PaletteEntry> {
+        let mut entries = Vec::new();
+        let host_group = "WinCraft".to_string();
+        for (command, label) in [
+            (HostCommand::OpenSettings, "Settings"),
+            (HostCommand::OpenStore, "Plugin store"),
+            (HostCommand::OpenAbout, "About WinCraft"),
+            (HostCommand::OpenConfig, "Open the config file"),
+            (HostCommand::OpenLog, "Open the log file"),
+            (HostCommand::Exit, "Exit WinCraft"),
+        ] {
+            entries.push(PaletteEntry {
+                id: CommandId::Host(command),
+                group: host_group.clone(),
+                label: label.to_string(),
+                hint: String::new(),
+            });
+        }
+
+        for (index, slot) in self.slots.iter().enumerate() {
+            let meta = slot.module.metadata();
+            let group = meta.name.to_string();
+            entries.push(PaletteEntry {
+                id: CommandId::Host(HostCommand::TogglePlugin(index)),
+                group: group.clone(),
+                label: if slot.enabled {
+                    format!("Turn {} off", meta.name)
+                } else {
+                    format!("Turn {} on", meta.name)
+                },
+                hint: String::new(),
+            });
+            if !slot.enabled {
+                continue;
+            }
+            let bindings = plugins.get(index).map(|info| &info.hotkeys);
+            for action in slot.module.hotkey_actions() {
+                let hint = bindings
+                    .and_then(|list| list.iter().find(|info| info.label == action.label))
+                    .map(|info| info.binding.clone())
+                    .unwrap_or_default();
+                entries.push(PaletteEntry {
+                    id: CommandId::Module {
+                        index,
+                        kind: ActionKind::Hotkey,
+                        action: action.id,
+                    },
+                    group: group.clone(),
+                    label: action.label.to_string(),
+                    hint,
+                });
+            }
+            for action in slot.module.tray_actions() {
+                if entries.iter().any(|entry| {
+                    entry.group == group && entry.label == action.label
+                }) {
+                    continue;
+                }
+                entries.push(PaletteEntry {
+                    id: CommandId::Module {
+                        index,
+                        kind: ActionKind::Tray,
+                        action: action.id,
+                    },
+                    group: group.clone(),
+                    label: action.label.to_string(),
+                    hint: String::new(),
+                });
+            }
+            for command in slot.module.palette_commands() {
+                entries.push(PaletteEntry {
+                    id: CommandId::Module {
+                        index,
+                        kind: ActionKind::Palette,
+                        action: command.id,
+                    },
+                    group: group.clone(),
+                    label: command.label.to_string(),
+                    hint: command.hint.to_string(),
+                });
+            }
+        }
+        entries
+    }
+
+    fn publish(&self) {
+        self.to_ui.send(UiCommand::Snapshot(Box::new(self.snapshot())));
+    }
+
+    fn index_of(&self, id: &str) -> Option<usize> {
+        self.slots
+            .iter()
+            .position(|slot| slot.module.metadata().id == id)
+    }
+
+    fn run_command(&mut self, id: CommandId) {
+        match id {
+            CommandId::Host(HostCommand::OpenSettings) => {
+                self.to_ui.send(UiCommand::ShowSettings(Page::General))
+            }
+            CommandId::Host(HostCommand::OpenStore) => {
+                self.to_ui.send(UiCommand::ShowSettings(Page::Store))
+            }
+            CommandId::Host(HostCommand::OpenAbout) => {
+                self.to_ui.send(UiCommand::ShowSettings(Page::About))
+            }
+            CommandId::Host(HostCommand::OpenConfig) => open_in_notepad(&config::config_path()),
+            CommandId::Host(HostCommand::OpenLog) => open_in_notepad(&config::log_path()),
+            CommandId::Host(HostCommand::Exit) => self.shutdown(),
+            CommandId::Host(HostCommand::TogglePlugin(index)) => {
+                if index < self.slots.len() {
+                    if self.slots[index].enabled {
+                        self.disable_slot(index);
+                    } else {
+                        self.enable_slot(index);
+                    }
+                    self.publish();
+                }
+            }
+            CommandId::Module {
+                index,
+                kind,
+                action,
+            } => {
+                let Some(slot) = self.slots.get_mut(index) else {
+                    return;
+                };
+                if !slot.enabled {
+                    return;
+                }
+                match kind {
+                    ActionKind::Hotkey => slot.module.on_hotkey(action),
+                    ActionKind::Tray => slot.module.on_tray_action(action),
+                    ActionKind::Palette => slot.module.on_palette_command(action),
+                }
+            }
+        }
+    }
+
+    fn handle_request(&mut self, request: HostRequest) {
+        match request {
+            HostRequest::UiReady { palette_hwnd } => {
+                self.palette_hwnd = palette_hwnd as HWND;
+                round_the_corners(self.palette_hwnd);
+                self.publish();
+            }
+            HostRequest::RunCommand(id) => self.run_command(id),
+            HostRequest::SetModuleEnabled { id, enabled } => {
+                if let Some(index) = self.index_of(&id) {
+                    if enabled {
+                        self.enable_slot(index);
+                    } else {
+                        self.disable_slot(index);
+                    }
+                    self.publish();
+                }
+            }
+            HostRequest::SetHotkey {
+                module,
+                action,
+                binding,
+            } => self.set_hotkey(&module, &action, &binding),
+            HostRequest::SetSetting {
+                module,
+                key,
+                value,
+            } => self.set_setting(&module, &key, value),
+            HostRequest::ResetModule(id) => self.reset_plugin(&id),
+            HostRequest::SetHostSetting(setting) => self.set_host_setting(setting),
+            HostRequest::OpenPath(path) => open_in_notepad(&path),
+            HostRequest::Exit => self.shutdown(),
+        }
+    }
+
+    fn set_hotkey(&mut self, module: &str, action: &str, binding: &str) {
+        let hotkey = match hotkeys::parse(binding) {
+            Ok(hotkey) => hotkey,
+            Err(err) => {
+                log::warn!("{module}.{action}: {err}");
+                return;
+            }
+        };
+        self.plugin_mut(module)
+            .hotkeys
+            .insert(action.to_string(), hotkeys::format(hotkey));
+        self.save_plugin(module);
+
+        if let Some(index) = self.index_of(module) {
+            if self.slots[index].enabled {
+                self.disable_slot(index);
+                self.enable_slot(index);
+            }
+        }
+        log::info!("{module}.{action} rebound to {}", hotkeys::format(hotkey));
+        self.publish();
+    }
+
+    fn set_setting(&mut self, module: &str, key: &str, value: Value) {
+        {
+            let plugin = self.plugin_mut(module);
+            if !plugin.settings.is_object() {
+                plugin.settings = serde_json::json!({});
+            }
+            if let Some(object) = plugin.settings.as_object_mut() {
+                object.insert(key.to_string(), value);
+            }
+        }
+        self.save_plugin(module);
+
+        let settings = self
+            .plugin(module)
+            .map(|plugin| plugin.settings.clone())
+            .unwrap_or_else(|| serde_json::json!({}));
+        if let Some(index) = self.index_of(module) {
+            if self.slots[index].enabled {
+                let applied = self.slots[index].module.on_settings_changed(&settings);
+                if !applied {
+                    self.disable_slot(index);
+                    self.enable_slot(index);
+                }
+            }
+        }
+        self.publish();
+    }
+
+    fn reset_plugin(&mut self, module: &str) {
+        if let Err(err) = PluginConfig::reset(module) {
+            log::error!("{err}");
+            return;
+        }
+        let Some(index) = self.index_of(module) else {
+            return;
+        };
+        let was_enabled = self.slots[index].enabled;
+        if was_enabled {
+            self.disable_slot(index);
+        }
+        self.plugins.remove(module);
+        self.load_plugin_config(index);
+        if was_enabled {
+            self.enable_slot(index);
+        }
+        log::info!("{module} reset to defaults");
+        self.publish();
+    }
+
+    fn set_host_setting(&mut self, setting: HostSetting) {
+        match setting {
+            HostSetting::StartWithWindows(wanted) => match autostart::set(wanted) {
+                Ok(()) => {
+                    self.config.start_with_windows = wanted;
+                    log::info!("start with Windows: {wanted}");
+                }
+                Err(err) => log::error!("could not change autostart: {err}"),
+            },
+            HostSetting::Theme(choice) => {
+                self.config.theme = choice;
+                self.to_ui.send(UiCommand::ThemeChanged);
+            }
+        }
+        self.save_config();
+        self.publish();
+    }
+
     fn save_config(&self) {
         if let Err(err) = self.config.save() {
             log::error!("could not save config.json: {err}");
@@ -415,6 +828,7 @@ impl Host {
     }
 
     fn shutdown(&mut self) {
+        self.to_ui.send(UiCommand::Quit);
         for index in 0..self.slots.len() {
             self.disable_slot(index);
         }
@@ -447,6 +861,72 @@ pub fn registered_hotkeys() -> Vec<(String, String, Hotkey)> {
         }
         found
     })
+}
+
+fn cursor_monitor() -> MonitorRect {
+    let mut point = POINT { x: 0, y: 0 };
+    unsafe { GetCursorPos(&mut point) };
+    let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTOPRIMARY) };
+    let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
+    info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+    if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
+        return MonitorRect::default();
+    }
+    MonitorRect {
+        left: info.rcWork.left,
+        top: info.rcWork.top,
+        right: info.rcWork.right,
+        bottom: info.rcWork.bottom,
+    }
+}
+
+/// Runs on the host thread on purpose. Delivering the hotkey is what gives this
+/// process the right to take the foreground, and that right belongs to the
+/// thread the hotkey was delivered to.
+fn bring_to_front(hwnd: HWND) {
+    if hwnd.is_null() {
+        return;
+    }
+    if unsafe { SetForegroundWindow(hwnd) } != 0 {
+        return;
+    }
+    let foreground = unsafe { GetForegroundWindow() };
+    if foreground.is_null() {
+        return;
+    }
+    let other = unsafe { GetWindowThreadProcessId(foreground, std::ptr::null_mut()) };
+    let mine = unsafe { GetCurrentThreadId() };
+    unsafe {
+        AttachThreadInput(mine, other, 1);
+        SetForegroundWindow(hwnd);
+        SetFocus(hwnd);
+        AttachThreadInput(mine, other, 0);
+    }
+}
+
+fn round_the_corners(hwnd: HWND) {
+    if hwnd.is_null() {
+        return;
+    }
+    let preference = DWMWCP_ROUND;
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+            &preference as *const _ as *const core::ffi::c_void,
+            std::mem::size_of_val(&preference) as u32,
+        )
+    };
+}
+
+fn show_palette() {
+    let palette = with_host(|host| {
+        host.to_ui.send(UiCommand::ShowPalette(cursor_monitor()));
+        host.palette_hwnd
+    });
+    if let Some(hwnd) = palette {
+        bring_to_front(hwnd);
+    }
 }
 
 fn open_shortcut_detector() {
@@ -518,6 +998,10 @@ fn handle_menu_choice(choice: u32) {
         MENU_EXIT => {
             with_host(|host| host.shutdown());
         }
+        MENU_PALETTE => show_palette(),
+        MENU_SETTINGS => {
+            with_host(|host| host.to_ui.send(UiCommand::ShowSettings(Page::General)));
+        }
         id if (MENU_MODULE_BASE..MENU_MODULE_ACTION_BASE).contains(&id) => {
             with_host(|host| {
                 let index = (id - MENU_MODULE_BASE) as usize;
@@ -529,6 +1013,7 @@ fn handle_menu_choice(choice: u32) {
                 } else {
                     host.enable_slot(index);
                 }
+                host.publish();
             });
         }
         id if id >= MENU_MODULE_ACTION_BASE => {
@@ -547,6 +1032,23 @@ fn handle_menu_choice(choice: u32) {
     }
 }
 
+fn is_colour_change(lparam: LPARAM) -> bool {
+    if lparam == 0 {
+        return false;
+    }
+    let mut text = Vec::new();
+    let mut at = lparam as *const u16;
+    for _ in 0..64 {
+        let ch = unsafe { *at };
+        if ch == 0 {
+            break;
+        }
+        text.push(ch);
+        at = unsafe { at.add(1) };
+    }
+    String::from_utf16_lossy(&text) == "ImmersiveColorSet"
+}
+
 unsafe extern "system" fn wnd_proc(
     hwnd: HWND,
     msg: u32,
@@ -563,7 +1065,7 @@ unsafe extern "system" fn wnd_proc(
         WM_HOTKEY => {
             let global_id = wparam as i32;
             if global_id == PALETTE_HOTKEY_ID {
-                log::info!("palette hotkey pressed");
+                show_palette();
                 return 0;
             }
             with_host(|host| {
@@ -601,7 +1103,18 @@ unsafe extern "system" fn wnd_proc(
             }
             0
         }
+        WM_APP_UI => {
+            with_host(|host| {
+                while let Ok(request) = host.host_rx.try_recv() {
+                    host.handle_request(request);
+                }
+            });
+            0
+        }
         WM_DISPLAYCHANGE | WM_SETTINGCHANGE | WM_POWERBROADCAST | WM_TIMER => {
+            if msg == WM_SETTINGCHANGE && is_colour_change(lparam) {
+                with_host(|host| host.to_ui.send(UiCommand::ThemeChanged));
+            }
             with_host(|host| {
                 for slot in host.slots.iter_mut().filter(|slot| slot.enabled) {
                     slot.module.on_windows_message(msg, wparam, lparam);
