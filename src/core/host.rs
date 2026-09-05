@@ -1,4 +1,5 @@
 use std::cell::{Cell, RefCell};
+use std::collections::BTreeMap;
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -12,7 +13,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::core::about::{self, AboutHotkey, AboutModule};
-use crate::core::config::Config;
+use crate::core::config::{Config, PluginConfig, DEFAULT_PALETTE_HOTKEY};
 use crate::core::traits::{HostContext, Hotkey, WinCraftModule};
 use crate::core::tray::{show_menu, MenuItem, Tray, WM_TRAY_CALLBACK};
 use crate::core::{autostart, config, hotkeys, wide};
@@ -29,6 +30,10 @@ const MENU_MODULE_ACTION_BASE: u32 = 1000;
 
 const DETECTOR_ID: &str = "shortcut_detector";
 const DETECTOR_OPEN_ACTION: u32 = 1;
+
+/// The palette belongs to the host, not to a plugin, so it takes the one id
+/// that module hotkeys never use.
+const PALETTE_HOTKEY_ID: i32 = 0;
 
 struct RegisteredHotkey {
     action_id: u32,
@@ -48,9 +53,11 @@ struct ModuleSlot {
 struct Host {
     hwnd: HWND,
     config: Config,
+    plugins: BTreeMap<String, PluginConfig>,
     slots: Vec<ModuleSlot>,
     tray: Tray,
     next_hotkey_id: i32,
+    palette_hotkey: Option<(Hotkey, bool)>,
 }
 
 thread_local! {
@@ -109,21 +116,20 @@ pub fn run(config: Config, modules: Vec<Box<dyn WinCraftModule>>, open_detector:
                 registered: Vec::new(),
             })
             .collect(),
+        plugins: BTreeMap::new(),
         tray: Tray::new(hwnd, hinstance),
         next_hotkey_id: 1,
+        palette_hotkey: None,
     };
     TASKBAR_CREATED
         .with(|cell| cell.set(unsafe { RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()) }));
 
-    host.merge_module_defaults();
+    host.load_plugin_configs();
+    host.register_palette_hotkey();
     let wanted: Vec<usize> = (0..host.slots.len())
         .filter(|index| {
             let id = host.slots[*index].module.metadata().id;
-            host.config
-                .modules
-                .get(id)
-                .map(|module| module.enabled)
-                .unwrap_or(true)
+            host.plugins.get(id).map(|plugin| plugin.enabled).unwrap_or(true)
         })
         .collect();
     for index in wanted {
@@ -152,7 +158,7 @@ pub fn run(config: Config, modules: Vec<Box<dyn WinCraftModule>>, open_detector:
 }
 
 impl Host {
-    fn merge_module_defaults(&mut self) {
+    fn load_plugin_configs(&mut self) {
         for index in 0..self.slots.len() {
             let slot = &self.slots[index];
             let meta = slot.module.metadata();
@@ -163,18 +169,49 @@ impl Host {
                 .map(|action| (action.name, hotkeys::format(action.default)))
                 .collect();
             let settings = slot.module.default_settings();
-            self.config
-                .module_mut(meta.id)
-                .merge_defaults(&defaults, &settings);
+
+            let mut plugin = PluginConfig::load(meta.id);
+            plugin.merge_defaults(&defaults, &settings);
+            self.plugins.insert(meta.id.to_string(), plugin);
+            self.save_plugin(meta.id);
         }
+    }
+
+    fn register_palette_hotkey(&mut self) {
+        let text = self.config.palette_hotkey.clone();
+        let hotkey = match hotkeys::parse(&text) {
+            Ok(hotkey) => hotkey,
+            Err(err) => {
+                log::warn!("palette_hotkey \"{text}\": {err}; using {DEFAULT_PALETTE_HOTKEY}");
+                hotkeys::parse(DEFAULT_PALETTE_HOTKEY).expect("the built-in default parses")
+            }
+        };
+        let ok = unsafe {
+            RegisterHotKey(self.hwnd, PALETTE_HOTKEY_ID, hotkey.modifiers, hotkey.vk) != 0
+        };
+        let keys = hotkeys::format(hotkey);
+        if ok {
+            log::info!("registered {keys} for host.palette");
+        } else {
+            log::warn!("could not register {keys} for host.palette; another app holds it");
+            self.tray
+                .balloon("WinCraft", &format!("{keys} is used by another app"));
+        }
+        self.palette_hotkey = Some((hotkey, ok));
+    }
+
+    fn plugin(&self, id: &str) -> Option<&PluginConfig> {
+        self.plugins.get(id)
+    }
+
+    fn plugin_mut(&mut self, id: &str) -> &mut PluginConfig {
+        self.plugins.entry(id.to_string()).or_default()
     }
 
     fn resolve_hotkey(&self, module_id: &str, name: &str, default: Hotkey) -> Hotkey {
         let text = self
-            .config
-            .modules
-            .get(module_id)
-            .and_then(|module| module.hotkeys.get(name));
+            .plugin(module_id)
+            .and_then(|plugin| plugin.hotkeys.get(name));
         match text {
             Some(text) => match hotkeys::parse(text) {
                 Ok(hotkey) => hotkey,
@@ -193,10 +230,8 @@ impl Host {
         }
         let meta = self.slots[index].module.metadata();
         let settings = self
-            .config
-            .modules
-            .get(meta.id)
-            .map(|module| module.settings.clone())
+            .plugin(meta.id)
+            .map(|plugin| plugin.settings.clone())
             .unwrap_or_else(|| serde_json::json!({}));
 
         let init_result = {
@@ -248,7 +283,8 @@ impl Host {
         }
 
         self.slots[index].enabled = true;
-        self.config.module_mut(meta.id).enabled = true;
+        self.plugin_mut(meta.id).enabled = true;
+        self.save_plugin(meta.id);
         log::info!("{} enabled", meta.id);
     }
 
@@ -264,7 +300,8 @@ impl Host {
         self.slots[index].module.teardown();
         self.slots[index].enabled = false;
         let id = self.slots[index].module.metadata().id;
-        self.config.module_mut(id).enabled = false;
+        self.plugin_mut(id).enabled = false;
+        self.save_plugin(id);
         log::info!("{id} disabled");
     }
 
@@ -368,9 +405,21 @@ impl Host {
         }
     }
 
+    fn save_plugin(&self, id: &str) {
+        let Some(plugin) = self.plugins.get(id) else {
+            return;
+        };
+        if let Err(err) = plugin.save(id) {
+            log::error!("could not save the settings for {id}: {err}");
+        }
+    }
+
     fn shutdown(&mut self) {
         for index in 0..self.slots.len() {
             self.disable_slot(index);
+        }
+        if let Some((_, true)) = self.palette_hotkey {
+            unsafe { UnregisterHotKey(self.hwnd, PALETTE_HOTKEY_ID) };
         }
         self.tray.remove();
         unsafe { PostQuitMessage(0) };
@@ -480,7 +529,6 @@ fn handle_menu_choice(choice: u32) {
                 } else {
                     host.enable_slot(index);
                 }
-                host.save_config();
             });
         }
         id if id >= MENU_MODULE_ACTION_BASE => {
@@ -514,6 +562,10 @@ unsafe extern "system" fn wnd_proc(
     match msg {
         WM_HOTKEY => {
             let global_id = wparam as i32;
+            if global_id == PALETTE_HOTKEY_ID {
+                log::info!("palette hotkey pressed");
+                return 0;
+            }
             with_host(|host| {
                 let target = host.slots.iter().enumerate().find_map(|(index, slot)| {
                     slot.registered
