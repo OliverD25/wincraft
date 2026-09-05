@@ -98,8 +98,37 @@ section appears in `config.json` with every default filled in.
 `HostContext` gives you the hidden host window and your own `settings` object
 from `config.json`.
 
+## If your module opens a window
+
+`on_hotkey` and `on_tray_action` are called while the host has its own state
+mutably borrowed. Inside them your module may **create** a window, but it must
+not do anything that reads the host back — `host::registered_hotkeys()` is the
+one that will catch you out, and it will panic.
+
+The way round it is one line. Create the window, then post it a message and do
+the real work when that message arrives:
+
+```rust
+fn open(&mut self) {
+    let hwnd = create_my_window();
+    unsafe { PostMessageW(hwnd, WM_APP_MY_WORK, 0, 0) };
+    self.window = Some(hwnd);
+}
+```
+
+By the time `WM_APP_MY_WORK` comes back through the message loop, the host is
+no longer borrowed and your WndProc can call into it freely. The same applies
+to `WM_CREATE`, which `CreateWindowExW` delivers before it has even returned.
+
+ShortcutDetector does exactly this; copy it if you need a window.
+
 ## Rules
 
+- **`core::hotkeys` knows the whole keyboard.** Letters, digits, `F1`–`F24`,
+  the navigation and editing keys, the numeric keypad and the punctuation keys
+  all parse and format. `hotkeys::all_keys()` returns every one of them, and it
+  is the same list ShortcutDetector probes — so a key you add there becomes
+  usable in `config.json` and scanned by the detector in one change.
 - **No new crates without discussing it first.** WinCraft depends on
   `windows-sys`, `serde`, `serde_json` and `log`, and that is meant to stay
   true. If you need a Win32 call that is not enabled yet, add the feature to
