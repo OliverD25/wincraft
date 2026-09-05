@@ -4,6 +4,11 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use windows_sys::Win32::Storage::FileSystem::{
+    MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+};
+
+use crate::core::wide;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
@@ -85,8 +90,22 @@ impl Config {
         let text =
             serde_json::to_string_pretty(self).map_err(|e| format!("cannot serialise config: {e}"))?;
         let tmp = path.with_extension("json.tmp");
-        fs::write(&tmp, text).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-        fs::rename(&tmp, &path).map_err(|e| format!("cannot replace {}: {e}", path.display()))?;
+        fs::write(&tmp, &text).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
+
+        // std::fs::rename asks for POSIX rename semantics first and reports
+        // ERROR_NOT_SAME_DEVICE on filesystems that refuse them, even inside one
+        // folder. MoveFileExW is the plain Win32 replace and always works here.
+        let replaced = unsafe {
+            MoveFileExW(
+                wide(&tmp.to_string_lossy()).as_ptr(),
+                wide(&path.to_string_lossy()).as_ptr(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            ) != 0
+        };
+        if !replaced {
+            let _ = fs::remove_file(&tmp);
+            fs::write(&path, &text).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+        }
         Ok(())
     }
 
