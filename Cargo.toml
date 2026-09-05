@@ -1,0 +1,33 @@
+[package]
+name = "wincraft"
+version = "0.1.0"
+edition = "2021"
+description = "Modular Windows 11 tray utility"
+authors = ["WinCraft contributors"]
+
+[dependencies]
+log = "=0.4.34"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+
+[dependencies.windows-sys]
+version = "=0.61.2"
+features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_HiDpi",
+]
+
+[build-dependencies]
+winresource = "=0.1.31"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
