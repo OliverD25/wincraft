@@ -83,22 +83,66 @@ fn format_key(vk: u32) -> String {
     format!("0x{vk:02X}")
 }
 
-const NAMED_KEYS: &[(&str, u32)] = &[
+/// Every key that is not a plain letter, digit or function key. This is the
+/// single source for both the parser and the ShortcutDetector scan, so a key
+/// added here becomes usable in config.json and probed at the same time.
+pub const NAMED_KEYS: &[(&str, u32)] = &[
     ("Space", 0x20),
     ("Esc", 0x1B),
     ("Tab", 0x09),
     ("Enter", 0x0D),
+    ("Backspace", 0x08),
+    ("Insert", 0x2D),
+    ("Delete", 0x2E),
     ("Home", 0x24),
     ("End", 0x23),
     ("PageUp", 0x21),
     ("PageDown", 0x22),
-    ("Insert", 0x2D),
-    ("Delete", 0x2E),
     ("Left", 0x25),
     ("Up", 0x26),
     ("Right", 0x27),
     ("Down", 0x28),
+    ("PrintScreen", 0x2C),
+    ("Pause", 0x13),
+    ("ScrollLock", 0x91),
+    ("NumLock", 0x90),
+    ("Numpad0", 0x60),
+    ("Numpad1", 0x61),
+    ("Numpad2", 0x62),
+    ("Numpad3", 0x63),
+    ("Numpad4", 0x64),
+    ("Numpad5", 0x65),
+    ("Numpad6", 0x66),
+    ("Numpad7", 0x67),
+    ("Numpad8", 0x68),
+    ("Numpad9", 0x69),
+    ("NumpadMultiply", 0x6A),
+    ("NumpadPlus", 0x6B),
+    ("NumpadMinus", 0x6D),
+    ("NumpadDecimal", 0x6E),
+    ("NumpadDivide", 0x6F),
+    (";", 0xBA),
+    ("=", 0xBB),
+    (",", 0xBC),
+    ("-", 0xBD),
+    (".", 0xBE),
+    ("/", 0xBF),
+    ("`", 0xC0),
+    ("[", 0xDB),
+    ("\\", 0xDC),
+    ("]", 0xDD),
+    ("'", 0xDE),
 ];
+
+/// Every key the parser understands, in the order the detector shows them.
+pub fn all_keys() -> Vec<u32> {
+    let mut keys: Vec<u32> = Vec::with_capacity(26 + 10 + 24 + NAMED_KEYS.len());
+    keys.extend((b'A'..=b'Z').map(u32::from));
+    keys.extend((b'0'..=b'9').map(u32::from));
+    keys.extend((0..24).map(|n| 0x70 + n));
+    keys.extend(NAMED_KEYS.iter().map(|(_, vk)| *vk));
+    keys
+}
 
 #[cfg(test)]
 mod tests {
@@ -134,6 +178,62 @@ mod tests {
             let hk = parse(text).expect(text);
             assert_eq!(format(hk), text, "format of {text}");
             assert_eq!(parse(&format(hk)).unwrap(), hk);
+        }
+    }
+
+    #[test]
+    fn every_key_in_the_table_round_trips() {
+        for vk in all_keys() {
+            let hotkey = Hotkey {
+                modifiers: MOD_NOREPEAT | MOD_CONTROL,
+                vk,
+            };
+            let text = format(hotkey);
+            assert!(
+                !text.starts_with("Ctrl+0x"),
+                "vk {vk:#04X} has no name, format gave {text}"
+            );
+            assert_eq!(parse(&text).unwrap(), hotkey, "round trip of {text}");
+        }
+    }
+
+    #[test]
+    fn key_names_are_unique() {
+        for (index, (name, vk)) in NAMED_KEYS.iter().enumerate() {
+            for (other_name, other_vk) in &NAMED_KEYS[index + 1..] {
+                assert!(
+                    !name.eq_ignore_ascii_case(other_name),
+                    "duplicate key name {name}"
+                );
+                assert_ne!(vk, other_vk, "{name} and {other_name} share a code");
+            }
+        }
+    }
+
+    #[test]
+    fn knows_the_keys_the_detector_probes() {
+        for text in [
+            "Ctrl+Backspace",
+            "Ctrl+PrintScreen",
+            "Ctrl+ScrollLock",
+            "Ctrl+NumLock",
+            "Ctrl+Numpad7",
+            "Ctrl+NumpadPlus",
+            "Ctrl+NumpadDivide",
+            "Ctrl+;",
+            "Ctrl+=",
+            "Ctrl+,",
+            "Ctrl+-",
+            "Ctrl+.",
+            "Ctrl+/",
+            "Ctrl+`",
+            "Ctrl+[",
+            "Ctrl+\\",
+            "Ctrl+]",
+            "Ctrl+'",
+        ] {
+            let hotkey = parse(text).expect(text);
+            assert_eq!(format(hotkey), text);
         }
     }
 

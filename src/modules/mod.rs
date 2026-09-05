@@ -1,4 +1,5 @@
 pub mod screen_dimmer;
+pub mod shortcut_detector;
 
 use crate::core::traits::WinCraftModule;
 
