@@ -14,8 +14,9 @@ use crate::core::traits::FieldKind;
 /// drains the channel inside its normal borrow, exactly like a tray click.
 pub const WM_APP_UI: u32 = WM_APP + 20;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Page {
+    #[default]
     General,
     Plugins,
     Store,
@@ -50,10 +51,11 @@ pub enum CommandId {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HostSetting {
     StartWithWindows(bool),
     Theme(ThemeChoice),
+    PaletteHotkey(String),
 }
 
 /// Screen rectangle in physical pixels, as Win32 reports it.

@@ -807,6 +807,16 @@ impl Host {
                 self.config.theme = choice;
                 self.to_ui.send(UiCommand::ThemeChanged);
             }
+            HostSetting::PaletteHotkey(binding) => match hotkeys::parse(&binding) {
+                Ok(hotkey) => {
+                    if let Some((_, true)) = self.palette_hotkey {
+                        unsafe { UnregisterHotKey(self.hwnd, PALETTE_HOTKEY_ID) };
+                    }
+                    self.config.palette_hotkey = hotkeys::format(hotkey);
+                    self.register_palette_hotkey();
+                }
+                Err(err) => log::warn!("palette hotkey: {err}"),
+            },
         }
         self.save_config();
         self.publish();

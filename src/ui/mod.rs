@@ -1,5 +1,7 @@
 pub mod fuzzy;
 mod palette;
+mod settings;
+mod widgets;
 
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
@@ -8,9 +10,10 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use crate::core::theme;
 use crate::core::ui_bridge::{
-    HostChannel, HostRequest, MonitorRect, Page, UiChannel, UiCommand, UiSnapshot,
+    HostChannel, HostRequest, MonitorRect, UiChannel, UiCommand, UiSnapshot,
 };
 use crate::ui::palette::Palette;
+use crate::ui::settings::Settings;
 
 pub fn start(
     rx: Receiver<UiCommand>,
@@ -95,12 +98,14 @@ struct App {
     palette_visible: bool,
     pending_position: Option<MonitorRect>,
     settings_open: bool,
-    settings_page: Page,
+    settings: Settings,
     quitting: bool,
 }
 
 impl App {
     fn new(rx: Receiver<UiCommand>, to_host: Arc<HostChannel>, snapshot: UiSnapshot) -> Self {
+        let to_host_for_settings = Arc::clone(&to_host);
+        let snapshot_for_settings = snapshot.clone();
         Self {
             rx,
             to_host,
@@ -109,7 +114,7 @@ impl App {
             palette_visible: false,
             pending_position: None,
             settings_open: false,
-            settings_page: Page::General,
+            settings: Settings::new(to_host_for_settings, snapshot_for_settings),
             quitting: false,
         }
     }
@@ -125,7 +130,7 @@ impl App {
                     log::info!("palette shown");
                 }
                 UiCommand::ShowSettings(page) => {
-                    self.settings_page = page;
+                    self.settings.open_at(page);
                     self.settings_open = true;
                     ctx.request_repaint();
                     log::info!("settings shown");
@@ -134,7 +139,10 @@ impl App {
                     self.hide_palette(ctx);
                     self.settings_open = false;
                 }
-                UiCommand::Snapshot(snapshot) => self.snapshot = *snapshot,
+                UiCommand::Snapshot(snapshot) => {
+                    self.settings.set_snapshot((*snapshot).clone());
+                    self.snapshot = *snapshot;
+                }
                 UiCommand::ThemeChanged => theme::apply(ctx, self.snapshot.theme),
                 UiCommand::Quit => {
                     self.quitting = true;
@@ -194,11 +202,21 @@ impl eframe::App for App {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+
+        if self.settings_open {
+            if self.settings.was_closed() {
+                self.settings_open = false;
+                self.settings.hidden();
+            } else {
+                self.settings.show(&ctx, None);
+            }
+        }
+
         if !self.palette_visible {
             return;
         }
         if self.palette.show(ui, &self.snapshot, &self.to_host) {
-            let ctx = ui.ctx().clone();
             self.hide_palette(&ctx);
         }
     }
