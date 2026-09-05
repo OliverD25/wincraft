@@ -33,7 +33,7 @@ normally your primary display.
 Shows which global key combinations are already taken on this PC, and tells you
 about any combination you press before you assign it to anything.
 
-Open it with `Win+Alt+K`, or from the tray menu ("Shortcut detector"). It scans
+Open it with `Win+Alt+Q`, or from the tray menu ("Shortcut detector"). It scans
 when it opens and again whenever you press Refresh or F5. Nothing runs in the
 background while the window is closed.
 
@@ -178,7 +178,7 @@ and change the values.
     "shortcut_detector": {
       "enabled": true,
       "hotkeys": {
-        "open_window": "Win+Alt+K"
+        "open_window": "Win+Alt+Q"
       },
       "settings": {
         "show_free_by_default": false

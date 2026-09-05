@@ -77,7 +77,7 @@ impl WinCraftModule for ShortcutDetector {
             label: "Open shortcut detector",
             default: Hotkey {
                 modifiers: MOD_NOREPEAT | MOD_WIN | MOD_ALT,
-                vk: u32::from(b'K'),
+                vk: u32::from(b'Q'),
             },
         }]
     }
