@@ -64,8 +64,11 @@ fn cache_path(name: &str) -> PathBuf {
     config::cache_dir().join(name)
 }
 
-fn cache_name_for(url: &str) -> String {
-    let safe: String = url
+/// Keyed by what the file is, not by the URL it came from. Keying by URL would
+/// silently throw away every user's cache the day the repository moves, and it
+/// makes the offline path impossible to test by pointing the URL elsewhere.
+fn cache_name_for(what: &str) -> String {
+    let safe: String = what
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect();
@@ -93,7 +96,7 @@ pub struct Fetched<T> {
 
 pub fn fetch_index() -> Result<Fetched<PluginIndex>, String> {
     let url = github::index_url();
-    let name = cache_name_for(&url);
+    let name = cache_name_for("plugins.json");
     match github::get(&url) {
         Ok(body) => match parse(&body) {
             Ok(index) => {
@@ -129,7 +132,7 @@ pub fn fetch_index() -> Result<Fetched<PluginIndex>, String> {
 
 pub fn fetch_readme(path: &str) -> Result<Fetched<String>, String> {
     let url = github::readme_url(path);
-    let name = cache_name_for(&url);
+    let name = cache_name_for(path);
     match github::get(&url) {
         Ok(body) => {
             write_cache(&name, &body);
