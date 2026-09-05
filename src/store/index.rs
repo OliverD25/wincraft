@@ -177,13 +177,21 @@ mod tests {
     fn every_plugin_has_a_readme_and_a_description() {
         for module in modules::load_active_modules() {
             let meta = module.metadata();
-            assert!(!meta.readme.trim().is_empty(), "{} has an empty README", meta.id);
+            assert!(
+                !meta.readme.trim().is_empty(),
+                "{} has an empty README",
+                meta.id
+            );
             assert!(
                 meta.readme.starts_with("# "),
                 "{} README should open with a heading",
                 meta.id
             );
-            assert!(!meta.description.trim().is_empty(), "{} has no description", meta.id);
+            assert!(
+                !meta.description.trim().is_empty(),
+                "{} has no description",
+                meta.id
+            );
         }
     }
 }

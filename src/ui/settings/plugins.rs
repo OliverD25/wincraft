@@ -40,13 +40,19 @@ fn plugin_list(
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
                     ui.horizontal(|ui| {
-                        if ui.link(egui::RichText::new(&plugin.name).strong()).clicked() {
+                        if ui
+                            .link(egui::RichText::new(&plugin.name).strong())
+                            .clicked()
+                        {
                             state.open_plugin = Some(plugin.id.clone());
                         }
                         ui.label(
-                            egui::RichText::new(format!("{} \u{00B7} {}", plugin.version, plugin.author))
-                                .weak()
-                                .small(),
+                            egui::RichText::new(format!(
+                                "{} \u{00B7} {}",
+                                plugin.version, plugin.author
+                            ))
+                            .weak()
+                            .small(),
                         );
                     });
                     ui.label(egui::RichText::new(&plugin.description).small());

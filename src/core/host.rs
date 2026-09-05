@@ -16,10 +16,10 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, SetFocus, 
 use windows_sys::Win32::UI::Shell::{ShellExecuteW, NIN_BALLOONUSERCLICK};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetCursorPos, GetForegroundWindow,
-    GetMessageW, GetWindowThreadProcessId, PostQuitMessage, RegisterClassW,
-    RegisterWindowMessageW, SetForegroundWindow, TranslateMessage, MSG, SW_SHOWNORMAL,
-    WM_CONTEXTMENU, WM_DESTROY, WM_DISPLAYCHANGE, WM_HOTKEY, WM_LBUTTONUP, WM_POWERBROADCAST,
-    WM_RBUTTONUP, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
+    GetMessageW, GetWindowThreadProcessId, PostQuitMessage, RegisterClassW, RegisterWindowMessageW,
+    SetForegroundWindow, TranslateMessage, MSG, SW_SHOWNORMAL, WM_CONTEXTMENU, WM_DESTROY,
+    WM_DISPLAYCHANGE, WM_HOTKEY, WM_LBUTTONUP, WM_POWERBROADCAST, WM_RBUTTONUP, WM_SETTINGCHANGE,
+    WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
 };
 
 use crate::core::about::{self, AboutHotkey, AboutModule};
@@ -29,9 +29,8 @@ use crate::core::config::{Config, PluginConfig, DEFAULT_PALETTE_HOTKEY};
 use crate::core::traits::{HostContext, Hotkey, WinCraftModule};
 use crate::core::tray::{show_menu, MenuItem, Tray, WM_TRAY_CALLBACK};
 use crate::core::ui_bridge::{
-    self, ActionKind, CommandId, FieldInfo, HostCommand, HostRequest, HostSetting,
-    HotkeyInfo, MonitorRect, Page, PaletteEntry, PluginInfo, UiChannel, UiCommand, UiSnapshot,
-    WM_APP_UI,
+    self, ActionKind, CommandId, FieldInfo, HostCommand, HostRequest, HostSetting, HotkeyInfo,
+    MonitorRect, Page, PaletteEntry, PluginInfo, UiChannel, UiCommand, UiSnapshot, WM_APP_UI,
 };
 use crate::core::{autostart, config, hotkeys, wide};
 use crate::ui;
@@ -165,7 +164,10 @@ pub fn run(config: Config, modules: Vec<Box<dyn WinCraftModule>>, flags: Startup
     let wanted: Vec<usize> = (0..host.slots.len())
         .filter(|index| {
             let id = host.slots[*index].module.metadata().id;
-            host.plugins.get(id).map(|plugin| plugin.enabled).unwrap_or(true)
+            host.plugins
+                .get(id)
+                .map(|plugin| plugin.enabled)
+                .unwrap_or(true)
         })
         .collect();
     for index in wanted {
@@ -601,9 +603,10 @@ impl Host {
                 });
             }
             for action in slot.module.tray_actions() {
-                if entries.iter().any(|entry| {
-                    entry.group == group && entry.label == action.label
-                }) {
+                if entries
+                    .iter()
+                    .any(|entry| entry.group == group && entry.label == action.label)
+                {
                     continue;
                 }
                 entries.push(PaletteEntry {
@@ -634,7 +637,8 @@ impl Host {
     }
 
     fn publish(&self) {
-        self.to_ui.send(UiCommand::Snapshot(Box::new(self.snapshot())));
+        self.to_ui
+            .send(UiCommand::Snapshot(Box::new(self.snapshot())));
     }
 
     fn index_of(&self, id: &str) -> Option<usize> {
@@ -710,11 +714,9 @@ impl Host {
                 action,
                 binding,
             } => self.set_hotkey(&module, &action, &binding),
-            HostRequest::SetSetting {
-                module,
-                key,
-                value,
-            } => self.set_setting(&module, &key, value),
+            HostRequest::SetSetting { module, key, value } => {
+                self.set_setting(&module, &key, value)
+            }
             HostRequest::ResetModule(id) => self.reset_plugin(&id),
             HostRequest::SetHostSetting(setting) => self.set_host_setting(setting),
             HostRequest::OpenPath(path) => open_in_notepad(&path),

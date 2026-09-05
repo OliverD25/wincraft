@@ -10,10 +10,21 @@ const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const VALUE_NAME: &str = "WinCraft";
 
 fn open(write: bool) -> Option<HKEY> {
-    let access = if write { KEY_READ | KEY_WRITE } else { KEY_READ };
+    let access = if write {
+        KEY_READ | KEY_WRITE
+    } else {
+        KEY_READ
+    };
     let mut key: HKEY = std::ptr::null_mut();
-    let status =
-        unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, wide(RUN_KEY).as_ptr(), 0, access, &mut key) };
+    let status = unsafe {
+        RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            wide(RUN_KEY).as_ptr(),
+            0,
+            access,
+            &mut key,
+        )
+    };
     if status == ERROR_SUCCESS {
         Some(key)
     } else {

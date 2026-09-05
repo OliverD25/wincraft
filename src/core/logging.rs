@@ -57,7 +57,9 @@ fn now() -> String {
 }
 
 pub fn init() {
-    let debug = std::env::var("WINCRAFT_DEBUG").map(|v| v == "1").unwrap_or(false);
+    let debug = std::env::var("WINCRAFT_DEBUG")
+        .map(|v| v == "1")
+        .unwrap_or(false);
     let level = if debug { Level::Debug } else { Level::Info };
 
     let path = config::log_path();

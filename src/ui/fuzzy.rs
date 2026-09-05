@@ -133,6 +133,9 @@ mod tests {
             })
             .collect();
         ranked.sort_by(|a, b| b.0.cmp(&a.0));
-        assert_eq!(ranked.first().map(|entry| entry.1), Some("Toggle monitor 2"));
+        assert_eq!(
+            ranked.first().map(|entry| entry.1),
+            Some("Toggle monitor 2")
+        );
     }
 }

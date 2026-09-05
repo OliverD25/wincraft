@@ -25,7 +25,11 @@ pub fn text(modules: &[AboutModule]) -> String {
         out.push_str("\nNo modules are built into this copy.\n");
     }
     for module in modules {
-        let state = if module.enabled { "enabled" } else { "disabled" };
+        let state = if module.enabled {
+            "enabled"
+        } else {
+            "disabled"
+        };
         out.push_str(&format!(
             "\n{} {} \u{2014} {}   [{}]\n  {}\n",
             module.name, module.version, module.author, state, module.description

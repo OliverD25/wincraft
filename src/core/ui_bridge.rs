@@ -77,11 +77,24 @@ pub enum UiCommand {
 }
 
 pub enum HostRequest {
-    UiReady { palette_hwnd: isize },
+    UiReady {
+        palette_hwnd: isize,
+    },
     RunCommand(CommandId),
-    SetModuleEnabled { id: String, enabled: bool },
-    SetHotkey { module: String, action: String, binding: String },
-    SetSetting { module: String, key: String, value: Value },
+    SetModuleEnabled {
+        id: String,
+        enabled: bool,
+    },
+    SetHotkey {
+        module: String,
+        action: String,
+        binding: String,
+    },
+    SetSetting {
+        module: String,
+        key: String,
+        value: Value,
+    },
     ResetModule(String),
     SetHostSetting(HostSetting),
     OpenPath(PathBuf),

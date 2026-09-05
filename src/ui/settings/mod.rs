@@ -96,7 +96,10 @@ impl Settings {
     }
 
     pub fn was_closed(&self) -> bool {
-        self.shared.lock().map(|shared| shared.closed).unwrap_or(false)
+        self.shared
+            .lock()
+            .map(|shared| shared.closed)
+            .unwrap_or(false)
     }
 
     pub fn hidden(&self) {
@@ -116,59 +119,52 @@ impl Settings {
             builder = builder.with_icon(icon);
         }
 
-        ctx.show_viewport_deferred(
-            viewport_id(),
-            builder,
-            move |ui, _class| {
-                let Ok(mut shared) = shared.lock() else {
-                    return;
-                };
-                let Shared {
-                    state,
-                    snapshot,
-                    to_host,
-                    closed,
-                } = &mut *shared;
+        ctx.show_viewport_deferred(viewport_id(), builder, move |ui, _class| {
+            let Ok(mut shared) = shared.lock() else {
+                return;
+            };
+            let Shared {
+                state,
+                snapshot,
+                to_host,
+                closed,
+            } = &mut *shared;
 
-                egui::Panel::left("wincraft-nav")
-                    .resizable(false)
-                    .exact_size(200.0)
-                    .show(ui, |ui| {
-                        ui.add_space(16.0);
-                        ui.label(egui::RichText::new("WinCraft").heading().strong());
-                        ui.label(
-                            egui::RichText::new(format!("version {}", snapshot.version))
-                                .weak()
-                                .small(),
-                        );
-                        ui.add_space(20.0);
-                        for (page, label) in PAGES {
-                            if ui
-                                .selectable_label(state.page == *page, *label)
-                                .clicked()
-                            {
-                                state.page = *page;
-                                state.end_capture();
-                            }
+            egui::Panel::left("wincraft-nav")
+                .resizable(false)
+                .exact_size(200.0)
+                .show(ui, |ui| {
+                    ui.add_space(16.0);
+                    ui.label(egui::RichText::new("WinCraft").heading().strong());
+                    ui.label(
+                        egui::RichText::new(format!("version {}", snapshot.version))
+                            .weak()
+                            .small(),
+                    );
+                    ui.add_space(20.0);
+                    for (page, label) in PAGES {
+                        if ui.selectable_label(state.page == *page, *label).clicked() {
+                            state.page = *page;
+                            state.end_capture();
                         }
-                    });
-
-                egui::CentralPanel::default().show(ui, |ui| {
-                    egui::ScrollArea::vertical()
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| match state.page {
-                            Page::General => general::show(ui, snapshot, state, to_host),
-                            Page::Plugins => plugins::show(ui, snapshot, state, to_host),
-                            Page::Store => store::show(ui, snapshot, state, to_host),
-                            Page::About => about::show(ui, snapshot, state),
-                        });
+                    }
                 });
 
-                if ui.ctx().input(|i| i.viewport().close_requested()) {
-                    *closed = true;
-                }
-            },
-        );
+            egui::CentralPanel::default().show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| match state.page {
+                        Page::General => general::show(ui, snapshot, state, to_host),
+                        Page::Plugins => plugins::show(ui, snapshot, state, to_host),
+                        Page::Store => store::show(ui, snapshot, state, to_host),
+                        Page::About => about::show(ui, snapshot, state),
+                    });
+            });
+
+            if ui.ctx().input(|i| i.viewport().close_requested()) {
+                *closed = true;
+            }
+        });
     }
 }
 

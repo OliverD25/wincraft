@@ -143,9 +143,12 @@ pub fn show(
                             state.store.load_readme(&ctx, id, path);
                         }
                         ui.label(
-                            egui::RichText::new(format!("{} \u{00B7} {}", entry.version, entry.author))
-                                .weak()
-                                .small(),
+                            egui::RichText::new(format!(
+                                "{} \u{00B7} {}",
+                                entry.version, entry.author
+                            ))
+                            .weak()
+                            .small(),
                         );
                     });
                     ui.label(egui::RichText::new(&entry.description).small());
@@ -181,7 +184,8 @@ fn badge(
         }
         None => {
             if ui.button("Get update").clicked() {
-                ui.ctx().open_url(egui::OpenUrl::new_tab(github::releases_url()));
+                ui.ctx()
+                    .open_url(egui::OpenUrl::new_tab(github::releases_url()));
             }
             ui.label(
                 egui::RichText::new(format!("Needs WinCraft {needs_version}"))

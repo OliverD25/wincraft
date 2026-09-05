@@ -1,0 +1,37 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned toolchain
+        run: rustup show
+
+      - name: Build
+        run: cargo build --release --locked
+
+      # Published next to the exe so anyone can check the download is the file
+      # this workflow actually built.
+      - name: Compute SHA-256
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash target/release/wincraft.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  wincraft.exe" | Set-Content SHA256SUMS.txt -Encoding ascii
+          Get-Content SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/release/wincraft.exe
+            SHA256SUMS.txt
+          generate_release_notes: true

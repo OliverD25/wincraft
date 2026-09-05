@@ -43,8 +43,15 @@ impl FieldKind {
     /// draw without reading the source.
     pub const ALL: &'static [FieldKind] = &[
         FieldKind::Toggle,
-        FieldKind::Slider { min: 0.0, max: 1.0, step: 0.05 },
-        FieldKind::Number { min: 0.0, max: 100.0 },
+        FieldKind::Slider {
+            min: 0.0,
+            max: 1.0,
+            step: 0.05,
+        },
+        FieldKind::Number {
+            min: 0.0,
+            max: 100.0,
+        },
         FieldKind::Text,
         FieldKind::Choice(&[]),
         FieldKind::Path,

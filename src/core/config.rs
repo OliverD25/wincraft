@@ -178,8 +178,8 @@ impl Config {
     }
 
     pub fn save(&self) -> Result<(), String> {
-        let text =
-            serde_json::to_string_pretty(self).map_err(|e| format!("cannot serialise config: {e}"))?;
+        let text = serde_json::to_string_pretty(self)
+            .map_err(|e| format!("cannot serialise config: {e}"))?;
         write_atomic(&config_path(), &text)
     }
 }
@@ -218,7 +218,10 @@ impl PluginConfig {
         match serde_json::from_str(&text) {
             Ok(plugin) => plugin,
             Err(err) => {
-                log::warn!("{} is not valid JSON ({err}), using defaults", path.display());
+                log::warn!(
+                    "{} is not valid JSON ({err}), using defaults",
+                    path.display()
+                );
                 Self::default()
             }
         }
@@ -289,7 +292,11 @@ mod tests {
         assert_eq!(legacy[0].0, "screen_dimmer");
         assert!(legacy[0].1.enabled);
         assert_eq!(
-            legacy[0].1.hotkeys.get("toggle_monitor_1").map(String::as_str),
+            legacy[0]
+                .1
+                .hotkeys
+                .get("toggle_monitor_1")
+                .map(String::as_str),
             Some("Win+Alt+F1")
         );
         assert_eq!(legacy[0].1.settings["hover_opacity"], 0.4);
@@ -338,7 +345,10 @@ mod tests {
         let mut plugin: PluginConfig =
             serde_json::from_str(r#"{"hotkeys":{"a":"Win+Alt+Z"},"settings":{"x":5}}"#).unwrap();
         plugin.merge_defaults(
-            &[("a", "Win+Alt+A".to_string()), ("b", "Win+Alt+B".to_string())],
+            &[
+                ("a", "Win+Alt+A".to_string()),
+                ("b", "Win+Alt+B".to_string()),
+            ],
             &serde_json::json!({ "x": 1, "y": 2 }),
         );
         assert_eq!(plugin.hotkeys["a"], "Win+Alt+Z");

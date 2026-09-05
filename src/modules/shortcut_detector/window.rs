@@ -4,9 +4,8 @@ use std::collections::HashMap;
 use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     CreateFontIndirectW, DeleteObject, GetDC, GetMonitorInfoW, GetTextExtentPoint32W,
-    MonitorFromPoint, ReleaseDC, SelectObject, SetBkMode,
-    SetTextColor, COLOR_BTNFACE, HFONT, HMONITOR, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
-    TRANSPARENT,
+    MonitorFromPoint, ReleaseDC, SelectObject, SetBkMode, SetTextColor, COLOR_BTNFACE, HFONT,
+    HMONITOR, MONITORINFO, MONITOR_DEFAULTTOPRIMARY, TRANSPARENT,
 };
 use windows_sys::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
@@ -15,28 +14,27 @@ use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
 use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
 use windows_sys::Win32::UI::Controls::{
-    InitCommonControlsEx, INITCOMMONCONTROLSEX, ICC_LISTVIEW_CLASSES, ICC_STANDARD_CLASSES,
-    LVCF_SUBITEM, LVCF_TEXT, LVCF_WIDTH, LVCOLUMNW, LVIF_TEXT, LVITEMW, LVM_DELETEALLITEMS,
-    LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_SETCOLUMNWIDTH, LVM_SETEXTENDEDLISTVIEWSTYLE,
-    LVM_SETITEMW,
-    LVN_COLUMNCLICK, LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT, LVS_REPORT, LVS_SHOWSELALWAYS,
-    LVS_SINGLESEL, NMHDR, NMLISTVIEW, BST_CHECKED, BST_UNCHECKED,
+    InitCommonControlsEx, BST_CHECKED, BST_UNCHECKED, ICC_LISTVIEW_CLASSES, ICC_STANDARD_CLASSES,
+    INITCOMMONCONTROLSEX, LVCF_SUBITEM, LVCF_TEXT, LVCF_WIDTH, LVCOLUMNW, LVIF_TEXT, LVITEMW,
+    LVM_DELETEALLITEMS, LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_SETCOLUMNWIDTH,
+    LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMW, LVN_COLUMNCLICK, LVS_EX_DOUBLEBUFFER,
+    LVS_EX_FULLROWSELECT, LVS_REPORT, LVS_SHOWSELALWAYS, LVS_SINGLESEL, NMHDR, NMLISTVIEW,
 };
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, GetDpiForWindow, MDT_EFFECTIVE_DPI};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN, VK_LMENU, VK_LSHIFT,
-    VK_LWIN, VK_MENU, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
+    MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU,
+    VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
 };
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect,
-    GetWindowTextW, LoadCursorW, LoadIconW, MoveWindow, PostMessageW, RegisterClassW, SendMessageW,
-    SetForegroundWindow, SetWindowPos, SetWindowTextW, SetWindowsHookExW,
-    ShowWindow, SystemParametersInfoW, UnhookWindowsHookEx, BM_GETCHECK, BM_SETCHECK,
-    BS_AUTOCHECKBOX, CBN_SELCHANGE, CBS_DROPDOWNLIST, CB_ADDSTRING,
-    CB_GETCURSEL, CB_SETCURSEL, EN_CHANGE, EN_KILLFOCUS, EN_SETFOCUS, ES_AUTOHSCROLL,
-    HWND_TOP, IDC_ARROW, KBDLLHOOKSTRUCT, MINMAXINFO, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS,
-    SW_RESTORE, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, WH_KEYBOARD_LL, WM_APP, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED,
+    CallNextHookEx, CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetWindowTextW,
+    LoadCursorW, LoadIconW, MoveWindow, PostMessageW, RegisterClassW, SendMessageW,
+    SetForegroundWindow, SetWindowPos, SetWindowTextW, SetWindowsHookExW, ShowWindow,
+    SystemParametersInfoW, UnhookWindowsHookEx, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX,
+    CBN_SELCHANGE, CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, EN_CHANGE,
+    EN_KILLFOCUS, EN_SETFOCUS, ES_AUTOHSCROLL, HWND_TOP, IDC_ARROW, KBDLLHOOKSTRUCT, MINMAXINFO,
+    NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOZORDER, SW_RESTORE, SW_SHOW,
+    WH_KEYBOARD_LL, WM_APP, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED,
     WM_GETMINMAXINFO, WM_KEYDOWN, WM_NOTIFY, WM_SETFONT, WM_SIZE, WM_SYSKEYDOWN, WNDCLASSW,
     WS_CHILD, WS_EX_CLIENTEDGE, WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
@@ -254,13 +252,7 @@ fn build_controls(hwnd: HWND) {
     );
     add(ID_REFRESH, "BUTTON", "Refresh (F5)", WS_TABSTOP, 0);
     add(ID_COPY, "BUTTON", "Copy", WS_TABSTOP, 0);
-    add(
-        ID_CAPTURE_LABEL,
-        "STATIC",
-        "Check a shortcut:",
-        0,
-        0,
-    );
+    add(ID_CAPTURE_LABEL, "STATIC", "Check a shortcut:", 0, 0);
     add(
         ID_CAPTURE,
         "EDIT",
@@ -302,7 +294,14 @@ fn build_controls(hwnd: HWND) {
         column.cx = scaled(hwnd, 120);
         column.pszText = text.as_mut_ptr();
         column.iSubItem = index as i32;
-        unsafe { SendMessageW(list, LVM_INSERTCOLUMNW, index, &column as *const _ as LPARAM) };
+        unsafe {
+            SendMessageW(
+                list,
+                LVM_INSERTCOLUMNW,
+                index,
+                &column as *const _ as LPARAM,
+            )
+        };
     }
 
     let combo = controls[&ID_MODIFIERS];
@@ -456,7 +455,13 @@ fn layout(hwnd: HWND) {
 
     let second = y + row + gap;
     let capture_label = text_width(hwnd, "Check a shortcut:");
-    place(ID_CAPTURE_LABEL, pad, second + label_top, capture_label, row);
+    place(
+        ID_CAPTURE_LABEL,
+        pad,
+        second + label_top,
+        capture_label,
+        row,
+    );
     let capture_x = pad + capture_label + small;
     let capture_width = scaled(hwnd, 150);
     place(ID_CAPTURE, capture_x, second, capture_width, row);
@@ -476,7 +481,13 @@ fn layout(hwnd: HWND) {
     let list_width = width - pad * 2;
     let list_height = (height - list_top - status_height - small).max(0);
     place(ID_LIST, pad, list_top, list_width, list_height);
-    place(ID_STATUS, pad, list_top + list_height + small, list_width, status_height);
+    place(
+        ID_STATUS,
+        pad,
+        list_top + list_height + small,
+        list_width,
+        status_height,
+    );
 
     if let Some(list) = controls.get(&ID_LIST) {
         let cell_pad = scaled(hwnd, 16);
@@ -490,7 +501,6 @@ fn layout(hwnd: HWND) {
         }
     }
 }
-
 
 fn run_scan(hwnd: HWND) {
     // Safe here: this runs straight from the message loop, so no host borrow is
@@ -532,7 +542,9 @@ fn refill(hwnd: HWND) {
             })
             .filter(|(_, entry)| {
                 search.is_empty()
-                    || hotkeys::format(entry.hotkey).to_lowercase().contains(&search)
+                    || hotkeys::format(entry.hotkey)
+                        .to_lowercase()
+                        .contains(&search)
                     || entry.owner.to_lowercase().contains(&search)
                     || entry.status.label().to_lowercase().contains(&search)
             })
@@ -542,7 +554,8 @@ fn refill(hwnd: HWND) {
         let column = detector.sort_column;
         let ascending = detector.sort_ascending;
         chosen.sort_by(|a, b| {
-            let order = sort_key(&scan.entries[*a], column).cmp(&sort_key(&scan.entries[*b], column));
+            let order =
+                sort_key(&scan.entries[*a], column).cmp(&sort_key(&scan.entries[*b], column));
             if ascending {
                 order
             } else {
@@ -801,7 +814,11 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
             let modifiers = DETECTORS
                 .with(|cell| cell.borrow().get(&owner).map(|d| d.capture_modifiers))
                 .unwrap_or(0);
-            set_text(hwnd, ID_CAPTURE, &format!("{}\u{2026}", hotkeys::format_modifiers(modifiers)));
+            set_text(
+                hwnd,
+                ID_CAPTURE,
+                &format!("{}\u{2026}", hotkeys::format_modifiers(modifiers)),
+            );
         }
         false
     } else if down {
@@ -1028,7 +1045,11 @@ pub fn set_show_free_default(hwnd: HWND, show_free: bool) {
     });
     let checkbox = control(hwnd, ID_SHOW_FREE);
     if !checkbox.is_null() {
-        let state = if show_free { BST_CHECKED } else { BST_UNCHECKED };
+        let state = if show_free {
+            BST_CHECKED
+        } else {
+            BST_UNCHECKED
+        };
         unsafe { SendMessageW(checkbox, BM_SETCHECK, state as WPARAM, 0) };
     }
 }

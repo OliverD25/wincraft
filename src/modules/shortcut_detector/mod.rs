@@ -41,8 +41,7 @@ impl ShortcutDetector {
     }
 
     fn live_window(&self) -> Option<HWND> {
-        self.window
-            .filter(|hwnd| unsafe { IsWindow(*hwnd) } != 0)
+        self.window.filter(|hwnd| unsafe { IsWindow(*hwnd) } != 0)
     }
 }
 

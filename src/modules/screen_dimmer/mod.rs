@@ -72,7 +72,10 @@ impl ScreenDimmer {
 }
 
 fn alpha_from(settings: &serde_json::Value, key: &str, fallback: f64) -> u8 {
-    let value = settings.get(key).and_then(|v| v.as_f64()).unwrap_or(fallback);
+    let value = settings
+        .get(key)
+        .and_then(|v| v.as_f64())
+        .unwrap_or(fallback);
     (value.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
@@ -98,13 +101,21 @@ impl WinCraftModule for ScreenDimmer {
                 key: "idle_opacity",
                 label: "Darkness",
                 help: "How solid the overlay is normally. 1.0 is fully black.",
-                kind: FieldKind::Slider { min: 0.0, max: 1.0, step: 0.05 },
+                kind: FieldKind::Slider {
+                    min: 0.0,
+                    max: 1.0,
+                    step: 0.05,
+                },
             },
             SettingField {
                 key: "hover_opacity",
                 label: "Darkness under the pointer",
                 help: "How solid it is while your pointer is on that monitor.",
-                kind: FieldKind::Slider { min: 0.0, max: 1.0, step: 0.05 },
+                kind: FieldKind::Slider {
+                    min: 0.0,
+                    max: 1.0,
+                    step: 0.05,
+                },
             },
         ]
     }

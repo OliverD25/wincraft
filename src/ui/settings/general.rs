@@ -87,16 +87,15 @@ pub fn show(
 
 const PALETTE_OWNER: &str = "host/palette";
 
-fn file_row(
-    ui: &mut egui::Ui,
-    label: &str,
-    path: &std::path::Path,
-    to_host: &Arc<HostChannel>,
-) {
+fn file_row(ui: &mut egui::Ui, label: &str, path: &std::path::Path, to_host: &Arc<HostChannel>) {
     ui.horizontal(|ui| {
         ui.label(label);
         ui.add_space(8.0);
-        ui.label(egui::RichText::new(path.display().to_string()).monospace().small());
+        ui.label(
+            egui::RichText::new(path.display().to_string())
+                .monospace()
+                .small(),
+        );
         if ui.button("Open").clicked() {
             to_host.send(HostRequest::OpenPath(path.to_path_buf()));
         }

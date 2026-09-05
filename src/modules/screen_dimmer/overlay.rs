@@ -191,9 +191,7 @@ unsafe extern "system" fn overlay_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    if msg == windows_sys::Win32::UI::WindowsAndMessaging::WM_TIMER
-        && wparam == HOVER_TIMER_ID
-    {
+    if msg == windows_sys::Win32::UI::WindowsAndMessaging::WM_TIMER && wparam == HOVER_TIMER_ID {
         let packed = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) };
         let (idle, hover, last) = unpack(packed);
         let mut point = POINT { x: 0, y: 0 };

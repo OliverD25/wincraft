@@ -43,7 +43,10 @@ pub const WINDOWS_SHORTCUTS: &[(&str, &str)] = &[
     ("Win+Space", "Switch the keyboard layout"),
     ("Win+Enter", "Open Narrator"),
     ("Win+Pause", "Open the System page in Settings"),
-    ("Win+PrintScreen", "Save a screenshot to the Screenshots folder"),
+    (
+        "Win+PrintScreen",
+        "Save a screenshot to the Screenshots folder",
+    ),
     ("Win+Up", "Maximise the window"),
     ("Win+Down", "Restore or minimise the window"),
     ("Win+Left", "Snap the window to the left"),
@@ -58,14 +61,26 @@ pub const WINDOWS_SHORTCUTS: &[(&str, &str)] = &[
     ("Win+Shift+S", "Take a screenshot with Snipping Tool"),
     ("Win+Shift+M", "Restore the minimised windows"),
     ("Win+Shift+V", "Step through the notifications"),
-    ("Win+Shift+Left", "Move the window to the monitor on the left"),
-    ("Win+Shift+Right", "Move the window to the monitor on the right"),
+    (
+        "Win+Shift+Left",
+        "Move the window to the monitor on the left",
+    ),
+    (
+        "Win+Shift+Right",
+        "Move the window to the monitor on the right",
+    ),
     ("Win+Shift+Up", "Stretch the window to the top and bottom"),
-    ("Win+Shift+Down", "Restore or minimise the window vertically"),
+    (
+        "Win+Shift+Down",
+        "Restore or minimise the window vertically",
+    ),
     ("Win+Ctrl+D", "Add a virtual desktop"),
     ("Win+Ctrl+F4", "Close the current virtual desktop"),
     ("Win+Ctrl+Left", "Switch to the virtual desktop on the left"),
-    ("Win+Ctrl+Right", "Switch to the virtual desktop on the right"),
+    (
+        "Win+Ctrl+Right",
+        "Switch to the virtual desktop on the right",
+    ),
     ("Win+Ctrl+Enter", "Turn Narrator on"),
     ("Win+Ctrl+O", "Open the on-screen keyboard"),
     ("Win+Ctrl+Q", "Open Quick Assist"),
@@ -76,14 +91,20 @@ pub const WINDOWS_SHORTCUTS: &[(&str, &str)] = &[
     ("Win+Alt+G", "Record the last moments with Game Bar"),
     ("Win+Alt+R", "Start or stop recording with Game Bar"),
     ("Win+Alt+K", "Mute or unmute the microphone in a call"),
-    ("Win+Alt+PrintScreen", "Screenshot the active window with Game Bar"),
+    (
+        "Win+Alt+PrintScreen",
+        "Screenshot the active window with Game Bar",
+    ),
     ("Ctrl+Shift+Esc", "Open Task Manager"),
     ("Ctrl+Alt+Delete", "Open the security options screen"),
     ("Ctrl+Esc", "Open Start"),
     ("Ctrl+Alt+Tab", "Show the open apps and keep them shown"),
     ("Alt+Tab", "Switch between the open apps"),
     ("Alt+Shift+Tab", "Switch between the open apps, backwards"),
-    ("Alt+Esc", "Step through the windows in the order they were opened"),
+    (
+        "Alt+Esc",
+        "Step through the windows in the order they were opened",
+    ),
     ("Alt+F4", "Close the active window"),
     ("Alt+Space", "Open the window menu of the active window"),
 ];
@@ -93,7 +114,10 @@ pub const WINDOWS_SHORTCUTS: &[(&str, &str)] = &[
 pub const RESERVED_SHORTCUTS: &[&str] = &["Win+L", "Ctrl+Alt+Delete"];
 
 pub fn meaning(hotkey: Hotkey) -> Option<&'static str> {
-    lookup(WINDOWS_SHORTCUTS.iter().map(|(keys, text)| (*keys, *text)), hotkey)
+    lookup(
+        WINDOWS_SHORTCUTS.iter().map(|(keys, text)| (*keys, *text)),
+        hotkey,
+    )
 }
 
 pub fn is_reserved(hotkey: Hotkey) -> bool {
@@ -123,7 +147,11 @@ mod tests {
         for (keys, meaning) in WINDOWS_SHORTCUTS {
             let hotkey = hotkeys::parse(keys)
                 .unwrap_or_else(|err| panic!("\"{keys}\" ({meaning}) does not parse: {err}"));
-            assert_eq!(&hotkeys::format(hotkey), keys, "\"{keys}\" is not canonical");
+            assert_eq!(
+                &hotkeys::format(hotkey),
+                keys,
+                "\"{keys}\" is not canonical"
+            );
         }
         for keys in RESERVED_SHORTCUTS {
             hotkeys::parse(keys).unwrap_or_else(|err| panic!("\"{keys}\" does not parse: {err}"));

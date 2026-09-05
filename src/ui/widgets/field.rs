@@ -45,7 +45,11 @@ pub fn show(ui: &mut egui::Ui, field: &FieldInfo) -> Option<Value> {
             FieldKind::Choice(options) => {
                 let current = field.value.as_str().unwrap_or_default().to_string();
                 egui::ComboBox::from_id_salt(&field.key)
-                    .selected_text(if current.is_empty() { "\u{2014}" } else { &current })
+                    .selected_text(if current.is_empty() {
+                        "\u{2014}"
+                    } else {
+                        &current
+                    })
                     .show_ui(ui, |ui| {
                         for option in options {
                             if ui.selectable_label(current == *option, *option).clicked() {

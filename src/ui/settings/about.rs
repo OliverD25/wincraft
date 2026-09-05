@@ -63,15 +63,20 @@ pub fn show(ui: &mut egui::Ui, snapshot: &UiSnapshot, state: &mut SettingsState)
     ui.heading("About WinCraft");
     ui.add_space(12.0);
     ui.label(format!("Version {}", snapshot.version));
-    ui.label(format!("Built for Windows 11 \u{00B7} {} plugins", snapshot.plugins.len()));
+    ui.label(format!(
+        "Built for Windows 11 \u{00B7} {} plugins",
+        snapshot.plugins.len()
+    ));
     ui.add_space(16.0);
 
     ui.horizontal(|ui| {
         if ui.button("Repository").clicked() {
-            ui.ctx().open_url(egui::OpenUrl::new_tab(github::repo_url()));
+            ui.ctx()
+                .open_url(egui::OpenUrl::new_tab(github::repo_url()));
         }
         if ui.button("Report an issue").clicked() {
-            ui.ctx().open_url(egui::OpenUrl::new_tab(github::issues_url()));
+            ui.ctx()
+                .open_url(egui::OpenUrl::new_tab(github::issues_url()));
         }
         if ui.button("Releases").clicked() {
             ui.ctx()

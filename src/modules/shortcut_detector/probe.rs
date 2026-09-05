@@ -178,7 +178,9 @@ pub fn classify(hotkey: Hotkey, probe_failed: bool, wincraft: Option<(&str, &str
         return Entry {
             hotkey,
             status: Status::TakenByApp,
-            owner: meaning.map(|m| format!("(Windows: {m})")).unwrap_or_default(),
+            owner: meaning
+                .map(|m| format!("(Windows: {m})"))
+                .unwrap_or_default(),
             source: "probe",
         };
     }

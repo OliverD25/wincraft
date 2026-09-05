@@ -165,7 +165,10 @@ mod tests {
 
     #[test]
     fn parsing_ignores_case_and_spaces() {
-        assert_eq!(parse("win+alt+f1").unwrap(), parse(" WIN + Alt + F1 ").unwrap());
+        assert_eq!(
+            parse("win+alt+f1").unwrap(),
+            parse(" WIN + Alt + F1 ").unwrap()
+        );
         assert_eq!(parse("Control+A").unwrap(), parse("Ctrl+a").unwrap());
     }
 

@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml pins the compiler; `rustup show` is what makes
+      # rustup read it and install that exact version before anything else runs.
+      - name: Install the pinned toolchain
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Test
+        run: cargo test --locked
+
+      # A warning here means the plugin index is stale or dead code crept in,
+      # both of which are easier to fix now than after a release.
+      - name: Build
+        run: cargo build --release --locked
+        env:
+          RUSTFLAGS: -D warnings
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wincraft-exe
+          path: target/release/wincraft.exe
+          if-no-files-found: error

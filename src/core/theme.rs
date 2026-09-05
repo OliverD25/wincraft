@@ -1,13 +1,12 @@
 use windows_sys::Win32::Foundation::ERROR_SUCCESS;
 use windows_sys::Win32::System::Registry::{
-    RegCloseKey, RegQueryValueExW, RegOpenKeyExW, HKEY, HKEY_CURRENT_USER, KEY_READ,
+    RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CURRENT_USER, KEY_READ,
 };
 
 use crate::core::config::ThemeChoice;
 use crate::core::wide;
 
-const PERSONALIZE: &str =
-    r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
+const PERSONALIZE: &str = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
 
 pub fn windows_prefers_dark() -> bool {
     let mut key: HKEY = std::ptr::null_mut();
