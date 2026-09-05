@@ -1125,6 +1125,11 @@ unsafe extern "system" fn wnd_proc(
             if msg == WM_SETTINGCHANGE && is_colour_change(lparam) {
                 with_host(|host| host.to_ui.send(UiCommand::ThemeChanged));
             }
+            if msg == WM_DISPLAYCHANGE {
+                // The palette was placed against a monitor layout that no
+                // longer exists, so it is hidden rather than left stranded.
+                with_host(|host| host.to_ui.send(UiCommand::HideAll));
+            }
             with_host(|host| {
                 for slot in host.slots.iter_mut().filter(|slot| slot.enabled) {
                     slot.module.on_windows_message(msg, wparam, lparam);

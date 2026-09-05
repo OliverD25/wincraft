@@ -1,11 +1,20 @@
+mod about;
 mod general;
 mod plugins;
+mod store;
 
 use std::sync::{Arc, Mutex};
 
 use crate::core::traits::Hotkey;
 use crate::core::ui_bridge::{HostChannel, Page, UiSnapshot};
 use crate::ui::widgets::hotkey_capture;
+
+/// The settings window is a viewport of its own, so a background thread that
+/// finishes work has to wake that viewport by id. Waking only the root leaves
+/// the settings window showing "Loading..." until the user moves the mouse.
+pub fn viewport_id() -> egui::ViewportId {
+    egui::ViewportId::from_hash_of("wincraft-settings")
+}
 
 pub struct Readme(egui_commonmark::CommonMarkCache);
 
@@ -28,6 +37,8 @@ pub struct SettingsState {
     pub capture_owner: Option<String>,
     pub pending: Option<(String, Hotkey, String)>,
     pub readme: Readme,
+    pub store: store::Store,
+    pub update: about::Update,
 }
 
 impl SettingsState {
@@ -106,7 +117,7 @@ impl Settings {
         }
 
         ctx.show_viewport_deferred(
-            egui::ViewportId::from_hash_of("wincraft-settings"),
+            viewport_id(),
             builder,
             move |ui, _class| {
                 let Ok(mut shared) = shared.lock() else {
@@ -148,9 +159,8 @@ impl Settings {
                         .show(ui, |ui| match state.page {
                             Page::General => general::show(ui, snapshot, state, to_host),
                             Page::Plugins => plugins::show(ui, snapshot, state, to_host),
-                            Page::Store | Page::About => {
-                                ui.heading("Coming next");
-                            }
+                            Page::Store => store::show(ui, snapshot, state, to_host),
+                            Page::About => about::show(ui, snapshot, state),
                         });
                 });
 
@@ -162,4 +172,9 @@ impl Settings {
     }
 }
 
-const PAGES: &[(Page, &str)] = &[(Page::General, "General"), (Page::Plugins, "Plugins")];
+const PAGES: &[(Page, &str)] = &[
+    (Page::General, "General"),
+    (Page::Plugins, "Plugins"),
+    (Page::Store, "Plugin Store"),
+    (Page::About, "About"),
+];

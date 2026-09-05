@@ -38,6 +38,30 @@ pub enum FieldKind {
     Path,
 }
 
+impl FieldKind {
+    /// Listed on the About page so a plugin author can see what this build can
+    /// draw without reading the source.
+    pub const ALL: &'static [FieldKind] = &[
+        FieldKind::Toggle,
+        FieldKind::Slider { min: 0.0, max: 1.0, step: 0.05 },
+        FieldKind::Number { min: 0.0, max: 100.0 },
+        FieldKind::Text,
+        FieldKind::Choice(&[]),
+        FieldKind::Path,
+    ];
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            FieldKind::Toggle => "Toggle",
+            FieldKind::Slider { .. } => "Slider",
+            FieldKind::Number { .. } => "Number",
+            FieldKind::Text => "Text",
+            FieldKind::Choice(_) => "Choice",
+            FieldKind::Path => "Path",
+        }
+    }
+}
+
 /// One editable option. The settings window draws the control from this, so a
 /// plugin author never writes any UI code.
 pub struct SettingField {

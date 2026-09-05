@@ -66,10 +66,6 @@ pub fn stop() {
     });
 }
 
-pub fn is_running() -> bool {
-    CAPTURE.with(|cell| cell.borrow().hook != 0)
-}
-
 /// The modifiers held right now, so the box can show `Win+Alt+…` while the user
 /// is still reaching for the last key.
 pub fn live_modifiers() -> u32 {
