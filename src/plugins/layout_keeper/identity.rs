@@ -34,6 +34,11 @@ pub fn name_from_title(title: &str) -> Option<String> {
 }
 
 impl WindowIdentity {
+    /// The label a person recognises: the name when there is one.
+    pub fn label(&self) -> &str {
+        self.name.as_deref().unwrap_or(&self.title)
+    }
+
     pub fn new(exe: &str, title: &str, rect: Rect, maximized: bool) -> Self {
         Self {
             exe: exe.to_string(),

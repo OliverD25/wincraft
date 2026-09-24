@@ -115,11 +115,18 @@ impl OrderModel {
         self.handles().iter().position(|h| *h == hwnd)
     }
 
-    /// Swaps a window with its live neighbour, `-1` towards the start of the
-    /// group. Returns false at either end or for an unknown window.
-    pub fn shift(&mut self, hwnd: Handle, step: isize) -> bool {
+    /// Swaps a window with its nearest neighbour among `visible`, `-1`
+    /// towards the start of the group. The taskbar shows one desktop's
+    /// windows at a time, so a neighbour on another desktop would make the
+    /// move look like nothing happened. Returns false at either end or for a
+    /// window that is not in `visible`.
+    pub fn shift(&mut self, hwnd: Handle, step: isize, visible: &[Handle]) -> bool {
         let live: Vec<usize> = (0..self.entries.len())
-            .filter(|i| self.entries[*i].hwnd.is_some())
+            .filter(|i| {
+                self.entries[*i]
+                    .hwnd
+                    .is_some_and(|handle| visible.contains(&handle))
+            })
             .collect();
         let Some(k) = live
             .iter()
@@ -161,6 +168,10 @@ struct ITaskbarListVtbl {
 /// The public taskbar interface. Deleting a window's button and adding it
 /// again puts its thumbnail last in its group, for any process's window, so
 /// re-adding a whole group in model order produces exactly that order.
+///
+/// Adding a button also brings a window on another virtual desktop over to
+/// the current one (checked on build 26200), so callers decide which
+/// windows may be re-added.
 pub struct Taskbar(ComPtr);
 
 impl Taskbar {
@@ -264,14 +275,25 @@ mod tests {
     fn shifting_stops_at_the_edges() {
         let mut model = OrderModel::default();
         model.refresh(&live(&["C", "B", "A"]), 0, 30);
+        let all = [100, 101, 102];
         // Order is A(102), B(101), C(100).
-        assert!(!model.shift(102, -1));
-        assert!(!model.shift(100, 1));
-        assert!(model.shift(102, 1));
+        assert!(!model.shift(102, -1, &all));
+        assert!(!model.shift(100, 1, &all));
+        assert!(model.shift(102, 1, &all));
         assert_eq!(labels(&model), ["B", "A", "C"]);
-        assert!(model.shift(100, -1));
+        assert!(model.shift(100, -1, &all));
         assert_eq!(labels(&model), ["B", "C", "A"]);
-        assert!(!model.shift(999, 1));
+        assert!(!model.shift(999, 1, &all));
+    }
+
+    #[test]
+    fn shifting_skips_windows_on_other_desktops() {
+        let mut model = OrderModel::default();
+        model.refresh(&live(&["C", "B", "A"]), 0, 30);
+        // Order is A(102), B(101), C(100); B is on another desktop.
+        assert!(model.shift(102, 1, &[100, 102]));
+        assert_eq!(labels(&model), ["C", "B", "A"]);
+        assert!(!model.shift(101, 1, &[100, 102]));
     }
 
     #[test]
@@ -283,7 +305,7 @@ mod tests {
         assert_eq!(model.pending(), None);
         model.refresh(&live(&["B", "A"]), 1, 30);
         assert_eq!(model.pending(), None);
-        assert!(model.shift(101, 1));
+        assert!(model.shift(101, 1, &[100, 101]));
         assert_eq!(model.pending(), Some(vec![100, 101]));
     }
 }

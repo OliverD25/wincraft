@@ -17,10 +17,11 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, SetFocus, 
 use windows_sys::Win32::UI::Shell::{ShellExecuteW, NIN_BALLOONUSERCLICK};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetCursorPos, GetForegroundWindow,
-    GetMessageW, GetWindowThreadProcessId, PostQuitMessage, RegisterClassW, RegisterWindowMessageW,
-    SetForegroundWindow, TranslateMessage, MSG, SW_SHOWNORMAL, WM_CONTEXTMENU, WM_DESTROY,
-    WM_DISPLAYCHANGE, WM_ENDSESSION, WM_HOTKEY, WM_LBUTTONUP, WM_POWERBROADCAST,
-    WM_QUERYENDSESSION, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
+    GetMessageW, GetWindowThreadProcessId, PostMessageW, PostQuitMessage, RegisterClassW,
+    RegisterWindowMessageW, SetForegroundWindow, TranslateMessage, MSG, SW_SHOWNORMAL, WM_APP,
+    WM_CONTEXTMENU, WM_DESTROY, WM_DISPLAYCHANGE, WM_ENDSESSION, WM_HOTKEY, WM_LBUTTONUP,
+    WM_POWERBROADCAST, WM_QUERYENDSESSION, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW,
+    WS_OVERLAPPED,
 };
 
 use serde_json::Value;
@@ -49,6 +50,10 @@ const DETECTOR_OPEN_ACTION: u32 = 1;
 /// that plugin hotkeys never use.
 const PALETTE_HOTKEY_ID: i32 = 0;
 
+/// Posted by `notify` and `plugin_changed`, which plugins call while the host
+/// is busy calling them; the work happens when the message comes round.
+const WM_APP_PLUGIN: u32 = WM_APP + 21;
+
 struct RegisteredHotkey {
     action_id: u32,
     global_id: i32,
@@ -75,6 +80,9 @@ struct Host {
     to_ui: Arc<UiChannel>,
     host_rx: Receiver<HostRequest>,
     palette_hwnd: HWND,
+    /// Clicking a "hotkey is taken" balloon opens ShortcutDetector; clicking
+    /// a plugin's own notice must not.
+    balloon_opens_detector: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -90,6 +98,8 @@ thread_local! {
     /// re-enters a WndProc whenever it likes, and a borrow taken on every single
     /// message would turn that into a crash.
     static TASKBAR_CREATED: Cell<u32> = const { Cell::new(0) };
+    static HOST_WINDOW: Cell<HWND> = const { Cell::new(std::ptr::null_mut()) };
+    static NOTICES: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
 }
 
 pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: StartupFlags) {
@@ -151,7 +161,9 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         to_ui: Arc::clone(&bridge.to_ui),
         host_rx: bridge.host_rx,
         palette_hwnd: std::ptr::null_mut(),
+        balloon_opens_detector: true,
     };
+    HOST_WINDOW.with(|cell| cell.set(hwnd));
     TASKBAR_CREATED
         .with(|cell| cell.set(unsafe { RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()) }));
 
@@ -246,6 +258,7 @@ impl Host {
             log::info!("registered {keys} for host.palette");
         } else {
             log::warn!("could not register {keys} for host.palette; another app holds it");
+            self.balloon_opens_detector = true;
             self.tray
                 .balloon("WinCraft", &format!("{keys} is used by another app"));
         }
@@ -295,6 +308,7 @@ impl Host {
         };
         if let Err(err) = init_result {
             log::error!("{}: init failed: {err}", meta.id);
+            self.balloon_opens_detector = true;
             self.tray
                 .balloon("WinCraft", &format!("{} failed to start: {err}", meta.name));
             return;
@@ -321,6 +335,7 @@ impl Host {
                     "could not register {keys} for {}.{name}; another app holds it",
                     meta.id
                 );
+                self.balloon_opens_detector = true;
                 self.tray
                     .balloon("WinCraft", &format!("{keys} is used by another app"));
             }
@@ -468,6 +483,7 @@ impl Host {
                             value: settings.get(field.key).cloned().unwrap_or(Value::Null),
                         })
                         .collect(),
+                    status: slot.plugin.status(),
                 }
             })
             .collect();
@@ -802,6 +818,25 @@ impl Host {
     }
 }
 
+/// Shows a tray balloon for a plugin. Safe to call from any plugin callback.
+pub fn notify(title: &str, text: &str) {
+    NOTICES.with(|queue| {
+        queue
+            .borrow_mut()
+            .push((title.to_string(), text.to_string()))
+    });
+    plugin_changed();
+}
+
+/// Asks the host to send the settings window a fresh snapshot, for example
+/// because a plugin's `status` line changed.
+pub fn plugin_changed() {
+    let hwnd = HOST_WINDOW.with(|cell| cell.get());
+    if !hwnd.is_null() {
+        unsafe { PostMessageW(hwnd, WM_APP_PLUGIN, 0, 0) };
+    }
+}
+
 /// The list the ShortcutDetector marks as WinCraft's own.
 ///
 /// It takes an immutable borrow, so calling it while the host is mutably
@@ -1022,7 +1057,10 @@ unsafe extern "system" fn wnd_proc(
         WM_TRAY_CALLBACK => {
             let event = (lparam as u32) & 0xFFFF;
             if event == NIN_BALLOONUSERCLICK {
-                open_shortcut_detector();
+                let opens = with_host(|host| host.balloon_opens_detector).unwrap_or(false);
+                if opens {
+                    open_shortcut_detector();
+                }
                 return 0;
             }
             if event == WM_LBUTTONUP || event == WM_RBUTTONUP || event == WM_CONTEXTMENU {
@@ -1037,6 +1075,17 @@ unsafe extern "system" fn wnd_proc(
                     handle_menu_choice(choice);
                 }
             }
+            0
+        }
+        WM_APP_PLUGIN => {
+            let notices = NOTICES.with(|queue| std::mem::take(&mut *queue.borrow_mut()));
+            with_host(|host| {
+                for (title, text) in &notices {
+                    host.balloon_opens_detector = false;
+                    host.tray.balloon(title, text);
+                }
+                host.publish();
+            });
             0
         }
         WM_APP_UI => {

@@ -140,5 +140,12 @@ pub trait WinCraftPlugin {
         let _ = id;
     }
 
+    /// One line shown under the description on the plugin's page, for state
+    /// the user should see without opening the log. Call
+    /// `host::plugin_changed()` when it changes.
+    fn status(&self) -> Option<String> {
+        None
+    }
+
     fn teardown(&mut self) {}
 }

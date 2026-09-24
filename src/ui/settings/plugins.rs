@@ -127,6 +127,10 @@ fn detail(
         }
         text::secondary(ui, "Enabled", tokens.text_secondary);
     });
+    if let Some(status) = &plugin.status {
+        text::secondary(ui, status, tokens.text_secondary);
+        ui.add_space(8.0);
+    }
 
     if !plugin.fields.is_empty() {
         page::section_header(ui, "Settings");

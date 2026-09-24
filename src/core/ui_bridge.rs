@@ -131,6 +131,7 @@ pub struct PluginInfo {
     pub config_path: PathBuf,
     pub hotkeys: Vec<HotkeyInfo>,
     pub fields: Vec<FieldInfo>,
+    pub status: Option<String>,
 }
 
 #[derive(Clone, Debug)]

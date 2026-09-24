@@ -42,6 +42,11 @@ pub struct SavedWindow {
 }
 
 impl SavedWindow {
+    /// The label a person recognises: the name when there is one.
+    pub fn label(&self) -> &str {
+        self.name.as_deref().unwrap_or(&self.title)
+    }
+
     pub fn identity(&self, exe: &str) -> WindowIdentity {
         WindowIdentity {
             exe: exe.to_string(),

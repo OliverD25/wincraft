@@ -6,7 +6,8 @@ hotkeys, a command palette and a settings window. Features are written as
 **plugins** that plug into one Rust trait, so adding a feature never means
 touching the Win32 plumbing or writing any UI code.
 
-Version 0.4 ships two plugins: **ScreenDimmer** and **ShortcutDetector**.
+It ships three plugins: **ScreenDimmer**, **ShortcutDetector** and
+**LayoutKeeper**.
 
 ## What you get
 
@@ -66,6 +67,25 @@ It cannot see programs that read keys through a keyboard hook, such as
 AutoHotkey scripts or PowerToys Keyboard Manager. Nothing can, short of
 injecting code into every running process, and the window says so.
 
+### LayoutKeeper
+
+Remembers which virtual desktop each Chrome window is on, the order of the
+thumbnails in its taskbar group and which window is in front, and puts all
+three back after a reboot. Any program can be watched, not only Chrome.
+[Full README](src/plugins/layout_keeper/README.md)
+
+| Hotkey | What it does |
+|---|---|
+| `Win+Alt+L` | Restore the saved layout |
+| `Win+Alt+J` | Save the layout now |
+| `Win+Alt+[` | Move the front window one place left in its taskbar group |
+| `Win+Alt+]` | Move the front window one place right in its taskbar group |
+
+Moving windows between desktops uses undocumented Windows interfaces, ported
+from [MScholtes' VirtualDesktop](https://github.com/MScholtes/VirtualDesktop)
+(MIT). They change between Windows builds; if they do not answer as expected,
+LayoutKeeper turns desktop moves off for the session and says so on its page.
+
 ### Host hotkeys
 
 | Hotkey | What it does |
@@ -82,12 +102,16 @@ config.json            the host's own settings
 plugins\
   screen_dimmer.json   one file per plugin
   shortcut_detector.json
+  layout_keeper.json
+  layout_keeper.state.json   the saved window layout, written by LayoutKeeper
 cache\                 the last plugin index fetched from GitHub
 wincraft.log           what the program did, emptied on every start
 ```
 
 Splitting the files this way means resetting one plugin deletes one file, and a
-broken edit costs one plugin rather than your whole configuration. WinCraft
+broken edit costs one plugin rather than your whole configuration. A file
+WinCraft cannot read is left exactly as it is: WinCraft runs on defaults, says
+why in the log, and saves nothing over it until you fix it. WinCraft
 0.2 kept everything in `config.json`; the first 0.3 start moves it and says so
 in the log.
 

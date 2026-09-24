@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use windows_sys::core::BOOL;
 use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, RECT};
-use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWM_CLOAKED_APP};
+use windows_sys::Win32::Graphics::Dwm::{
+    DwmGetWindowAttribute, DWMWA_CLOAKED, DWM_CLOAKED_APP, DWM_CLOAKED_SHELL,
+};
 use windows_sys::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
@@ -83,6 +85,15 @@ fn has_taskbar_button(hwnd: HWND) -> bool {
     if owned && ex_style & WS_EX_APPWINDOW == 0 {
         return false;
     }
+    cloak(hwnd) & DWM_CLOAKED_APP == 0
+}
+
+/// The shell cloaks the windows of every desktop but the current one.
+pub fn on_other_desktop(hwnd: HWND) -> bool {
+    cloak(hwnd) & DWM_CLOAKED_SHELL != 0
+}
+
+fn cloak(hwnd: HWND) -> u32 {
     let mut cloaked: u32 = 0;
     unsafe {
         DwmGetWindowAttribute(
@@ -92,7 +103,7 @@ fn has_taskbar_button(hwnd: HWND) -> bool {
             std::mem::size_of::<u32>() as u32,
         )
     };
-    cloaked & DWM_CLOAKED_APP == 0
+    cloaked
 }
 
 /// Lower-case file name of the process's image, like "chrome.exe".
