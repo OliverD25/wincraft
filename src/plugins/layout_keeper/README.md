@@ -32,8 +32,22 @@ which is the surest way for LayoutKeeper to recognise it after a restart.
 Unnamed windows are recognised by title and position, which works less well
 when many windows are maximized.
 
+## Taskbar order
+
+Windows has no setting for the order of thumbnails inside a taskbar group,
+and no way to read it. LayoutKeeper keeps its own list of the wanted order for
+each program and makes the taskbar match it. New windows join at the end, as
+Windows adds them; a window that stays closed for one save interval is
+dropped from the list.
+
+To change the order, bring a window to the front and press **Move window
+left in taskbar** or **Move window right in taskbar**. The group's thumbnails
+are rebuilt in the new order, which is visible for a moment.
+
 ## Hotkeys
 
 | Action | Default |
 |---|---|
 | Save layout now | `Win+Alt+J` |
+| Move window left in taskbar | `Win+Alt+[` |
+| Move window right in taskbar | `Win+Alt+]` |

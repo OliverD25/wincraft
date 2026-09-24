@@ -53,15 +53,6 @@ pub struct Matching {
     pub unmatched_live: Vec<usize>,
 }
 
-impl Matching {
-    pub fn live_for(&self, saved: usize) -> Option<usize> {
-        self.pairs
-            .iter()
-            .find(|(s, _)| *s == saved)
-            .map(|(_, live)| *live)
-    }
-}
-
 /// Pairs saved windows with live ones, strongest evidence first. Each live
 /// window is used at most once, and a pass only sees what earlier passes left.
 pub fn match_windows(saved: &[WindowIdentity], live: &[WindowIdentity]) -> Matching {
@@ -108,18 +99,6 @@ pub fn match_windows(saved: &[WindowIdentity], live: &[WindowIdentity]) -> Match
         unmatched_saved: (0..saved.len()).filter(|i| !saved_used[*i]).collect(),
         unmatched_live: (0..live.len()).filter(|i| !live_used[*i]).collect(),
     }
-}
-
-/// Live windows (listed top of the z-order first) in taskbar order: windows
-/// recognised from `previous` keep their places, the rest follow bottom
-/// first, the way Windows appends a new window's button at the end.
-pub fn carry_order(previous: &[WindowIdentity], live: &[WindowIdentity]) -> Vec<usize> {
-    let matching = match_windows(previous, live);
-    let mut order: Vec<usize> = (0..previous.len())
-        .filter_map(|saved| matching.live_for(saved))
-        .collect();
-    order.extend(matching.unmatched_live.iter().rev());
-    order
 }
 
 #[cfg(test)]
@@ -203,22 +182,6 @@ mod tests {
         assert_eq!(matching.pairs, vec![(0, 0)]);
         assert_eq!(matching.unmatched_saved, vec![1, 2]);
         assert_eq!(matching.unmatched_live, vec![1]);
-        assert_eq!(matching.live_for(0), Some(0));
-        assert_eq!(matching.live_for(1), None);
-    }
-
-    #[test]
-    fn known_windows_keep_their_places_and_new_ones_follow_bottom_first() {
-        let previous = vec![chrome("B", FULL, true), chrome("A", FULL, true)];
-        // Top of the z-order first.
-        let live = vec![
-            chrome("New top", FULL, true),
-            chrome("A", FULL, true),
-            chrome("New bottom", FULL, true),
-            chrome("B", FULL, true),
-        ];
-        assert_eq!(carry_order(&previous, &live), vec![3, 1, 2, 0]);
-        assert_eq!(carry_order(&[], &live), vec![3, 2, 1, 0]);
     }
 
     #[test]

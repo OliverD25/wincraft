@@ -1,16 +1,19 @@
 mod com;
 mod desktops;
 mod identity;
+mod order;
 mod state;
 mod windows;
 
+use std::collections::BTreeMap;
 use std::time::SystemTime;
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    KillTimer, SetTimer, SW_SHOWNORMAL, WM_ENDSESSION, WM_QUERYENDSESSION, WM_TIMER,
+    GetForegroundWindow, GetWindowThreadProcessId, KillTimer, SetTimer, SW_SHOWNORMAL,
+    WM_ENDSESSION, WM_QUERYENDSESSION, WM_TIMER,
 };
 
 use crate::core::traits::{
@@ -18,7 +21,7 @@ use crate::core::traits::{
     WinCraftPlugin,
 };
 use crate::core::{clock, wide};
-use identity::WindowIdentity;
+use order::{Handle, OrderModel};
 use state::{ProgramState, Programs, SavedWindow};
 
 /// The host window is shared, so the timer id spells "LK" to stay clear of
@@ -27,6 +30,11 @@ const TIMER_ID: usize = 0x4C4B;
 const TICK_MS: u32 = 1000;
 
 const ACTION_SAVE_NOW: u32 = 2;
+const ACTION_MOVE_LEFT: u32 = 3;
+const ACTION_MOVE_RIGHT: u32 = 4;
+
+const VK_OPEN_BRACKET: u32 = 0xDB;
+const VK_CLOSE_BRACKET: u32 = 0xDD;
 const COMMAND_OPEN_STATE: u32 = 1;
 
 const DEFAULT_PROGRAMS: &str = "chrome.exe";
@@ -40,6 +48,8 @@ pub struct LayoutKeeper {
     ticks: u64,
     reader: Option<desktops::Reader>,
     writer: state::Writer,
+    groups: BTreeMap<String, OrderModel>,
+    taskbar: Option<order::Taskbar>,
 }
 
 impl LayoutKeeper {
@@ -58,10 +68,27 @@ impl LayoutKeeper {
             .unwrap_or(DEFAULT_SNAPSHOT_SECONDS);
     }
 
+    /// Looks at the windows and brings every group's order model up to date.
+    fn refresh(&mut self) -> Vec<windows::LiveWindow> {
+        let live = windows::enumerate(&self.programs);
+        for exe in &self.programs {
+            let mine: Vec<(Handle, identity::WindowIdentity)> = live
+                .iter()
+                .filter(|window| &window.identity.exe == exe)
+                .map(|window| (window.hwnd as Handle, window.identity.clone()))
+                .collect();
+            self.groups.entry(exe.clone()).or_default().refresh(
+                &mine,
+                self.ticks,
+                self.snapshot_seconds,
+            );
+        }
+        live
+    }
+
     /// The watched programs' windows as they are now, each program's list in
     /// taskbar order.
-    fn capture(&self) -> Programs {
-        let live = windows::enumerate(&self.programs);
+    fn capture(&self, live: &[windows::LiveWindow]) -> Programs {
         let desktops = desktops::list();
         let mut programs = Programs::new();
         for exe in &self.programs {
@@ -69,21 +96,7 @@ impl LayoutKeeper {
                 .iter()
                 .filter(|window| &window.identity.exe == exe)
                 .collect();
-            let previous: Vec<WindowIdentity> = self
-                .writer
-                .last()
-                .and_then(|programs| programs.get(exe))
-                .map(|program| {
-                    program
-                        .windows
-                        .iter()
-                        .map(|window| window.identity(exe))
-                        .collect()
-                })
-                .unwrap_or_default();
-            let identities: Vec<WindowIdentity> =
-                mine.iter().map(|window| window.identity.clone()).collect();
-            let order = identity::carry_order(&previous, &identities);
+            let group = self.groups.get(exe);
             let mut saved: Vec<SavedWindow> = mine
                 .iter()
                 .enumerate()
@@ -99,9 +112,8 @@ impl LayoutKeeper {
                         maximized: window.identity.maximized,
                         desktop: desktop.map(|id| id.to_string()),
                         desktop_name: desktop.and_then(|id| desktops::name_of(&desktops, id)),
-                        taskbar_index: order
-                            .iter()
-                            .position(|live| *live == z_index)
+                        taskbar_index: group
+                            .and_then(|group| group.position_of(window.hwnd as Handle))
                             .unwrap_or(z_index),
                         z_index,
                     }
@@ -115,7 +127,8 @@ impl LayoutKeeper {
 
     fn save(&mut self, reason: &str) {
         let shutdown = reason == "shutdown";
-        let merged = state::merge(self.writer.last(), self.capture(), shutdown);
+        let live = self.refresh();
+        let merged = state::merge(self.writer.last(), self.capture(&live), shutdown);
         let count: usize = merged.values().map(|program| program.windows.len()).sum();
         match self
             .writer
@@ -125,6 +138,56 @@ impl LayoutKeeper {
             Ok(false) => log::debug!("layout unchanged ({reason})"),
             Err(err) => log::error!("could not save the layout: {err}"),
         }
+    }
+
+    /// Makes one program's taskbar group match its model, if it does not
+    /// already.
+    fn apply_group(&mut self, exe: &str) {
+        let Some(pending) = self.groups.get(exe).and_then(OrderModel::pending) else {
+            return;
+        };
+        if self.taskbar.is_none() {
+            match order::Taskbar::new() {
+                Ok(taskbar) => self.taskbar = Some(taskbar),
+                Err(err) => {
+                    log::error!("{err}; the taskbar order cannot be changed");
+                    return;
+                }
+            }
+        }
+        let Some(taskbar) = &self.taskbar else { return };
+        let took = taskbar.apply(&pending);
+        log::info!(
+            "applied the order of {} {exe} windows in {} ms",
+            pending.len(),
+            took.as_millis()
+        );
+        if let Some(group) = self.groups.get_mut(exe) {
+            group.mark_applied(pending);
+        }
+    }
+
+    /// Moves the front window one place along its taskbar group.
+    fn shift_front(&mut self, step: isize) {
+        let front = unsafe { GetForegroundWindow() };
+        let mut pid = 0;
+        unsafe { GetWindowThreadProcessId(front, &mut pid) };
+        let exe = windows::exe_name(pid);
+        if !self.programs.contains(&exe) {
+            log::info!("the front window belongs to \"{exe}\", which is not watched");
+            return;
+        }
+        self.refresh();
+        let moved = self
+            .groups
+            .get_mut(&exe)
+            .is_some_and(|group| group.shift(front as Handle, step));
+        if !moved {
+            log::info!("the front window is already at that end of its group");
+            return;
+        }
+        self.apply_group(&exe);
+        self.save("manual");
     }
 
     fn open_state_file(&mut self) {
@@ -222,6 +285,21 @@ impl WinCraftPlugin for LayoutKeeper {
             }
         };
         self.writer = state::Writer::with_last(state::load().map(|file| file.programs));
+        self.groups = self
+            .writer
+            .last()
+            .map(|programs| {
+                programs
+                    .iter()
+                    .map(|(exe, program)| {
+                        let mut windows = program.windows.clone();
+                        windows.sort_by_key(|window| window.taskbar_index);
+                        let identities = windows.iter().map(|w| w.identity(exe)).collect();
+                        (exe.clone(), OrderModel::from_saved(identities))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         if unsafe { SetTimer(ctx.hwnd, TIMER_ID, TICK_MS, None) } == 0 {
             return Err("could not start its timer".to_string());
         }
@@ -231,17 +309,34 @@ impl WinCraftPlugin for LayoutKeeper {
     }
 
     fn hotkey_actions(&self) -> Vec<HotkeyAction> {
-        vec![HotkeyAction {
-            id: ACTION_SAVE_NOW,
-            name: "save_now",
-            label: "Save layout now",
-            default: win_alt(u32::from(b'J')),
-        }]
+        vec![
+            HotkeyAction {
+                id: ACTION_SAVE_NOW,
+                name: "save_now",
+                label: "Save layout now",
+                default: win_alt(u32::from(b'J')),
+            },
+            HotkeyAction {
+                id: ACTION_MOVE_LEFT,
+                name: "move_left",
+                label: "Move window left in taskbar",
+                default: win_alt(VK_OPEN_BRACKET),
+            },
+            HotkeyAction {
+                id: ACTION_MOVE_RIGHT,
+                name: "move_right",
+                label: "Move window right in taskbar",
+                default: win_alt(VK_CLOSE_BRACKET),
+            },
+        ]
     }
 
     fn on_hotkey(&mut self, action_id: u32) {
-        if action_id == ACTION_SAVE_NOW {
-            self.save("manual");
+        match action_id {
+            ACTION_SAVE_NOW => self.save("manual"),
+            ACTION_MOVE_LEFT => self.shift_front(-1),
+            ACTION_MOVE_RIGHT => self.shift_front(1),
+            _ => {}
         }
     }
 
@@ -279,6 +374,8 @@ impl WinCraftPlugin for LayoutKeeper {
             self.save("teardown");
         }
         self.reader = None;
+        self.taskbar = None;
+        self.groups.clear();
     }
 }
 
