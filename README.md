@@ -157,4 +157,4 @@ settings; WinCraft draws and saves them.
 
 ## Licence
 
-Not decided yet.
+MIT. See [LICENSE](LICENSE).

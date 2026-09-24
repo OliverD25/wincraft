@@ -1,6 +1,7 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -112,6 +113,42 @@ pub fn cache_dir() -> PathBuf {
     data_dir().join("cache")
 }
 
+/// Files that existed but could not be read at start. Saving over one would
+/// replace everything the user wrote with defaults, so they are left alone
+/// and the defaults live in memory only.
+static UNREADABLE: Mutex<BTreeSet<PathBuf>> = Mutex::new(BTreeSet::new());
+
+fn mark_unreadable(path: &Path) {
+    if let Ok(mut unreadable) = UNREADABLE.lock() {
+        unreadable.insert(path.to_path_buf());
+    }
+}
+
+fn is_unreadable(path: &Path) -> bool {
+    UNREADABLE
+        .lock()
+        .map(|unreadable| unreadable.contains(path))
+        .unwrap_or(false)
+}
+
+/// Notepad and Windows PowerShell 5 write UTF-8 with a byte order mark, which
+/// serde_json rejects as "expected value at line 1 column 1".
+pub fn strip_bom(text: &str) -> &str {
+    text.strip_prefix('\u{feff}').unwrap_or(text)
+}
+
+/// Like [`write_atomic`], but refuses a file that could not be read at start.
+fn save_readable(path: &Path, text: &str) -> Result<(), String> {
+    if is_unreadable(path) {
+        return Err(format!(
+            "{} could not be read at start, so it is kept as it is; \
+             fix or delete it and restart WinCraft to save changes",
+            path.display()
+        ));
+    }
+    write_atomic(path, text)
+}
+
 /// Writes through a temporary file so a crash mid-write cannot leave a
 /// half-written file that the next start refuses to read.
 pub fn write_atomic(path: &Path, text: &str) -> Result<(), String> {
@@ -145,16 +182,16 @@ impl Config {
             log::info!("no config at {}, using defaults", path.display());
             return Self::default();
         };
-        let mut raw: Value = match serde_json::from_str(&text) {
-            Ok(raw) => raw,
+        let (config, legacy) = match Self::parse(&text) {
+            Ok(parsed) => parsed,
             Err(err) => {
-                log::warn!("config.json is not valid JSON ({err}), using defaults");
+                log::warn!(
+                    "config.json cannot be read ({err}); using defaults and leaving the file as it is"
+                );
+                mark_unreadable(&path);
                 return Self::default();
             }
         };
-
-        let legacy = take_legacy_plugins(&mut raw);
-        let config: Config = serde_json::from_value(raw).unwrap_or_default();
 
         if !legacy.is_empty() {
             for (id, plugin) in legacy {
@@ -177,10 +214,20 @@ impl Config {
         config
     }
 
+    /// A field of the wrong type fails the whole file instead of quietly
+    /// becoming a default, because the file would then be saved without it.
+    fn parse(text: &str) -> Result<(Self, Vec<(String, PluginConfig)>), String> {
+        let mut raw: Value =
+            serde_json::from_str(strip_bom(text)).map_err(|e| format!("not valid JSON: {e}"))?;
+        let legacy = take_legacy_plugins(&mut raw);
+        let config = serde_json::from_value(raw).map_err(|e| e.to_string())?;
+        Ok((config, legacy))
+    }
+
     pub fn save(&self) -> Result<(), String> {
         let text = serde_json::to_string_pretty(self)
             .map_err(|e| format!("cannot serialise config: {e}"))?;
-        write_atomic(&config_path(), &text)
+        save_readable(&config_path(), &text)
     }
 }
 
@@ -218,13 +265,14 @@ impl PluginConfig {
         let Ok(text) = fs::read_to_string(&path) else {
             return Self::default();
         };
-        match serde_json::from_str(&text) {
+        match serde_json::from_str(strip_bom(&text)) {
             Ok(plugin) => plugin,
             Err(err) => {
                 log::warn!(
-                    "{} is not valid JSON ({err}), using defaults",
+                    "{} cannot be read ({err}); using defaults and leaving the file as it is",
                     path.display()
                 );
+                mark_unreadable(&path);
                 Self::default()
             }
         }
@@ -233,7 +281,7 @@ impl PluginConfig {
     pub fn save(&self, id: &str) -> Result<(), String> {
         let text = serde_json::to_string_pretty(self)
             .map_err(|e| format!("cannot serialise the settings for {id}: {e}"))?;
-        write_atomic(&plugin_path(id), &text)
+        save_readable(&plugin_path(id), &text)
     }
 
     pub fn reset(id: &str) -> Result<(), String> {
@@ -341,6 +389,40 @@ mod tests {
         assert!(plugin.enabled);
         assert!(plugin.hotkeys.is_empty());
         assert!(plugin.settings.is_object());
+    }
+
+    #[test]
+    fn a_byte_order_mark_does_not_stop_a_file_from_parsing() {
+        let (config, _) = Config::parse("\u{feff}{\"theme\":\"light\"}").unwrap();
+        assert_eq!(config.theme, ThemeChoice::Light);
+
+        let plugin: PluginConfig =
+            serde_json::from_str(strip_bom("\u{feff}{\"enabled\":false}")).unwrap();
+        assert!(!plugin.enabled);
+        assert_eq!(strip_bom("{}"), "{}");
+    }
+
+    #[test]
+    fn a_field_of_the_wrong_type_fails_the_file_instead_of_defaulting() {
+        assert!(Config::parse(r#"{"theme":"blue"}"#).is_err());
+        assert!(Config::parse("not json").is_err());
+    }
+
+    #[test]
+    fn a_file_that_could_not_be_read_is_never_overwritten() {
+        let dir = std::env::temp_dir().join(format!("wincraft-test-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("broken.json");
+        fs::write(&path, "{ broken").unwrap();
+
+        mark_unreadable(&path);
+        assert!(save_readable(&path, "{}").is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{ broken");
+
+        let other = dir.join("fine.json");
+        save_readable(&other, "{}").unwrap();
+        assert_eq!(fs::read_to_string(&other).unwrap(), "{}");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

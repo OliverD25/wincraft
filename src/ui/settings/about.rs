@@ -76,7 +76,7 @@ pub fn show(ui: &mut egui::Ui, snapshot: &UiSnapshot, state: &mut SettingsState)
                 ui,
                 "About",
                 None,
-                "The source code is public on GitHub.",
+                "WinCraft is open source under the MIT licence.",
                 |_| {},
             );
             ui.add_space(16.0);
