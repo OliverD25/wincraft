@@ -70,7 +70,12 @@ each program and makes the taskbar match it. New windows join at the end, as
 Windows adds them; a window that stays closed for one save interval is
 dropped from the list.
 
-To change the order, bring a window to the front and press **Move window
+The easiest way to change the order is **Arrange windows** (`Win+Alt+A`, the
+palette, or the button on this page): drag a window up or down the list, or
+select it and use **Move up** and **Move down**. Every change goes to the
+taskbar at once and is saved.
+
+Without the mouse, bring a window to the front and press **Move window
 left in taskbar** or **Move window right in taskbar**. The group's thumbnails
 are rebuilt in the new order, which is visible for a moment.
 
@@ -88,6 +93,7 @@ and then sends every window back to its desktop.
 | Save layout now | `Win+Alt+J` |
 | Move window left in taskbar | `Win+Alt+[` |
 | Move window right in taskbar | `Win+Alt+]` |
+| Arrange windows | `Win+Alt+A` |
 
 ## Settings
 

@@ -1,5 +1,7 @@
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 
+use crate::core::ui_bridge::ArrangeGroup;
+
 pub struct PluginMetadata {
     pub id: &'static str,
     pub name: &'static str,
@@ -84,6 +86,13 @@ pub struct PaletteCommand {
     pub hint: &'static str,
 }
 
+/// What a plugin that keeps a window order shows in the Arrange windows list.
+pub struct WindowGroups {
+    pub groups: Vec<ArrangeGroup>,
+    /// The hotkey action behind the list's Restore layout button.
+    pub restore_action: Option<u32>,
+}
+
 pub struct HostContext<'a> {
     pub hwnd: HWND,
     pub settings: &'a serde_json::Value,
@@ -145,6 +154,23 @@ pub trait WinCraftPlugin {
     /// `host::plugin_changed()` when it changes.
     fn status(&self) -> Option<String> {
         None
+    }
+
+    /// One of the plugin's hotkey actions, shown as a button on its page.
+    fn page_action(&self) -> Option<u32> {
+        None
+    }
+
+    /// Groups for the Arrange windows list, for a plugin that keeps a window
+    /// order. The host asks when the list opens and after every reorder;
+    /// `host::open_arrange()` opens it from a plugin callback.
+    fn window_groups(&mut self) -> Option<WindowGroups> {
+        None
+    }
+
+    /// The list moved a window: `order` is the group's new order.
+    fn on_reorder(&mut self, exe: &str, order: &[isize]) {
+        let _ = (exe, order);
     }
 
     fn teardown(&mut self) {}

@@ -1,3 +1,4 @@
+mod arrange;
 pub mod fuzzy;
 mod palette;
 mod settings;
@@ -12,6 +13,7 @@ use crate::core::theme;
 use crate::core::ui_bridge::{
     HostChannel, HostRequest, MonitorRect, UiChannel, UiCommand, UiSnapshot,
 };
+use crate::ui::arrange::Arrange;
 use crate::ui::palette::{Outcome, Palette};
 use crate::ui::settings::Settings;
 
@@ -101,6 +103,8 @@ struct App {
     pending_position: Option<MonitorRect>,
     settings_open: bool,
     settings: Settings,
+    arrange_open: bool,
+    arrange: Arrange,
     quitting: bool,
     applied_scale: f32,
     painted_once: bool,
@@ -141,6 +145,8 @@ impl App {
             palette_visible: false,
             pending_position: None,
             settings_open: false,
+            arrange_open: false,
+            arrange: Arrange::new(Arc::clone(&to_host_for_settings), palette_hwnd),
             settings: Settings::new(to_host_for_settings, snapshot_for_settings, palette_hwnd),
             quitting: false,
             applied_scale: 0.0,
@@ -169,9 +175,21 @@ impl App {
                     ctx.request_repaint();
                     log::info!("settings shown");
                 }
+                UiCommand::ShowArrange(snapshot) => {
+                    self.arrange.open(snapshot);
+                    self.arrange_open = true;
+                    ctx.request_repaint();
+                    log::info!("arrange windows shown");
+                }
+                UiCommand::ArrangeUpdate(snapshot) => {
+                    self.arrange.update(snapshot);
+                    ctx.request_repaint_of(arrange::viewport_id());
+                }
                 UiCommand::HideAll => {
                     self.hide_palette(ctx);
                     self.settings_open = false;
+                    self.arrange_open = false;
+                    self.arrange.hidden();
                 }
                 UiCommand::Snapshot(snapshot) => {
                     self.settings.set_snapshot((*snapshot).clone());
@@ -292,6 +310,14 @@ impl eframe::App for App {
                 self.settings.hidden();
             } else {
                 self.settings.show(&ctx, Some(Arc::clone(&self.icon)));
+            }
+        }
+        if self.arrange_open {
+            if self.arrange.was_closed() {
+                self.arrange_open = false;
+                self.arrange.hidden();
+            } else {
+                self.arrange.show(&ctx, Some(Arc::clone(&self.icon)));
             }
         }
 

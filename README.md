@@ -80,6 +80,7 @@ three back after a reboot. Any program can be watched, not only Chrome.
 | `Win+Alt+J` | Save the layout now |
 | `Win+Alt+[` | Move the front window one place left in its taskbar group |
 | `Win+Alt+]` | Move the front window one place right in its taskbar group |
+| `Win+Alt+A` | Open the Arrange windows list: drag windows into the order you want |
 
 Moving windows between desktops uses undocumented Windows interfaces, ported
 from [MScholtes' VirtualDesktop](https://github.com/MScholtes/VirtualDesktop)

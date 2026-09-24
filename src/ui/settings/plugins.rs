@@ -131,6 +131,12 @@ fn detail(
         text::secondary(ui, status, tokens.text_secondary);
         ui.add_space(8.0);
     }
+    if let Some((label, command)) = &plugin.page_action {
+        if button::button(ui, label, Kind::Secondary).clicked() {
+            to_host.send(HostRequest::RunCommand(*command));
+        }
+        ui.add_space(8.0);
+    }
 
     if !plugin.fields.is_empty() {
         page::section_header(ui, "Settings");

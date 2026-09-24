@@ -141,6 +141,34 @@ impl OrderModel {
         true
     }
 
+    /// The live windows in thumbnail order, with what the model knows of them.
+    pub fn windows(&self) -> impl Iterator<Item = (Handle, &WindowIdentity)> {
+        self.entries
+            .iter()
+            .filter_map(|entry| entry.hwnd.map(|hwnd| (hwnd, &entry.identity)))
+    }
+
+    /// Puts the live windows in the given order; windows the list leaves
+    /// out keep their relative order after it.
+    pub fn set_order(&mut self, wanted: &[Handle]) {
+        let mut ordered: Vec<Entry> = wanted
+            .iter()
+            .filter_map(|hwnd| {
+                self.entries
+                    .iter()
+                    .find(|entry| entry.hwnd == Some(*hwnd))
+                    .cloned()
+            })
+            .collect();
+        ordered.extend(
+            self.entries
+                .iter()
+                .filter(|entry| entry.hwnd.is_none_or(|hwnd| !wanted.contains(&hwnd)))
+                .cloned(),
+        );
+        self.entries = ordered;
+    }
+
     /// What `apply` would send, or None when the taskbar already shows it.
     pub fn pending(&self) -> Option<Vec<Handle>> {
         let handles = self.handles();
@@ -294,6 +322,18 @@ mod tests {
         assert!(model.shift(102, 1, &[100, 102]));
         assert_eq!(labels(&model), ["C", "B", "A"]);
         assert!(!model.shift(101, 1, &[100, 102]));
+    }
+
+    #[test]
+    fn set_order_puts_the_listed_windows_first() {
+        let mut model = OrderModel::default();
+        model.refresh(&live(&["C", "B", "A"]), 0, 30);
+        model.set_order(&[100, 102]);
+        assert_eq!(labels(&model), ["C", "A", "B"]);
+        model.set_order(&[999]);
+        assert_eq!(labels(&model), ["C", "A", "B"]);
+        let listed: Vec<Handle> = model.windows().map(|(hwnd, _)| hwnd).collect();
+        assert_eq!(listed, [100, 102, 101]);
     }
 
     #[test]

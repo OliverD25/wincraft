@@ -58,6 +58,34 @@ pub enum HostSetting {
     PaletteHotkey(String),
 }
 
+/// One window in the Arrange windows list.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArrangeWindow {
+    /// The window handle as a number; the list sends it back to say which
+    /// window moved.
+    pub hwnd: isize,
+    pub label: String,
+    /// Secondary text, such as the desktop the window is on.
+    pub detail: String,
+}
+
+/// One program's taskbar group, windows in thumbnail order.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArrangeGroup {
+    pub exe: String,
+    pub label: String,
+    pub windows: Vec<ArrangeWindow>,
+    /// Windows the list can reorder but the taskbar only picks up later.
+    pub note: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArrangeSnapshot {
+    pub plugin: String,
+    pub groups: Vec<ArrangeGroup>,
+    pub restore: Option<CommandId>,
+}
+
 /// Screen rectangle in physical pixels, as Win32 reports it.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MonitorRect {
@@ -70,6 +98,9 @@ pub struct MonitorRect {
 pub enum UiCommand {
     ShowPalette(MonitorRect),
     ShowSettings(Page),
+    ShowArrange(ArrangeSnapshot),
+    /// A fresh list for the Arrange window, if it is still open.
+    ArrangeUpdate(ArrangeSnapshot),
     HideAll,
     Snapshot(Box<UiSnapshot>),
     ThemeChanged,
@@ -81,6 +112,11 @@ pub enum HostRequest {
         palette_hwnd: isize,
     },
     RunCommand(CommandId),
+    ReorderGroup {
+        plugin: String,
+        exe: String,
+        order: Vec<isize>,
+    },
     SetPluginEnabled {
         id: String,
         enabled: bool,
@@ -132,6 +168,8 @@ pub struct PluginInfo {
     pub hotkeys: Vec<HotkeyInfo>,
     pub fields: Vec<FieldInfo>,
     pub status: Option<String>,
+    /// A button on the plugin's page: its label and what it runs.
+    pub page_action: Option<(String, CommandId)>,
 }
 
 #[derive(Clone, Debug)]

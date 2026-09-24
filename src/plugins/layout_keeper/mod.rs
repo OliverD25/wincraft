@@ -20,8 +20,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::core::traits::{
     FieldKind, HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata, SettingField,
-    TrayAction, WinCraftPlugin,
+    TrayAction, WinCraftPlugin, WindowGroups,
 };
+use crate::core::ui_bridge::{ArrangeGroup, ArrangeWindow};
 use crate::core::{clock, host, wide};
 use desktops::{Desktop, DesktopId};
 use order::{Handle, OrderModel};
@@ -37,6 +38,7 @@ const ACTION_RESTORE: u32 = 1;
 const ACTION_SAVE_NOW: u32 = 2;
 const ACTION_MOVE_LEFT: u32 = 3;
 const ACTION_MOVE_RIGHT: u32 = 4;
+const ACTION_ARRANGE: u32 = 5;
 
 const VK_OPEN_BRACKET: u32 = 0xDB;
 const VK_CLOSE_BRACKET: u32 = 0xDD;
@@ -46,6 +48,14 @@ const DEFAULT_PROGRAMS: &str = "chrome.exe";
 const DEFAULT_SNAPSHOT_SECONDS: u64 = 30;
 const DEFAULT_SETTLE_SECONDS: u64 = 5;
 const DEFAULT_RESTORE_MINUTES: u64 = 3;
+
+/// The second half of a restore, run one tick after the first.
+struct Finish {
+    moves: Vec<(HWND, DesktopId, String)>,
+    stack: Vec<(usize, HWND)>,
+    foreground: HWND,
+    summary: String,
+}
 
 /// The undocumented move chain is built on first use and kept for the
 /// session, or given up on for the session after one failure.
@@ -71,6 +81,7 @@ pub struct LayoutKeeper {
     taskbar: Option<order::Taskbar>,
     mover: Mover,
     restore: Restore,
+    finishing: Option<Finish>,
     last_saved: Option<String>,
     last_restore: Option<String>,
 }
@@ -91,6 +102,7 @@ impl Default for LayoutKeeper {
             taskbar: None,
             mover: Mover::Untried,
             restore: Restore::new(DEFAULT_SETTLE_SECONDS, DEFAULT_RESTORE_MINUTES * 60),
+            finishing: None,
             last_saved: None,
             last_restore: None,
         }
@@ -176,8 +188,8 @@ impl LayoutKeeper {
     fn save(&mut self, reason: &str) {
         // Until the restore has run, the windows on screen are the scrambled
         // ones the file is meant to fix; saving them would lose the layout.
-        if self.restore.is_running() {
-            log::info!("a restore is waiting, so the layout is not saved ({reason})");
+        if self.restore_busy() {
+            log::info!("a restore is under way, so the layout is not saved ({reason})");
             return;
         }
         let shutdown = reason == "shutdown";
@@ -261,6 +273,10 @@ impl LayoutKeeper {
         self.save("manual");
     }
 
+    fn restore_busy(&self) -> bool {
+        self.restore.is_running() || self.finishing.is_some()
+    }
+
     fn start_restore(&mut self) {
         if self.writer.last().is_none() {
             log::info!("no layout has been saved yet, so there is nothing to restore");
@@ -273,12 +289,12 @@ impl LayoutKeeper {
         self.restore.start(self.ticks);
     }
 
-    /// Puts the saved layout back: each group's taskbar order, then every
-    /// window's desktop, then the front-to-back order. Re-adding the buttons
-    /// pulls every window onto the current desktop, which is why the desktops
-    /// come second; without the desktop mover only the windows already on
-    /// this desktop are re-added. The current desktop and the foreground
-    /// window are left as they are.
+    /// First half of a restore: each group's taskbar order. Re-adding the
+    /// buttons pulls every window onto the current desktop, a moment later
+    /// and not at once, so the desktop moves and the front-to-back order wait
+    /// for the next tick in `finish_restore`. Without the desktop mover only
+    /// the windows already on this desktop are re-added. The current desktop
+    /// and the foreground window are left as they are.
     fn restore_layout(&mut self) {
         let Some(saved) = self.writer.last().cloned() else {
             return;
@@ -288,6 +304,7 @@ impl LayoutKeeper {
         let can_move = self.ensure_mover(&registry);
         let foreground = unsafe { GetForegroundWindow() };
         let mut stack: Vec<(usize, HWND)> = Vec::new();
+        let mut moves: Vec<(HWND, DesktopId, String)> = Vec::new();
         let mut parts: Vec<String> = Vec::new();
         let mut missing = 0;
 
@@ -328,12 +345,7 @@ impl LayoutKeeper {
                             *id == DesktopId::ALL || desktops::name_of(&registry, *id).is_some()
                         });
                     if let Some(target) = saved_desktop.or(before[l]) {
-                        self.move_to_desktop(
-                            window.hwnd,
-                            target,
-                            &registry,
-                            window.identity.label(),
-                        );
+                        moves.push((window.hwnd, target, window.identity.label().to_string()));
                     }
                 }
             }
@@ -363,23 +375,47 @@ impl LayoutKeeper {
             ));
         }
 
+        let mut summary = format!("Restored {}", parts.join(", "));
+        if missing > 0 {
+            summary.push_str(&format!(" ({missing} not found)"));
+        }
+        self.finishing = Some(Finish {
+            moves,
+            stack,
+            foreground,
+            summary,
+        });
+    }
+
+    /// Second half of a restore: desktops, then the front-to-back order.
+    /// Right after the buttons were re-added Windows may still report a
+    /// window's old desktop, so every window whose desktop is not the current
+    /// one is moved without asking where it is.
+    fn finish_restore(&mut self, finish: Finish) {
+        let registry = desktops::list();
+        let current = desktops::current();
+        for (hwnd, target, label) in &finish.moves {
+            if Some(*target) != current {
+                self.move_to_desktop(*hwnd, *target, &registry, label);
+            }
+        }
+        let mut stack = finish.stack;
         if self.front_order && !stack.is_empty() {
             stack.sort_by(|a, b| b.0.cmp(&a.0));
             for (_, hwnd) in &stack {
                 raise(*hwnd);
             }
-            if !foreground.is_null() {
-                raise(foreground);
+            if !finish.foreground.is_null() {
+                raise(finish.foreground);
             }
         }
-
-        let mut summary = format!("Restored {}", parts.join(", "));
-        if missing > 0 {
-            summary.push_str(&format!(" ({missing} not found)"));
-        }
-        log::info!("{summary}");
-        host::notify("LayoutKeeper", &summary);
-        self.last_restore = Some(format!("{summary} at {}", clock::now_hours_minutes()));
+        log::info!("{}", finish.summary);
+        host::notify("LayoutKeeper", &finish.summary);
+        self.last_restore = Some(format!(
+            "{} at {}",
+            finish.summary,
+            clock::now_hours_minutes()
+        ));
     }
 
     /// Builds the desktop mover on first use; true when it is usable.
@@ -413,8 +449,7 @@ impl LayoutKeeper {
             log::info!("\"{label}\" was on desktop {target}, which no longer exists");
             return;
         };
-        let now = self.reader.as_ref().and_then(|reader| reader.read(hwnd));
-        if now == Some(target) || now == Some(DesktopId::ALL) {
+        if self.reader.as_ref().and_then(|reader| reader.read(hwnd)) == Some(DesktopId::ALL) {
             return;
         }
         let Mover::Ready(mover) = &self.mover else {
@@ -428,6 +463,10 @@ impl LayoutKeeper {
 
     fn tick(&mut self) {
         self.ticks += 1;
+        if let Some(finish) = self.finishing.take() {
+            self.finish_restore(finish);
+            return;
+        }
         if self.restore.is_running() {
             let count = windows::enumerate(&self.programs).len();
             match self.restore.step(self.ticks, count) {
@@ -677,6 +716,12 @@ impl WinCraftPlugin for LayoutKeeper {
                 label: "Move window right in taskbar",
                 default: win_alt(VK_CLOSE_BRACKET),
             },
+            HotkeyAction {
+                id: ACTION_ARRANGE,
+                name: "arrange",
+                label: "Arrange windows",
+                default: win_alt(u32::from(b'A')),
+            },
         ]
     }
 
@@ -686,21 +731,94 @@ impl WinCraftPlugin for LayoutKeeper {
             ACTION_SAVE_NOW => self.save("manual"),
             ACTION_MOVE_LEFT => self.shift_front(-1),
             ACTION_MOVE_RIGHT => self.shift_front(1),
+            ACTION_ARRANGE => host::open_arrange(),
             _ => {}
         }
     }
 
     fn tray_actions(&self) -> Vec<TrayAction> {
-        vec![TrayAction {
-            id: ACTION_RESTORE,
-            label: "Restore layout",
-        }]
+        vec![
+            TrayAction {
+                id: ACTION_RESTORE,
+                label: "Restore layout",
+            },
+            TrayAction {
+                id: ACTION_ARRANGE,
+                label: "Arrange windows",
+            },
+        ]
     }
 
     fn on_tray_action(&mut self, action_id: u32) {
-        if action_id == ACTION_RESTORE {
-            self.start_restore();
+        match action_id {
+            ACTION_RESTORE => self.start_restore(),
+            ACTION_ARRANGE => host::open_arrange(),
+            _ => {}
         }
+    }
+
+    fn page_action(&self) -> Option<u32> {
+        Some(ACTION_ARRANGE)
+    }
+
+    fn window_groups(&mut self) -> Option<WindowGroups> {
+        self.refresh();
+        let desktops = desktops::list();
+        let groups = self
+            .programs
+            .iter()
+            .filter_map(|exe| {
+                let model = self.groups.get(exe)?;
+                let mut elsewhere = 0;
+                let windows: Vec<ArrangeWindow> = model
+                    .windows()
+                    .map(|(hwnd, identity)| {
+                        if windows::on_other_desktop(hwnd as HWND) {
+                            elsewhere += 1;
+                        }
+                        let desktop = self
+                            .reader
+                            .as_ref()
+                            .and_then(|reader| reader.read(hwnd as HWND))
+                            .and_then(|id| desktops::name_of(&desktops, id))
+                            .unwrap_or_default();
+                        ArrangeWindow {
+                            hwnd,
+                            label: identity.label().to_string(),
+                            detail: desktop,
+                        }
+                    })
+                    .collect();
+                if windows.is_empty() {
+                    return None;
+                }
+                let note = if elsewhere > 0 {
+                    "Windows on other desktops take their new place in the taskbar at the next restore.".to_string()
+                } else {
+                    String::new()
+                };
+                Some(ArrangeGroup {
+                    exe: exe.clone(),
+                    label: product_name(exe),
+                    windows,
+                    note,
+                })
+            })
+            .collect();
+        Some(WindowGroups {
+            groups,
+            restore_action: Some(ACTION_RESTORE),
+        })
+    }
+
+    fn on_reorder(&mut self, exe: &str, order: &[isize]) {
+        self.refresh();
+        let Some(model) = self.groups.get_mut(exe) else {
+            return;
+        };
+        model.set_order(order);
+        self.apply_group(exe, false);
+        self.save("manual");
     }
 
     fn palette_commands(&self) -> Vec<PaletteCommand> {
@@ -728,7 +846,7 @@ impl WinCraftPlugin for LayoutKeeper {
             Mover::Disabled(reason) => format!("Desktop moves: disabled ({reason})"),
         };
         let mut parts = vec![saved];
-        if self.restore.is_running() {
+        if self.restore_busy() {
             parts.push("Restore waiting for the windows to settle".to_string());
         } else if let Some(restore) = &self.last_restore {
             parts.push(restore.clone());
@@ -752,6 +870,7 @@ impl WinCraftPlugin for LayoutKeeper {
             self.save("teardown");
         }
         self.restore = Restore::new(self.restore.settle_seconds, self.restore.give_up_seconds);
+        self.finishing = None;
         self.reader = None;
         self.taskbar = None;
         self.mover = Mover::Untried;

@@ -129,6 +129,12 @@ pub fn list() -> Vec<Desktop> {
         .collect()
 }
 
+pub fn current() -> Option<DesktopId> {
+    reg_binary(VIRTUAL_DESKTOPS, "CurrentVirtualDesktop")
+        .as_deref()
+        .and_then(DesktopId::from_bytes)
+}
+
 pub fn name_of(desktops: &[Desktop], id: DesktopId) -> Option<String> {
     if id == DesktopId::ALL {
         return Some("All desktops".to_string());

@@ -130,6 +130,9 @@ The About page lists the kinds the build you are running can draw.
 | `palette_commands` | For entries that are neither a hotkey nor a tray item. |
 | `on_palette_command(id)` | When one of those is chosen. |
 | `status` | When building your page. One line under your description; call `host::plugin_changed()` when it changes. |
+| `page_action` | When building your page. One of your hotkey actions, shown as a button under the status line. |
+| `window_groups` | When the Arrange windows list opens (`host::open_arrange()`) and after every reorder. Only for plugins that keep a window order. |
+| `on_reorder(exe, order)` | When the user drags a window to a new place in that list. |
 | `on_windows_message` | On `WM_DISPLAYCHANGE`, `WM_SETTINGCHANGE`, `WM_POWERBROADCAST`, `WM_TIMER`, `WM_QUERYENDSESSION` and `WM_ENDSESSION`. The two session messages arrive while every program is still open; the host answers `WM_QUERYENDSESSION` with TRUE itself. |
 | `teardown` | When the plugin is switched off and at exit. Release every window and handle here. |
 

@@ -30,8 +30,9 @@ use crate::core::config::{Config, PluginConfig, DEFAULT_PALETTE_HOTKEY};
 use crate::core::traits::{HostContext, Hotkey, WinCraftPlugin};
 use crate::core::tray::{show_menu, MenuItem, Tray, WM_TRAY_CALLBACK};
 use crate::core::ui_bridge::{
-    self, ActionKind, CommandId, FieldInfo, HostCommand, HostRequest, HostSetting, HotkeyInfo,
-    MonitorRect, Page, PaletteEntry, PluginInfo, UiChannel, UiCommand, UiSnapshot, WM_APP_UI,
+    self, ActionKind, ArrangeSnapshot, CommandId, FieldInfo, HostCommand, HostRequest, HostSetting,
+    HotkeyInfo, MonitorRect, Page, PaletteEntry, PluginInfo, UiChannel, UiCommand, UiSnapshot,
+    WM_APP_UI,
 };
 use crate::core::{autostart, config, hotkeys, theme, wide};
 use crate::ui;
@@ -100,6 +101,7 @@ thread_local! {
     static TASKBAR_CREATED: Cell<u32> = const { Cell::new(0) };
     static HOST_WINDOW: Cell<HWND> = const { Cell::new(std::ptr::null_mut()) };
     static NOTICES: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
+    static ARRANGE_WANTED: Cell<bool> = const { Cell::new(false) };
 }
 
 pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: StartupFlags) {
@@ -484,6 +486,22 @@ impl Host {
                         })
                         .collect(),
                     status: slot.plugin.status(),
+                    page_action: slot.plugin.page_action().and_then(|action| {
+                        slot.plugin
+                            .hotkey_actions()
+                            .into_iter()
+                            .find(|hotkey| hotkey.id == action)
+                            .map(|hotkey| {
+                                (
+                                    hotkey.label.to_string(),
+                                    CommandId::Plugin {
+                                        index,
+                                        kind: ActionKind::Hotkey,
+                                        action,
+                                    },
+                                )
+                            })
+                    }),
                 }
             })
             .collect();
@@ -603,6 +621,36 @@ impl Host {
             .send(UiCommand::Snapshot(Box::new(self.snapshot())));
     }
 
+    /// Asks the first enabled plugin that keeps a window order for its groups
+    /// and sends them to the Arrange window.
+    fn send_arrange(&mut self, open: bool) {
+        let found = self.slots.iter_mut().enumerate().find_map(|(index, slot)| {
+            if !slot.enabled {
+                return None;
+            }
+            let groups = slot.plugin.window_groups()?;
+            Some((index, slot.plugin.metadata().id, groups))
+        });
+        let Some((index, id, groups)) = found else {
+            log::info!("no enabled plugin keeps a window order");
+            return;
+        };
+        let snapshot = ArrangeSnapshot {
+            plugin: id.to_string(),
+            groups: groups.groups,
+            restore: groups.restore_action.map(|action| CommandId::Plugin {
+                index,
+                kind: ActionKind::Hotkey,
+                action,
+            }),
+        };
+        self.to_ui.send(if open {
+            UiCommand::ShowArrange(snapshot)
+        } else {
+            UiCommand::ArrangeUpdate(snapshot)
+        });
+    }
+
     fn index_of(&self, id: &str) -> Option<usize> {
         self.slots
             .iter()
@@ -661,6 +709,14 @@ impl Host {
                 self.publish();
             }
             HostRequest::RunCommand(id) => self.run_command(id),
+            HostRequest::ReorderGroup { plugin, exe, order } => {
+                if let Some(index) = self.index_of(&plugin) {
+                    if self.slots[index].enabled {
+                        self.slots[index].plugin.on_reorder(&exe, &order);
+                    }
+                }
+                self.send_arrange(false);
+            }
             HostRequest::SetPluginEnabled { id, enabled } => {
                 if let Some(index) = self.index_of(&id) {
                     if enabled {
@@ -825,6 +881,12 @@ pub fn notify(title: &str, text: &str) {
             .borrow_mut()
             .push((title.to_string(), text.to_string()))
     });
+    plugin_changed();
+}
+
+/// Opens the Arrange windows list. Safe to call from any plugin callback.
+pub fn open_arrange() {
+    ARRANGE_WANTED.with(|cell| cell.set(true));
     plugin_changed();
 }
 
@@ -1079,10 +1141,14 @@ unsafe extern "system" fn wnd_proc(
         }
         WM_APP_PLUGIN => {
             let notices = NOTICES.with(|queue| std::mem::take(&mut *queue.borrow_mut()));
+            let arrange = ARRANGE_WANTED.with(|cell| cell.replace(false));
             with_host(|host| {
                 for (title, text) in &notices {
                     host.balloon_opens_detector = false;
                     host.tray.balloon(title, text);
+                }
+                if arrange {
+                    host.send_arrange(true);
                 }
                 host.publish();
             });

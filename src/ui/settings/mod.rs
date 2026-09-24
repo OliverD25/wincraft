@@ -22,20 +22,21 @@ use crate::plugins::shortcut_detector::probe::{self, Status};
 use crate::ui::widgets::capture::{self, Verdict};
 use crate::ui::widgets::{focus, hotkey_capture, row, text};
 
-/// Both of this thread's windows are titled "WinCraft" and winit keeps
-/// WS_CAPTION on the undecorated palette too, so the palette is skipped by
-/// its handle.
-fn find_settings_window(palette: isize) -> isize {
-    struct Search {
+/// A window of this thread by its title. The palette and the settings window
+/// are both titled "WinCraft" and winit keeps WS_CAPTION on the undecorated
+/// palette too, so the palette is skipped by its handle.
+pub(crate) fn find_window(title: &str, palette: isize) -> isize {
+    struct Search<'a> {
+        title: &'a str,
         skip: HWND,
         found: HWND,
     }
 
     unsafe extern "system" fn find(hwnd: HWND, search: LPARAM) -> BOOL {
         let search = unsafe { &mut *(search as *mut Search) };
-        let mut title = [0u16; 16];
+        let mut title = [0u16; 64];
         let len = unsafe { GetWindowTextW(hwnd, title.as_mut_ptr(), title.len() as i32) };
-        let titled = String::from_utf16_lossy(&title[..len.max(0) as usize]) == "WinCraft";
+        let titled = String::from_utf16_lossy(&title[..len.max(0) as usize]) == search.title;
         if hwnd != search.skip && titled {
             search.found = hwnd;
             return 0;
@@ -44,6 +45,7 @@ fn find_settings_window(palette: isize) -> isize {
     }
 
     let mut search = Search {
+        title,
         skip: palette as HWND,
         found: std::ptr::null_mut(),
     };
@@ -61,7 +63,7 @@ fn find_settings_window(palette: isize) -> isize {
 /// a light page. winit's own theme switch does not reach the Windows 11
 /// caption, and Windows puts the dark caption back when the window is shown
 /// or activated, so the attribute is checked on every frame, not set once.
-fn sync_title_bar(hwnd: isize, dark: bool) {
+pub(crate) fn sync_title_bar(hwnd: isize, dark: bool) {
     let hwnd = hwnd as HWND;
     let mut current: BOOL = 0;
     unsafe {
@@ -388,7 +390,7 @@ impl Settings {
             let tokens = Tokens::get(ui.ctx());
 
             if *window == 0 {
-                *window = find_settings_window(palette_hwnd);
+                *window = find_window("WinCraft", palette_hwnd);
             }
             if *window != 0 {
                 sync_title_bar(*window, tokens.dark);
