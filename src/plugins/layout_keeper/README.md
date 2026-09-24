@@ -70,10 +70,33 @@ each program and makes the taskbar match it. New windows join at the end, as
 Windows adds them; a window that stays closed for one save interval is
 dropped from the list.
 
-The easiest way to change the order is **Arrange windows** (`Win+Alt+A`, the
-palette, or the button on this page): drag a window up or down the list, or
-select it and use **Move up** and **Move down**. Every change goes to the
-taskbar at once and is saved.
+### Arrange windows
+
+`Win+Alt+A` (or the palette, or the button on this page) opens a strip above
+the taskbar with a live picture of every window of the front window's
+program, like the taskbar's own thumbnails. There is one row per virtual
+desktop: this desktop first, then the others under their names. The pictures
+are drawn by Windows itself (DWM thumbnails) and stay live while the strip
+is open; windows on other desktops have pictures too. A window Windows
+cannot picture shows its name instead.
+
+- **Click** a picture to switch to that window; the strip closes.
+- **Drag** a picture to a new place. Every change goes to the taskbar at once
+  and is saved. Dropping it in another desktop's row moves the window to
+  that desktop.
+- **Right-click** for **Close window** and **Move to desktop**. Closing is
+  only offered here, never on a key.
+- **Keyboard:** ← and → pick a window, Ctrl+← and Ctrl+→ move it, Enter
+  switches to it, Esc closes the strip. The strip also closes when you click
+  elsewhere.
+
+The taskbar only shows the current desktop's buttons, and Windows cannot
+rebuild a button without bringing its window to the current desktop. So a
+new order for windows on other desktops is saved at once but reaches their
+taskbar at the next restore; the strip says so when more than one desktop is
+shown.
+
+### Without the mouse
 
 Without the mouse, bring a window to the front and press **Move window
 left in taskbar** or **Move window right in taskbar**. The group's thumbnails
@@ -87,7 +110,7 @@ and then sends every window back to its desktop.
 
 ### Why not drag in the taskbar itself
 
-The mouse way to reorder is the Arrange windows list. Dragging a thumbnail
+The mouse way to reorder is the Arrange windows strip. Dragging a thumbnail
 inside the taskbar's own flyout is not possible from outside Explorer on
 Windows 11 24H2: the flyout exposes no accessible thumbnail items, so another
 program cannot tell which thumbnail is under the pointer (probed on

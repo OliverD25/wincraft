@@ -97,10 +97,20 @@ pub struct ArrangeSnapshot {
     pub watched: Vec<String>,
 }
 
-/// What the strip asks the plugin to do with one window.
+/// What the strip asks the plugin to do.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ArrangeAction {
     Activate(isize),
+    /// The program's windows in their new taskbar order.
+    Reorder {
+        exe: String,
+        order: Vec<isize>,
+    },
+    MoveToDesktop {
+        hwnd: isize,
+        desktop: String,
+    },
+    Close(isize),
 }
 
 /// Screen rectangle in physical pixels, as Win32 reports it.

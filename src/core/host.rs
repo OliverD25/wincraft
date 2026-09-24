@@ -30,9 +30,9 @@ use crate::core::config::{Config, PluginConfig, DEFAULT_PALETTE_HOTKEY};
 use crate::core::traits::{HostContext, Hotkey, WinCraftPlugin};
 use crate::core::tray::{show_menu, MenuItem, Tray, WM_TRAY_CALLBACK};
 use crate::core::ui_bridge::{
-    self, ActionKind, ArrangeSnapshot, CommandId, FieldInfo, HostCommand, HostRequest, HostSetting,
-    HotkeyInfo, MonitorRect, Page, PaletteEntry, PluginInfo, UiChannel, UiCommand, UiSnapshot,
-    WM_APP_UI,
+    self, ActionKind, ArrangeAction, ArrangeSnapshot, CommandId, FieldInfo, HostCommand,
+    HostRequest, HostSetting, HotkeyInfo, MonitorRect, Page, PaletteEntry, PluginInfo, UiChannel,
+    UiCommand, UiSnapshot, WM_APP_UI,
 };
 use crate::core::{autostart, config, hotkeys, theme, wide};
 use crate::ui;
@@ -103,6 +103,7 @@ thread_local! {
     static HOST_WINDOW: Cell<HWND> = const { Cell::new(std::ptr::null_mut()) };
     static NOTICES: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
     static ARRANGE_WANTED: Cell<bool> = const { Cell::new(false) };
+    static ARRANGE_STALE: Cell<bool> = const { Cell::new(false) };
 }
 
 pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: StartupFlags) {
@@ -717,6 +718,9 @@ impl Host {
                         self.slots[index].plugin.on_arrange_action(&action);
                     }
                 }
+                if !matches!(action, ArrangeAction::Activate(_)) {
+                    self.send_arrange(false);
+                }
             }
             HostRequest::FocusWindow(hwnd) => bring_to_front(hwnd as HWND),
             HostRequest::SetPluginEnabled { id, enabled } => {
@@ -889,6 +893,13 @@ pub fn notify(title: &str, text: &str) {
 /// Opens the Arrange windows list. Safe to call from any plugin callback.
 pub fn open_arrange() {
     ARRANGE_WANTED.with(|cell| cell.set(true));
+    plugin_changed();
+}
+
+/// Sends the Arrange strip fresh data if it is open, for changes that show
+/// a moment after the plugin made them. Safe to call from any callback.
+pub fn refresh_arrange() {
+    ARRANGE_STALE.with(|cell| cell.set(true));
     plugin_changed();
 }
 
@@ -1148,6 +1159,7 @@ unsafe extern "system" fn wnd_proc(
         WM_APP_PLUGIN => {
             let notices = NOTICES.with(|queue| std::mem::take(&mut *queue.borrow_mut()));
             let arrange = ARRANGE_WANTED.with(|cell| cell.replace(false));
+            let stale = ARRANGE_STALE.with(|cell| cell.replace(false));
             with_host(|host| {
                 for (title, text) in &notices {
                     host.balloon_opens_detector = false;
@@ -1155,6 +1167,8 @@ unsafe extern "system" fn wnd_proc(
                 }
                 if arrange {
                     host.send_arrange(true);
+                } else if stale {
+                    host.send_arrange(false);
                 }
                 host.publish();
             });

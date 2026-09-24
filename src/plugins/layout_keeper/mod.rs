@@ -13,9 +13,9 @@ use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetWindowThreadProcessId, IsIconic, KillTimer, SetTimer, SetWindowPos,
-    ShowWindow, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE, SW_SHOWNORMAL,
-    WM_ENDSESSION, WM_QUERYENDSESSION, WM_TIMER,
+    GetForegroundWindow, GetWindowThreadProcessId, IsIconic, KillTimer, PostMessageW, SetTimer,
+    SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE,
+    SW_SHOWNORMAL, WM_CLOSE, WM_ENDSESSION, WM_QUERYENDSESSION, WM_TIMER,
 };
 
 use crate::core::traits::{
@@ -82,6 +82,11 @@ pub struct LayoutKeeper {
     mover: Mover,
     restore: Restore,
     finishing: Option<Finish>,
+    /// Groups to rebuild again on the next tick, after a desktop move that
+    /// Windows only reports a moment later.
+    reapply: Vec<String>,
+    /// The strip needs fresh data on the next tick.
+    arrange_stale: bool,
     last_saved: Option<String>,
     last_restore: Option<String>,
 }
@@ -103,6 +108,8 @@ impl Default for LayoutKeeper {
             mover: Mover::Untried,
             restore: Restore::new(DEFAULT_SETTLE_SECONDS, DEFAULT_RESTORE_MINUTES * 60),
             finishing: None,
+            reapply: Vec::new(),
+            arrange_stale: false,
             last_saved: None,
             last_restore: None,
         }
@@ -256,6 +263,12 @@ impl LayoutKeeper {
             .copied()
             .filter(|hwnd| pull || !windows::on_other_desktop(*hwnd as HWND))
             .collect();
+        if send.is_empty() {
+            if let Some(group) = self.groups.get_mut(exe) {
+                group.mark_applied(pending);
+            }
+            return;
+        }
         if self.taskbar.is_none() {
             match order::Taskbar::new() {
                 Ok(taskbar) => self.taskbar = Some(taskbar),
@@ -532,6 +545,18 @@ impl LayoutKeeper {
 
     fn tick(&mut self) {
         self.ticks += 1;
+        if !self.reapply.is_empty() {
+            self.refresh();
+            for exe in std::mem::take(&mut self.reapply) {
+                if let Some(group) = self.groups.get_mut(&exe) {
+                    group.invalidate();
+                }
+                self.apply_group(&exe, false);
+            }
+        }
+        if std::mem::take(&mut self.arrange_stale) {
+            host::refresh_arrange();
+        }
         if let Some(finish) = self.finishing.take() {
             self.finish_restore(finish);
             return;
@@ -897,6 +922,49 @@ impl WinCraftPlugin for LayoutKeeper {
                     unsafe { ShowWindow(hwnd, SW_RESTORE) };
                 }
                 host::bring_to_front(hwnd);
+            }
+            ArrangeAction::Reorder { exe, order } => {
+                self.refresh();
+                let Some(model) = self.groups.get_mut(exe) else {
+                    return;
+                };
+                model.set_order(order);
+                self.apply_group(exe, false);
+                self.save("manual");
+            }
+            ArrangeAction::MoveToDesktop { hwnd, desktop } => {
+                let Some(target) = DesktopId::parse(desktop) else {
+                    return;
+                };
+                let registry = desktops::list();
+                if !self.ensure_mover(&registry) {
+                    let reason = match &self.mover {
+                        Mover::Disabled(reason) => reason.clone(),
+                        _ => "not available".to_string(),
+                    };
+                    host::notify(
+                        "LayoutKeeper",
+                        &format!("Windows cannot be moved to another desktop: {reason}"),
+                    );
+                    return;
+                }
+                let label = windows::window_text(*hwnd as HWND);
+                self.move_to_desktop(*hwnd as HWND, target, &registry, &label);
+                let owner = self
+                    .groups
+                    .iter()
+                    .find(|(_, group)| group.position_of(*hwnd).is_some())
+                    .map(|(exe, _)| exe.clone());
+                if let Some(exe) = owner {
+                    if !self.reapply.contains(&exe) {
+                        self.reapply.push(exe);
+                    }
+                }
+                self.arrange_stale = true;
+            }
+            ArrangeAction::Close(hwnd) => {
+                unsafe { PostMessageW(*hwnd as HWND, WM_CLOSE, 0, 0) };
+                self.arrange_stale = true;
             }
         }
     }

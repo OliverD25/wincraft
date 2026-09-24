@@ -80,14 +80,14 @@ three back after a reboot. Any program can be watched, not only Chrome.
 | `Win+Alt+J` | Save the layout now |
 | `Win+Alt+[` | Move the front window one place left in its taskbar group |
 | `Win+Alt+]` | Move the front window one place right in its taskbar group |
-| `Win+Alt+A` | Open the Arrange windows list: drag windows into the order you want |
+| `Win+Alt+A` | Open the Arrange strip: live pictures of the program's windows, drag them into order |
 
 Moving windows between desktops uses undocumented Windows interfaces, ported
 from [MScholtes' VirtualDesktop](https://github.com/MScholtes/VirtualDesktop)
 (MIT). They change between Windows builds; if they do not answer as expected,
 LayoutKeeper turns desktop moves off for the session and says so on its page.
 
-To reorder with the mouse, use the Arrange windows list. Dragging inside the
+To reorder with the mouse, use the Arrange strip. Dragging inside the
 taskbar's thumbnail flyout is not possible from outside Explorer on Windows 11
 24H2, because the flyout exposes no accessible thumbnail items (probed on
 2026-09-25). The Windhawk mod "Taskbar Thumbnail Reorder" still works for hand
