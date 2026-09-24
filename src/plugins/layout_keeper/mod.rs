@@ -198,7 +198,7 @@ impl LayoutKeeper {
         let count: usize = merged.values().map(|program| program.windows.len()).sum();
         match self
             .writer
-            .write(merged, reason, clock::utc_iso(SystemTime::now()))
+            .write(merged, reason, clock::utc_iso(SystemTime::now()), false)
         {
             Ok(true) => {
                 log::info!("saved {count} windows ({reason})");
@@ -207,6 +207,39 @@ impl LayoutKeeper {
             }
             Ok(false) => log::debug!("layout unchanged ({reason})"),
             Err(err) => log::error!("could not save the layout: {err}"),
+        }
+    }
+
+    /// Save layout now: always a fresh look and a write, and always a word
+    /// back, because an unchanged layout used to make the hotkey look dead.
+    fn save_now(&mut self) {
+        if self.restore_busy() {
+            log::info!("a restore is under way, so the layout is not saved (manual)");
+            host::notify(
+                "LayoutKeeper",
+                "A restore is under way; the layout is saved once it is done",
+            );
+            return;
+        }
+        let live = self.refresh();
+        let merged = state::merge(self.writer.last(), self.capture(&live), false);
+        let count: usize = merged.values().map(|program| program.windows.len()).sum();
+        match self
+            .writer
+            .write(merged, "manual", clock::utc_iso(SystemTime::now()), true)
+        {
+            Ok(_) => {
+                log::info!("saved {count} windows (manual)");
+                self.last_saved = Some(clock::now_hours_minutes());
+                host::notify("LayoutKeeper", &format!("Layout saved, {count} windows"));
+            }
+            Err(err) => {
+                log::error!("could not save the layout: {err}");
+                host::notify(
+                    "LayoutKeeper",
+                    &format!("The layout could not be saved: {err}"),
+                );
+            }
         }
     }
 
@@ -270,6 +303,13 @@ impl LayoutKeeper {
         let exe = windows::exe_name(pid);
         if !self.programs.contains(&exe) {
             log::info!("the front window belongs to \"{exe}\", which is not watched");
+            host::notify(
+                "LayoutKeeper",
+                &format!(
+                    "Moving in the taskbar works on windows of {}",
+                    self.programs.join(", ")
+                ),
+            );
             return;
         }
         let live = self.refresh();
@@ -284,6 +324,14 @@ impl LayoutKeeper {
             .is_some_and(|group| group.shift(front as Handle, step, &visible));
         if !moved {
             log::info!("the front window is already at that end of its group");
+            host::notify(
+                "LayoutKeeper",
+                if step < 0 {
+                    "This window is already first in its taskbar group"
+                } else {
+                    "This window is already last in its taskbar group"
+                },
+            );
             return;
         }
         self.apply_group(&exe, false);
@@ -297,6 +345,10 @@ impl LayoutKeeper {
     fn start_restore(&mut self) {
         if self.writer.last().is_none() {
             log::info!("no layout has been saved yet, so there is nothing to restore");
+            host::notify(
+                "LayoutKeeper",
+                "Nothing to restore: no layout has been saved yet",
+            );
             return;
         }
         log::info!(
@@ -677,7 +729,7 @@ impl WinCraftPlugin for LayoutKeeper {
                 None
             }
         };
-        self.writer = state::Writer::with_last(state::load().map(|file| file.programs));
+        self.writer = state::Writer::new(state::path(), state::load().map(|file| file.programs));
         self.groups = self
             .writer
             .last()
@@ -745,7 +797,7 @@ impl WinCraftPlugin for LayoutKeeper {
     fn on_hotkey(&mut self, action_id: u32) {
         match action_id {
             ACTION_RESTORE => self.start_restore(),
-            ACTION_SAVE_NOW => self.save("manual"),
+            ACTION_SAVE_NOW => self.save_now(),
             ACTION_MOVE_LEFT => self.shift_front(-1),
             ACTION_MOVE_RIGHT => self.shift_front(1),
             ACTION_ARRANGE => host::open_arrange(),

@@ -107,28 +107,36 @@ pub fn merge(previous: Option<&Programs>, fresh: Programs, shutdown: bool) -> Pr
 }
 
 /// Remembers what it last wrote so an unchanged layout costs no disk write.
-#[derive(Default)]
 pub struct Writer {
+    path: PathBuf,
     last: Option<Programs>,
 }
 
+impl Default for Writer {
+    fn default() -> Self {
+        Self::new(path(), None)
+    }
+}
+
 impl Writer {
-    pub fn with_last(last: Option<Programs>) -> Self {
-        Self { last }
+    pub fn new(path: PathBuf, last: Option<Programs>) -> Self {
+        Self { path, last }
     }
 
     pub fn last(&self) -> Option<&Programs> {
         self.last.as_ref()
     }
 
-    /// Returns whether anything was written.
+    /// Returns whether anything was written. `force` writes even an
+    /// unchanged layout, for a save the user asked for.
     pub fn write(
         &mut self,
         programs: Programs,
         reason: &str,
         saved: String,
+        force: bool,
     ) -> Result<bool, String> {
-        if self.last.as_ref() == Some(&programs) {
+        if !force && self.last.as_ref() == Some(&programs) {
             return Ok(false);
         }
         let file = StateFile {
@@ -139,7 +147,7 @@ impl Writer {
         };
         let text = serde_json::to_string_pretty(&file)
             .map_err(|e| format!("cannot serialise the layout: {e}"))?;
-        config::write_atomic(&path(), &text)?;
+        config::write_atomic(&self.path, &text)?;
         self.last = Some(file.programs);
         Ok(true)
     }
@@ -190,6 +198,33 @@ mod tests {
         let window: SavedWindow = serde_json::from_str(unnamed).unwrap();
         assert_eq!(window.name, None);
         assert_eq!(window.desktop, None);
+    }
+
+    #[test]
+    fn an_asked_for_save_writes_even_an_unchanged_layout() {
+        let dir = std::env::temp_dir().join(format!("wincraft-state-{}", std::process::id()));
+        let file = dir.join("layout_keeper.state.json");
+        let mut writer = Writer::new(file.clone(), None);
+        let layout = programs(&["A", "B"]);
+
+        assert_eq!(
+            writer.write(layout.clone(), "timer", "t1".into(), false),
+            Ok(true)
+        );
+        assert_eq!(
+            writer.write(layout.clone(), "timer", "t2".into(), false),
+            Ok(false)
+        );
+        assert_eq!(
+            writer.write(layout.clone(), "manual", "t3".into(), true),
+            Ok(true)
+        );
+
+        let written: StateFile = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(written.reason, "manual");
+        assert_eq!(written.saved, "t3");
+        assert_eq!(written.programs, layout);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

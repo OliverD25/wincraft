@@ -1111,6 +1111,10 @@ unsafe extern "system" fn wnd_proc(
                         .map(|entry| (index, entry.action_id))
                 });
                 if let Some((index, action_id)) = target {
+                    log::debug!(
+                        "hotkey {global_id} goes to {}, action {action_id}",
+                        host.slots[index].plugin.metadata().id
+                    );
                     if host.slots[index].enabled {
                         host.slots[index].plugin.on_hotkey(action_id);
                     }
