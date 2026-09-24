@@ -173,11 +173,11 @@ impl Palette {
         let hint = egui::RichText::new("Type a command\u{2026}")
             .italics()
             .color(tokens.text_disabled)
-            .font(theme::lora(15.0));
+            .font(theme::regular(15.0));
         let edit = egui::TextEdit::singleline(&mut self.query)
             .id_salt("palette-query")
             .hint_text(hint)
-            .font(theme::lora(15.0))
+            .font(theme::regular(15.0))
             .text_color(tokens.text_primary)
             .frame(egui::Frame::NONE)
             .margin(egui::Margin::ZERO)
@@ -293,8 +293,8 @@ fn label_job(label: &str, query: &str, tokens: &Tokens) -> LayoutJob {
     } else {
         fuzzy::positions(query, label).unwrap_or_default()
     };
-    let plain = text::format(theme::lora(14.0), tokens.text_primary, Some(20.0));
-    let mut hit = text::format(theme::lora(14.0), tokens.accent, Some(20.0));
+    let plain = text::format(theme::regular(14.0), tokens.text_primary, Some(20.0));
+    let mut hit = text::format(theme::regular(14.0), tokens.accent, Some(20.0));
     hit.underline = egui::Stroke::new(1.0, tokens.accent);
     let mut job = LayoutJob::default();
     for (index, character) in label.chars().enumerate() {
@@ -351,8 +351,12 @@ fn command_row(
             text::single(ui, label_job(&entry.label, query, &tokens));
             if entry.disabled {
                 ui.add_space(10.0);
-                let mut hint =
-                    text::job("plugin off", theme::lora(12.0), tokens.text_disabled, None);
+                let mut hint = text::job(
+                    "plugin off",
+                    theme::regular(12.0),
+                    tokens.text_disabled,
+                    None,
+                );
                 if let Some(section) = hint.sections.first_mut() {
                     section.format.italics = true;
                 }
@@ -382,7 +386,7 @@ fn nothing_matches(ui: &mut egui::Ui, list: Rect, tokens: &Tokens) {
                 ui,
                 text::job(
                     "Nothing matches",
-                    theme::cormorant(22.0),
+                    theme::semibold(22.0),
                     tokens.text_primary,
                     Some(26.0),
                 ),
@@ -415,7 +419,7 @@ fn footer_hints(ui: &mut egui::Ui, tokens: &Tokens) {
         ui.add_space(6.0);
         text::single(
             ui,
-            text::job(label, theme::lora(11.0), tokens.text_disabled, None),
+            text::job(label, theme::regular(11.0), tokens.text_disabled, None),
         );
     }
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -423,7 +427,7 @@ fn footer_hints(ui: &mut egui::Ui, tokens: &Tokens) {
             ui,
             text::job(
                 "WinCraft",
-                theme::cormorant(13.0),
+                theme::semibold(13.0),
                 tokens.text_disabled,
                 None,
             ),

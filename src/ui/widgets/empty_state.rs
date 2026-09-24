@@ -3,7 +3,7 @@ use egui::{Shape, Ui};
 use crate::core::theme::{self, Tokens};
 use crate::ui::widgets::text;
 
-/// A dashed box with a Cormorant 17 title and one 12 px line. Dashed rather
+/// A dashed box with a 15 px semibold title and one 12 px line. Dashed rather
 /// than solid so it never reads as a row that failed to load its controls.
 pub fn empty_state(ui: &mut Ui, title: &str, line: &str) {
     let tokens = Tokens::get(ui.ctx());
@@ -14,9 +14,9 @@ pub fn empty_state(ui: &mut Ui, title: &str, line: &str) {
             ui.spacing_mut().item_spacing.y = 4.0;
             text::single(
                 ui,
-                text::job(title, theme::cormorant(17.0), tokens.text_primary, None),
+                text::job(title, theme::semibold(15.0), tokens.text_primary, None),
             );
-            text::secondary(ui, line, tokens.text_secondary);
+            text::caption(ui, line, tokens.text_secondary);
         })
         .response;
 

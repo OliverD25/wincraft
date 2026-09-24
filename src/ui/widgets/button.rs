@@ -26,7 +26,7 @@ pub fn with_icon(ui: &mut Ui, label: &str, kind: Kind, icon: Option<Icon>) -> Re
     let tokens = Tokens::get(ui.ctx());
     let galley = ui.painter().layout_no_wrap(
         label.to_string(),
-        theme::cormorant(15.0),
+        theme::regular(14.0),
         Color32::PLACEHOLDER,
     );
     let icon_width = if icon.is_some() { ICON + ICON_GAP } else { 0.0 };

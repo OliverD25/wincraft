@@ -120,6 +120,18 @@ pub fn show(ui: &mut egui::Ui, snapshot: &UiSnapshot, state: &mut SettingsState)
                 },
             );
 
+            settings_row(
+                ui,
+                "fonts",
+                RowText::new("Fonts").desc(
+                    "Segoe UI from Windows. Bundled: Selawik and JetBrains Mono, \
+                     both under the SIL Open Font License 1.1.",
+                    tokens.text_secondary,
+                ),
+                false,
+                |_| {},
+            );
+
             ui.add_space(20.0);
             text::group_header(ui, "For plugin authors");
             ui.add_space(6.0);
@@ -161,7 +173,7 @@ fn authors_note(ui: &mut egui::Ui) {
         .map(FieldKind::name)
         .collect::<Vec<_>>()
         .join(" \u{00B7} ");
-    let body = || text::format(theme::lora(13.0), tokens.text_secondary, Some(19.0));
+    let body = || text::format(theme::regular(13.0), tokens.text_secondary, Some(19.0));
     let mut job = egui::text::LayoutJob::default();
     job.append("Declare fields of kind ", 0.0, body());
     job.append(
@@ -177,7 +189,7 @@ fn authors_note(ui: &mut egui::Ui) {
     job.append(
         "src/plugins/<id>/README.md",
         0.0,
-        text::format(theme::lora(13.0), tokens.accent, Some(19.0)),
+        text::format(theme::regular(13.0), tokens.accent, Some(19.0)),
     );
     job.append(".", 0.0, body());
     let width = ui.available_width().min(560.0);

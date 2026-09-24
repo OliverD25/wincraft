@@ -44,7 +44,7 @@ pub fn show(ui: &mut egui::Ui, field: &FieldInfo) -> Option<Value> {
         }
         FieldKind::Text => {
             let mut value = field.value.as_str().unwrap_or_default().to_string();
-            if input::text(ui, &field.key, &mut value, input::Face::Lora, TEXT_WIDTH).changed() {
+            if input::text(ui, &field.key, &mut value, input::Face::Text, TEXT_WIDTH).changed() {
                 changed = Some(Value::String(value));
             }
         }

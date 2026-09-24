@@ -31,7 +31,7 @@ pub fn segmented(ui: &mut Ui, options: &[&str], selected: Option<usize>) -> Opti
         .map(|option| {
             ui.painter().layout_no_wrap(
                 (*option).to_string(),
-                theme::lora(13.0),
+                theme::regular(13.0),
                 Color32::PLACEHOLDER,
             )
         })
@@ -93,7 +93,7 @@ pub fn segmented(ui: &mut Ui, options: &[&str], selected: Option<usize>) -> Opti
     chosen
 }
 
-/// 32 high, 200 wide, the current value in Lora 14 and a chevron at the right.
+/// 32 high, 200 wide, the current value in 14 regular and a chevron at the right.
 pub fn dropdown(
     ui: &mut Ui,
     id_salt: &str,
@@ -124,7 +124,7 @@ pub fn dropdown(
             pos2(rect.left() + 10.0, rect.center().y),
             egui::Align2::LEFT_CENTER,
             current,
-            theme::lora(14.0),
+            theme::regular(14.0),
             tokens.text_primary,
         );
         let chevron = Rect::from_center_size(
@@ -159,7 +159,7 @@ pub fn dropdown(
                     pos2(row.left() + 10.0, row.center().y),
                     egui::Align2::LEFT_CENTER,
                     *option,
-                    theme::lora(14.0),
+                    theme::regular(14.0),
                     colour,
                 );
                 if row_response.clicked() {

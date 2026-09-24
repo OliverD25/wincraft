@@ -4,8 +4,8 @@ use crate::core::theme::{self, Tokens};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Face {
-    /// Lora 14, for free text.
-    Lora,
+    /// Body 14, for free text.
+    Text,
     /// JetBrains Mono 13, for numbers and paths.
     Mono,
 }
@@ -19,7 +19,7 @@ pub fn text(ui: &mut Ui, id_salt: &str, value: &mut String, face: Face, width: f
     let tokens = Tokens::get(ui.ctx());
     let (rect, _) = ui.allocate_exact_size(vec2(width, HEIGHT), Sense::hover());
     let (font, colour) = match face {
-        Face::Lora => (theme::lora(14.0), tokens.text_primary),
+        Face::Text => (theme::regular(14.0), tokens.text_primary),
         Face::Mono => (theme::mono(13.0), tokens.text_primary),
     };
     let edit = TextEdit::singleline(value)

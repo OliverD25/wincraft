@@ -86,7 +86,7 @@ pub fn show(
                     }
                     let mut hint = text::job(
                         "Press keys\u{2026}",
-                        theme::lora(12.0),
+                        theme::regular(13.0),
                         tokens.text_disabled,
                         None,
                     );

@@ -7,7 +7,7 @@ use crate::core::theme;
 pub fn badge(ui: &mut Ui, text: &str, stroke: Color32, text_colour: Color32) -> Response {
     let galley = ui
         .painter()
-        .layout_no_wrap(text.to_string(), theme::lora(11.0), text_colour);
+        .layout_no_wrap(text.to_string(), theme::regular(12.0), text_colour);
     let (rect, response) =
         ui.allocate_exact_size(vec2(galley.size().x + 16.0, 20.0), Sense::hover());
     if ui.is_rect_visible(rect) {

@@ -132,7 +132,7 @@ fn file_row(
             ui,
             text::job(
                 &page::display_path(path),
-                theme::mono(12.0),
+                theme::mono(13.0),
                 tokens.text_secondary,
                 None,
             ),

@@ -191,3 +191,10 @@ settings; WinCraft draws and saves them.
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
+
+The interface uses Segoe UI from your own Windows installation; nothing of it
+is shipped. WinCraft bundles two fonts, each under the SIL Open Font License
+1.1, with their licence files in [assets/fonts](assets/fonts):
+[Selawik](https://github.com/microsoft/Selawik) by Microsoft, used when Segoe
+UI is missing, and [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono)
+for paths and code.

@@ -145,13 +145,15 @@ impl Readme {
         let tokens = Tokens::get(ui.ctx());
         ui.scope(|ui| {
             let style = ui.style_mut();
-            style.text_styles.insert(TextStyle::Body, theme::lora(13.0));
+            style
+                .text_styles
+                .insert(TextStyle::Body, theme::regular(13.0));
             style
                 .text_styles
                 .insert(TextStyle::Monospace, theme::mono(12.0));
             style
                 .text_styles
-                .insert(TextStyle::Heading, theme::cormorant(22.0));
+                .insert(TextStyle::Heading, theme::semibold(22.0));
             ui.spacing_mut().item_spacing.y = 8.0;
             for (index, block) in split_headings(source).into_iter().enumerate() {
                 match block {
@@ -160,7 +162,7 @@ impl Readme {
                             ui,
                             text::job(
                                 heading,
-                                theme::cormorant(22.0),
+                                theme::semibold(22.0),
                                 tokens.text_primary,
                                 Some(24.0),
                             ),
@@ -170,7 +172,7 @@ impl Readme {
                         ui.add_space(4.0);
                         text::single(
                             ui,
-                            text::job(heading, theme::cormorant(16.0), tokens.text_primary, None),
+                            text::job(heading, theme::semibold(16.0), tokens.text_primary, None),
                         );
                     }
                     Block::Markdown(markdown) => {
@@ -424,7 +426,7 @@ impl Settings {
                             ui,
                             text::job(
                                 "WinCraft",
-                                theme::cormorant(26.0),
+                                theme::semibold(20.0),
                                 tokens.text_primary,
                                 Some(26.0),
                             ),

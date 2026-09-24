@@ -12,12 +12,15 @@ use crate::core::wide;
 
 const PERSONALIZE: &str = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
 
-const LORA: &str = "Lora";
-const CORMORANT: &str = "Cormorant";
+const SEGOE: &str = "SegoeUI";
+const SEGOE_SEMIBOLD: &str = "SegoeUISemibold";
+const SELAWIK: &str = "Selawik";
+const SELAWIK_SEMIBOLD: &str = "SelawikSemibold";
 const MONO: &str = "JetBrainsMono";
 
-/// Family name for the Cormorant titles, wordmark and button labels.
-pub const HEADING_FAMILY: &str = "heading";
+/// Family name for the semibold weight: egui picks faces by family, not by
+/// weight, so the second weight is a family of its own.
+pub const SEMIBOLD_FAMILY: &str = "semibold";
 
 pub const TITLE: &str = "title";
 pub const SECTION: &str = "section";
@@ -222,44 +225,75 @@ pub fn stroke(ctx: &egui::Context, width: f32, colour: Color32) -> Stroke {
     Stroke::new(snap(width, ctx.pixels_per_point()), colour)
 }
 
-pub fn heading_family() -> FontFamily {
-    FontFamily::Name(HEADING_FAMILY.into())
+pub fn semibold_family() -> FontFamily {
+    FontFamily::Name(SEMIBOLD_FAMILY.into())
 }
 
-pub fn lora(size: f32) -> FontId {
+/// The UI's regular weight, for everything readable.
+pub fn regular(size: f32) -> FontId {
     FontId::new(size, FontFamily::Proportional)
 }
 
-pub fn cormorant(size: f32) -> FontId {
-    FontId::new(size, heading_family())
+/// The UI's semibold weight: titles, the wordmark and section headings.
+pub fn semibold(size: f32) -> FontId {
+    FontId::new(size, semibold_family())
 }
 
 pub fn mono(size: f32) -> FontId {
     FontId::new(size, FontFamily::Monospace)
 }
 
-/// Three files, one weight each. egui's own fonts stay behind them as a
-/// fallback for arrows and symbols the three typefaces do not contain.
+/// Segoe UI Regular and Semibold as every Windows 10 and 11 installation
+/// ships them. The static files, not the variable Segoe UI Variable, because
+/// egui cannot pick a weight out of a variable font. Read from the user's own
+/// system at start-up; they are never copied into WinCraft.
+fn system_fonts() -> Option<(Vec<u8>, Vec<u8>)> {
+    let windows = std::env::var_os("WINDIR").or_else(|| std::env::var_os("SystemRoot"))?;
+    let fonts = std::path::PathBuf::from(windows).join("Fonts");
+    let regular = std::fs::read(fonts.join("segoeui.ttf")).ok()?;
+    let semibold = std::fs::read(fonts.join("seguisb.ttf")).ok()?;
+    Some((regular, semibold))
+}
+
+/// Segoe UI from the system when it is there, the bundled Selawik (made to
+/// Segoe UI's metrics) when not, and JetBrains Mono for paths and code.
+/// egui's own fonts stay last in every chain for symbols and scripts the
+/// others lack.
 pub fn install_fonts(ctx: &egui::Context) {
+    install_fonts_from(ctx, system_fonts());
+}
+
+fn install_fonts_from(ctx: &egui::Context, system: Option<(Vec<u8>, Vec<u8>)>) {
     let mut fonts = FontDefinitions::default();
-    for (name, bytes) in [
-        (
-            LORA,
-            include_bytes!("../../assets/fonts/Lora-Regular.ttf").as_slice(),
-        ),
-        (
-            CORMORANT,
-            include_bytes!("../../assets/fonts/CormorantGaramond-SemiBold.ttf").as_slice(),
-        ),
-        (
-            MONO,
-            include_bytes!("../../assets/fonts/JetBrainsMono-Regular.ttf").as_slice(),
-        ),
-    ] {
-        fonts
-            .font_data
-            .insert(name.to_string(), Arc::new(FontData::from_static(bytes)));
-    }
+    let mut add = |name: &str, data: FontData| {
+        fonts.font_data.insert(name.to_string(), Arc::new(data));
+    };
+    add(
+        SELAWIK,
+        FontData::from_static(include_bytes!("../../assets/fonts/Selawik-Regular.ttf")),
+    );
+    add(
+        SELAWIK_SEMIBOLD,
+        FontData::from_static(include_bytes!("../../assets/fonts/Selawik-Semibold.ttf")),
+    );
+    add(
+        MONO,
+        FontData::from_static(include_bytes!(
+            "../../assets/fonts/JetBrainsMono-Regular.ttf"
+        )),
+    );
+    let (regular, semibold): (Vec<&str>, Vec<&str>) = match system {
+        Some((regular_bytes, semibold_bytes)) => {
+            add(SEGOE, FontData::from_owned(regular_bytes));
+            add(SEGOE_SEMIBOLD, FontData::from_owned(semibold_bytes));
+            log::info!(target: "theme", "UI font: Segoe UI from the system");
+            (vec![SEGOE, SELAWIK], vec![SEGOE_SEMIBOLD, SELAWIK_SEMIBOLD])
+        }
+        None => {
+            log::info!(target: "theme", "UI font: bundled Selawik (Segoe UI not found)");
+            (vec![SELAWIK], vec![SELAWIK_SEMIBOLD])
+        }
+    };
 
     let fallback_proportional = fonts
         .families
@@ -281,14 +315,16 @@ pub fn install_fonts(ctx: &egui::Context) {
     };
     fonts.families.insert(
         FontFamily::Proportional,
-        chain(&[LORA], &fallback_proportional),
+        chain(&regular, &fallback_proportional),
     );
     fonts
         .families
         .insert(FontFamily::Monospace, chain(&[MONO], &fallback_mono));
+    let mut semibold_chain = semibold;
+    semibold_chain.extend(regular);
     fonts.families.insert(
-        heading_family(),
-        chain(&[CORMORANT, LORA], &fallback_proportional),
+        semibold_family(),
+        chain(&semibold_chain, &fallback_proportional),
     );
     ctx.set_fonts(fonts);
 }
@@ -374,17 +410,17 @@ pub fn apply(ctx: &egui::Context, choice: ThemeChoice) {
     ctx.all_styles_mut(|style| {
         use egui::TextStyle;
         style.text_styles = [
-            (TextStyle::Name(TITLE.into()), cormorant(30.0)),
-            (TextStyle::Heading, cormorant(26.0)),
-            (TextStyle::Name(SECTION.into()), lora(11.0)),
-            (TextStyle::Body, lora(14.0)),
-            (TextStyle::Small, lora(12.0)),
-            (TextStyle::Name(CAPTION.into()), lora(11.0)),
-            (TextStyle::Button, cormorant(15.0)),
-            (TextStyle::Name(KEYCAP.into()), mono(12.0)),
-            (TextStyle::Name(HINT.into()), mono(11.0)),
+            (TextStyle::Name(TITLE.into()), semibold(28.0)),
+            (TextStyle::Heading, semibold(20.0)),
+            (TextStyle::Name(SECTION.into()), semibold(13.0)),
+            (TextStyle::Body, regular(14.0)),
+            (TextStyle::Small, regular(13.0)),
+            (TextStyle::Name(CAPTION.into()), regular(12.0)),
+            (TextStyle::Button, regular(14.0)),
+            (TextStyle::Name(KEYCAP.into()), regular(13.0)),
+            (TextStyle::Name(HINT.into()), regular(12.0)),
             (TextStyle::Monospace, mono(13.0)),
-            (TextStyle::Name(QUERY.into()), lora(15.0)),
+            (TextStyle::Name(QUERY.into()), regular(16.0)),
         ]
         .into_iter()
         .collect();
@@ -416,29 +452,54 @@ mod tests {
         assert_eq!(snap(1.0, 2.0), 1.0);
     }
 
-    /// Running passes proves the three files parse; the chains prove each one
-    /// is what its family draws first. Glyph coverage is not asserted here:
-    /// egui's has_glyph reports every character as missing once the first face
-    /// can also draw the replacement glyph, which Cormorant can.
-    #[test]
-    fn the_bundled_fonts_load_first_in_their_families() {
-        let ctx = egui::Context::default();
-        install_fonts(&ctx);
-        apply(&ctx, ThemeChoice::Dark);
+    fn first_faces(ctx: &egui::Context) -> [Option<String>; 3] {
         for _ in 0..2 {
             let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-                ui.label(egui::RichText::new("WinCraft").font(cormorant(26.0)));
-                ui.label(egui::RichText::new("Toggle monitor 1").font(lora(14.0)));
-                ui.label(egui::RichText::new("Win+Alt+F1 \u{21B5}").font(mono(12.0)));
+                ui.label(egui::RichText::new("WinCraft").font(semibold(20.0)));
+                ui.label(egui::RichText::new("Toggle monitor 1").font(regular(14.0)));
+                ui.label(egui::RichText::new("Win + Alt + F1").font(mono(12.0)));
             });
             // There is no renderer in a test to upload the font atlas to.
             output.textures_delta.clear();
         }
         let chains = ctx.fonts(|fonts| fonts.definitions().families.clone());
         let first = |family: FontFamily| chains.get(&family).and_then(|c| c.first()).cloned();
-        assert_eq!(first(FontFamily::Proportional).as_deref(), Some(LORA));
-        assert_eq!(first(FontFamily::Monospace).as_deref(), Some(MONO));
-        assert_eq!(first(heading_family()).as_deref(), Some(CORMORANT));
+        [
+            first(FontFamily::Proportional),
+            first(semibold_family()),
+            first(FontFamily::Monospace),
+        ]
+    }
+
+    /// Glyph coverage is not asserted: egui's has_glyph reports every
+    /// character as missing once the first face can draw the replacement
+    /// glyph.
+    #[test]
+    fn without_segoe_ui_the_bundled_selawik_leads() {
+        let ctx = egui::Context::default();
+        install_fonts_from(&ctx, None);
+        apply(&ctx, ThemeChoice::Dark);
+        let [regular, semibold, mono] = first_faces(&ctx);
+        assert_eq!(regular.as_deref(), Some(SELAWIK));
+        assert_eq!(semibold.as_deref(), Some(SELAWIK_SEMIBOLD));
+        assert_eq!(mono.as_deref(), Some(MONO));
+    }
+
+    #[test]
+    fn system_fonts_lead_when_windows_has_them() {
+        let bundled = |bytes: &[u8]| bytes.to_vec();
+        let ctx = egui::Context::default();
+        install_fonts_from(
+            &ctx,
+            Some((
+                bundled(include_bytes!("../../assets/fonts/Selawik-Regular.ttf")),
+                bundled(include_bytes!("../../assets/fonts/Selawik-Semibold.ttf")),
+            )),
+        );
+        apply(&ctx, ThemeChoice::Dark);
+        let [regular, semibold, _] = first_faces(&ctx);
+        assert_eq!(regular.as_deref(), Some(SEGOE));
+        assert_eq!(semibold.as_deref(), Some(SEGOE_SEMIBOLD));
     }
 
     #[test]

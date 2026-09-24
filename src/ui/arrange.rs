@@ -609,7 +609,7 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
                         ui.add_space(ROW_GAP);
                     }
                     let row_top = ui.cursor().min.y;
-                    text::single(ui, text::section_job(&row.title, tokens.text_disabled));
+                    text::single(ui, text::section_job(&row.title, tokens.text_secondary));
                     ui.add_space(HEADER_GAP);
                     let mut cards_here: Vec<Rect> = Vec::new();
                     // Rows wrap rather than scroll sideways, so the one scroll
@@ -717,7 +717,7 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     if footer > 0.0 {
         let job = text::job(
             "Order on other desktops applies at the next restore.",
-            theme::lora(12.0),
+            theme::regular(12.0),
             tokens.text_secondary,
             None,
         );
@@ -1007,7 +1007,7 @@ fn card(
         name_card(ui, picture, label, desktop);
     }
 
-    let mut job = text::job(label, theme::lora(12.0), tokens.text_primary, None);
+    let mut job = text::job(label, theme::regular(12.0), tokens.text_primary, None);
     job.wrap = TextWrapping {
         max_width: THUMB.x,
         max_rows: 1,
@@ -1051,7 +1051,7 @@ fn placeholder(ui: &mut Ui, text_line: &str) {
     );
     let galley = ui.painter().layout_job(text::job(
         text_line,
-        theme::lora(12.0),
+        theme::regular(12.0),
         tokens.text_secondary,
         None,
     ));
@@ -1067,7 +1067,7 @@ fn placeholder(ui: &mut Ui, text_line: &str) {
 fn name_card(ui: &Ui, area: Rect, label: &str, desktop: &str) {
     let tokens = Tokens::get(ui.ctx());
     let painter = ui.painter();
-    let mut job = text::job(label, theme::cormorant(15.0), tokens.text_primary, None);
+    let mut job = text::job(label, theme::semibold(15.0), tokens.text_primary, None);
     job.wrap = TextWrapping {
         max_width: area.width() - 16.0,
         max_rows: 2,
@@ -1078,7 +1078,7 @@ fn name_card(ui: &Ui, area: Rect, label: &str, desktop: &str) {
     let title = painter.layout_job(job);
     let detail = painter.layout_job(text::job(
         desktop,
-        theme::lora(12.0),
+        theme::regular(12.0),
         tokens.text_secondary,
         None,
     ));

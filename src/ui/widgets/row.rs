@@ -51,7 +51,7 @@ fn left_column(ui: &mut Ui, row: &RowText) {
     ui.spacing_mut().item_spacing.y = 2.0;
     let mut job = text::job(
         row.label,
-        theme::lora(14.0),
+        theme::regular(14.0),
         tokens.text_primary,
         Some(20.0),
     );
@@ -59,7 +59,7 @@ fn left_column(ui: &mut Ui, row: &RowText) {
         job.append(
             meta,
             8.0,
-            text::format(theme::mono(11.0), tokens.text_disabled, Some(20.0)),
+            text::format(theme::mono(12.0), tokens.text_disabled, Some(20.0)),
         );
     }
     text::wrapped(ui, job);
@@ -203,7 +203,7 @@ pub fn nav_item(ui: &mut Ui, label: &str, selected: bool) -> Response {
             pos2(rect.left() + 10.0, rect.center().y),
             egui::Align2::LEFT_CENTER,
             label,
-            theme::lora(14.0),
+            theme::regular(14.0),
             colour,
         );
         focus::ring(ui, &response, 4.0);
