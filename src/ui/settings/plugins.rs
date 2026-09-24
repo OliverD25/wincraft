@@ -197,7 +197,7 @@ fn hotkey_row(
 
     let mut change = false;
     settings_row(ui, &owner, RowText::new(&info.label), false, |ui| {
-        let chips = keycap::chips(ui, &info.binding, 12.0, false);
+        let chips = keycap::binding(ui, &keycap::spaced(&info.binding), false);
         let chips = ui
             .interact(
                 chips.rect,

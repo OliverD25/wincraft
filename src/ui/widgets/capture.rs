@@ -76,12 +76,12 @@ pub fn show(
             ui.spacing_mut().item_spacing.x = 4.0;
             match &session.pending {
                 Some((hotkey, _)) => {
-                    keycap::chips(ui, &hotkeys::format(*hotkey), 12.0, false);
+                    keycap::binding(ui, &keycap::spaced(&hotkeys::format(*hotkey)), false);
                 }
                 None => {
                     let held = hotkeys::format_modifiers(hotkey_capture::live_modifiers());
                     if !held.is_empty() {
-                        keycap::chips(ui, &held, 12.0, true);
+                        keycap::binding(ui, &keycap::held(&held), true);
                         ui.add_space(4.0);
                     }
                     let mut hint = text::job(

@@ -138,9 +138,10 @@ impl Default for Readme {
 }
 
 impl Readme {
-    /// egui_commonmark can only scale the body font for H2 and below, never
-    /// switch it to Cormorant, so the headings are drawn here in the README
-    /// scale (H1 22, H2 16) and only the text between them goes through it.
+    /// egui_commonmark can only scale the body font for headings, never
+    /// switch it to the semibold family, so the headings are drawn here in the
+    /// README scale (H1 20, H2 15, both semibold) and only the text between
+    /// them goes through it.
     pub fn show(&mut self, ui: &mut Ui, source: &str) {
         let tokens = Tokens::get(ui.ctx());
         ui.scope(|ui| {
@@ -153,7 +154,7 @@ impl Readme {
                 .insert(TextStyle::Monospace, theme::mono(12.0));
             style
                 .text_styles
-                .insert(TextStyle::Heading, theme::semibold(22.0));
+                .insert(TextStyle::Heading, theme::semibold(20.0));
             ui.spacing_mut().item_spacing.y = 8.0;
             for (index, block) in split_headings(source).into_iter().enumerate() {
                 match block {
@@ -162,9 +163,9 @@ impl Readme {
                             ui,
                             text::job(
                                 heading,
-                                theme::semibold(22.0),
+                                theme::semibold(20.0),
                                 tokens.text_primary,
-                                Some(24.0),
+                                Some(26.0),
                             ),
                         );
                     }
@@ -172,7 +173,12 @@ impl Readme {
                         ui.add_space(4.0);
                         text::single(
                             ui,
-                            text::job(heading, theme::semibold(16.0), tokens.text_primary, None),
+                            text::job(
+                                heading,
+                                theme::semibold(15.0),
+                                tokens.text_primary,
+                                Some(20.0),
+                            ),
                         );
                     }
                     Block::Markdown(markdown) => {

@@ -23,7 +23,9 @@ use crate::core::traits::{
     FieldKind, HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata, SettingField,
     TrayAction, WinCraftPlugin, WindowGroups,
 };
-use crate::core::ui_bridge::{ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeWindow};
+use crate::core::ui_bridge::{
+    ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeWindow,
+};
 use crate::core::{clock, host, wide};
 use desktops::{Desktop, DesktopId};
 use order::{Handle, OrderModel};
@@ -907,6 +909,18 @@ impl WinCraftPlugin for LayoutKeeper {
 
     fn page_action(&self) -> Option<u32> {
         Some(ACTION_ARRANGE)
+    }
+
+    fn palette_subtitle(&self, kind: ActionKind, action_id: u32) -> Option<String> {
+        let restore =
+            matches!(kind, ActionKind::Hotkey | ActionKind::Tray) && action_id == ACTION_RESTORE;
+        if !restore {
+            return None;
+        }
+        Some(match &self.last_saved {
+            Some(time) => format!("Last saved {time}"),
+            None => "Not saved yet this session".to_string(),
+        })
     }
 
     fn window_groups(&mut self) -> Option<WindowGroups> {

@@ -364,6 +364,8 @@ fn build_controls(hwnd: HWND) {
     layout(hwnd);
 }
 
+/// Segoe UI at the design's 14 px body size, starting from the system message
+/// font so its character set and quality settings carry over.
 fn message_font(hwnd: HWND) -> HFONT {
     let mut metrics: NONCLIENTMETRICSW = unsafe { std::mem::zeroed() };
     metrics.cbSize = std::mem::size_of::<NONCLIENTMETRICSW>() as u32;
@@ -379,8 +381,13 @@ fn message_font(hwnd: HWND) -> HFONT {
         return std::ptr::null_mut();
     }
     let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96) as i32;
-    metrics.lfMessageFont.lfHeight = metrics.lfMessageFont.lfHeight * dpi / 96;
-    unsafe { CreateFontIndirectW(&metrics.lfMessageFont) }
+    let font = &mut metrics.lfMessageFont;
+    // A negative height is the character height in pixels, without leading.
+    font.lfHeight = -(14 * dpi / 96);
+    let face: Vec<u16> = "Segoe UI".encode_utf16().collect();
+    font.lfFaceName = [0; 32];
+    font.lfFaceName[..face.len()].copy_from_slice(&face);
+    unsafe { CreateFontIndirectW(font) }
 }
 
 /// Label widths are measured, not guessed. The system message font changes with

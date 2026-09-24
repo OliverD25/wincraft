@@ -1,6 +1,6 @@
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 
-use crate::core::ui_bridge::{ArrangeAction, ArrangeDesktop, ArrangeGroup};
+use crate::core::ui_bridge::{ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup};
 
 pub struct PluginMetadata {
     pub id: &'static str,
@@ -155,6 +155,14 @@ pub trait WinCraftPlugin {
     /// the user should see without opening the log. Call
     /// `host::plugin_changed()` when it changes.
     fn status(&self) -> Option<String> {
+        None
+    }
+
+    /// A second line for one of the plugin's palette entries, such as the
+    /// state it would change. Asked each time the palette's list is rebuilt;
+    /// call `host::plugin_changed()` when the answer changes.
+    fn palette_subtitle(&self, kind: ActionKind, action_id: u32) -> Option<String> {
+        let _ = (kind, action_id);
         None
     }
 

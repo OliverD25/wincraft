@@ -542,6 +542,7 @@ impl Host {
                 hint: String::new(),
                 disabled: false,
                 plugin: None,
+                subtitle: None,
             });
         }
 
@@ -559,6 +560,7 @@ impl Host {
                 hint: String::new(),
                 disabled: false,
                 plugin: Some(meta.id.to_string()),
+                subtitle: None,
             });
             // A plugin that is off keeps its commands in the list, dimmed, so
             // its hotkey does not seem to vanish; running one opens its page.
@@ -581,6 +583,7 @@ impl Host {
                     hint,
                     disabled,
                     plugin: plugin.clone(),
+                    subtitle: slot.plugin.palette_subtitle(ActionKind::Hotkey, action.id),
                 });
             }
             for action in slot.plugin.tray_actions() {
@@ -601,6 +604,7 @@ impl Host {
                     hint: String::new(),
                     disabled,
                     plugin: plugin.clone(),
+                    subtitle: slot.plugin.palette_subtitle(ActionKind::Tray, action.id),
                 });
             }
             for command in slot.plugin.palette_commands() {
@@ -615,6 +619,9 @@ impl Host {
                     hint: command.hint.to_string(),
                     disabled,
                     plugin: plugin.clone(),
+                    subtitle: slot
+                        .plugin
+                        .palette_subtitle(ActionKind::Palette, command.id),
                 });
             }
         }

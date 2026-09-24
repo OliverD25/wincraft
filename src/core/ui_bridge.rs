@@ -212,6 +212,8 @@ pub struct PaletteEntry {
     /// The plugin is off: the entry is shown dimmed and opens the plugin's page.
     pub disabled: bool,
     pub plugin: Option<String>,
+    /// A second line under the label, such as a monitor's state.
+    pub subtitle: Option<String>,
 }
 
 /// Everything the windows draw. Rebuilt whole after every change: a plugin's

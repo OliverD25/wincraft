@@ -83,7 +83,7 @@ pub fn show(
                 RowText::new("Palette hotkey").desc(verdict, colour),
                 false,
                 |ui| {
-                    keycap::chips(ui, &snapshot.palette_hotkey, 12.0, false);
+                    keycap::binding(ui, &keycap::spaced(&snapshot.palette_hotkey), false);
                     if button::button(ui, "Change", Kind::Secondary).clicked() {
                         state.begin_capture(PALETTE_OWNER.to_string());
                     }

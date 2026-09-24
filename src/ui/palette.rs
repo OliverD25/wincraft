@@ -18,9 +18,9 @@ pub const MARGIN: f32 = 24.0;
 pub const WIDTH: f32 = PANEL_WIDTH + MARGIN * 2.0;
 pub const HEIGHT: f32 = PANEL_HEIGHT + MARGIN * 2.0;
 
-const SEARCH_HEIGHT: f32 = 52.0;
-const FOOTER_HEIGHT: f32 = 32.0;
-const ROW_HEIGHT: f32 = 36.0;
+const SEARCH_HEIGHT: f32 = 56.0;
+const FOOTER_HEIGHT: f32 = 36.0;
+const ROW_HEIGHT: f32 = 44.0;
 const RISE: f32 = 4.0;
 
 pub enum Outcome {
@@ -158,7 +158,7 @@ impl Palette {
         );
         let line = theme::stroke(&ctx, 1.0, tokens.border);
 
-        // Search bar: 52 high, 16 px sides, the search icon then the query.
+        // Search bar: 56 high, 16 px sides, the search icon then the query.
         let search = Rect::from_min_size(panel.min, vec2(PANEL_WIDTH, SEARCH_HEIGHT));
         painter.hline(search.x_range(), search.bottom() - line.width / 2.0, line);
         let icon = Rect::from_center_size(
@@ -171,13 +171,12 @@ impl Palette {
             pos2(search.right() - 16.0, search.bottom() - line.width),
         );
         let hint = egui::RichText::new("Type a command\u{2026}")
-            .italics()
             .color(tokens.text_disabled)
-            .font(theme::regular(15.0));
+            .font(theme::regular(16.0));
         let edit = egui::TextEdit::singleline(&mut self.query)
             .id_salt("palette-query")
             .hint_text(hint)
-            .font(theme::regular(15.0))
+            .font(theme::regular(16.0))
             .text_color(tokens.text_primary)
             .frame(egui::Frame::NONE)
             .margin(egui::Margin::ZERO)
@@ -195,7 +194,7 @@ impl Palette {
             self.follow_selection = true;
         }
 
-        // Footer: 32 high, 1 px rule above, key hints left, wordmark right.
+        // Footer: 36 high, 1 px rule above, key hints left, wordmark right.
         let footer = Rect::from_min_max(
             pos2(panel.left(), panel.bottom() - FOOTER_HEIGHT),
             panel.max,
@@ -274,27 +273,30 @@ impl Palette {
     }
 }
 
-/// Group header inside the list: 11 px caps, padding 10 8 4.
+/// Group header inside the list: 24 high, 12 px regular, padding 8 12 2.
 fn group_header(ui: &mut egui::Ui, name: &str) {
     let tokens = Tokens::get(ui.ctx());
-    ui.add_space(10.0);
+    ui.add_space(8.0);
     ui.horizontal(|ui| {
-        ui.add_space(8.0);
-        text::single(ui, text::section_job(name, tokens.text_disabled));
+        ui.add_space(12.0);
+        text::single(
+            ui,
+            text::job(name, theme::regular(12.0), tokens.text_disabled, Some(14.0)),
+        );
     });
-    ui.add_space(4.0);
+    ui.add_space(2.0);
 }
 
-/// A label with the matched letters underlined in the accent colour; there is
-/// only one weight per family, so the match cannot be shown in bold.
+/// A label with the matched letters underlined in the accent colour; the
+/// semibold weight is kept for headings, so the match is not shown in bold.
 fn label_job(label: &str, query: &str, tokens: &Tokens) -> LayoutJob {
     let matched = if query.is_empty() {
         Vec::new()
     } else {
         fuzzy::positions(query, label).unwrap_or_default()
     };
-    let plain = text::format(theme::regular(14.0), tokens.text_primary, Some(20.0));
-    let mut hit = text::format(theme::regular(14.0), tokens.accent, Some(20.0));
+    let plain = text::format(theme::regular(15.0), tokens.text_primary, Some(20.0));
+    let mut hit = text::format(theme::regular(15.0), tokens.accent, Some(20.0));
     hit.underline = egui::Stroke::new(1.0, tokens.accent);
     let mut job = LayoutJob::default();
     for (index, character) in label.chars().enumerate() {
@@ -309,9 +311,11 @@ fn label_job(label: &str, query: &str, tokens: &Tokens) -> LayoutJob {
     job
 }
 
-/// A 36 px row. The cursor row is drawn from state, never from hover; hover
-/// only adds the 5 % tint. A command whose plugin is off stays listed at 45 %
-/// with an italic "plugin off", so its hotkey does not seem to vanish.
+/// A 44 px row: title 15 with an optional 12 px subtitle under it, and one
+/// hotkey chip at the right. The cursor row is drawn from state, never from
+/// hover; hover only adds the 5 % tint. A command whose plugin is off stays
+/// listed at 45 % with an italic "plugin off", so its hotkey does not seem to
+/// vanish.
 fn command_row(
     ui: &mut egui::Ui,
     entry: &PaletteEntry,
@@ -341,33 +345,45 @@ fn command_row(
 
     ui.scope_builder(
         UiBuilder::new()
-            .max_rect(rect.shrink2(vec2(8.0, 0.0)))
+            .max_rect(rect.shrink2(vec2(12.0, 0.0)))
             .layout(Layout::left_to_right(Align::Center)),
         |ui| {
             if entry.disabled {
                 ui.multiply_opacity(0.45);
             }
-            ui.spacing_mut().item_spacing.x = 0.0;
-            text::single(ui, label_job(&entry.label, query, &tokens));
-            if entry.disabled {
-                ui.add_space(10.0);
-                let mut hint = text::job(
-                    "plugin off",
-                    theme::regular(12.0),
-                    tokens.text_disabled,
-                    None,
-                );
-                if let Some(section) = hint.sections.first_mut() {
-                    section.format.italics = true;
+            ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    text::single(ui, label_job(&entry.label, query, &tokens));
+                    if entry.disabled {
+                        ui.add_space(10.0);
+                        let mut hint = text::job(
+                            "plugin off",
+                            theme::regular(12.0),
+                            tokens.text_disabled,
+                            None,
+                        );
+                        if let Some(section) = hint.sections.first_mut() {
+                            section.format.italics = true;
+                        }
+                        text::single(ui, hint);
+                    }
+                });
+                if let Some(subtitle) = &entry.subtitle {
+                    text::single(
+                        ui,
+                        text::job(
+                            subtitle,
+                            theme::regular(12.0),
+                            tokens.text_secondary,
+                            Some(16.0),
+                        ),
+                    );
                 }
-                text::single(ui, hint);
-            }
+            });
             if !entry.hint.is_empty() {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.spacing_mut().item_spacing.x = 4.0;
-                    for key in keycap::split(&entry.hint).into_iter().rev() {
-                        keycap::chip(ui, key, 11.0, false);
-                    }
+                    keycap::binding(ui, &keycap::spaced(&entry.hint), false);
                 });
             }
         },
@@ -376,22 +392,22 @@ fn command_row(
 }
 
 fn nothing_matches(ui: &mut egui::Ui, list: Rect, tokens: &Tokens) {
-    let block = 26.0 + 4.0 + 17.0;
+    let block = 24.0 + 4.0 + 16.0;
     ui.add_space(((list.height() - block) / 2.0).max(0.0));
     ui.horizontal(|ui| {
-        ui.add_space(8.0);
+        ui.add_space(12.0);
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 4.0;
             text::single(
                 ui,
                 text::job(
                     "Nothing matches",
-                    theme::semibold(22.0),
+                    theme::semibold(18.0),
                     tokens.text_primary,
-                    Some(26.0),
+                    Some(24.0),
                 ),
             );
-            text::secondary(
+            text::caption(
                 ui,
                 "Try a shorter word, or press Esc to close.",
                 tokens.text_secondary,
@@ -400,9 +416,9 @@ fn nothing_matches(ui: &mut egui::Ui, list: Rect, tokens: &Tokens) {
     });
 }
 
-/// `↵ Run  ↑↓ Move  Esc Close` and the wordmark. The key symbols are drawn in
-/// the monospace family: the return arrow exists only in egui's monospace
-/// fallback font, and neither arrow exists in Lora.
+/// `↵ Run  ↑↓ Move  Esc Close`, 12 px with the keys as chips, and the
+/// wordmark. The arrows are drawn in the monospace family: the return arrow
+/// exists only in egui's monospace fallback font.
 fn footer_hints(ui: &mut egui::Ui, tokens: &Tokens) {
     for (index, (key, label)) in [
         ("\u{21B5}", "Run"),
@@ -415,11 +431,16 @@ fn footer_hints(ui: &mut egui::Ui, tokens: &Tokens) {
         if index > 0 {
             ui.add_space(16.0);
         }
-        footer_key(ui, key, tokens);
+        let font = if key.is_ascii() {
+            theme::regular(12.0)
+        } else {
+            theme::mono(12.0)
+        };
+        keycap::hint(ui, key, font);
         ui.add_space(6.0);
         text::single(
             ui,
-            text::job(label, theme::regular(11.0), tokens.text_disabled, None),
+            text::job(label, theme::regular(12.0), tokens.text_secondary, None),
         );
     }
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -433,24 +454,4 @@ fn footer_hints(ui: &mut egui::Ui, tokens: &Tokens) {
             ),
         );
     });
-}
-
-/// The footer's key hints: mono 11, padding 0 5, a plain 1 px border.
-fn footer_key(ui: &mut egui::Ui, key: &str, tokens: &Tokens) {
-    let galley =
-        ui.painter()
-            .layout_no_wrap(key.to_string(), theme::mono(11.0), tokens.text_disabled);
-    let size = vec2(galley.size().x + 10.0, galley.size().y);
-    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-    ui.painter().rect_stroke(
-        rect,
-        3,
-        theme::stroke(ui.ctx(), 1.0, tokens.border),
-        StrokeKind::Inside,
-    );
-    ui.painter().galley(
-        rect.center() - galley.size() / 2.0,
-        galley,
-        tokens.text_disabled,
-    );
 }

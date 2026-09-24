@@ -1,4 +1,4 @@
-use egui::{pos2, vec2, Rect, Response, Sense, StrokeKind, Ui};
+use egui::{vec2, Color32, FontId, Response, Sense, StrokeKind, Ui};
 
 use crate::core::theme::{self, Tokens};
 
@@ -11,63 +11,60 @@ pub fn split(binding: &str) -> Vec<&str> {
         .collect()
 }
 
-/// One key: mono text, padding 1 6, 1 px border with a 2 px bottom edge,
-/// radius 3. The thicker bottom edge is what makes it read as a key cap.
-pub fn chip(ui: &mut Ui, key: &str, size: f32, accent: bool) -> Response {
-    let tokens = Tokens::get(ui.ctx());
-    let colour = if accent {
-        tokens.accent
-    } else {
-        tokens.text_secondary
-    };
-    let stroke_colour = if accent { tokens.accent } else { tokens.border };
-    let ppp = ui.ctx().pixels_per_point();
-    let top = theme::snap(1.0, ppp);
-    let bottom = theme::snap(2.0, ppp);
-
-    let galley = ui
-        .painter()
-        .layout_no_wrap(key.to_string(), theme::mono(size), colour);
-    let size = vec2(
-        galley.size().x + 12.0 + top * 2.0,
-        galley.size().y + 2.0 + top + bottom,
-    );
-    let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
-    if ui.is_rect_visible(rect) {
-        let painter = ui.painter();
-        painter.rect_stroke(
-            rect,
-            3,
-            theme::stroke(ui.ctx(), 1.0, stroke_colour),
-            StrokeKind::Inside,
-        );
-        let band = Rect::from_min_max(
-            pos2(rect.left() + 3.0, rect.bottom() - bottom),
-            pos2(rect.right() - 3.0, rect.bottom() - top),
-        );
-        painter.rect_filled(band, 0, stroke_colour);
-        let text_pos = pos2(
-            rect.center().x - galley.size().x / 2.0,
-            rect.top() + top + 1.0,
-        );
-        painter.galley(text_pos, galley, colour);
-    }
-    response
+/// "Win+Alt+F1" → "Win + Alt + F1", the way a chip spells a binding.
+pub fn spaced(binding: &str) -> String {
+    split(binding).join(" + ")
 }
 
-/// All keys of a binding, 4 px apart.
-pub fn chips(ui: &mut Ui, binding: &str, size: f32, accent: bool) -> Response {
-    let keys = split(binding);
-    ui.scope(|ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
-        ui.horizontal(|ui| {
-            for key in keys {
-                chip(ui, key, size, accent);
-            }
-        })
-        .response
-    })
-    .inner
+/// Modifiers held so far during a capture, open-ended: "Win + Alt +".
+pub fn held(modifiers: &str) -> String {
+    let keys = spaced(modifiers);
+    if keys.is_empty() {
+        keys
+    } else {
+        format!("{keys} +")
+    }
+}
+
+/// One chip for a whole binding: 13 regular, padding 3 8, panel fill, 1 px
+/// border, radius 4, secondary text. While capturing it is outlined and
+/// written in the accent colour.
+pub fn binding(ui: &mut Ui, text: &str, accent: bool) -> Response {
+    let tokens = Tokens::get(ui.ctx());
+    let (text_colour, stroke) = if accent {
+        (tokens.accent, tokens.accent)
+    } else {
+        (tokens.text_secondary, tokens.border)
+    };
+    chip(ui, text, theme::regular(13.0), text_colour, stroke)
+}
+
+/// The same chip at the footer's 12 px, in any font: the return arrow only
+/// exists in egui's monospace fallback.
+pub fn hint(ui: &mut Ui, text: &str, font: FontId) -> Response {
+    let tokens = Tokens::get(ui.ctx());
+    chip(ui, text, font, tokens.text_secondary, tokens.border)
+}
+
+fn chip(ui: &mut Ui, text: &str, font: FontId, text_colour: Color32, stroke: Color32) -> Response {
+    let tokens = Tokens::get(ui.ctx());
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_string(), font, text_colour);
+    let size = vec2(galley.size().x + 16.0, galley.size().y + 6.0);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+    if ui.is_rect_visible(rect) {
+        ui.painter().rect(
+            rect,
+            4,
+            tokens.panel_bg,
+            theme::stroke(ui.ctx(), 1.0, stroke),
+            StrokeKind::Inside,
+        );
+        ui.painter()
+            .galley(rect.center() - galley.size() / 2.0, galley, text_colour);
+    }
+    response
 }
 
 #[cfg(test)]
@@ -75,9 +72,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_binding_splits_into_one_chip_per_key() {
+    fn a_binding_is_written_as_one_spaced_chip() {
         assert_eq!(split("Win+Alt+F1"), vec!["Win", "Alt", "F1"]);
-        assert_eq!(split("Ctrl + Shift + ,"), vec!["Ctrl", "Shift", ","]);
-        assert!(split("").is_empty());
+        assert_eq!(spaced("Win+Alt+F1"), "Win + Alt + F1");
+        assert_eq!(spaced("Ctrl + Shift + ,"), "Ctrl + Shift + ,");
+        assert_eq!(spaced(""), "");
+    }
+
+    #[test]
+    fn held_modifiers_stay_open_ended() {
+        assert_eq!(held("Win+Alt"), "Win + Alt +");
+        assert_eq!(held(""), "");
     }
 }

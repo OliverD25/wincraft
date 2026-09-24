@@ -6,7 +6,7 @@ hotkeys, a command palette and a settings window. Features are written as
 **plugins** that plug into one Rust trait, so adding a feature never means
 touching the Win32 plumbing or writing any UI code.
 
-Version 0.5 ships three plugins: **ScreenDimmer**, **ShortcutDetector** and
+Version 0.6 ships three plugins: **ScreenDimmer**, **ShortcutDetector** and
 **LayoutKeeper**.
 
 ## What you get
