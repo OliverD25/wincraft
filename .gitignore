@@ -1,2 +1,5 @@
 /target
 *.log
+
+# Private working documents (design handouts, notes). Never published.
+/_dev_docs/
