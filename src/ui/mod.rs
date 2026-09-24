@@ -64,6 +64,7 @@ fn run(
         options,
         Box::new(move |cc| {
             to_ui.attach(cc.egui_ctx.clone());
+            theme::install_fonts(&cc.egui_ctx);
             theme::apply(&cc.egui_ctx, snapshot.theme);
             report_palette_window(cc, &to_host);
             Ok(Box::new(App::new(rx, to_host, snapshot)))
@@ -100,6 +101,7 @@ struct App {
     settings_open: bool,
     settings: Settings,
     quitting: bool,
+    applied_scale: f32,
 }
 
 impl App {
@@ -116,6 +118,7 @@ impl App {
             settings_open: false,
             settings: Settings::new(to_host_for_settings, snapshot_for_settings),
             quitting: false,
+            applied_scale: 0.0,
         }
     }
 
@@ -190,6 +193,13 @@ impl eframe::App for App {
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain(ctx);
+        // Stroke widths are snapped to physical pixels when the theme is
+        // applied, so a move to a monitor with other scaling re-applies it.
+        let scale = ctx.pixels_per_point();
+        if (scale - self.applied_scale).abs() > f32::EPSILON {
+            self.applied_scale = scale;
+            theme::apply(ctx, self.snapshot.theme);
+        }
         if self.quitting {
             return;
         }

@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::core::config::ThemeChoice;
 use crate::core::hotkeys;
+use crate::core::theme::Tokens;
 use crate::core::ui_bridge::{HostChannel, HostRequest, HostSetting, UiSnapshot};
 use crate::ui::settings::SettingsState;
 use crate::ui::widgets::hotkey_capture;
@@ -54,9 +55,10 @@ pub fn show(
             state.begin_capture(PALETTE_OWNER.to_string());
         }
         if !snapshot.palette_hotkey_registered {
-            ui.colored_label(
-                ui.visuals().error_fg_color,
-                "not registered \u{2014} another app holds it",
+            ui.label(
+                egui::RichText::new("not registered \u{2014} another app holds it")
+                    .small()
+                    .color(Tokens::get(ui.ctx()).warning),
             );
         }
     });

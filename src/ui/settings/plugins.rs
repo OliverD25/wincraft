@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::core::hotkeys;
+use crate::core::theme::Tokens;
 use crate::core::traits::Hotkey;
 use crate::core::ui_bridge::{HostChannel, HostRequest, PluginInfo, UiSnapshot};
 use crate::plugins::shortcut_detector::probe;
@@ -173,10 +174,19 @@ fn hotkey_row(
         if ui.selectable_label(capturing, label).clicked() {
             state.begin_capture(owner.clone());
         }
+        let tokens = Tokens::get(ui.ctx());
         if info.registered {
-            ui.label(egui::RichText::new("registered").weak().small());
+            ui.label(
+                egui::RichText::new("registered")
+                    .small()
+                    .color(tokens.success),
+            );
         } else {
-            ui.colored_label(ui.visuals().error_fg_color, "taken by another app");
+            ui.label(
+                egui::RichText::new("taken by another app")
+                    .small()
+                    .color(tokens.warning),
+            );
         }
     });
 

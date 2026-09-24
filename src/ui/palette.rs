@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{CommandId, HostChannel, HostRequest, PaletteEntry, UiSnapshot};
 use crate::ui::fuzzy;
 
@@ -70,10 +71,10 @@ impl Palette {
             None
         };
 
-        let visuals = ui.visuals().clone();
+        let tokens = Tokens::get(&ctx);
         egui::Frame::NONE
-            .fill(visuals.window_fill)
-            .stroke(visuals.window_stroke)
+            .fill(tokens.elevated_bg)
+            .stroke(theme::stroke(&ctx, 1.0, tokens.border))
             .corner_radius(egui::CornerRadius::same(10))
             .inner_margin(egui::Margin::same(12))
             .show(ui, |ui| {
