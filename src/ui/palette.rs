@@ -5,7 +5,8 @@ use egui::{pos2, vec2, Align, CornerRadius, Layout, Rect, Sense, Shadow, StrokeK
 
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{HostChannel, HostRequest, UiSnapshot};
-use crate::search::{Action, Context, ResultItem, Results, Router};
+use crate::search::icons::IconCache;
+use crate::search::{Action, Context, Glyph, IconRef, ResultItem, Results, Router};
 use crate::ui::fuzzy;
 use crate::ui::widgets::icons::{self, Icon};
 use crate::ui::widgets::{keycap, row, text};
@@ -22,6 +23,10 @@ pub const HEIGHT: f32 = PANEL_HEIGHT + MARGIN * 2.0;
 const SEARCH_HEIGHT: f32 = 56.0;
 const FOOTER_HEIGHT: f32 = 36.0;
 const ROW_HEIGHT: f32 = 44.0;
+const ROW_PADDING: f32 = 12.0;
+const ICON_SIZE: f32 = 16.0;
+const TITLE_LINE: f32 = 20.0;
+const SUBTITLE_LINE: f32 = 16.0;
 const RISE: f32 = 4.0;
 
 pub enum Outcome {
@@ -39,6 +44,8 @@ pub struct Palette {
     selected: usize,
     focused_once: bool,
     follow_selection: bool,
+    /// Made on the first frame, because it needs the egui context.
+    icons: Option<IconCache>,
 }
 
 impl Palette {
@@ -51,6 +58,7 @@ impl Palette {
             selected: 0,
             focused_once: false,
             follow_selection: false,
+            icons: None,
         }
     }
 
@@ -61,6 +69,9 @@ impl Palette {
         self.follow_selection = true;
         self.router.opened();
         self.searched = None;
+        if let Some(icons) = &mut self.icons {
+            icons.forget_windows();
+        }
     }
 
     /// The host sent a new list of commands.
@@ -160,7 +171,7 @@ impl Palette {
             pos2(icon.right() + 12.0, search.top()),
             pos2(search.right() - 16.0, search.bottom() - line.width),
         );
-        let hint = egui::RichText::new("Type a command\u{2026}")
+        let hint = egui::RichText::new("Type a command, app or window\u{2026}")
             .color(tokens.text_disabled)
             .font(theme::regular(16.0));
         let edit = egui::TextEdit::singleline(&mut self.query)
@@ -217,6 +228,7 @@ impl Palette {
                     .max_height(list.height())
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
+                        let icons = self.icons.get_or_insert_with(|| IconCache::new(&ctx));
                         let needle = self.results.needle.as_str();
                         let mut last_group: Option<&str> = None;
                         for (position, item) in self.results.items.iter().enumerate() {
@@ -226,7 +238,7 @@ impl Palette {
                             }
                             let selected = position == self.selected;
                             let (clicked, rect) =
-                                result_row(ui, item, needle, selected, interactive);
+                                result_row(ui, item, needle, selected, interactive, icons);
                             if selected && std::mem::take(&mut self.follow_selection) {
                                 ui.scroll_to_rect(rect, None);
                             }
@@ -253,6 +265,10 @@ impl Palette {
                 Action::OpenPlugin(plugin) => Outcome::OpenPlugin(plugin),
                 Action::Command(id) => {
                     to_host.send(HostRequest::RunCommand(id));
+                    Outcome::Hide
+                }
+                other => {
+                    to_host.send(HostRequest::RunAction(other));
                     Outcome::Hide
                 }
             };
@@ -288,8 +304,8 @@ fn label_job(label: &str, query: &str, tokens: &Tokens) -> LayoutJob {
     } else {
         fuzzy::positions(query, label).unwrap_or_default()
     };
-    let plain = text::format(theme::regular(15.0), tokens.text_primary, Some(20.0));
-    let mut hit = text::format(theme::regular(15.0), tokens.accent, Some(20.0));
+    let plain = text::format(theme::regular(15.0), tokens.text_primary, Some(TITLE_LINE));
+    let mut hit = text::format(theme::regular(15.0), tokens.accent, Some(TITLE_LINE));
     hit.underline = egui::Stroke::new(1.0, tokens.accent);
     let mut job = LayoutJob::default();
     for (index, character) in label.chars().enumerate() {
@@ -304,17 +320,18 @@ fn label_job(label: &str, query: &str, tokens: &Tokens) -> LayoutJob {
     job
 }
 
-/// A 44 px row: title 15 with an optional 12 px subtitle under it, and one
-/// hotkey chip at the right. The cursor row is drawn from state, never from
-/// hover; hover only adds the 5 % tint. A command whose plugin is off stays
-/// listed at 45 % with an italic "plugin off", so its hotkey does not seem to
-/// vanish.
+/// A 44 px row: the 16 px picture, the title 15 with an optional 12 px
+/// subtitle under it, and one hotkey chip at the right. The cursor row is
+/// drawn from state, never from hover; hover only adds the 5 % tint. A
+/// command whose plugin is off stays listed at 45 % with an italic "plugin
+/// off", so its hotkey does not seem to vanish.
 fn result_row(
     ui: &mut egui::Ui,
     entry: &ResultItem,
     query: &str,
     selected: bool,
     interactive: bool,
+    icons: &mut IconCache,
 ) -> (bool, Rect) {
     let tokens = Tokens::get(ui.ctx());
     let sense = if interactive {
@@ -336,52 +353,121 @@ fn result_row(
             .rect_filled(rect, 4, tokens.hover_bg.gamma_multiply(hover));
     }
 
-    ui.scope_builder(
+    let inner = rect.shrink2(vec2(ROW_PADDING, 0.0));
+    // A child that does not move the list's cursor: the row already took its
+    // 44 px, and a scope would put the cursor back at the row's middle.
+    let mut child = ui.new_child(
         UiBuilder::new()
-            .max_rect(rect.shrink2(vec2(12.0, 0.0)))
+            .max_rect(inner)
             .layout(Layout::left_to_right(Align::Center)),
-        |ui| {
-            if entry.disabled {
-                ui.multiply_opacity(0.45);
-            }
-            ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-            ui.vertical(|ui| {
-                ui.horizontal(|ui| {
-                    text::single(ui, label_job(&entry.title, query, &tokens));
-                    if entry.disabled {
-                        ui.add_space(10.0);
-                        let mut hint = text::job(
-                            "plugin off",
-                            theme::regular(12.0),
-                            tokens.text_disabled,
-                            None,
-                        );
-                        if let Some(section) = hint.sections.first_mut() {
-                            section.format.italics = true;
-                        }
-                        text::single(ui, hint);
-                    }
-                });
-                if !entry.subtitle.is_empty() {
-                    text::single(
-                        ui,
-                        text::job(
-                            &entry.subtitle,
-                            theme::regular(12.0),
-                            tokens.text_secondary,
-                            Some(16.0),
-                        ),
-                    );
-                }
-            });
-            if !entry.hint.is_empty() {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    keycap::binding(ui, &keycap::spaced(&entry.hint), false);
-                });
-            }
-        },
     );
+    let ui = &mut child;
+    if entry.disabled {
+        ui.multiply_opacity(0.45);
+    }
+    let painter = ui.painter().clone();
+    let picture = Rect::from_min_size(
+        pos2(inner.left(), rect.center().y - ICON_SIZE / 2.0),
+        vec2(ICON_SIZE, ICON_SIZE),
+    );
+    paint_icon(ui.ctx(), &painter, picture, &entry.icon, icons, &tokens);
+
+    let mut text_right = inner.right();
+    if !entry.hint.is_empty() {
+        let chips = ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            keycap::binding(ui, &keycap::spaced(&entry.hint), false).rect
+        });
+        text_right = chips.inner.left() - 12.0;
+    }
+    let text_left = picture.right() + 12.0;
+
+    let off = entry.disabled.then(|| {
+        let mut job = text::job(
+            "plugin off",
+            theme::regular(12.0),
+            tokens.text_disabled,
+            None,
+        );
+        if let Some(section) = job.sections.first_mut() {
+            section.format.italics = true;
+        }
+        painter.layout_job(job)
+    });
+    let off_width = off.as_ref().map(|galley| galley.size().x + 10.0);
+    let title_width = text_right - text_left - off_width.unwrap_or(0.0);
+
+    let mut title = label_job(&entry.title, query, &tokens);
+    title.wrap = one_line(title_width);
+    let title = painter.layout_job(title);
+    let top = if entry.subtitle.is_empty() {
+        rect.center().y - TITLE_LINE / 2.0
+    } else {
+        rect.center().y - (TITLE_LINE + SUBTITLE_LINE) / 2.0
+    };
+    let title_width = title.size().x;
+    painter.galley(pos2(text_left, top), title, tokens.text_primary);
+    if let Some(off) = off {
+        let y = top + (TITLE_LINE - off.size().y) / 2.0;
+        painter.galley(
+            pos2(text_left + title_width + 10.0, y),
+            off,
+            tokens.text_disabled,
+        );
+    }
+    if !entry.subtitle.is_empty() {
+        let mut subtitle = text::job(
+            &entry.subtitle,
+            theme::regular(12.0),
+            tokens.text_secondary,
+            Some(SUBTITLE_LINE),
+        );
+        subtitle.wrap = one_line(text_right - text_left);
+        let subtitle = painter.layout_job(subtitle);
+        painter.galley(
+            pos2(text_left, top + TITLE_LINE),
+            subtitle,
+            tokens.text_secondary,
+        );
+    }
     (response.clicked(), rect)
+}
+
+/// Long window titles and paths end in an ellipsis instead of running under
+/// the keycaps.
+fn one_line(width: f32) -> egui::text::TextWrapping {
+    egui::text::TextWrapping {
+        max_width: width.max(0.0),
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('\u{2026}'),
+    }
+}
+
+/// A shell icon appears a frame or two after its row, once the icon thread
+/// has read it; until then the slot stays empty rather than flashing a stand-in.
+fn paint_icon(
+    ctx: &egui::Context,
+    painter: &egui::Painter,
+    rect: Rect,
+    icon: &IconRef,
+    icons: &mut IconCache,
+    tokens: &Tokens,
+) {
+    match icon {
+        IconRef::None => {}
+        IconRef::Glyph(glyph) => {
+            let drawn = match glyph {
+                Glyph::Command => Icon::ChevronRight,
+            };
+            icons::paint(painter, rect, drawn, tokens.text_disabled);
+        }
+        IconRef::Path(_) | IconRef::Window { .. } => {
+            if let Some(texture) = icons.get(ctx, icon) {
+                let whole = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+                painter.image(texture.id(), rect, whole, egui::Color32::WHITE);
+            }
+        }
+    }
 }
 
 fn nothing_matches(ui: &mut egui::Ui, list: Rect, tokens: &Tokens) {

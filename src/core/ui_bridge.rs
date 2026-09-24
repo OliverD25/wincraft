@@ -141,6 +141,8 @@ pub enum HostRequest {
         palette_hwnd: isize,
     },
     RunCommand(CommandId),
+    /// A palette row's action that needs the host thread.
+    RunAction(crate::search::Action),
     Arrange {
         plugin: String,
         action: ArrangeAction,

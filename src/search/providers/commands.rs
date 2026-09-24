@@ -1,4 +1,4 @@
-use crate::search::{Action, Choice, Context, Query, ResultItem, SearchProvider};
+use crate::search::{Action, Choice, Context, Glyph, IconRef, Query, ResultItem, SearchProvider};
 use crate::ui::fuzzy;
 
 /// WinCraft's own commands: host items, then each plugin's hotkey actions,
@@ -28,6 +28,7 @@ impl SearchProvider for Commands {
                     group: entry.group.clone(),
                     title: entry.label.clone(),
                     subtitle: entry.subtitle.clone().unwrap_or_default(),
+                    icon: IconRef::Glyph(Glyph::Command),
                     hint: entry.hint.clone(),
                     score,
                     disabled: entry.disabled,

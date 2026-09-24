@@ -5,9 +5,12 @@
 //! another process could speak the same shapes as JSON later without the
 //! palette changing.
 
+pub mod actions;
+pub mod icons;
 pub mod providers;
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
@@ -35,6 +38,33 @@ pub enum Action {
     Command(CommandId),
     /// Opens a plugin's settings page, for a command whose plugin is off.
     OpenPlugin(String),
+    /// Opens a file, folder or shortcut the way Explorer would.
+    Open(PathBuf),
+    /// Brings a window forward, restoring it if it is minimized.
+    Activate(isize),
+}
+
+/// A picture the palette draws itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Glyph {
+    Command,
+}
+
+/// Where a row's 16 px picture comes from.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum IconRef {
+    #[default]
+    None,
+    Glyph(Glyph),
+    /// The shell's icon for this file, folder or shortcut.
+    Path(PathBuf),
+    /// The window's own icon, or its program's when it has none.
+    Window {
+        hwnd: isize,
+        exe: PathBuf,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -51,9 +81,11 @@ pub struct ResultItem {
     /// with plugin names.
     pub group: String,
     pub title: String,
-    /// The smaller second line, such as a monitor's state.
+    /// The smaller second line: a path, a window's program, a monitor's state.
     #[serde(default)]
     pub subtitle: String,
+    #[serde(default)]
+    pub icon: IconRef,
     /// Keys shown as keycaps at the right, such as "Win+Alt+F1".
     #[serde(default)]
     pub hint: String,
@@ -208,6 +240,7 @@ mod tests {
             group: group.to_string(),
             title: title.to_string(),
             subtitle: String::new(),
+            icon: IconRef::None,
             hint: String::new(),
             score,
             disabled: false,
@@ -247,10 +280,12 @@ mod tests {
 
     #[test]
     fn a_result_survives_a_trip_through_json() {
+        let shortcut = PathBuf::from(r"C:\Start Menu\Notepad.lnk");
         let mut original = item("Apps", "Notepad", 12);
+        original.icon = IconRef::Path(shortcut.clone());
         original.enter = Some(Choice {
             label: "Open".to_string(),
-            action: Action::OpenPlugin("screen_dimmer".to_string()),
+            action: Action::Open(shortcut),
         });
         let text = serde_json::to_string(&original).unwrap();
         let back: ResultItem = serde_json::from_str(&text).unwrap();

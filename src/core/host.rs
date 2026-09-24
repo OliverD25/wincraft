@@ -736,6 +736,8 @@ impl Host {
                 self.publish();
             }
             HostRequest::RunCommand(id) => self.run_command(id),
+            HostRequest::RunAction(search::Action::Command(id)) => self.run_command(id),
+            HostRequest::RunAction(action) => search::actions::perform(&action),
             HostRequest::Arrange { plugin, action } => {
                 if let Some(index) = self.index_of(&plugin) {
                     if self.slots[index].enabled {
