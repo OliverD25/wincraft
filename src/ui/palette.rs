@@ -4,7 +4,8 @@ use egui::text::LayoutJob;
 use egui::{pos2, vec2, Align, CornerRadius, Layout, Rect, Sense, Shadow, StrokeKind, UiBuilder};
 
 use crate::core::theme::{self, Tokens};
-use crate::core::ui_bridge::{HostChannel, HostRequest, PaletteEntry, UiSnapshot};
+use crate::core::ui_bridge::{HostChannel, HostRequest, UiSnapshot};
+use crate::search::{Action, Context, ResultItem, Results, Router};
 use crate::ui::fuzzy;
 use crate::ui::widgets::icons::{self, Icon};
 use crate::ui::widgets::{keycap, row, text};
@@ -29,69 +30,58 @@ pub enum Outcome {
     OpenPlugin(String),
 }
 
-#[derive(Default)]
 pub struct Palette {
-    pub query: String,
+    query: String,
+    router: Router,
+    results: Results,
+    /// The query `results` answer; None when they are out of date.
+    searched: Option<String>,
     selected: usize,
     focused_once: bool,
     follow_selection: bool,
-    matches: Vec<usize>,
 }
 
 impl Palette {
+    pub fn new(router: Router) -> Self {
+        Self {
+            query: String::new(),
+            router,
+            results: Results::default(),
+            searched: None,
+            selected: 0,
+            focused_once: false,
+            follow_selection: false,
+        }
+    }
+
     pub fn opened(&mut self) {
         self.query.clear();
         self.selected = 0;
         self.focused_once = false;
         self.follow_selection = true;
-        self.matches.clear();
+        self.router.opened();
+        self.searched = None;
     }
 
-    /// Empty query: everything, in the host's order, which is already grouped.
-    /// Otherwise the best matches, still grouped by plugin, with the groups in
-    /// the order of their best match.
-    fn rank(&mut self, snapshot: &UiSnapshot) {
-        let query = self.query.trim();
-        self.matches = if query.is_empty() {
-            (0..snapshot.commands.len()).collect()
-        } else {
-            let scored: Vec<(i32, usize)> = snapshot
-                .commands
-                .iter()
-                .enumerate()
-                .filter_map(|(index, entry)| {
-                    fuzzy::score_command(query, &entry.group, &entry.label)
-                        .map(|points| (points, index))
-                })
-                .collect();
-            let best_in_group = |group: &str| {
-                scored
-                    .iter()
-                    .filter(|(_, index)| snapshot.commands[*index].group == group)
-                    .map(|(points, _)| *points)
-                    .max()
-                    .unwrap_or(i32::MIN)
+    /// The host sent a new list of commands.
+    pub fn invalidate(&mut self) {
+        self.searched = None;
+    }
+
+    /// Asks the providers again only when the query changed, because some of
+    /// them read the disk or the window list.
+    fn refresh(&mut self, snapshot: &UiSnapshot) {
+        if self.searched.as_deref() != Some(self.query.as_str()) {
+            let context = Context {
+                commands: &snapshot.commands,
+                plugins: &snapshot.plugins,
             };
-            let mut ordered = scored.clone();
-            ordered.sort_by(|a, b| {
-                let group_a = &snapshot.commands[a.1].group;
-                let group_b = &snapshot.commands[b.1].group;
-                best_in_group(group_b)
-                    .cmp(&best_in_group(group_a))
-                    .then_with(|| group_a.cmp(group_b))
-                    .then(b.0.cmp(&a.0))
-                    .then(a.1.cmp(&b.1))
-            });
-            ordered.into_iter().map(|(_, index)| index).collect()
-        };
-        if self.selected >= self.matches.len() {
-            self.selected = self.matches.len().saturating_sub(1);
+            self.results = self.router.search(&self.query, &context);
+            self.searched = Some(self.query.clone());
         }
-    }
-
-    fn chosen<'a>(&self, snapshot: &'a UiSnapshot) -> Option<&'a PaletteEntry> {
-        let index = *self.matches.get(self.selected)?;
-        snapshot.commands.get(index)
+        if self.selected >= self.results.items.len() {
+            self.selected = self.results.items.len().saturating_sub(1);
+        }
     }
 
     /// `appear` runs from 0 to 1 while the palette fades in, and back to 0 as
@@ -104,19 +94,19 @@ impl Palette {
         appear: f32,
         interactive: bool,
     ) -> Outcome {
-        self.rank(snapshot);
+        self.refresh(snapshot);
         let ctx = ui.ctx().clone();
         let tokens = Tokens::get(&ctx);
         let mut outcome = Outcome::Stay;
-        let mut run: Option<&PaletteEntry> = None;
+        let mut run: Option<Action> = None;
 
         if interactive {
             ctx.input(|input| {
                 if input.key_pressed(egui::Key::Escape) {
                     outcome = Outcome::Hide;
                 }
-                if !self.matches.is_empty() {
-                    let count = self.matches.len();
+                if !self.results.items.is_empty() {
+                    let count = self.results.items.len();
                     if input.key_pressed(egui::Key::ArrowDown) {
                         self.selected = (self.selected + 1) % count;
                         self.follow_selection = true;
@@ -128,7 +118,7 @@ impl Palette {
                 }
             });
             if ctx.input(|input| input.key_pressed(egui::Key::Enter)) {
-                run = self.chosen(snapshot);
+                run = self.chosen_action();
             }
         }
 
@@ -218,7 +208,7 @@ impl Palette {
                 .layout(Layout::top_down(Align::Min)),
             |ui| {
                 ui.set_clip_rect(list.intersect(ui.clip_rect()));
-                if self.matches.is_empty() {
+                if self.results.items.is_empty() {
                     nothing_matches(ui, list, &tokens);
                     return;
                 }
@@ -227,24 +217,22 @@ impl Palette {
                     .max_height(list.height())
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
-                        let rows = self.matches.clone();
-                        let query = self.query.trim().to_string();
+                        let needle = self.results.needle.as_str();
                         let mut last_group: Option<&str> = None;
-                        for (position, index) in rows.into_iter().enumerate() {
-                            let entry = &snapshot.commands[index];
-                            if last_group != Some(entry.group.as_str()) {
-                                last_group = Some(entry.group.as_str());
-                                group_header(ui, &entry.group);
+                        for (position, item) in self.results.items.iter().enumerate() {
+                            if last_group != Some(item.group.as_str()) {
+                                last_group = Some(item.group.as_str());
+                                group_header(ui, &item.group);
                             }
                             let selected = position == self.selected;
                             let (clicked, rect) =
-                                command_row(ui, entry, &query, selected, interactive);
+                                result_row(ui, item, needle, selected, interactive);
                             if selected && std::mem::take(&mut self.follow_selection) {
                                 ui.scroll_to_rect(rect, None);
                             }
                             if clicked {
                                 self.selected = position;
-                                run = Some(entry);
+                                run = item.enter.as_ref().map(|choice| choice.action.clone());
                             }
                         }
                     });
@@ -260,16 +248,21 @@ impl Palette {
             _ => {}
         }
 
-        if let Some(entry) = run {
-            outcome = match (&entry.plugin, entry.disabled) {
-                (Some(plugin), true) => Outcome::OpenPlugin(plugin.clone()),
-                _ => {
-                    to_host.send(HostRequest::RunCommand(entry.id));
+        if let Some(action) = run {
+            outcome = match action {
+                Action::OpenPlugin(plugin) => Outcome::OpenPlugin(plugin),
+                Action::Command(id) => {
+                    to_host.send(HostRequest::RunCommand(id));
                     Outcome::Hide
                 }
             };
         }
         outcome
+    }
+
+    fn chosen_action(&self) -> Option<Action> {
+        let item = self.results.items.get(self.selected)?;
+        item.enter.as_ref().map(|choice| choice.action.clone())
     }
 }
 
@@ -316,9 +309,9 @@ fn label_job(label: &str, query: &str, tokens: &Tokens) -> LayoutJob {
 /// hover; hover only adds the 5 % tint. A command whose plugin is off stays
 /// listed at 45 % with an italic "plugin off", so its hotkey does not seem to
 /// vanish.
-fn command_row(
+fn result_row(
     ui: &mut egui::Ui,
-    entry: &PaletteEntry,
+    entry: &ResultItem,
     query: &str,
     selected: bool,
     interactive: bool,
@@ -354,7 +347,7 @@ fn command_row(
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
-                    text::single(ui, label_job(&entry.label, query, &tokens));
+                    text::single(ui, label_job(&entry.title, query, &tokens));
                     if entry.disabled {
                         ui.add_space(10.0);
                         let mut hint = text::job(
@@ -369,11 +362,11 @@ fn command_row(
                         text::single(ui, hint);
                     }
                 });
-                if let Some(subtitle) = &entry.subtitle {
+                if !entry.subtitle.is_empty() {
                     text::single(
                         ui,
                         text::job(
-                            subtitle,
+                            &entry.subtitle,
                             theme::regular(12.0),
                             tokens.text_secondary,
                             Some(16.0),

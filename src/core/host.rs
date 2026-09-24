@@ -35,6 +35,7 @@ use crate::core::ui_bridge::{
     UiCommand, UiSnapshot, WM_APP_UI,
 };
 use crate::core::{autostart, config, hotkeys, theme, wide};
+use crate::search::{self, Router, SearchProvider};
 use crate::ui;
 
 const CLASS_NAME: &str = "WinCraftHost";
@@ -192,6 +193,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         Arc::clone(&bridge.to_ui),
         Arc::clone(&bridge.to_host),
         host.snapshot(),
+        host.search_router(),
     );
 
     host.tray.add();
@@ -626,6 +628,21 @@ impl Host {
             }
         }
         entries
+    }
+
+    fn search_router(&self) -> Router {
+        let mut providers: Vec<(Option<String>, Box<dyn SearchProvider>)> =
+            search::providers::built_in()
+                .into_iter()
+                .map(|provider| (None, provider))
+                .collect();
+        for slot in &self.slots {
+            let id = slot.plugin.metadata().id;
+            for provider in slot.plugin.search_providers() {
+                providers.push((Some(id.to_string()), provider));
+            }
+        }
+        Router::new(providers)
     }
 
     fn publish(&self) {

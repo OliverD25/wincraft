@@ -14,6 +14,7 @@ use crate::core::theme;
 use crate::core::ui_bridge::{
     HostChannel, HostRequest, MonitorRect, UiChannel, UiCommand, UiSnapshot,
 };
+use crate::search::Router;
 use crate::ui::arrange::Arrange;
 use crate::ui::palette::{Outcome, Palette};
 use crate::ui::settings::Settings;
@@ -23,10 +24,11 @@ pub fn start(
     to_ui: Arc<UiChannel>,
     to_host: Arc<HostChannel>,
     snapshot: UiSnapshot,
+    router: Router,
 ) {
     let started = std::thread::Builder::new()
         .name("wincraft-ui".to_string())
-        .spawn(move || run(rx, to_ui, to_host, snapshot));
+        .spawn(move || run(rx, to_ui, to_host, snapshot, router));
     if let Err(err) = started {
         log::error!("could not start the UI thread: {err}");
     }
@@ -37,6 +39,7 @@ fn run(
     to_ui: Arc<UiChannel>,
     to_host: Arc<HostChannel>,
     snapshot: UiSnapshot,
+    router: Router,
 ) {
     // The palette is the root viewport because only the root exposes a Win32
     // handle, which the host needs for SetForegroundWindow and to switch off the
@@ -70,7 +73,13 @@ fn run(
             theme::install_fonts(&cc.egui_ctx);
             theme::apply(&cc.egui_ctx, snapshot.theme);
             let palette_hwnd = report_palette_window(cc, &to_host);
-            Ok(Box::new(App::new(rx, to_host, snapshot, palette_hwnd)))
+            Ok(Box::new(App::new(
+                rx,
+                to_host,
+                snapshot,
+                palette_hwnd,
+                router,
+            )))
         }),
     );
     if let Err(err) = result {
@@ -135,6 +144,7 @@ impl App {
         to_host: Arc<HostChannel>,
         snapshot: UiSnapshot,
         palette_hwnd: isize,
+        router: Router,
     ) -> Self {
         let to_host_for_settings = Arc::clone(&to_host);
         let snapshot_for_settings = snapshot.clone();
@@ -142,7 +152,7 @@ impl App {
             rx,
             to_host,
             snapshot,
-            palette: Palette::default(),
+            palette: Palette::new(router),
             palette_visible: false,
             pending_position: None,
             settings_open: false,
@@ -195,6 +205,7 @@ impl App {
                 UiCommand::Snapshot(snapshot) => {
                     self.settings.set_snapshot((*snapshot).clone());
                     self.snapshot = *snapshot;
+                    self.palette.invalidate();
                 }
                 UiCommand::ThemeChanged => theme::apply(ctx, self.snapshot.theme),
                 UiCommand::Quit => {
