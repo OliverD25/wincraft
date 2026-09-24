@@ -85,6 +85,17 @@ without also bringing its window to the current desktop, so a move only
 rebuilds the buttons of the desktop you are on. A restore rebuilds them all
 and then sends every window back to its desktop.
 
+### Why not drag in the taskbar itself
+
+The mouse way to reorder is the Arrange windows list. Dragging a thumbnail
+inside the taskbar's own flyout is not possible from outside Explorer on
+Windows 11 24H2: the flyout exposes no accessible thumbnail items, so another
+program cannot tell which thumbnail is under the pointer (probed on
+2026-09-25). The Windhawk mod "Taskbar Thumbnail Reorder" still works for
+reordering by hand, but it changes the order inside Explorer where WinCraft
+cannot see it, so the next restore replaces its changes with LayoutKeeper's
+saved order.
+
 ## Hotkeys
 
 | Action | Default |

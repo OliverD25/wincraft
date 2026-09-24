@@ -6,7 +6,7 @@ hotkeys, a command palette and a settings window. Features are written as
 **plugins** that plug into one Rust trait, so adding a feature never means
 touching the Win32 plumbing or writing any UI code.
 
-It ships three plugins: **ScreenDimmer**, **ShortcutDetector** and
+Version 0.5 ships three plugins: **ScreenDimmer**, **ShortcutDetector** and
 **LayoutKeeper**.
 
 ## What you get
@@ -86,6 +86,13 @@ Moving windows between desktops uses undocumented Windows interfaces, ported
 from [MScholtes' VirtualDesktop](https://github.com/MScholtes/VirtualDesktop)
 (MIT). They change between Windows builds; if they do not answer as expected,
 LayoutKeeper turns desktop moves off for the session and says so on its page.
+
+To reorder with the mouse, use the Arrange windows list. Dragging inside the
+taskbar's thumbnail flyout is not possible from outside Explorer on Windows 11
+24H2, because the flyout exposes no accessible thumbnail items (probed on
+2026-09-25). The Windhawk mod "Taskbar Thumbnail Reorder" still works for hand
+reorders, but WinCraft cannot see its changes, and the next restore replaces
+them.
 
 ### Host hotkeys
 
