@@ -22,11 +22,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
 };
 
-use crate::core::about::{self, AboutHotkey, AboutModule};
+use crate::core::about::{self, AboutHotkey, AboutPlugin};
 use serde_json::Value;
 
 use crate::core::config::{Config, PluginConfig, DEFAULT_PALETTE_HOTKEY};
-use crate::core::traits::{HostContext, Hotkey, WinCraftModule};
+use crate::core::traits::{HostContext, Hotkey, WinCraftPlugin};
 use crate::core::tray::{show_menu, MenuItem, Tray, WM_TRAY_CALLBACK};
 use crate::core::ui_bridge::{
     self, ActionKind, CommandId, FieldInfo, HostCommand, HostRequest, HostSetting, HotkeyInfo,
@@ -44,14 +44,14 @@ const MENU_AUTOSTART: u32 = 4;
 const MENU_EXIT: u32 = 5;
 const MENU_PALETTE: u32 = 6;
 const MENU_SETTINGS: u32 = 7;
-const MENU_MODULE_BASE: u32 = 100;
-const MENU_MODULE_ACTION_BASE: u32 = 1000;
+const MENU_PLUGIN_BASE: u32 = 100;
+const MENU_PLUGIN_ACTION_BASE: u32 = 1000;
 
 const DETECTOR_ID: &str = "shortcut_detector";
 const DETECTOR_OPEN_ACTION: u32 = 1;
 
 /// The palette belongs to the host, not to a plugin, so it takes the one id
-/// that module hotkeys never use.
+/// that plugin hotkeys never use.
 const PALETTE_HOTKEY_ID: i32 = 0;
 
 struct RegisteredHotkey {
@@ -63,8 +63,8 @@ struct RegisteredHotkey {
     ok: bool,
 }
 
-struct ModuleSlot {
-    module: Box<dyn WinCraftModule>,
+struct PluginSlot {
+    plugin: Box<dyn WinCraftPlugin>,
     enabled: bool,
     registered: Vec<RegisteredHotkey>,
 }
@@ -73,7 +73,7 @@ struct Host {
     hwnd: HWND,
     config: Config,
     plugins: BTreeMap<String, PluginConfig>,
-    slots: Vec<ModuleSlot>,
+    slots: Vec<PluginSlot>,
     tray: Tray,
     next_hotkey_id: i32,
     palette_hotkey: Option<(Hotkey, bool)>,
@@ -97,7 +97,7 @@ thread_local! {
     static TASKBAR_CREATED: Cell<u32> = const { Cell::new(0) };
 }
 
-pub fn run(config: Config, modules: Vec<Box<dyn WinCraftModule>>, flags: StartupFlags) {
+pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: StartupFlags) {
     let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
 
     let class_name = wide(CLASS_NAME);
@@ -112,7 +112,7 @@ pub fn run(config: Config, modules: Vec<Box<dyn WinCraftModule>>, flags: Startup
 
     // A normal top-level window that is simply never shown, not an HWND_MESSAGE
     // window. Message-only windows are skipped by broadcasts, and the host must
-    // see WM_DISPLAYCHANGE to tell modules that the monitor layout changed.
+    // see WM_DISPLAYCHANGE to tell plugins that the monitor layout changed.
     let hwnd = unsafe {
         CreateWindowExW(
             0,
@@ -140,10 +140,10 @@ pub fn run(config: Config, modules: Vec<Box<dyn WinCraftModule>>, flags: Startup
     let mut host = Host {
         hwnd,
         config,
-        slots: modules
+        slots: plugins
             .into_iter()
-            .map(|module| ModuleSlot {
-                module,
+            .map(|plugin| PluginSlot {
+                plugin,
                 enabled: false,
                 registered: Vec::new(),
             })
@@ -163,7 +163,7 @@ pub fn run(config: Config, modules: Vec<Box<dyn WinCraftModule>>, flags: Startup
     host.register_palette_hotkey();
     let wanted: Vec<usize> = (0..host.slots.len())
         .filter(|index| {
-            let id = host.slots[*index].module.metadata().id;
+            let id = host.slots[*index].plugin.metadata().id;
             host.plugins
                 .get(id)
                 .map(|plugin| plugin.enabled)
@@ -218,14 +218,14 @@ impl Host {
 
     fn load_plugin_config(&mut self, index: usize) {
         let slot = &self.slots[index];
-        let meta = slot.module.metadata();
+        let meta = slot.plugin.metadata();
         let defaults: Vec<(&str, String)> = slot
-            .module
+            .plugin
             .hotkey_actions()
             .iter()
             .map(|action| (action.name, hotkeys::format(action.default)))
             .collect();
-        let settings = slot.module.default_settings();
+        let settings = slot.plugin.default_settings();
 
         let mut plugin = PluginConfig::load(meta.id);
         plugin.merge_defaults(&defaults, &settings);
@@ -264,15 +264,15 @@ impl Host {
         self.plugins.entry(id.to_string()).or_default()
     }
 
-    fn resolve_hotkey(&self, module_id: &str, name: &str, default: Hotkey) -> Hotkey {
+    fn resolve_hotkey(&self, plugin_id: &str, name: &str, default: Hotkey) -> Hotkey {
         let text = self
-            .plugin(module_id)
+            .plugin(plugin_id)
             .and_then(|plugin| plugin.hotkeys.get(name));
         match text {
             Some(text) => match hotkeys::parse(text) {
                 Ok(hotkey) => hotkey,
                 Err(err) => {
-                    log::warn!("{module_id}.{name}: {err}; using the module default");
+                    log::warn!("{plugin_id}.{name}: {err}; using the plugin default");
                     default
                 }
             },
@@ -284,7 +284,7 @@ impl Host {
         if self.slots[index].enabled {
             return;
         }
-        let meta = self.slots[index].module.metadata();
+        let meta = self.slots[index].plugin.metadata();
         let settings = self
             .plugin(meta.id)
             .map(|plugin| plugin.settings.clone())
@@ -295,7 +295,7 @@ impl Host {
                 hwnd: self.hwnd,
                 settings: &settings,
             };
-            self.slots[index].module.init(&ctx)
+            self.slots[index].plugin.init(&ctx)
         };
         if let Err(err) = init_result {
             log::error!("{}: init failed: {err}", meta.id);
@@ -305,7 +305,7 @@ impl Host {
         }
 
         let actions: Vec<(u32, &'static str, &'static str, Hotkey)> = self.slots[index]
-            .module
+            .plugin
             .hotkey_actions()
             .iter()
             .map(|action| (action.id, action.name, action.label, action.default))
@@ -353,9 +353,9 @@ impl Host {
                 unsafe { UnregisterHotKey(self.hwnd, entry.global_id) };
             }
         }
-        self.slots[index].module.teardown();
+        self.slots[index].plugin.teardown();
         self.slots[index].enabled = false;
-        let id = self.slots[index].module.metadata().id;
+        let id = self.slots[index].plugin.metadata().id;
         self.plugin_mut(id).enabled = false;
         self.save_plugin(id);
         log::info!("{id} disabled");
@@ -376,16 +376,16 @@ impl Host {
             MenuItem::Separator,
         ];
         for (index, slot) in self.slots.iter().enumerate() {
-            let meta = slot.module.metadata();
+            let meta = slot.plugin.metadata();
             items.push(MenuItem::Entry {
-                id: MENU_MODULE_BASE + index as u32,
+                id: MENU_PLUGIN_BASE + index as u32,
                 label: meta.name.to_string(),
                 checked: slot.enabled,
             });
             if slot.enabled {
-                for action in slot.module.tray_actions() {
+                for action in slot.plugin.tray_actions() {
                     items.push(MenuItem::Entry {
-                        id: MENU_MODULE_ACTION_BASE + index as u32 * 100 + action.id,
+                        id: MENU_PLUGIN_ACTION_BASE + index as u32 * 100 + action.id,
                         label: format!("    {}", action.label),
                         checked: false,
                     });
@@ -423,11 +423,11 @@ impl Host {
     }
 
     fn about_text(&self) -> String {
-        let modules: Vec<AboutModule> = self
+        let plugins: Vec<AboutPlugin> = self
             .slots
             .iter()
             .map(|slot| {
-                let meta = slot.module.metadata();
+                let meta = slot.plugin.metadata();
                 let keys = if slot.enabled {
                     slot.registered
                         .iter()
@@ -438,7 +438,7 @@ impl Host {
                         })
                         .collect()
                 } else {
-                    slot.module
+                    slot.plugin
                         .hotkey_actions()
                         .iter()
                         .map(|action| AboutHotkey {
@@ -452,7 +452,7 @@ impl Host {
                         })
                         .collect()
                 };
-                AboutModule {
+                AboutPlugin {
                     name: meta.name.to_string(),
                     version: meta.version.to_string(),
                     author: meta.author.to_string(),
@@ -462,12 +462,12 @@ impl Host {
                 }
             })
             .collect();
-        about::text(&modules)
+        about::text(&plugins)
     }
 
     fn hotkey_infos(&self, index: usize) -> Vec<HotkeyInfo> {
         let slot = &self.slots[index];
-        let meta = slot.module.metadata();
+        let meta = slot.plugin.metadata();
         if slot.enabled {
             return slot
                 .registered
@@ -480,7 +480,7 @@ impl Host {
                 })
                 .collect();
         }
-        slot.module
+        slot.plugin
             .hotkey_actions()
             .iter()
             .map(|action| HotkeyInfo {
@@ -494,7 +494,7 @@ impl Host {
 
     fn action_name(&self, index: usize, action_id: u32) -> &'static str {
         self.slots[index]
-            .module
+            .plugin
             .hotkey_actions()
             .into_iter()
             .find(|action| action.id == action_id)
@@ -506,7 +506,7 @@ impl Host {
         let plugins: Vec<PluginInfo> = (0..self.slots.len())
             .map(|index| {
                 let slot = &self.slots[index];
-                let meta = slot.module.metadata();
+                let meta = slot.plugin.metadata();
                 let settings = self
                     .plugin(meta.id)
                     .map(|plugin| plugin.settings.clone())
@@ -522,7 +522,7 @@ impl Host {
                     config_path: config::plugin_path(meta.id),
                     hotkeys: self.hotkey_infos(index),
                     fields: slot
-                        .module
+                        .plugin
                         .settings_fields()
                         .into_iter()
                         .map(|field| FieldInfo {
@@ -570,7 +570,7 @@ impl Host {
         }
 
         for (index, slot) in self.slots.iter().enumerate() {
-            let meta = slot.module.metadata();
+            let meta = slot.plugin.metadata();
             let group = meta.name.to_string();
             entries.push(PaletteEntry {
                 id: CommandId::Host(HostCommand::TogglePlugin(index)),
@@ -586,13 +586,13 @@ impl Host {
                 continue;
             }
             let bindings = plugins.get(index).map(|info| &info.hotkeys);
-            for action in slot.module.hotkey_actions() {
+            for action in slot.plugin.hotkey_actions() {
                 let hint = bindings
                     .and_then(|list| list.iter().find(|info| info.label == action.label))
                     .map(|info| info.binding.clone())
                     .unwrap_or_default();
                 entries.push(PaletteEntry {
-                    id: CommandId::Module {
+                    id: CommandId::Plugin {
                         index,
                         kind: ActionKind::Hotkey,
                         action: action.id,
@@ -602,7 +602,7 @@ impl Host {
                     hint,
                 });
             }
-            for action in slot.module.tray_actions() {
+            for action in slot.plugin.tray_actions() {
                 if entries
                     .iter()
                     .any(|entry| entry.group == group && entry.label == action.label)
@@ -610,7 +610,7 @@ impl Host {
                     continue;
                 }
                 entries.push(PaletteEntry {
-                    id: CommandId::Module {
+                    id: CommandId::Plugin {
                         index,
                         kind: ActionKind::Tray,
                         action: action.id,
@@ -620,9 +620,9 @@ impl Host {
                     hint: String::new(),
                 });
             }
-            for command in slot.module.palette_commands() {
+            for command in slot.plugin.palette_commands() {
                 entries.push(PaletteEntry {
-                    id: CommandId::Module {
+                    id: CommandId::Plugin {
                         index,
                         kind: ActionKind::Palette,
                         action: command.id,
@@ -644,7 +644,7 @@ impl Host {
     fn index_of(&self, id: &str) -> Option<usize> {
         self.slots
             .iter()
-            .position(|slot| slot.module.metadata().id == id)
+            .position(|slot| slot.plugin.metadata().id == id)
     }
 
     fn run_command(&mut self, id: CommandId) {
@@ -671,7 +671,7 @@ impl Host {
                     self.publish();
                 }
             }
-            CommandId::Module {
+            CommandId::Plugin {
                 index,
                 kind,
                 action,
@@ -683,9 +683,9 @@ impl Host {
                     return;
                 }
                 match kind {
-                    ActionKind::Hotkey => slot.module.on_hotkey(action),
-                    ActionKind::Tray => slot.module.on_tray_action(action),
-                    ActionKind::Palette => slot.module.on_palette_command(action),
+                    ActionKind::Hotkey => slot.plugin.on_hotkey(action),
+                    ActionKind::Tray => slot.plugin.on_tray_action(action),
+                    ActionKind::Palette => slot.plugin.on_palette_command(action),
                 }
             }
         }
@@ -699,7 +699,7 @@ impl Host {
                 self.publish();
             }
             HostRequest::RunCommand(id) => self.run_command(id),
-            HostRequest::SetModuleEnabled { id, enabled } => {
+            HostRequest::SetPluginEnabled { id, enabled } => {
                 if let Some(index) = self.index_of(&id) {
                     if enabled {
                         self.enable_slot(index);
@@ -710,46 +710,49 @@ impl Host {
                 }
             }
             HostRequest::SetHotkey {
-                module,
+                plugin,
                 action,
                 binding,
-            } => self.set_hotkey(&module, &action, &binding),
-            HostRequest::SetSetting { module, key, value } => {
-                self.set_setting(&module, &key, value)
+            } => self.set_hotkey(&plugin, &action, &binding),
+            HostRequest::SetSetting { plugin, key, value } => {
+                self.set_setting(&plugin, &key, value)
             }
-            HostRequest::ResetModule(id) => self.reset_plugin(&id),
+            HostRequest::ResetPlugin(id) => self.reset_plugin(&id),
             HostRequest::SetHostSetting(setting) => self.set_host_setting(setting),
             HostRequest::OpenPath(path) => open_in_notepad(&path),
             HostRequest::Exit => self.shutdown(),
         }
     }
 
-    fn set_hotkey(&mut self, module: &str, action: &str, binding: &str) {
+    fn set_hotkey(&mut self, plugin_id: &str, action: &str, binding: &str) {
         let hotkey = match hotkeys::parse(binding) {
             Ok(hotkey) => hotkey,
             Err(err) => {
-                log::warn!("{module}.{action}: {err}");
+                log::warn!("{plugin_id}.{action}: {err}");
                 return;
             }
         };
-        self.plugin_mut(module)
+        self.plugin_mut(plugin_id)
             .hotkeys
             .insert(action.to_string(), hotkeys::format(hotkey));
-        self.save_plugin(module);
+        self.save_plugin(plugin_id);
 
-        if let Some(index) = self.index_of(module) {
+        if let Some(index) = self.index_of(plugin_id) {
             if self.slots[index].enabled {
                 self.disable_slot(index);
                 self.enable_slot(index);
             }
         }
-        log::info!("{module}.{action} rebound to {}", hotkeys::format(hotkey));
+        log::info!(
+            "{plugin_id}.{action} rebound to {}",
+            hotkeys::format(hotkey)
+        );
         self.publish();
     }
 
-    fn set_setting(&mut self, module: &str, key: &str, value: Value) {
+    fn set_setting(&mut self, plugin_id: &str, key: &str, value: Value) {
         {
-            let plugin = self.plugin_mut(module);
+            let plugin = self.plugin_mut(plugin_id);
             if !plugin.settings.is_object() {
                 plugin.settings = serde_json::json!({});
             }
@@ -757,15 +760,15 @@ impl Host {
                 object.insert(key.to_string(), value);
             }
         }
-        self.save_plugin(module);
+        self.save_plugin(plugin_id);
 
         let settings = self
-            .plugin(module)
+            .plugin(plugin_id)
             .map(|plugin| plugin.settings.clone())
             .unwrap_or_else(|| serde_json::json!({}));
-        if let Some(index) = self.index_of(module) {
+        if let Some(index) = self.index_of(plugin_id) {
             if self.slots[index].enabled {
-                let applied = self.slots[index].module.on_settings_changed(&settings);
+                let applied = self.slots[index].plugin.on_settings_changed(&settings);
                 if !applied {
                     self.disable_slot(index);
                     self.enable_slot(index);
@@ -775,24 +778,24 @@ impl Host {
         self.publish();
     }
 
-    fn reset_plugin(&mut self, module: &str) {
-        if let Err(err) = PluginConfig::reset(module) {
+    fn reset_plugin(&mut self, plugin_id: &str) {
+        if let Err(err) = PluginConfig::reset(plugin_id) {
             log::error!("{err}");
             return;
         }
-        let Some(index) = self.index_of(module) else {
+        let Some(index) = self.index_of(plugin_id) else {
             return;
         };
         let was_enabled = self.slots[index].enabled;
         if was_enabled {
             self.disable_slot(index);
         }
-        self.plugins.remove(module);
+        self.plugins.remove(plugin_id);
         self.load_plugin_config(index);
         if was_enabled {
             self.enable_slot(index);
         }
-        log::info!("{module} reset to defaults");
+        log::info!("{plugin_id} reset to defaults");
         self.publish();
     }
 
@@ -856,7 +859,7 @@ impl Host {
 ///
 /// It takes an immutable borrow, so calling it while the host is mutably
 /// borrowed panics instead of quietly misbehaving. That is the re-entrancy rule
-/// with teeth: a module may call this from its own WndProc, never from inside
+/// with teeth: a plugin may call this from its own WndProc, never from inside
 /// on_hotkey or on_tray_action.
 pub fn registered_hotkeys() -> Vec<(String, String, Hotkey)> {
     HOST.with(|cell| {
@@ -866,9 +869,9 @@ pub fn registered_hotkeys() -> Vec<(String, String, Hotkey)> {
         };
         let mut found = Vec::new();
         for slot in host.slots.iter().filter(|slot| slot.enabled) {
-            let module = slot.module.metadata().name;
+            let plugin = slot.plugin.metadata().name;
             for entry in slot.registered.iter().filter(|entry| entry.ok) {
-                found.push((module.to_string(), entry.label.to_string(), entry.hotkey));
+                found.push((plugin.to_string(), entry.label.to_string(), entry.hotkey));
             }
         }
         found
@@ -946,10 +949,10 @@ fn open_shortcut_detector() {
         let slot = host
             .slots
             .iter_mut()
-            .find(|slot| slot.enabled && slot.module.metadata().id == DETECTOR_ID);
+            .find(|slot| slot.enabled && slot.plugin.metadata().id == DETECTOR_ID);
         match slot {
-            Some(slot) => slot.module.on_tray_action(DETECTOR_OPEN_ACTION),
-            None => log::info!("no enabled {DETECTOR_ID} module to open"),
+            Some(slot) => slot.plugin.on_tray_action(DETECTOR_OPEN_ACTION),
+            None => log::info!("no enabled {DETECTOR_ID} plugin to open"),
         }
     });
 }
@@ -1014,9 +1017,9 @@ fn handle_menu_choice(choice: u32) {
         MENU_SETTINGS => {
             with_host(|host| host.to_ui.send(UiCommand::ShowSettings(Page::General)));
         }
-        id if (MENU_MODULE_BASE..MENU_MODULE_ACTION_BASE).contains(&id) => {
+        id if (MENU_PLUGIN_BASE..MENU_PLUGIN_ACTION_BASE).contains(&id) => {
             with_host(|host| {
-                let index = (id - MENU_MODULE_BASE) as usize;
+                let index = (id - MENU_PLUGIN_BASE) as usize;
                 if index >= host.slots.len() {
                     return;
                 }
@@ -1028,14 +1031,14 @@ fn handle_menu_choice(choice: u32) {
                 host.publish();
             });
         }
-        id if id >= MENU_MODULE_ACTION_BASE => {
+        id if id >= MENU_PLUGIN_ACTION_BASE => {
             with_host(|host| {
-                let offset = id - MENU_MODULE_ACTION_BASE;
+                let offset = id - MENU_PLUGIN_ACTION_BASE;
                 let index = (offset / 100) as usize;
                 let action_id = offset % 100;
                 if let Some(slot) = host.slots.get_mut(index) {
                     if slot.enabled {
-                        slot.module.on_tray_action(action_id);
+                        slot.plugin.on_tray_action(action_id);
                     }
                 }
             });
@@ -1089,7 +1092,7 @@ unsafe extern "system" fn wnd_proc(
                 });
                 if let Some((index, action_id)) = target {
                     if host.slots[index].enabled {
-                        host.slots[index].module.on_hotkey(action_id);
+                        host.slots[index].plugin.on_hotkey(action_id);
                     }
                 }
             });
@@ -1134,7 +1137,7 @@ unsafe extern "system" fn wnd_proc(
             }
             with_host(|host| {
                 for slot in host.slots.iter_mut().filter(|slot| slot.enabled) {
-                    slot.module.on_windows_message(msg, wparam, lparam);
+                    slot.plugin.on_windows_message(msg, wparam, lparam);
                 }
             });
             0

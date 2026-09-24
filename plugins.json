@@ -7,7 +7,7 @@
       "version": "1.1.0",
       "author": "community",
       "description": "Dim or blank monitors with click-through overlays.",
-      "readme": "src/modules/screen_dimmer/README.md"
+      "readme": "src/plugins/screen_dimmer/README.md"
     },
     {
       "id": "shortcut_detector",
@@ -15,7 +15,7 @@
       "version": "1.1.0",
       "author": "community",
       "description": "Find taken and free global key combinations, and test a shortcut before you assign it.",
-      "readme": "src/modules/shortcut_detector/README.md"
+      "readme": "src/plugins/shortcut_detector/README.md"
     }
   ]
 }

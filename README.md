@@ -42,7 +42,7 @@ cd "E:\codespace\_claude_code\_rde\wincraft_windows_utilities_rust"; cargo build
 
 Blacks out a monitor with an overlay you can click straight through. Moving
 your pointer onto a blacked-out monitor makes it partly see-through so you can
-still find things. [Full README](src/modules/screen_dimmer/README.md)
+still find things. [Full README](src/plugins/screen_dimmer/README.md)
 
 | Hotkey | What it does |
 |---|---|
@@ -55,7 +55,7 @@ still find things. [Full README](src/modules/screen_dimmer/README.md)
 
 Shows which global key combinations are already taken on this PC, and tells you
 about any combination you press before you assign it.
-[Full README](src/modules/shortcut_detector/README.md)
+[Full README](src/plugins/shortcut_detector/README.md)
 
 | Hotkey | What it does |
 |---|---|

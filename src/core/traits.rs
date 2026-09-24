@@ -1,6 +1,6 @@
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 
-pub struct ModuleMetadata {
+pub struct PluginMetadata {
     pub id: &'static str,
     pub name: &'static str,
     pub description: &'static str,
@@ -89,8 +89,8 @@ pub struct HostContext<'a> {
     pub settings: &'a serde_json::Value,
 }
 
-pub trait WinCraftModule {
-    fn metadata(&self) -> ModuleMetadata;
+pub trait WinCraftPlugin {
+    fn metadata(&self) -> PluginMetadata;
 
     fn default_settings(&self) -> serde_json::Value {
         serde_json::json!({})

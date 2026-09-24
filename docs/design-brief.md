@@ -29,7 +29,7 @@ Target user: a power user on Windows 11 with one to three monitors. Values
 speed, low memory, no clutter. Reads settings once, then lives on hotkeys.
 
 Repo: https://github.com/OliverD25/wincraft (plugins live in
-`src/modules/<id>/` with their own `README.md`).
+`src/plugins/<id>/` with their own `README.md`).
 
 ## 2. Design goals
 

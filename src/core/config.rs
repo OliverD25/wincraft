@@ -187,17 +187,20 @@ impl Config {
 /// Pulls the 0.2-shaped `modules` map out of a parsed config.json. Left as a
 /// plain function on a Value so the migration can be tested without touching
 /// the user's real files.
+///
+/// The key keeps its old name on purpose: it is what 0.2 wrote to disk, so
+/// renaming it with the rest of the code would strand every 0.2 user's settings.
 pub fn take_legacy_plugins(raw: &mut Value) -> Vec<(String, PluginConfig)> {
     let Some(object) = raw.as_object_mut() else {
         return Vec::new();
     };
-    let Some(modules) = object.remove("modules") else {
+    let Some(legacy) = object.remove("modules") else {
         return Vec::new();
     };
-    let Some(modules) = modules.as_object() else {
+    let Some(legacy) = legacy.as_object() else {
         return Vec::new();
     };
-    modules
+    legacy
         .iter()
         .filter_map(|(id, value)| match serde_json::from_value(value.clone()) {
             Ok(plugin) => Some((id.clone(), plugin)),

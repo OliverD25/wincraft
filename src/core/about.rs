@@ -9,7 +9,7 @@ pub struct AboutHotkey {
     pub registered: bool,
 }
 
-pub struct AboutModule {
+pub struct AboutPlugin {
     pub name: String,
     pub version: String,
     pub author: String,
@@ -18,29 +18,29 @@ pub struct AboutModule {
     pub hotkeys: Vec<AboutHotkey>,
 }
 
-pub fn text(modules: &[AboutModule]) -> String {
+pub fn text(plugins: &[AboutPlugin]) -> String {
     let mut out = format!("WinCraft {}\n", env!("CARGO_PKG_VERSION"));
 
-    if modules.is_empty() {
-        out.push_str("\nNo modules are built into this copy.\n");
+    if plugins.is_empty() {
+        out.push_str("\nNo plugins are built into this copy.\n");
     }
-    for module in modules {
-        let state = if module.enabled {
+    for plugin in plugins {
+        let state = if plugin.enabled {
             "enabled"
         } else {
             "disabled"
         };
         out.push_str(&format!(
             "\n{} {} \u{2014} {}   [{}]\n  {}\n",
-            module.name, module.version, module.author, state, module.description
+            plugin.name, plugin.version, plugin.author, state, plugin.description
         ));
-        let width = module
+        let width = plugin
             .hotkeys
             .iter()
             .map(|h| h.keys.chars().count())
             .max()
             .unwrap_or(0);
-        for hotkey in &module.hotkeys {
+        for hotkey in &plugin.hotkeys {
             let note = if hotkey.registered {
                 ""
             } else {

@@ -1,7 +1,7 @@
 #![windows_subsystem = "windows"]
 
 mod core;
-mod modules;
+mod plugins;
 mod store;
 mod ui;
 
@@ -62,7 +62,7 @@ fn main() {
         open_palette: args.iter().any(|arg| arg == "--open-palette"),
         open_settings: args.iter().any(|arg| arg == "--open-settings"),
     };
-    host::run(config, modules::load_active_modules(), flags);
+    host::run(config, plugins::load_active_plugins(), flags);
 
     unsafe { CloseHandle(mutex) };
 }

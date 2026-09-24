@@ -41,7 +41,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::core::traits::Hotkey;
 use crate::core::{host, hotkeys, wide};
-use crate::modules::shortcut_detector::probe::{self, Entry, ScanResult, Status};
+use crate::plugins::shortcut_detector::probe::{self, Entry, ScanResult, Status};
 
 const CLASS_NAME: &str = "WinCraftShortcutDetector";
 pub const WM_APP_SCAN: u32 = WM_APP + 11;

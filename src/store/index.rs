@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::core::config;
-use crate::modules;
+use crate::plugins;
 use crate::store::github;
 
 /// The committed copy is the one the plugin store downloads. A unit test
@@ -31,17 +31,17 @@ pub struct IndexEntry {
 pub fn generate() -> PluginIndex {
     PluginIndex {
         wincraft_version: env!("CARGO_PKG_VERSION").to_string(),
-        plugins: modules::load_active_modules()
+        plugins: plugins::load_active_plugins()
             .iter()
-            .map(|module| {
-                let meta = module.metadata();
+            .map(|plugin| {
+                let meta = plugin.metadata();
                 IndexEntry {
                     id: meta.id.to_string(),
                     name: meta.name.to_string(),
                     version: meta.version.to_string(),
                     author: meta.author.to_string(),
                     description: meta.description.to_string(),
-                    readme: format!("src/modules/{}/README.md", meta.id),
+                    readme: format!("src/plugins/{}/README.md", meta.id),
                 }
             })
             .collect(),
@@ -178,8 +178,8 @@ mod tests {
 
     #[test]
     fn every_plugin_has_a_readme_and_a_description() {
-        for module in modules::load_active_modules() {
-            let meta = module.metadata();
+        for plugin in plugins::load_active_plugins() {
+            let meta = plugin.metadata();
             assert!(
                 !meta.readme.trim().is_empty(),
                 "{} has an empty README",

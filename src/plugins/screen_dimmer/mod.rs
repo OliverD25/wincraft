@@ -5,8 +5,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD
 use windows_sys::Win32::UI::WindowsAndMessaging::WM_DISPLAYCHANGE;
 
 use crate::core::traits::{
-    FieldKind, HostContext, Hotkey, HotkeyAction, ModuleMetadata, SettingField, TrayAction,
-    WinCraftModule,
+    FieldKind, HostContext, Hotkey, HotkeyAction, PluginMetadata, SettingField, TrayAction,
+    WinCraftPlugin,
 };
 use overlay::Overlay;
 
@@ -79,9 +79,9 @@ fn alpha_from(settings: &serde_json::Value, key: &str, fallback: f64) -> u8 {
     (value.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
-impl WinCraftModule for ScreenDimmer {
-    fn metadata(&self) -> ModuleMetadata {
-        ModuleMetadata {
+impl WinCraftPlugin for ScreenDimmer {
+    fn metadata(&self) -> PluginMetadata {
+        PluginMetadata {
             id: "screen_dimmer",
             name: "ScreenDimmer",
             description: "Dim or blank monitors with click-through overlays.",
@@ -130,7 +130,7 @@ impl WinCraftModule for ScreenDimmer {
     }
 
     fn init(&mut self, ctx: &HostContext) -> Result<(), String> {
-        // WM_DISPLAYCHANGE reaches this module only through the host window, so
+        // WM_DISPLAYCHANGE reaches this plugin only through the host window, so
         // its handle is worth having in the log when message routing misbehaves.
         log::debug!("screen_dimmer attached to host window {:p}", ctx.hwnd);
         self.idle_alpha = alpha_from(ctx.settings, "idle_opacity", 1.0);

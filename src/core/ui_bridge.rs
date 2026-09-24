@@ -44,7 +44,7 @@ pub enum HostCommand {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommandId {
     Host(HostCommand),
-    Module {
+    Plugin {
         index: usize,
         kind: ActionKind,
         action: u32,
@@ -81,21 +81,21 @@ pub enum HostRequest {
         palette_hwnd: isize,
     },
     RunCommand(CommandId),
-    SetModuleEnabled {
+    SetPluginEnabled {
         id: String,
         enabled: bool,
     },
     SetHotkey {
-        module: String,
+        plugin: String,
         action: String,
         binding: String,
     },
     SetSetting {
-        module: String,
+        plugin: String,
         key: String,
         value: Value,
     },
-    ResetModule(String),
+    ResetPlugin(String),
     SetHostSetting(HostSetting),
     OpenPath(PathBuf),
     Exit,

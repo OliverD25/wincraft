@@ -5,29 +5,33 @@ config storage, logging, the settings page and the palette entries — already
 belongs to the host. A plugin says what it wants and gets called back. It never
 creates a tray icon, a message loop, or a line of UI code.
 
+## Naming
+
+A mini program inside WinCraft is a plugin. Use the word plugin in code, docs, UI and config. The word module is only for Rust mod files.
+
 ## The checklist
 
-1. Create `src/modules/<your_id>/mod.rs`.
-2. Write `src/modules/<your_id>/README.md`. It is loaded with `include_str!`,
+1. Create `src/plugins/<your_id>/mod.rs`.
+2. Write `src/plugins/<your_id>/README.md`. It is loaded with `include_str!`,
    so a plugin without one does not compile. It is shown on the plugin's page
    and in the store.
-3. Implement `WinCraftModule` (see below).
+3. Implement `WinCraftPlugin` (see below).
 4. Add `settings_fields()` if your plugin has options.
-5. Add one line to `load_active_modules()` in
-   [`src/modules/mod.rs`](src/modules/mod.rs).
+5. Add one line to `load_active_plugins()` in
+   [`src/plugins/mod.rs`](src/plugins/mod.rs).
 6. Run `wincraft --write-plugin-index` from the repo root to regenerate
    `plugins.json`, and commit the result. A test compares the committed file
    with what your build produces, so forgetting this fails CI.
 7. Open a pull request. CI must be green.
 
 Use the same short lowercase id everywhere: the folder name, `id` in
-`ModuleMetadata`, and the file name under `plugins\`.
+`PluginMetadata`, and the file name under `plugins\`.
 
 ## A whole plugin
 
 ```rust
 use crate::core::traits::{
-    FieldKind, HostContext, ModuleMetadata, SettingField, TrayAction, WinCraftModule,
+    FieldKind, HostContext, PluginMetadata, SettingField, TrayAction, WinCraftPlugin,
 };
 
 #[derive(Default)]
@@ -41,9 +45,9 @@ impl Hello {
     }
 }
 
-impl WinCraftModule for Hello {
-    fn metadata(&self) -> ModuleMetadata {
-        ModuleMetadata {
+impl WinCraftPlugin for Hello {
+    fn metadata(&self) -> PluginMetadata {
+        PluginMetadata {
             id: "hello",
             name: "Hello",
             description: "Says hello in the log.",

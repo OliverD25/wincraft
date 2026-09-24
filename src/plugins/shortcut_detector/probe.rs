@@ -7,10 +7,10 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 
 use crate::core::hotkeys;
 use crate::core::traits::Hotkey;
-use crate::modules::shortcut_detector::known;
+use crate::plugins::shortcut_detector::known;
 
 /// Probe ids live far away from the host's sequential hotkey ids so a scan can
-/// never unregister a hotkey a module is relying on.
+/// never unregister a hotkey a plugin is relying on.
 const PROBE_ID_BASE: i32 = 0x7000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -165,11 +165,11 @@ pub fn verdict_text(entry: &Entry) -> String {
 
 /// Pure decision table, kept apart from the Win32 probe so it can be tested.
 pub fn classify(hotkey: Hotkey, probe_failed: bool, wincraft: Option<(&str, &str)>) -> Entry {
-    if let Some((module, label)) = wincraft {
+    if let Some((plugin, label)) = wincraft {
         return Entry {
             hotkey,
             status: Status::WinCraft,
-            owner: format!("{module}: {label}"),
+            owner: format!("{plugin}: {label}"),
             source: "wincraft",
         };
     }
@@ -207,7 +207,7 @@ fn owner_in<'a>(
     wincraft
         .iter()
         .find(|(_, _, mine)| *mine == hotkey)
-        .map(|(module, label, _)| (module.as_str(), label.as_str()))
+        .map(|(plugin, label, _)| (plugin.as_str(), label.as_str()))
 }
 
 fn probe_taken(hwnd: HWND, id: i32, modifiers: u32, vk: u32) -> bool {

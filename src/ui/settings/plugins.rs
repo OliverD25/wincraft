@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::core::hotkeys;
 use crate::core::traits::Hotkey;
 use crate::core::ui_bridge::{HostChannel, HostRequest, PluginInfo, UiSnapshot};
-use crate::modules::shortcut_detector::probe;
+use crate::plugins::shortcut_detector::probe;
 use crate::ui::settings::SettingsState;
 use crate::ui::widgets::{field, hotkey_capture};
 
@@ -60,7 +60,7 @@ fn plugin_list(
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let mut enabled = plugin.enabled;
                     if ui.checkbox(&mut enabled, "Enabled").changed() {
-                        to_host.send(HostRequest::SetModuleEnabled {
+                        to_host.send(HostRequest::SetPluginEnabled {
                             id: plugin.id.clone(),
                             enabled,
                         });
@@ -98,7 +98,7 @@ fn plugin_page(
 
     let mut enabled = plugin.enabled;
     if ui.checkbox(&mut enabled, "Enabled").changed() {
-        to_host.send(HostRequest::SetModuleEnabled {
+        to_host.send(HostRequest::SetPluginEnabled {
             id: plugin.id.clone(),
             enabled,
         });
@@ -111,7 +111,7 @@ fn plugin_page(
         for info in &plugin.fields {
             if let Some(value) = field::show(ui, info) {
                 to_host.send(HostRequest::SetSetting {
-                    module: plugin.id.clone(),
+                    plugin: plugin.id.clone(),
                     key: info.key.clone(),
                     value,
                 });
@@ -141,7 +141,7 @@ fn plugin_page(
             to_host.send(HostRequest::OpenPath(plugin.config_path.clone()));
         }
         if ui.button("Reset to defaults").clicked() {
-            to_host.send(HostRequest::ResetModule(plugin.id.clone()));
+            to_host.send(HostRequest::ResetPlugin(plugin.id.clone()));
         }
     });
 
@@ -208,7 +208,7 @@ fn hotkey_row(
         ui.horizontal(|ui| {
             if ui.button("Apply").clicked() {
                 to_host.send(HostRequest::SetHotkey {
-                    module: plugin.id.clone(),
+                    plugin: plugin.id.clone(),
                     action: info.action.clone(),
                     binding: hotkeys::format(hotkey),
                 });

@@ -7,8 +7,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD
 use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyWindow, IsWindow};
 
 use crate::core::traits::{
-    FieldKind, HostContext, Hotkey, HotkeyAction, ModuleMetadata, SettingField, TrayAction,
-    WinCraftModule,
+    FieldKind, HostContext, Hotkey, HotkeyAction, PluginMetadata, SettingField, TrayAction,
+    WinCraftPlugin,
 };
 
 const ACTION_OPEN: u32 = 1;
@@ -45,9 +45,9 @@ impl ShortcutDetector {
     }
 }
 
-impl WinCraftModule for ShortcutDetector {
-    fn metadata(&self) -> ModuleMetadata {
-        ModuleMetadata {
+impl WinCraftPlugin for ShortcutDetector {
+    fn metadata(&self) -> PluginMetadata {
+        PluginMetadata {
             id: "shortcut_detector",
             name: "ShortcutDetector",
             description: "Find taken and free global key combinations, and test a shortcut before you assign it.",

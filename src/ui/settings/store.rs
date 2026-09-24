@@ -175,7 +175,7 @@ fn badge(
         }
         Some(plugin) => {
             if ui.button("Enable").clicked() {
-                to_host.send(HostRequest::SetModuleEnabled {
+                to_host.send(HostRequest::SetPluginEnabled {
                     id: plugin.id.clone(),
                     enabled: true,
                 });
