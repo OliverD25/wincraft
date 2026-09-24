@@ -24,6 +24,7 @@ fn main() {
 
     let mut res = winresource::WindowsResource::new();
     res.set_icon_with_id("assets/wincraft.ico", "1");
+    res.set_icon_with_id("assets/wincraft-tray.ico", "2");
     res.set_manifest(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
@@ -42,4 +43,5 @@ fn main() {
     );
     res.compile().unwrap();
     println!("cargo:rerun-if-changed=assets/wincraft.ico");
+    println!("cargo:rerun-if-changed=assets/wincraft-tray.ico");
 }

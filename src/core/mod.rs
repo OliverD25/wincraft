@@ -1,4 +1,3 @@
-pub mod about;
 pub mod autostart;
 pub mod clock;
 pub mod config;

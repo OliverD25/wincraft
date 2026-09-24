@@ -6,7 +6,7 @@ hotkeys, a command palette and a settings window. Features are written as
 **plugins** that plug into one Rust trait, so adding a feature never means
 touching the Win32 plumbing or writing any UI code.
 
-Version 0.3 ships two plugins: **ScreenDimmer** and **ShortcutDetector**.
+Version 0.4 ships two plugins: **ScreenDimmer** and **ShortcutDetector**.
 
 ## What you get
 
@@ -17,7 +17,8 @@ Version 0.3 ships two plugins: **ScreenDimmer** and **ShortcutDetector**.
   per plugin: its options, its hotkeys, its config file and its README.
 - **Plugin store** — what exists, what this copy has, and what needs a newer
   WinCraft.
-- **Tray icon** — palette, settings, per-plugin toggles, log, config, exit.
+- **Tray icon** — open the palette, open settings, one main action per
+  enabled plugin, and quit. Everything else is in the settings window.
 
 <!-- Screenshots: docs/palette.png, docs/settings.png -->
 

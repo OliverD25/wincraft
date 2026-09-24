@@ -59,6 +59,28 @@ pub fn score_command(query: &str, group: &str, label: &str) -> Option<i32> {
     }
 }
 
+/// The character positions in `text` that the query matched, found the same
+/// way `score` finds them, so the palette can underline exactly those.
+pub fn positions(query: &str, text: &str) -> Option<Vec<usize>> {
+    let needle: Vec<char> = query
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .flat_map(char::to_lowercase)
+        .collect();
+    let lower: Vec<char> = text.chars().flat_map(char::to_lowercase).collect();
+    if lower.len() != text.chars().count() {
+        return None;
+    }
+    let mut found = Vec::with_capacity(needle.len());
+    let mut at = 0usize;
+    for wanted in needle {
+        let index = (at..lower.len()).find(|index| lower[*index] == wanted)?;
+        found.push(index);
+        at = index + 1;
+    }
+    Some(found)
+}
+
 fn is_boundary(c: char) -> bool {
     c.is_whitespace() || matches!(c, ':' | '-' | '_' | '/' | '.' | '+' | '(')
 }
@@ -116,6 +138,14 @@ mod tests {
         let direct = score_command("toggle", "ScreenDimmer", "Toggle monitor 1").unwrap();
         let viagroup = score_command("screendim", "ScreenDimmer", "Toggle monitor 1").unwrap();
         assert!(direct > 0 && viagroup > 0);
+    }
+
+    #[test]
+    fn positions_mark_the_letters_that_matched() {
+        assert_eq!(positions("mon", "Toggle monitor 1"), Some(vec![7, 8, 9]));
+        assert_eq!(positions("tm1", "Toggle monitor 1"), Some(vec![0, 7, 15]));
+        assert_eq!(positions("zz", "Toggle monitor 1"), None);
+        assert_eq!(positions("", "anything"), Some(vec![]));
     }
 
     #[test]

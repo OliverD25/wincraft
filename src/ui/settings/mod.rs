@@ -6,6 +6,13 @@ mod store;
 use std::sync::{Arc, Mutex};
 
 use egui::{Margin, TextStyle, Ui};
+use windows_sys::core::BOOL;
+use windows_sys::Win32::Foundation::{HWND, LPARAM};
+use windows_sys::Win32::Graphics::Dwm::{
+    DwmGetWindowAttribute, DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE,
+};
+use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+use windows_sys::Win32::UI::WindowsAndMessaging::{EnumThreadWindows, GetWindowTextW};
 
 use crate::core::hotkeys;
 use crate::core::theme::{self, Tokens};
@@ -14,6 +21,70 @@ use crate::core::ui_bridge::{HostChannel, Page, UiSnapshot};
 use crate::plugins::shortcut_detector::probe::{self, Status};
 use crate::ui::widgets::capture::{self, Verdict};
 use crate::ui::widgets::{focus, hotkey_capture, row, text};
+
+/// Both of this thread's windows are titled "WinCraft" and winit keeps
+/// WS_CAPTION on the undecorated palette too, so the palette is skipped by
+/// its handle.
+fn find_settings_window(palette: isize) -> isize {
+    struct Search {
+        skip: HWND,
+        found: HWND,
+    }
+
+    unsafe extern "system" fn find(hwnd: HWND, search: LPARAM) -> BOOL {
+        let search = unsafe { &mut *(search as *mut Search) };
+        let mut title = [0u16; 16];
+        let len = unsafe { GetWindowTextW(hwnd, title.as_mut_ptr(), title.len() as i32) };
+        let titled = String::from_utf16_lossy(&title[..len.max(0) as usize]) == "WinCraft";
+        if hwnd != search.skip && titled {
+            search.found = hwnd;
+            return 0;
+        }
+        1
+    }
+
+    let mut search = Search {
+        skip: palette as HWND,
+        found: std::ptr::null_mut(),
+    };
+    unsafe {
+        EnumThreadWindows(
+            GetCurrentThreadId(),
+            Some(find),
+            &mut search as *mut Search as LPARAM,
+        );
+    }
+    search.found as isize
+}
+
+/// The OS title bar follows the Windows app mode, which left a dark bar over
+/// a light page. winit's own theme switch does not reach the Windows 11
+/// caption, and Windows puts the dark caption back when the window is shown
+/// or activated, so the attribute is checked on every frame, not set once.
+fn sync_title_bar(hwnd: isize, dark: bool) {
+    let hwnd = hwnd as HWND;
+    let mut current: BOOL = 0;
+    unsafe {
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE as u32,
+            &mut current as *mut BOOL as *mut core::ffi::c_void,
+            std::mem::size_of::<BOOL>() as u32,
+        );
+    }
+    if (current != 0) == dark {
+        return;
+    }
+    let value = BOOL::from(dark);
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE as u32,
+            &value as *const BOOL as *const core::ffi::c_void,
+            std::mem::size_of::<BOOL>() as u32,
+        );
+    }
+}
 
 /// The settings window is a viewport of its own, so a background thread that
 /// finishes work has to wake that viewport by id. Waking only the root leaves
@@ -223,6 +294,7 @@ pub(crate) fn section_header(ui: &mut Ui, title: &str) {
 /// it draws lives behind one lock instead of being borrowed from the app.
 pub struct Settings {
     shared: Arc<Mutex<Shared>>,
+    palette_hwnd: isize,
 }
 
 struct Shared {
@@ -230,16 +302,21 @@ struct Shared {
     snapshot: UiSnapshot,
     to_host: Arc<HostChannel>,
     closed: bool,
+    /// The settings window's HWND, looked up again on every open because a
+    /// closed viewport's window is destroyed.
+    window: isize,
 }
 
 impl Settings {
-    pub fn new(to_host: Arc<HostChannel>, snapshot: UiSnapshot) -> Self {
+    pub fn new(to_host: Arc<HostChannel>, snapshot: UiSnapshot, palette_hwnd: isize) -> Self {
         Self {
+            palette_hwnd,
             shared: Arc::new(Mutex::new(Shared {
                 state: SettingsState::default(),
                 snapshot,
                 to_host,
                 closed: false,
+                window: 0,
             })),
         }
     }
@@ -255,6 +332,18 @@ impl Settings {
             shared.state.page = page;
             shared.state.open_plugin = None;
             shared.closed = false;
+            shared.window = 0;
+        }
+    }
+
+    /// Used when the palette runs a command whose plugin is off: its page is
+    /// where the plugin can be switched back on.
+    pub fn open_plugin(&self, id: &str) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.state.page = Page::Plugins;
+            shared.state.open_plugin = Some(id.to_string());
+            shared.closed = false;
+            shared.window = 0;
         }
     }
 
@@ -269,11 +358,13 @@ impl Settings {
         if let Ok(mut shared) = self.shared.lock() {
             shared.state.end_capture();
             shared.closed = false;
+            shared.window = 0;
         }
     }
 
     pub fn show(&self, ctx: &egui::Context, icon: Option<Arc<egui::IconData>>) {
         let shared = Arc::clone(&self.shared);
+        let palette_hwnd = self.palette_hwnd;
         let mut builder = egui::ViewportBuilder::default()
             .with_title("WinCraft")
             .with_inner_size([960.0, 640.0])
@@ -292,8 +383,16 @@ impl Settings {
                 snapshot,
                 to_host,
                 closed,
+                window,
             } = &mut *shared;
             let tokens = Tokens::get(ui.ctx());
+
+            if *window == 0 {
+                *window = find_settings_window(palette_hwnd);
+            }
+            if *window != 0 {
+                sync_title_bar(*window, tokens.dark);
+            }
 
             // 200 wide with 32 px page margins from 960 up; at the 720 minimum
             // the handout narrows the nav to 168 and the margins to 24.

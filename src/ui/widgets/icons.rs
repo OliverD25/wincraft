@@ -4,6 +4,7 @@ use egui::{pos2, Color32, Painter, Pos2, Rect, Stroke, Ui};
 /// needed. Coordinates are Lucide's own 24-unit grid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Icon {
+    Search,
     ChevronDown,
     ChevronRight,
     Refresh,
@@ -60,6 +61,10 @@ impl Path {
 
 fn paths(icon: Icon) -> Vec<Path> {
     match icon {
+        Icon::Search => vec![
+            Path::arc(pos2(11.0, 11.0), 8.0, 0.0, 360.0),
+            Path::start(21.0, 21.0).line(16.7, 16.7),
+        ],
         Icon::ChevronDown => vec![Path::start(6.0, 9.0).line(12.0, 15.0).line(18.0, 9.0)],
         Icon::ChevronRight => vec![Path::start(9.0, 18.0).line(15.0, 12.0).line(9.0, 6.0)],
         // The handout's refresh-cw: a 312° arc with an arrow head at the top right.

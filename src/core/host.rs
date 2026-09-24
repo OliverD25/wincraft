@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{
-    DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE, DWMWA_WINDOW_CORNER_PREFERENCE,
+    DWMWCP_DONOTROUND,
 };
 use windows_sys::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
@@ -22,7 +23,6 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
 };
 
-use crate::core::about::{self, AboutHotkey, AboutPlugin};
 use serde_json::Value;
 
 use crate::core::config::{Config, PluginConfig, DEFAULT_PALETTE_HOTKEY};
@@ -32,19 +32,14 @@ use crate::core::ui_bridge::{
     self, ActionKind, CommandId, FieldInfo, HostCommand, HostRequest, HostSetting, HotkeyInfo,
     MonitorRect, Page, PaletteEntry, PluginInfo, UiChannel, UiCommand, UiSnapshot, WM_APP_UI,
 };
-use crate::core::{autostart, config, hotkeys, wide};
+use crate::core::{autostart, config, hotkeys, theme, wide};
 use crate::ui;
 
 const CLASS_NAME: &str = "WinCraftHost";
 
-const MENU_ABOUT: u32 = 1;
-const MENU_EDIT_CONFIG: u32 = 2;
-const MENU_OPEN_LOG: u32 = 3;
-const MENU_AUTOSTART: u32 = 4;
-const MENU_EXIT: u32 = 5;
+const MENU_QUIT: u32 = 5;
 const MENU_PALETTE: u32 = 6;
 const MENU_SETTINGS: u32 = 7;
-const MENU_PLUGIN_BASE: u32 = 100;
 const MENU_PLUGIN_ACTION_BASE: u32 = 1000;
 
 const DETECTOR_ID: &str = "shortcut_detector";
@@ -98,6 +93,7 @@ thread_local! {
 }
 
 pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: StartupFlags) {
+    theme::set_current(config.theme);
     let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
 
     let class_name = wide(CLASS_NAME);
@@ -361,108 +357,38 @@ impl Host {
         log::info!("{id} disabled");
     }
 
+    /// Open palette, Settings, then one primary action per enabled plugin,
+    /// then Quit. Everything else lives in the settings window now.
     fn menu_items(&self) -> Vec<MenuItem> {
+        let entry = |id: u32, label: &str| MenuItem::Entry {
+            id,
+            label: label.to_string(),
+            checked: false,
+        };
         let mut items = vec![
-            MenuItem::Entry {
-                id: MENU_PALETTE,
-                label: "Open palette".to_string(),
-                checked: false,
-            },
-            MenuItem::Entry {
-                id: MENU_SETTINGS,
-                label: "Settings\u{2026}".to_string(),
-                checked: false,
-            },
+            entry(MENU_PALETTE, "Open palette"),
+            entry(MENU_SETTINGS, "Settings\u{2026}"),
             MenuItem::Separator,
         ];
-        for (index, slot) in self.slots.iter().enumerate() {
-            let meta = slot.plugin.metadata();
-            items.push(MenuItem::Entry {
-                id: MENU_PLUGIN_BASE + index as u32,
-                label: meta.name.to_string(),
-                checked: slot.enabled,
-            });
-            if slot.enabled {
-                for action in slot.plugin.tray_actions() {
-                    items.push(MenuItem::Entry {
-                        id: MENU_PLUGIN_ACTION_BASE + index as u32 * 100 + action.id,
-                        label: format!("    {}", action.label),
-                        checked: false,
-                    });
-                }
-            }
-        }
-        items.push(MenuItem::Separator);
-        items.push(MenuItem::Entry {
-            id: MENU_AUTOSTART,
-            label: "Start with Windows".to_string(),
-            checked: self.config.start_with_windows,
-        });
-        items.push(MenuItem::Entry {
-            id: MENU_EDIT_CONFIG,
-            label: "Edit config".to_string(),
-            checked: false,
-        });
-        items.push(MenuItem::Entry {
-            id: MENU_OPEN_LOG,
-            label: "Open log".to_string(),
-            checked: false,
-        });
-        items.push(MenuItem::Entry {
-            id: MENU_ABOUT,
-            label: "About WinCraft".to_string(),
-            checked: false,
-        });
-        items.push(MenuItem::Separator);
-        items.push(MenuItem::Entry {
-            id: MENU_EXIT,
-            label: "Exit".to_string(),
-            checked: false,
-        });
-        items
-    }
-
-    fn about_text(&self) -> String {
-        let plugins: Vec<AboutPlugin> = self
+        let primary: Vec<MenuItem> = self
             .slots
             .iter()
-            .map(|slot| {
-                let meta = slot.plugin.metadata();
-                let keys = if slot.enabled {
-                    slot.registered
-                        .iter()
-                        .map(|entry| AboutHotkey {
-                            keys: entry.keys.clone(),
-                            label: entry.label.to_string(),
-                            registered: entry.ok,
-                        })
-                        .collect()
-                } else {
-                    slot.plugin
-                        .hotkey_actions()
-                        .iter()
-                        .map(|action| AboutHotkey {
-                            keys: hotkeys::format(self.resolve_hotkey(
-                                meta.id,
-                                action.name,
-                                action.default,
-                            )),
-                            label: action.label.to_string(),
-                            registered: true,
-                        })
-                        .collect()
-                };
-                AboutPlugin {
-                    name: meta.name.to_string(),
-                    version: meta.version.to_string(),
-                    author: meta.author.to_string(),
-                    description: meta.description.to_string(),
-                    enabled: slot.enabled,
-                    hotkeys: keys,
-                }
+            .enumerate()
+            .filter(|(_, slot)| slot.enabled)
+            .filter_map(|(index, slot)| {
+                let action = slot.plugin.tray_actions().into_iter().next()?;
+                Some(entry(
+                    MENU_PLUGIN_ACTION_BASE + index as u32 * 100 + action.id,
+                    action.label,
+                ))
             })
             .collect();
-        about::text(&plugins)
+        if !primary.is_empty() {
+            items.extend(primary);
+            items.push(MenuItem::Separator);
+        }
+        items.push(entry(MENU_QUIT, "Quit WinCraft"));
+        items
     }
 
     fn hotkey_infos(&self, index: usize) -> Vec<HotkeyInfo> {
@@ -563,18 +489,20 @@ impl Host {
         let mut entries = Vec::new();
         let host_group = "WinCraft".to_string();
         for (command, label) in [
-            (HostCommand::OpenSettings, "Settings"),
+            (HostCommand::OpenSettings, "Open settings"),
             (HostCommand::OpenStore, "Plugin store"),
             (HostCommand::OpenAbout, "About WinCraft"),
             (HostCommand::OpenConfig, "Open the config file"),
             (HostCommand::OpenLog, "Open the log file"),
-            (HostCommand::Exit, "Exit WinCraft"),
+            (HostCommand::Exit, "Quit WinCraft"),
         ] {
             entries.push(PaletteEntry {
                 id: CommandId::Host(command),
                 group: host_group.clone(),
                 label: label.to_string(),
                 hint: String::new(),
+                disabled: false,
+                plugin: None,
             });
         }
 
@@ -590,10 +518,13 @@ impl Host {
                     format!("Turn {} on", meta.name)
                 },
                 hint: String::new(),
+                disabled: false,
+                plugin: Some(meta.id.to_string()),
             });
-            if !slot.enabled {
-                continue;
-            }
+            // A plugin that is off keeps its commands in the list, dimmed, so
+            // its hotkey does not seem to vanish; running one opens its page.
+            let disabled = !slot.enabled;
+            let plugin = Some(meta.id.to_string());
             let bindings = plugins.get(index).map(|info| &info.hotkeys);
             for action in slot.plugin.hotkey_actions() {
                 let hint = bindings
@@ -609,6 +540,8 @@ impl Host {
                     group: group.clone(),
                     label: action.label.to_string(),
                     hint,
+                    disabled,
+                    plugin: plugin.clone(),
                 });
             }
             for action in slot.plugin.tray_actions() {
@@ -627,6 +560,8 @@ impl Host {
                     group: group.clone(),
                     label: action.label.to_string(),
                     hint: String::new(),
+                    disabled,
+                    plugin: plugin.clone(),
                 });
             }
             for command in slot.plugin.palette_commands() {
@@ -639,6 +574,8 @@ impl Host {
                     group: group.clone(),
                     label: command.label.to_string(),
                     hint: command.hint.to_string(),
+                    disabled,
+                    plugin: plugin.clone(),
                 });
             }
         }
@@ -704,7 +641,7 @@ impl Host {
         match request {
             HostRequest::UiReady { palette_hwnd } => {
                 self.palette_hwnd = palette_hwnd as HWND;
-                round_the_corners(self.palette_hwnd);
+                clear_system_frame(self.palette_hwnd);
                 self.publish();
             }
             HostRequest::RunCommand(id) => self.run_command(id),
@@ -819,6 +756,7 @@ impl Host {
             },
             HostSetting::Theme(choice) => {
                 self.config.theme = choice;
+                theme::set_current(choice);
                 self.to_ui.send(UiCommand::ThemeChanged);
             }
             HostSetting::PaletteHotkey(binding) => match hotkeys::parse(&binding) {
@@ -928,19 +866,30 @@ fn bring_to_front(hwnd: HWND) {
     }
 }
 
-fn round_the_corners(hwnd: HWND) {
+/// The palette window is larger than the panel so the shadow fits inside it,
+/// which means Windows' own rounded corners and 1 px border would outline the
+/// transparent margin rather than the panel. Both are turned off; the panel
+/// draws its own.
+fn clear_system_frame(hwnd: HWND) {
     if hwnd.is_null() {
         return;
     }
-    let preference = DWMWCP_ROUND;
+    let corners = DWMWCP_DONOTROUND;
+    let border = DWMWA_COLOR_NONE;
     unsafe {
         DwmSetWindowAttribute(
             hwnd,
             DWMWA_WINDOW_CORNER_PREFERENCE as u32,
-            &preference as *const _ as *const core::ffi::c_void,
-            std::mem::size_of_val(&preference) as u32,
-        )
-    };
+            &corners as *const _ as *const core::ffi::c_void,
+            std::mem::size_of_val(&corners) as u32,
+        );
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_BORDER_COLOR as u32,
+            &border as *const _ as *const core::ffi::c_void,
+            std::mem::size_of_val(&border) as u32,
+        );
+    }
 }
 
 fn show_palette() {
@@ -996,49 +945,12 @@ fn with_host<R>(f: impl FnOnce(&mut Host) -> R) -> Option<R> {
 
 fn handle_menu_choice(choice: u32) {
     match choice {
-        MENU_ABOUT => {
-            // About runs MessageBoxW, which pumps messages and re-enters the
-            // WndProc, so the text is built and the borrow released first.
-            let Some((text, hwnd)) = with_host(|host| (host.about_text(), host.hwnd)) else {
-                return;
-            };
-            about::show(hwnd, &text);
-        }
-        MENU_EDIT_CONFIG => open_in_notepad(&config::config_path()),
-        MENU_OPEN_LOG => open_in_notepad(&config::log_path()),
-        MENU_AUTOSTART => {
-            with_host(|host| {
-                let wanted = !host.config.start_with_windows;
-                match autostart::set(wanted) {
-                    Ok(()) => {
-                        host.config.start_with_windows = wanted;
-                        host.save_config();
-                        log::info!("start with Windows: {wanted}");
-                    }
-                    Err(err) => log::error!("could not change autostart: {err}"),
-                }
-            });
-        }
-        MENU_EXIT => {
-            with_host(|host| host.shutdown());
-        }
         MENU_PALETTE => show_palette(),
         MENU_SETTINGS => {
             with_host(|host| host.to_ui.send(UiCommand::ShowSettings(Page::General)));
         }
-        id if (MENU_PLUGIN_BASE..MENU_PLUGIN_ACTION_BASE).contains(&id) => {
-            with_host(|host| {
-                let index = (id - MENU_PLUGIN_BASE) as usize;
-                if index >= host.slots.len() {
-                    return;
-                }
-                if host.slots[index].enabled {
-                    host.disable_slot(index);
-                } else {
-                    host.enable_slot(index);
-                }
-                host.publish();
-            });
+        MENU_QUIT => {
+            with_host(|host| host.shutdown());
         }
         id if id >= MENU_PLUGIN_ACTION_BASE => {
             with_host(|host| {
@@ -1137,7 +1049,10 @@ unsafe extern "system" fn wnd_proc(
         }
         WM_DISPLAYCHANGE | WM_SETTINGCHANGE | WM_POWERBROADCAST | WM_TIMER => {
             if msg == WM_SETTINGCHANGE && is_colour_change(lparam) {
-                with_host(|host| host.to_ui.send(UiCommand::ThemeChanged));
+                with_host(|host| {
+                    host.tray.refresh_icon();
+                    host.to_ui.send(UiCommand::ThemeChanged);
+                });
             }
             if msg == WM_DISPLAYCHANGE {
                 // The palette was placed against a monitor layout that no

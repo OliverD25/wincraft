@@ -3,9 +3,9 @@ use std::collections::HashMap;
 
 use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    CreateFontIndirectW, DeleteObject, GetDC, GetMonitorInfoW, GetTextExtentPoint32W,
-    MonitorFromPoint, ReleaseDC, SelectObject, SetBkMode, SetTextColor, COLOR_BTNFACE, HFONT,
-    HMONITOR, MONITORINFO, MONITOR_DEFAULTTOPRIMARY, TRANSPARENT,
+    CreateFontIndirectW, CreateSolidBrush, DeleteObject, FillRect, GetDC, GetMonitorInfoW,
+    GetTextExtentPoint32W, MonitorFromPoint, ReleaseDC, SelectObject, SetBkColor, SetBkMode,
+    SetTextColor, HBRUSH, HFONT, HMONITOR, MONITORINFO, MONITOR_DEFAULTTOPRIMARY, OPAQUE,
 };
 use windows_sys::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
@@ -16,9 +16,10 @@ use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
 use windows_sys::Win32::UI::Controls::{
     InitCommonControlsEx, BST_CHECKED, BST_UNCHECKED, ICC_LISTVIEW_CLASSES, ICC_STANDARD_CLASSES,
     INITCOMMONCONTROLSEX, LVCF_SUBITEM, LVCF_TEXT, LVCF_WIDTH, LVCOLUMNW, LVIF_TEXT, LVITEMW,
-    LVM_DELETEALLITEMS, LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_SETCOLUMNWIDTH,
-    LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMW, LVN_COLUMNCLICK, LVS_EX_DOUBLEBUFFER,
-    LVS_EX_FULLROWSELECT, LVS_REPORT, LVS_SHOWSELALWAYS, LVS_SINGLESEL, NMHDR, NMLISTVIEW,
+    LVM_DELETEALLITEMS, LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_SETBKCOLOR, LVM_SETCOLUMNWIDTH,
+    LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMW, LVM_SETTEXTBKCOLOR, LVM_SETTEXTCOLOR,
+    LVN_COLUMNCLICK, LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT, LVS_REPORT, LVS_SHOWSELALWAYS,
+    LVS_SINGLESEL, NMHDR, NMLISTVIEW,
 };
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, GetDpiForWindow, MDT_EFFECTIVE_DPI};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
@@ -34,13 +35,14 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     CBN_SELCHANGE, CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, EN_CHANGE,
     EN_KILLFOCUS, EN_SETFOCUS, ES_AUTOHSCROLL, HWND_TOP, IDC_ARROW, KBDLLHOOKSTRUCT, MINMAXINFO,
     NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOZORDER, SW_RESTORE, SW_SHOW,
-    WH_KEYBOARD_LL, WM_APP, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED,
-    WM_GETMINMAXINFO, WM_KEYDOWN, WM_NOTIFY, WM_SETFONT, WM_SIZE, WM_SYSKEYDOWN, WNDCLASSW,
-    WS_CHILD, WS_EX_CLIENTEDGE, WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    WH_KEYBOARD_LL, WM_APP, WM_CLOSE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT,
+    WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN,
+    WM_NOTIFY, WM_SETFONT, WM_SIZE, WM_SYSKEYDOWN, WNDCLASSW, WS_CHILD, WS_EX_CLIENTEDGE,
+    WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 
 use crate::core::traits::Hotkey;
-use crate::core::{host, hotkeys, wide};
+use crate::core::{host, hotkeys, theme, wide};
 use crate::plugins::shortcut_detector::probe::{self, Entry, ScanResult, Status};
 
 const CLASS_NAME: &str = "WinCraftShortcutDetector";
@@ -66,14 +68,35 @@ const WINDOW_HEIGHT: i32 = 560;
 const MIN_WIDTH: i32 = 560;
 const MIN_HEIGHT: i32 = 400;
 
-const COLOUR_FREE: COLORREF = 0x0000_7A18;
-const COLOUR_TAKEN: COLORREF = 0x0000_20C0;
-const COLOUR_SYSTEM: COLORREF = 0x00A0_5000;
-const COLOUR_PLAIN: COLORREF = 0x0000_0000;
+/// The handout gives this Win32 window only the window colour, the text
+/// colours and the verdict colours; its controls stay native.
+#[derive(Clone, Copy)]
+struct Colours {
+    background: COLORREF,
+    text: COLORREF,
+    secondary: COLORREF,
+    free: COLORREF,
+    taken: COLORREF,
+    system: COLORREF,
+}
+
+fn colours() -> Colours {
+    let tokens = theme::Tokens::for_choice(theme::current());
+    Colours {
+        background: theme::colorref(tokens.window_bg),
+        text: theme::colorref(tokens.text_primary),
+        secondary: theme::colorref(tokens.text_secondary),
+        free: theme::colorref(tokens.success),
+        taken: theme::colorref(tokens.warning),
+        system: theme::colorref(tokens.info),
+    }
+}
 
 struct Detector {
     controls: HashMap<i32, HWND>,
     font: HFONT,
+    colours: Colours,
+    background: HBRUSH,
     scan: Option<ScanResult>,
     visible: Vec<usize>,
     sort_column: i32,
@@ -162,7 +185,6 @@ fn ensure_class() -> Option<()> {
     class.lpszClassName = name.as_ptr();
     class.hCursor = unsafe { LoadCursorW(std::ptr::null_mut(), IDC_ARROW) };
     class.hIcon = unsafe { LoadIconW(hinstance, 1 as *const u16) };
-    class.hbrBackground = (COLOR_BTNFACE + 1) as isize as _;
     if unsafe { RegisterClassW(&class) } == 0 {
         log::error!("could not register the shortcut detector window class");
         return None;
@@ -276,14 +298,18 @@ fn build_controls(hwnd: HWND) {
     }
 
     let list = controls[&ID_LIST];
+    let palette = colours();
     unsafe {
         SendMessageW(
             list,
             LVM_SETEXTENDEDLISTVIEWSTYLE,
             0,
             (LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER) as LPARAM,
-        )
-    };
+        );
+        SendMessageW(list, LVM_SETBKCOLOR, 0, palette.background as LPARAM);
+        SendMessageW(list, LVM_SETTEXTBKCOLOR, 0, palette.background as LPARAM);
+        SendMessageW(list, LVM_SETTEXTCOLOR, 0, palette.text as LPARAM);
+    }
     for (index, title) in ["Shortcut", "Status", "Owner / meaning", "Source"]
         .into_iter()
         .enumerate()
@@ -322,12 +348,14 @@ fn build_controls(hwnd: HWND) {
             Detector {
                 controls,
                 font,
+                colours: palette,
+                background: unsafe { CreateSolidBrush(palette.background) },
                 scan: None,
                 visible: Vec::new(),
                 sort_column: 0,
                 sort_ascending: true,
                 show_free: false,
-                verdict_colour: COLOUR_PLAIN,
+                verdict_colour: palette.text,
                 hook: 0,
                 capture_modifiers: 0,
             },
@@ -751,7 +779,7 @@ fn start_capture(hwnd: HWND) {
             detector.capture_modifiers = 0;
         }
     });
-    set_verdict(hwnd, "Press a combination\u{2026}", COLOUR_PLAIN);
+    set_verdict(hwnd, "Press a combination\u{2026}", colours().text);
 }
 
 fn stop_capture(hwnd: HWND) {
@@ -827,7 +855,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
             .unwrap_or(0);
         if info.vkCode as u16 == 0x1B && modifiers == 0 {
             set_text(hwnd, ID_CAPTURE, "");
-            set_verdict(hwnd, "", COLOUR_PLAIN);
+            set_verdict(hwnd, "", colours().text);
         } else {
             show_verdict(hwnd, modifiers, info.vkCode);
         }
@@ -853,9 +881,9 @@ fn show_verdict(hwnd: HWND, modifiers: u32, vk: u32) {
     let mine = host::registered_hotkeys();
     let entry = probe::verdict(hwnd, hotkey, &mine);
     let colour = match entry.status {
-        Status::Free => COLOUR_FREE,
-        Status::TakenByApp => COLOUR_TAKEN,
-        Status::Windows | Status::WinCraft => COLOUR_SYSTEM,
+        Status::Free => colours().free,
+        Status::TakenByApp => colours().taken,
+        Status::Windows | Status::WinCraft => colours().system,
     };
 
     let mut text = probe::verdict_text(&entry);
@@ -944,27 +972,40 @@ unsafe extern "system" fn window_proc(
             unsafe { PostMessageW(hwnd, WM_APP_SCAN, 0, 0) };
             0
         }
-        WM_CTLCOLORSTATIC => {
+        WM_ERASEBKGND => {
+            let Some((brush, _)) = paint_state(hwnd) else {
+                return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
+            };
+            let mut client: RECT = unsafe { std::mem::zeroed() };
+            unsafe {
+                GetClientRect(hwnd, &mut client);
+                FillRect(wparam as _, &client, brush);
+            }
+            1
+        }
+        WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORBTN => {
+            let Some((brush, palette)) = paint_state(hwnd) else {
+                return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
+            };
             let child = lparam as HWND;
-            let verdict = control(hwnd, ID_VERDICT);
-            if child == verdict && !verdict.is_null() {
-                let colour = DETECTORS.with(|cell| {
+            let text = if child == control(hwnd, ID_VERDICT) {
+                DETECTORS.with(|cell| {
                     cell.borrow()
                         .get(&(hwnd as isize))
                         .map(|detector| detector.verdict_colour)
-                        .unwrap_or(COLOUR_PLAIN)
-                });
-                unsafe {
-                    SetTextColor(wparam as _, colour);
-                    SetBkMode(wparam as _, TRANSPARENT as i32);
-                }
-                return unsafe {
-                    windows_sys::Win32::Graphics::Gdi::GetStockObject(
-                        windows_sys::Win32::Graphics::Gdi::HOLLOW_BRUSH,
-                    )
-                } as LRESULT;
+                        .unwrap_or(palette.text)
+                })
+            } else if child == control(hwnd, ID_STATUS) {
+                palette.secondary
+            } else {
+                palette.text
+            };
+            unsafe {
+                SetTextColor(wparam as _, text);
+                SetBkColor(wparam as _, palette.background);
+                SetBkMode(wparam as _, OPAQUE as i32);
             }
-            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+            brush as LRESULT
         }
         WM_COMMAND => {
             let id = (wparam & 0xFFFF) as i32;
@@ -1029,12 +1070,23 @@ unsafe extern "system" fn window_proc(
                     if !detector.font.is_null() {
                         unsafe { DeleteObject(detector.font as _) };
                     }
+                    if !detector.background.is_null() {
+                        unsafe { DeleteObject(detector.background as _) };
+                    }
                 }
             });
             0
         }
         _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
     }
+}
+
+fn paint_state(hwnd: HWND) -> Option<(HBRUSH, Colours)> {
+    DETECTORS.with(|cell| {
+        cell.borrow()
+            .get(&(hwnd as isize))
+            .map(|detector| (detector.background, detector.colours))
+    })
 }
 
 pub fn set_show_free_default(hwnd: HWND, show_free: bool) {

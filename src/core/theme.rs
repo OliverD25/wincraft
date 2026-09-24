@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 
 use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Shadow, Stroke};
@@ -57,6 +58,37 @@ fn read_personalize(value_name: &str) -> Option<u32> {
 
 pub fn windows_prefers_dark() -> bool {
     read_personalize("AppsUseLightTheme") == Some(0)
+}
+
+/// Windows keeps the taskbar's mode separately from the apps' mode.
+pub fn taskbar_is_light() -> bool {
+    read_personalize("SystemUsesLightTheme") == Some(1)
+}
+
+static CURRENT: AtomicU8 = AtomicU8::new(0);
+
+/// The theme the user chose, for code outside the egui thread: the
+/// ShortcutDetector's Win32 window takes its colours from it.
+pub fn set_current(choice: ThemeChoice) {
+    let value = match choice {
+        ThemeChoice::System => 0,
+        ThemeChoice::Light => 1,
+        ThemeChoice::Dark => 2,
+    };
+    CURRENT.store(value, Ordering::Relaxed);
+}
+
+pub fn current() -> ThemeChoice {
+    match CURRENT.load(Ordering::Relaxed) {
+        1 => ThemeChoice::Light,
+        2 => ThemeChoice::Dark,
+        _ => ThemeChoice::System,
+    }
+}
+
+/// GDI wants 0x00BBGGRR.
+pub fn colorref(colour: Color32) -> u32 {
+    u32::from(colour.r()) | (u32::from(colour.g()) << 8) | (u32::from(colour.b()) << 16)
 }
 
 pub fn is_dark(choice: ThemeChoice) -> bool {
@@ -407,6 +439,20 @@ mod tests {
         assert_eq!(first(FontFamily::Proportional).as_deref(), Some(LORA));
         assert_eq!(first(FontFamily::Monospace).as_deref(), Some(MONO));
         assert_eq!(first(heading_family()).as_deref(), Some(CORMORANT));
+    }
+
+    #[test]
+    fn gdi_colours_are_blue_green_red() {
+        assert_eq!(colorref(hex(0x1c1a19)), 0x00191a1c);
+    }
+
+    #[test]
+    fn the_current_theme_round_trips() {
+        for choice in ThemeChoice::ALL {
+            set_current(choice);
+            assert_eq!(current(), choice);
+        }
+        set_current(ThemeChoice::System);
     }
 
     #[test]
