@@ -90,6 +90,11 @@ are drawn by Windows itself (DWM thumbnails) and stay live while the strip
 is open; windows on other desktops have pictures too. A window Windows
 cannot picture shows its name instead.
 
+The pictures are small (16:9, about the size of the taskbar's own), and a
+desktop with many windows wraps onto more lines instead of running off the
+screen. The strip takes at most 90 % of the screen's width and 60 % of its
+height; beyond that the mouse wheel scrolls it.
+
 - **Click** a picture to switch to that window; the strip closes.
 - **Drag** a picture to a new place. Every change goes to the taskbar at once
   and is saved. Dropping it in another desktop's row moves the window to

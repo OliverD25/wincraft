@@ -24,18 +24,19 @@ use crate::ui::widgets::{choice, focus, text};
 /// Unique, so the strip's window can be found among the UI thread's windows.
 const TITLE: &str = "WinCraft Arrange";
 
-const PADDING: f32 = 20.0;
-const THUMB: Vec2 = Vec2::new(200.0, 120.0);
-const CARD_INSET: f32 = 8.0;
-const NAME_HEIGHT: f32 = 20.0;
+const PADDING: f32 = 12.0;
+/// 16:9, small enough that a group of 15+ windows fits on one screen.
+const THUMB: Vec2 = Vec2::new(144.0, 81.0);
+const CARD_INSET: f32 = 4.0;
+const NAME_HEIGHT: f32 = 16.0;
 const CARD: Vec2 = Vec2::new(
     THUMB.x + 2.0 * CARD_INSET,
     CARD_INSET + THUMB.y + CARD_INSET + NAME_HEIGHT + CARD_INSET,
 );
-const CARD_GAP: f32 = 12.0;
+const CARD_GAP: f32 = 8.0;
 const HEADER: f32 = 15.0;
-const HEADER_GAP: f32 = 8.0;
-const ROW_GAP: f32 = 16.0;
+const HEADER_GAP: f32 = 6.0;
+const ROW_GAP: f32 = 12.0;
 const EMPTY_PANEL: Vec2 = Vec2::new(520.0, 150.0);
 /// The note under the rows when more than one desktop is shown.
 const FOOTER: f32 = 28.0;
@@ -99,23 +100,33 @@ pub fn rows(group: &ArrangeGroup, desktops: &[ArrangeDesktop]) -> Vec<Row> {
     rows
 }
 
-/// The panel size that shows every row with all its cards, within `limit`;
-/// rows that do not fit scroll.
+/// How many cards fit on one line within `width`.
+pub fn cards_per_line(width: f32) -> usize {
+    (((width - 2.0 * PADDING + CARD_GAP) / (CARD.x + CARD_GAP)).floor() as usize).max(1)
+}
+
+/// The panel size for the rows: as wide as the widest row needs, at most
+/// `limit.x`, with longer rows wrapping onto more lines; as tall as that
+/// makes it, at most `limit.y`, beyond which the rows scroll.
 pub fn panel_size(rows: &[Row], limit: Vec2) -> Vec2 {
     let widest = rows
         .iter()
         .map(|row| row.members.len())
         .max()
         .unwrap_or(0)
-        .max(1) as f32;
-    let width = 2.0 * PADDING + widest * CARD.x + (widest - 1.0) * CARD_GAP;
+        .max(1);
+    let per_line = widest.min(cards_per_line(limit.x));
+    let width = 2.0 * PADDING + per_line as f32 * CARD.x + (per_line - 1) as f32 * CARD_GAP + SLACK;
+    let lines: f32 = rows
+        .iter()
+        .map(|row| {
+            let lines = row.members.len().max(1).div_ceil(per_line) as f32;
+            HEADER + HEADER_GAP + lines * CARD.y + (lines - 1.0) * CARD_GAP
+        })
+        .sum();
     let count = rows.len().max(1) as f32;
     let footer = if rows.len() > 1 { FOOTER } else { 0.0 };
-    let height = 2.0 * PADDING
-        + count * (HEADER + HEADER_GAP + CARD.y)
-        + (count - 1.0) * ROW_GAP
-        + footer
-        + SLACK;
+    let height = 2.0 * PADDING + lines + (count - 1.0) * ROW_GAP + footer + SLACK;
     vec2(width.min(limit.x), height.min(limit.y))
 }
 
@@ -146,12 +157,12 @@ impl Monitor {
         })
     }
 
-    /// What the strip may use, in logical points: 90 % of the width, and the
-    /// height above the taskbar.
+    /// What the strip may use, in logical points: 90 % of the work area's
+    /// width and 60 % of its height; taller than that, it scrolls.
     fn limit(&self) -> Vec2 {
         let width = (self.work[2] - self.work[0]) as f32 / self.scale;
         let height = (self.work[3] - self.work[1]) as f32 / self.scale;
-        vec2(width * 0.9, height * 0.85)
+        vec2(width * 0.9, height * 0.6)
     }
 
     /// The window rectangle for a panel: centred, its bottom edge just above
@@ -437,7 +448,8 @@ pub fn dropped_order(rows: &[Row], dragged: usize, target: (usize, usize)) -> Ve
 }
 
 /// Where the pointer would drop a window, from last frame's layout: the row
-/// under it (or the nearest) and how many of that row's cards lie left of it.
+/// under it (or the nearest) and how many of that row's cards come before
+/// it, on the lines above or to its left on its own line.
 fn drop_target(
     pointer: egui::Pos2,
     row_rects: &[Rect],
@@ -462,7 +474,10 @@ fn drop_target(
         .map(|cards| {
             cards
                 .iter()
-                .filter(|card| card.center().x < pointer.x)
+                .filter(|card| {
+                    card.max.y <= pointer.y
+                        || (card.y_range().contains(pointer.y) && card.center().x < pointer.x)
+                })
                 .count()
         })
         .unwrap_or(0);
@@ -597,64 +612,59 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
                     text::single(ui, text::section_job(&row.title, tokens.text_disabled));
                     ui.add_space(HEADER_GAP);
                     let mut cards_here: Vec<Rect> = Vec::new();
-                    egui::ScrollArea::horizontal()
-                        .id_salt(("arrange-row", &row.desktop))
-                        .auto_shrink([false, true])
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                if layout[row_index].is_empty() {
-                                    placeholder(ui, "No windows on this desktop");
-                                    return;
-                                }
-                                for slot in &layout[row_index] {
-                                    let Slot::Window(member) = *slot else {
-                                        gap(ui);
-                                        continue;
-                                    };
-                                    let window = &group.windows[member];
-                                    let desktop_name = desktop_name(&desktops, &window.desktop);
-                                    let has_picture = !menu_open
-                                        && thumbnail(shared, window.hwnd)
-                                            .is_some_and(|thumb| thumb.source_size().is_some());
-                                    let is_cursor = shared.cursor == Some(window.hwnd);
-                                    let (response, picture) = card(
-                                        ui,
-                                        &window.label,
-                                        desktop_name,
-                                        has_picture,
-                                        is_cursor,
-                                    );
-                                    cards_here.push(response.rect);
-                                    if has_picture {
-                                        pending.push(Pending {
-                                            hwnd: window.hwnd,
-                                            dest: picture,
-                                            clip: ui.clip_rect(),
-                                            opacity: 255,
-                                        });
-                                    }
-                                    if response.clicked() {
-                                        activate = Some(window.hwnd);
-                                    }
-                                    if response.drag_started() {
-                                        if let Some(at) = response.interact_pointer_pos() {
-                                            shared.drag = Some(Drag {
-                                                hwnd: window.hwnd,
-                                                grab: at - response.rect.min,
-                                            });
-                                            shared.cursor = Some(window.hwnd);
-                                        }
-                                    }
-                                    response.context_menu(|ui| {
-                                        if let Some(action) =
-                                            card_menu(ui, window.hwnd, &window.desktop, &desktops)
-                                        {
-                                            actions.push(action);
-                                        }
+                    // Rows wrap rather than scroll sideways, so the one scroll
+                    // area left is the vertical one and takes the wheel.
+                    ui.scope(|ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = vec2(CARD_GAP, CARD_GAP);
+                            if layout[row_index].is_empty() {
+                                placeholder(ui, "No windows on this desktop");
+                                return;
+                            }
+                            for slot in &layout[row_index] {
+                                let Slot::Window(member) = *slot else {
+                                    gap(ui);
+                                    continue;
+                                };
+                                let window = &group.windows[member];
+                                let desktop_name = desktop_name(&desktops, &window.desktop);
+                                let has_picture = !menu_open
+                                    && thumbnail(shared, window.hwnd)
+                                        .is_some_and(|thumb| thumb.source_size().is_some());
+                                let is_cursor = shared.cursor == Some(window.hwnd);
+                                let (response, picture) =
+                                    card(ui, &window.label, desktop_name, has_picture, is_cursor);
+                                cards_here.push(response.rect);
+                                if has_picture {
+                                    pending.push(Pending {
+                                        hwnd: window.hwnd,
+                                        dest: picture,
+                                        clip: ui.clip_rect(),
+                                        opacity: 255,
                                     });
                                 }
-                            });
+                                if response.clicked() {
+                                    activate = Some(window.hwnd);
+                                }
+                                if response.drag_started() {
+                                    if let Some(at) = response.interact_pointer_pos() {
+                                        shared.drag = Some(Drag {
+                                            hwnd: window.hwnd,
+                                            grab: at - response.rect.min,
+                                        });
+                                        shared.cursor = Some(window.hwnd);
+                                    }
+                                }
+                                response.context_menu(|ui| {
+                                    if let Some(action) =
+                                        card_menu(ui, window.hwnd, &window.desktop, &desktops)
+                                    {
+                                        actions.push(action);
+                                    }
+                                });
+                            }
                         });
+                    });
                     card_rects.push(cards_here);
                     row_rects.push(Rect::from_min_max(
                         pos2(rows_area.min.x, row_top),
@@ -997,7 +1007,7 @@ fn card(
         name_card(ui, picture, label, desktop);
     }
 
-    let mut job = text::job(label, theme::lora(14.0), tokens.text_primary, None);
+    let mut job = text::job(label, theme::lora(12.0), tokens.text_primary, None);
     job.wrap = TextWrapping {
         max_width: THUMB.x,
         max_rows: 1,
@@ -1057,9 +1067,9 @@ fn placeholder(ui: &mut Ui, text_line: &str) {
 fn name_card(ui: &Ui, area: Rect, label: &str, desktop: &str) {
     let tokens = Tokens::get(ui.ctx());
     let painter = ui.painter();
-    let mut job = text::job(label, theme::cormorant(17.0), tokens.text_primary, None);
+    let mut job = text::job(label, theme::cormorant(15.0), tokens.text_primary, None);
     job.wrap = TextWrapping {
-        max_width: area.width() - 24.0,
+        max_width: area.width() - 16.0,
         max_rows: 2,
         break_anywhere: false,
         overflow_character: Some('\u{2026}'),
@@ -1160,13 +1170,37 @@ mod tests {
             members: (0..n).collect(),
         };
         let size = panel_size(&[row(3), row(1)], vec2(5000.0, 5000.0));
-        assert_eq!(size.x, 2.0 * PADDING + 3.0 * CARD.x + 2.0 * CARD_GAP);
+        assert_eq!(
+            size.x,
+            2.0 * PADDING + 3.0 * CARD.x + 2.0 * CARD_GAP + SLACK
+        );
         assert_eq!(
             size.y,
             2.0 * PADDING + 2.0 * (HEADER + HEADER_GAP + CARD.y) + ROW_GAP + FOOTER + SLACK
         );
-        let capped = panel_size(&[row(30)], vec2(1000.0, 5000.0));
-        assert_eq!(capped.x, 1000.0);
+    }
+
+    #[test]
+    fn a_long_row_wraps_onto_more_lines_instead_of_scrolling() {
+        let row = |n: usize| Row {
+            title: String::new(),
+            desktop: String::new(),
+            members: (0..n).collect(),
+        };
+        let limit = vec2(2.0 * PADDING + 5.0 * CARD.x + 4.0 * CARD_GAP + 10.0, 5000.0);
+        assert_eq!(cards_per_line(limit.x), 5);
+        let size = panel_size(&[row(12)], limit);
+        assert_eq!(
+            size.x,
+            2.0 * PADDING + 5.0 * CARD.x + 4.0 * CARD_GAP + SLACK
+        );
+        // 12 cards at 5 a line make 3 lines.
+        assert_eq!(
+            size.y,
+            2.0 * PADDING + HEADER + HEADER_GAP + 3.0 * CARD.y + 2.0 * CARD_GAP + SLACK
+        );
+        let short = panel_size(&[row(12)], vec2(limit.x, 200.0));
+        assert_eq!(short.y, 200.0);
     }
 
     fn two_rows() -> Vec<Row> {
@@ -1253,7 +1287,20 @@ mod tests {
         );
         assert_eq!(
             drop_target(pos2(10.0, 900.0), &row_rects, &card_rects),
-            Some((1, 0))
+            Some((1, 1))
         );
+
+        // A wrapped row: two cards on the first line, one on the second.
+        let wrapped = vec![vec![card(0.0, 20.0), card(228.0, 20.0), card(0.0, 200.0)]];
+        let tall = [Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 400.0))];
+        assert_eq!(
+            drop_target(pos2(300.0, 250.0), &tall, &wrapped),
+            Some((0, 3))
+        );
+        assert_eq!(
+            drop_target(pos2(10.0, 250.0), &tall, &wrapped),
+            Some((0, 2))
+        );
+        assert_eq!(drop_target(pos2(10.0, 60.0), &tall, &wrapped), Some((0, 0)));
     }
 }
