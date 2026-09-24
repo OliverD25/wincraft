@@ -1,6 +1,6 @@
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 
-use crate::core::ui_bridge::ArrangeGroup;
+use crate::core::ui_bridge::{ArrangeAction, ArrangeDesktop, ArrangeGroup};
 
 pub struct PluginMetadata {
     pub id: &'static str,
@@ -86,11 +86,13 @@ pub struct PaletteCommand {
     pub hint: &'static str,
 }
 
-/// What a plugin that keeps a window order shows in the Arrange windows list.
+/// What a plugin that keeps a window order shows in the Arrange strip.
 pub struct WindowGroups {
     pub groups: Vec<ArrangeGroup>,
-    /// The hotkey action behind the list's Restore layout button.
-    pub restore_action: Option<u32>,
+    pub desktops: Vec<ArrangeDesktop>,
+    /// The group to show first, usually the front window's program.
+    pub focus: usize,
+    pub watched: Vec<String>,
 }
 
 pub struct HostContext<'a> {
@@ -161,16 +163,16 @@ pub trait WinCraftPlugin {
         None
     }
 
-    /// Groups for the Arrange windows list, for a plugin that keeps a window
-    /// order. The host asks when the list opens and after every reorder;
+    /// Groups for the Arrange strip, for a plugin that keeps a window order.
+    /// The host asks when the strip opens and after every change;
     /// `host::open_arrange()` opens it from a plugin callback.
     fn window_groups(&mut self) -> Option<WindowGroups> {
         None
     }
 
-    /// The list moved a window: `order` is the group's new order.
-    fn on_reorder(&mut self, exe: &str, order: &[isize]) {
-        let _ = (exe, order);
+    /// The strip asked for something to be done with one window.
+    fn on_arrange_action(&mut self, action: &ArrangeAction) {
+        let _ = action;
     }
 
     fn teardown(&mut self) {}

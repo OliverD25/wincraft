@@ -175,6 +175,7 @@ registered on the plugin's page.
 | Option | What it does |
 |---|---|
 | `--open-palette` | Opens the command palette at startup. |
+| `--open-arrange` | Opens LayoutKeeper's Arrange strip at startup. |
 | `--open-settings` | Opens the settings window at startup. |
 | `--open-detector` | Opens the ShortcutDetector window at startup. |
 | `--write-plugin-index` | Regenerates `plugins.json`. For contributors. |

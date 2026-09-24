@@ -13,16 +13,16 @@ use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetWindowThreadProcessId, KillTimer, SetTimer, SetWindowPos, HWND_TOP,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_SHOWNORMAL, WM_ENDSESSION, WM_QUERYENDSESSION,
-    WM_TIMER,
+    GetForegroundWindow, GetWindowThreadProcessId, IsIconic, KillTimer, SetTimer, SetWindowPos,
+    ShowWindow, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE, SW_SHOWNORMAL,
+    WM_ENDSESSION, WM_QUERYENDSESSION, WM_TIMER,
 };
 
 use crate::core::traits::{
     FieldKind, HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata, SettingField,
     TrayAction, WinCraftPlugin, WindowGroups,
 };
-use crate::core::ui_bridge::{ArrangeGroup, ArrangeWindow};
+use crate::core::ui_bridge::{ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeWindow};
 use crate::core::{clock, host, wide};
 use desktops::{Desktop, DesktopId};
 use order::{Handle, OrderModel};
@@ -780,62 +780,73 @@ impl WinCraftPlugin for LayoutKeeper {
 
     fn window_groups(&mut self) -> Option<WindowGroups> {
         self.refresh();
-        let desktops = desktops::list();
-        let groups = self
+        let registry = desktops::list();
+        let current = desktops::current();
+        let groups: Vec<ArrangeGroup> = self
             .programs
             .iter()
             .filter_map(|exe| {
                 let model = self.groups.get(exe)?;
-                let mut elsewhere = 0;
                 let windows: Vec<ArrangeWindow> = model
                     .windows()
                     .map(|(hwnd, identity)| {
-                        if windows::on_other_desktop(hwnd as HWND) {
-                            elsewhere += 1;
-                        }
                         let desktop = self
                             .reader
                             .as_ref()
                             .and_then(|reader| reader.read(hwnd as HWND))
-                            .and_then(|id| desktops::name_of(&desktops, id))
+                            .filter(|id| *id != DesktopId::ALL)
+                            .map(|id| id.to_string())
                             .unwrap_or_default();
                         ArrangeWindow {
                             hwnd,
                             label: identity.label().to_string(),
-                            detail: desktop,
+                            desktop,
                         }
                     })
                     .collect();
-                if windows.is_empty() {
-                    return None;
-                }
-                let note = if elsewhere > 0 {
-                    "Windows on other desktops take their new place in the taskbar at the next restore.".to_string()
-                } else {
-                    String::new()
-                };
-                Some(ArrangeGroup {
+                (!windows.is_empty()).then(|| ArrangeGroup {
                     exe: exe.clone(),
                     label: product_name(exe),
                     windows,
-                    note,
                 })
             })
             .collect();
+
+        // The strip opens on the front window's program when it is watched.
+        let front = unsafe { GetForegroundWindow() };
+        let mut pid = 0;
+        unsafe { GetWindowThreadProcessId(front, &mut pid) };
+        let front_exe = windows::exe_name(pid);
+        let focus = groups
+            .iter()
+            .position(|group| group.exe == front_exe)
+            .unwrap_or(0);
+
         Some(WindowGroups {
             groups,
-            restore_action: Some(ACTION_RESTORE),
+            desktops: registry
+                .iter()
+                .map(|desktop| ArrangeDesktop {
+                    id: desktop.id.to_string(),
+                    name: desktop.name.clone(),
+                    current: Some(desktop.id) == current,
+                })
+                .collect(),
+            focus,
+            watched: self.programs.clone(),
         })
     }
 
-    fn on_reorder(&mut self, exe: &str, order: &[isize]) {
-        self.refresh();
-        let Some(model) = self.groups.get_mut(exe) else {
-            return;
-        };
-        model.set_order(order);
-        self.apply_group(exe, false);
-        self.save("manual");
+    fn on_arrange_action(&mut self, action: &ArrangeAction) {
+        match action {
+            ArrangeAction::Activate(hwnd) => {
+                let hwnd = *hwnd as HWND;
+                if unsafe { IsIconic(hwnd) } != 0 {
+                    unsafe { ShowWindow(hwnd, SW_RESTORE) };
+                }
+                host::bring_to_front(hwnd);
+            }
+        }
     }
 
     fn palette_commands(&self) -> Vec<PaletteCommand> {

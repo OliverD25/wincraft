@@ -61,6 +61,7 @@ fn main() {
     let flags = host::StartupFlags {
         open_detector: args.iter().any(|arg| arg == "--open-detector"),
         open_palette: args.iter().any(|arg| arg == "--open-palette"),
+        open_arrange: args.iter().any(|arg| arg == "--open-arrange"),
         open_settings: args.iter().any(|arg| arg == "--open-settings"),
     };
     // Plugins talk to shell COM objects from the host thread, and those are

@@ -1,33 +1,192 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use egui::{pos2, vec2, Align2, Id, LayerId, Margin, Order, Rect, Response, Sense, Ui};
+use egui::text::TextWrapping;
+use egui::{pos2, vec2, Rect, Response, Sense, StrokeKind, Ui, UiBuilder, Vec2};
+use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
+use windows_sys::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+};
+use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    GetCursorPos, GetWindowRect, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE,
+};
 
 use crate::core::theme::{self, Tokens};
-use crate::core::ui_bridge::{ArrangeGroup, ArrangeSnapshot, HostChannel, HostRequest};
+use crate::core::ui_bridge::{
+    ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeSnapshot, HostChannel, HostRequest,
+};
+use crate::ui::dwm_thumbs::{self, Placement, Thumbnail};
 use crate::ui::settings;
-use crate::ui::widgets::button::{self, Kind};
 use crate::ui::widgets::empty_state::empty_state;
-use crate::ui::widgets::{choice, focus, row, text};
+use crate::ui::widgets::{focus, text};
 
-const TITLE: &str = "Arrange windows";
-const ROW_HEIGHT: f32 = 48.0;
-const BUTTON_BAR: f32 = 56.0;
+/// Unique, so the strip's window can be found among the UI thread's windows.
+const TITLE: &str = "WinCraft Arrange";
+
+const PADDING: f32 = 20.0;
+const THUMB: Vec2 = Vec2::new(200.0, 120.0);
+const CARD_INSET: f32 = 8.0;
+const NAME_HEIGHT: f32 = 20.0;
+const CARD: Vec2 = Vec2::new(
+    THUMB.x + 2.0 * CARD_INSET,
+    CARD_INSET + THUMB.y + CARD_INSET + NAME_HEIGHT + CARD_INSET,
+);
+const CARD_GAP: f32 = 12.0;
+const HEADER: f32 = 15.0;
+const HEADER_GAP: f32 = 8.0;
+const ROW_GAP: f32 = 16.0;
+const EMPTY_PANEL: Vec2 = Vec2::new(520.0, 150.0);
+/// Space left between the strip and the taskbar.
+const TASKBAR_GAP: f32 = 12.0;
 
 pub fn viewport_id() -> egui::ViewportId {
     egui::ViewportId::from_hash_of("wincraft-arrange")
 }
 
+/// One desktop's windows, in thumbnail order.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Row {
+    pub title: String,
+    pub desktop: String,
+    /// Indexes into the group's windows.
+    pub members: Vec<usize>,
+}
+
+/// The windows of one program, one row per desktop: the current desktop
+/// first, titled "This desktop" and shown even when empty, then the others
+/// in Task View order. A window with no known desktop is on this one.
+pub fn rows(group: &ArrangeGroup, desktops: &[ArrangeDesktop]) -> Vec<Row> {
+    let current = desktops
+        .iter()
+        .find(|desktop| desktop.current)
+        .map(|desktop| desktop.id.clone())
+        .unwrap_or_default();
+    let known = |id: &str| desktops.iter().any(|desktop| desktop.id == id);
+    let mut rows = vec![Row {
+        title: "This desktop".to_string(),
+        desktop: current.clone(),
+        members: group
+            .windows
+            .iter()
+            .enumerate()
+            .filter(|(_, window)| window.desktop == current || !known(&window.desktop))
+            .map(|(index, _)| index)
+            .collect(),
+    }];
+    for desktop in desktops.iter().filter(|desktop| !desktop.current) {
+        let members: Vec<usize> = group
+            .windows
+            .iter()
+            .enumerate()
+            .filter(|(_, window)| window.desktop == desktop.id)
+            .map(|(index, _)| index)
+            .collect();
+        if !members.is_empty() {
+            rows.push(Row {
+                title: desktop.name.clone(),
+                desktop: desktop.id.clone(),
+                members,
+            });
+        }
+    }
+    rows
+}
+
+/// The panel size that shows every row with all its cards, within `limit`;
+/// rows that do not fit scroll.
+pub fn panel_size(rows: &[Row], limit: Vec2) -> Vec2 {
+    let widest = rows
+        .iter()
+        .map(|row| row.members.len())
+        .max()
+        .unwrap_or(0)
+        .max(1) as f32;
+    let width = 2.0 * PADDING + widest * CARD.x + (widest - 1.0) * CARD_GAP;
+    let count = rows.len().max(1) as f32;
+    let height = 2.0 * PADDING + count * (HEADER + HEADER_GAP + CARD.y) + (count - 1.0) * ROW_GAP;
+    vec2(width.min(limit.x), height.min(limit.y))
+}
+
+/// The pointer's monitor: its work area (the screen minus the taskbar) in
+/// physical pixels and its scale.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Monitor {
+    work: [i32; 4],
+    scale: f32,
+}
+
+impl Monitor {
+    fn under_pointer() -> Option<Self> {
+        let mut point = POINT { x: 0, y: 0 };
+        unsafe { GetCursorPos(&mut point) };
+        let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
+        let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
+        info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
+            return None;
+        }
+        let (mut dpi_x, mut dpi_y) = (96, 96);
+        unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) };
+        let work = info.rcWork;
+        Some(Self {
+            work: [work.left, work.top, work.right, work.bottom],
+            scale: dpi_x as f32 / 96.0,
+        })
+    }
+
+    /// What the strip may use, in logical points: 90 % of the width, and the
+    /// height above the taskbar.
+    fn limit(&self) -> Vec2 {
+        let width = (self.work[2] - self.work[0]) as f32 / self.scale;
+        let height = (self.work[3] - self.work[1]) as f32 / self.scale;
+        vec2(width * 0.9, height * 0.85)
+    }
+
+    /// The window rectangle for a panel: centred, its bottom edge just above
+    /// the taskbar.
+    fn window_rect(&self, panel: Vec2) -> [i32; 4] {
+        let width = (panel.x * self.scale).round() as i32;
+        let height = (panel.y * self.scale).round() as i32;
+        let left = self.work[0] + (self.work[2] - self.work[0] - width) / 2;
+        let bottom = self.work[3] - (TASKBAR_GAP * self.scale).round() as i32;
+        let top = (bottom - height).max(self.work[1]);
+        [left, top, width, height]
+    }
+}
+
 struct Shared {
     snapshot: Option<ArrangeSnapshot>,
-    group: usize,
-    selected: Option<isize>,
+    exe: Option<String>,
     to_host: Arc<HostChannel>,
     closed: bool,
     window: isize,
+    monitor: Option<Monitor>,
+    focused_once: bool,
+    thumbs: HashMap<isize, Option<Thumbnail>>,
 }
 
-/// The mouse way to set a taskbar group's thumbnail order: one row per
-/// window in the group's order, dragged into place.
+impl Shared {
+    fn group(&self) -> Option<&ArrangeGroup> {
+        let snapshot = self.snapshot.as_ref()?;
+        let exe = self.exe.as_ref()?;
+        snapshot.groups.iter().find(|group| &group.exe == exe)
+    }
+
+    fn panel(&self) -> Vec2 {
+        let limit = self
+            .monitor
+            .map(|monitor| monitor.limit())
+            .unwrap_or(vec2(1600.0, 900.0));
+        match (self.group(), &self.snapshot) {
+            (Some(group), Some(snapshot)) => panel_size(&rows(group, &snapshot.desktops), limit),
+            _ => EMPTY_PANEL.min(limit),
+        }
+    }
+}
+
+/// The mouse way to see and order a program's windows: live pictures of all
+/// of them, one row per desktop, in taskbar order.
 pub struct Arrange {
     shared: Arc<Mutex<Shared>>,
     palette_hwnd: isize,
@@ -38,37 +197,48 @@ impl Arrange {
         Self {
             shared: Arc::new(Mutex::new(Shared {
                 snapshot: None,
-                group: 0,
-                selected: None,
+                exe: None,
                 to_host,
                 closed: false,
                 window: 0,
+                monitor: None,
+                focused_once: false,
+                thumbs: HashMap::new(),
             })),
             palette_hwnd,
         }
     }
 
     pub fn open(&self, snapshot: ArrangeSnapshot) {
-        self.update(snapshot);
-        if let Ok(mut shared) = self.shared.lock() {
-            shared.closed = false;
-            shared.window = 0;
-        }
+        let Ok(mut shared) = self.shared.lock() else {
+            return;
+        };
+        shared.exe = snapshot
+            .groups
+            .get(snapshot.focus)
+            .map(|group| group.exe.clone());
+        shared.snapshot = Some(snapshot);
+        shared.closed = false;
+        shared.window = 0;
+        shared.focused_once = false;
+        shared.monitor = Monitor::under_pointer();
     }
 
-    /// Takes a fresh list and keeps the same program's group on screen.
+    /// Takes fresh data and keeps the same program on screen.
     pub fn update(&self, snapshot: ArrangeSnapshot) {
         let Ok(mut shared) = self.shared.lock() else {
             return;
         };
-        let current = shared
-            .snapshot
+        let still_there = shared
+            .exe
             .as_ref()
-            .and_then(|old| old.groups.get(shared.group))
-            .map(|group| group.exe.clone());
-        shared.group = current
-            .and_then(|exe| snapshot.groups.iter().position(|group| group.exe == exe))
-            .unwrap_or(0);
+            .is_some_and(|exe| snapshot.groups.iter().any(|group| &group.exe == exe));
+        if !still_there {
+            shared.exe = snapshot
+                .groups
+                .get(snapshot.focus)
+                .map(|group| group.exe.clone());
+        }
         shared.snapshot = Some(snapshot);
     }
 
@@ -79,21 +249,31 @@ impl Arrange {
             .unwrap_or(false)
     }
 
+    /// Unregisters every picture; runs on the UI thread, which owns them.
     pub fn hidden(&self) {
         if let Ok(mut shared) = self.shared.lock() {
             shared.closed = false;
-            shared.selected = None;
             shared.window = 0;
+            shared.thumbs.clear();
         }
     }
 
     pub fn show(&self, ctx: &egui::Context, icon: Option<Arc<egui::IconData>>) {
         let shared = Arc::clone(&self.shared);
         let palette_hwnd = self.palette_hwnd;
+        let panel = self
+            .shared
+            .lock()
+            .map(|shared| shared.panel())
+            .unwrap_or(EMPTY_PANEL);
         let mut builder = egui::ViewportBuilder::default()
             .with_title(TITLE)
-            .with_inner_size([520.0, 600.0])
-            .with_min_inner_size([420.0, 360.0]);
+            .with_decorations(false)
+            .with_window_level(egui::WindowLevel::AlwaysOnTop)
+            .with_taskbar(false)
+            .with_resizable(false)
+            .with_active(true)
+            .with_inner_size(panel);
         if let Some(icon) = icon {
             builder = builder.with_icon(icon);
         }
@@ -103,292 +283,292 @@ impl Arrange {
             let Ok(mut shared) = shared.lock() else {
                 return;
             };
-            let tokens = Tokens::get(ui.ctx());
             if shared.window == 0 {
                 shared.window = settings::find_window(TITLE, palette_hwnd);
+                if shared.window != 0 {
+                    let border = theme::colorref(Tokens::get(ui.ctx()).border);
+                    dwm_thumbs::round_corners(shared.window as HWND, border);
+                    shared.to_host.send(HostRequest::FocusWindow(shared.window));
+                }
             }
-            if shared.window != 0 {
-                settings::sync_title_bar(shared.window, tokens.dark);
+            let panel = shared.panel();
+            if let (Some(monitor), true) = (shared.monitor, shared.window != 0) {
+                keep_placed(shared.window as HWND, monitor.window_rect(panel));
             }
 
-            egui::CentralPanel::default()
-                .frame(
-                    egui::Frame::NONE
-                        .fill(tokens.window_bg)
-                        .inner_margin(Margin::same(24)),
-                )
-                .show(ui, |ui| page(ui, &mut shared));
-
+            let (escape, focused) = ui
+                .ctx()
+                .input(|i| (i.key_pressed(egui::Key::Escape), i.viewport().focused));
+            if focused == Some(true) {
+                shared.focused_once = true;
+            }
+            if escape || (shared.focused_once && focused == Some(false)) {
+                shared.closed = true;
+            }
             if ui.ctx().input(|i| i.viewport().close_requested()) {
                 shared.closed = true;
             }
+
+            strip(ui, &mut shared);
+
+            // The root viewport is the hidden palette and only repaints when
+            // asked; it is what stops showing this viewport once closed.
+            if shared.closed {
+                ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
+            }
         });
     }
 }
 
-fn page(ui: &mut Ui, shared: &mut Shared) {
-    let tokens = Tokens::get(ui.ctx());
-    text::title(ui, TITLE, None);
-    ui.add_space(6.0);
-    text::page_description(
-        ui,
-        "Drag a window to its place in the taskbar group. The order is saved and comes back after a reboot.",
-    );
-    ui.add_space(16.0);
+/// Moves the window where it belongs whenever it is not there: winit resizes
+/// it itself when it lands on a monitor with other scaling.
+fn keep_placed(hwnd: HWND, wanted: [i32; 4]) {
+    let mut now = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    unsafe { GetWindowRect(hwnd, &mut now) };
+    let current = [
+        now.left,
+        now.top,
+        now.right - now.left,
+        now.bottom - now.top,
+    ];
+    if current != wanted {
+        unsafe {
+            SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                wanted[0],
+                wanted[1],
+                wanted[2],
+                wanted[3],
+                SWP_NOACTIVATE,
+            )
+        };
+    }
+}
 
-    let Some(snapshot) = shared.snapshot.clone() else {
+fn strip(ui: &mut Ui, shared: &mut Shared) {
+    let tokens = Tokens::get(ui.ctx());
+    let panel = ui.max_rect();
+    ui.painter().rect_filled(panel, 0, tokens.elevated_bg);
+
+    let content = panel.shrink(PADDING);
+    let Some((group, desktops)) = shared
+        .group()
+        .cloned()
+        .zip(shared.snapshot.as_ref().map(|s| s.desktops.clone()))
+    else {
+        let watched = shared
+            .snapshot
+            .as_ref()
+            .map(|s| s.watched.join(", "))
+            .unwrap_or_default();
+        ui.scope_builder(UiBuilder::new().max_rect(content), |ui| {
+            empty_state(
+                ui,
+                "No windows to arrange",
+                &format!("No windows of {watched} are open."),
+            );
+        });
+        shared.thumbs.clear();
         return;
     };
-    if snapshot.groups.is_empty() {
-        empty_state(
-            ui,
-            "No windows to arrange",
-            "None of the watched programs has a window open.",
-        );
-        return;
-    }
-    let group_index = shared.group.min(snapshot.groups.len() - 1);
-    if snapshot.groups.len() > 1 {
-        let labels: Vec<&str> = snapshot
-            .groups
-            .iter()
-            .map(|group| group.label.as_str())
-            .collect();
-        if let Some(chosen) = choice::dropdown(ui, "arrange-group", &labels, Some(group_index)) {
-            shared.group = chosen;
-            shared.selected = None;
-        }
-        ui.add_space(12.0);
-    } else {
-        text::group_header(ui, &snapshot.groups[group_index].label);
-        ui.add_space(4.0);
-    }
-    let group = &snapshot.groups[group_index];
-    let order: Vec<isize> = group.windows.iter().map(|window| window.hwnd).collect();
 
-    let list_height = (ui.available_height() - BUTTON_BAR).max(ROW_HEIGHT);
-    let mut wanted: Option<Vec<isize>> = None;
-    egui::ScrollArea::vertical()
-        .max_height(list_height)
-        .auto_shrink([false, true])
-        .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 0.0;
-            for (index, window) in group.windows.iter().enumerate() {
-                let selected = shared.selected == Some(window.hwnd);
-                let response = list_row(ui, &window.label, &window.detail, selected);
-                if response.clicked() {
-                    shared.selected = Some(window.hwnd);
-                }
-                response.dnd_set_drag_payload(index);
-                if response.dragged() {
-                    drag_ghost(ui, &window.label);
-                }
-                if let Some(from) = response.dnd_hover_payload::<usize>() {
-                    let slot = drop_slot(ui, &response, index);
-                    if *from != index {
-                        let y = if slot == index {
-                            response.rect.top()
-                        } else {
-                            response.rect.bottom()
-                        };
-                        ui.painter().hline(
-                            response.rect.x_range(),
-                            y,
-                            theme::stroke(ui.ctx(), 2.0, tokens.accent),
-                        );
-                    }
-                }
-                if let Some(from) = response.dnd_release_payload::<usize>() {
-                    let slot = drop_slot(ui, &response, index);
-                    let moved = move_to_slot(&order, *from, slot);
-                    if moved != order {
-                        shared.selected = Some(order[*from]);
-                        wanted = Some(moved);
-                    }
-                }
-            }
-        });
-    if !group.note.is_empty() {
-        ui.add_space(8.0);
-        text::secondary(ui, &group.note, tokens.text_secondary);
-    }
+    let rows = rows(&group, &desktops);
+    shared
+        .thumbs
+        .retain(|hwnd, _| group.windows.iter().any(|window| window.hwnd == *hwnd));
+    let ppp = ui.ctx().pixels_per_point();
+    let mut activate: Option<isize> = None;
 
-    ui.add_space(12.0);
-    let position = shared
-        .selected
-        .and_then(|hwnd| order.iter().position(|h| *h == hwnd));
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 8.0;
-        let up = position.is_some_and(|i| i > 0);
-        let down = position.is_some_and(|i| i + 1 < order.len());
-        if ui
-            .add_enabled_ui(up, |ui| button::button(ui, "Move up", Kind::Secondary))
-            .inner
-            .clicked()
-        {
-            if let Some(i) = position {
-                wanted = Some(move_to_slot(&order, i, i - 1));
-            }
-        }
-        if ui
-            .add_enabled_ui(down, |ui| button::button(ui, "Move down", Kind::Secondary))
-            .inner
-            .clicked()
-        {
-            if let Some(i) = position {
-                wanted = Some(move_to_slot(&order, i, i + 2));
-            }
-        }
-        if let Some(restore) = snapshot.restore {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if button::button(ui, "Restore layout", Kind::Secondary).clicked() {
-                    shared.to_host.send(HostRequest::RunCommand(restore));
+    ui.scope_builder(UiBuilder::new().max_rect(content), |ui| {
+        egui::ScrollArea::vertical()
+            .id_salt("arrange-rows")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing = vec2(CARD_GAP, 0.0);
+                for (row_index, row) in rows.iter().enumerate() {
+                    if row_index > 0 {
+                        ui.add_space(ROW_GAP);
+                    }
+                    text::single(ui, text::section_job(&row.title, tokens.text_disabled));
+                    ui.add_space(HEADER_GAP);
+                    egui::ScrollArea::horizontal()
+                        .id_salt(("arrange-row", &row.desktop))
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                if row.members.is_empty() {
+                                    ui.allocate_exact_size(CARD, Sense::hover());
+                                    return;
+                                }
+                                for &member in &row.members {
+                                    let window = &group.windows[member];
+                                    let desktop_name = desktops
+                                        .iter()
+                                        .find(|d| d.id == window.desktop)
+                                        .map(|d| d.name.as_str())
+                                        .unwrap_or("");
+                                    let destination = shared.window as HWND;
+                                    let thumb =
+                                        shared.thumbs.entry(window.hwnd).or_insert_with(|| {
+                                            (!destination.is_null())
+                                                .then(|| {
+                                                    Thumbnail::register(
+                                                        destination,
+                                                        window.hwnd as HWND,
+                                                    )
+                                                })
+                                                .flatten()
+                                        });
+                                    let response = card(
+                                        ui,
+                                        window.hwnd as HWND,
+                                        &window.label,
+                                        desktop_name,
+                                        thumb.as_mut(),
+                                        ppp,
+                                    );
+                                    if response.clicked() {
+                                        activate = Some(window.hwnd);
+                                    }
+                                }
+                            });
+                        });
                 }
             });
+    });
+
+    if let Some(hwnd) = activate {
+        if let Some(snapshot) = &shared.snapshot {
+            shared.to_host.send(HostRequest::Arrange {
+                plugin: snapshot.plugin.clone(),
+                action: ArrangeAction::Activate(hwnd),
+            });
         }
-    });
-
-    if let Some(order) = wanted {
-        apply_locally(shared, group_index, &order);
-        shared.to_host.send(HostRequest::ReorderGroup {
-            plugin: snapshot.plugin.clone(),
-            exe: group.exe.clone(),
-            order,
-        });
+        shared.closed = true;
     }
 }
 
-/// Shows the new order straight away; the host's own list follows a moment
-/// later and replaces it.
-fn apply_locally(shared: &mut Shared, group_index: usize, order: &[isize]) {
-    let Some(group) = shared
-        .snapshot
-        .as_mut()
-        .and_then(|snapshot| snapshot.groups.get_mut(group_index))
-    else {
-        return;
-    };
-    reorder_group(group, order);
-}
-
-fn reorder_group(group: &mut ArrangeGroup, order: &[isize]) {
-    group.windows.sort_by_key(|window| {
-        order
-            .iter()
-            .position(|h| *h == window.hwnd)
-            .unwrap_or(usize::MAX)
-    });
-}
-
-/// The handout's list row: 48 high, a 1 px rule below, the hover tint, and
-/// the selection tint with the accent rule when selected.
-fn list_row(ui: &mut Ui, label: &str, detail: &str, selected: bool) -> Response {
+/// One window: its live picture in a bordered 200x120 area, letterboxed on
+/// the panel colour, and its name underneath. Without a picture the area
+/// shows the name and desktop instead.
+fn card(
+    ui: &mut Ui,
+    source_window: HWND,
+    label: &str,
+    desktop: &str,
+    thumb: Option<&mut Thumbnail>,
+    pixels_per_point: f32,
+) -> Response {
     let tokens = Tokens::get(ui.ctx());
-    let (rect, response) = ui.allocate_exact_size(
-        vec2(ui.available_width(), ROW_HEIGHT),
-        Sense::click_and_drag(),
-    );
-    if !ui.is_rect_visible(rect) {
-        return response;
-    }
-    let body = rect.shrink2(vec2(0.0, 2.0));
-    if selected {
-        row::paint_selection(ui, body);
-    } else if response.hovered() || response.dragged() {
-        ui.painter().rect_filled(body, 4, tokens.hover_bg);
-    }
+    let (rect, response) = ui.allocate_exact_size(CARD, Sense::click());
+    let hovered = response.hovered();
     let painter = ui.painter();
-    let opacity = if response.dragged() { 0.5 } else { 1.0 };
-    let text_x = rect.left() + 12.0;
-    let label_galley = painter.layout_job(text::job(
-        label,
-        theme::lora(14.0),
-        theme::with_alpha(tokens.text_primary, opacity),
-        None,
-    ));
-    let detail_galley = painter.layout_job(text::job(
-        detail,
+    if hovered {
+        painter.rect_filled(rect, 6, tokens.hover_bg);
+    }
+    let area = Rect::from_min_size(rect.min + Vec2::splat(CARD_INSET), THUMB);
+    let border = if hovered {
+        tokens.accent
+    } else {
+        tokens.border
+    };
+    painter.rect(
+        area,
+        4,
+        tokens.panel_bg,
+        theme::stroke(ui.ctx(), 1.0, border),
+        StrokeKind::Inside,
+    );
+
+    let picture = area.shrink(1.0);
+    let source = thumb.as_ref().and_then(|thumb| thumb.source_size());
+    match (thumb, source) {
+        (Some(thumb), Some(size)) => {
+            let frame = dwm_thumbs::visible_frame(source_window)
+                .unwrap_or(Rect::from_min_size(pos2(0.0, 0.0), size));
+            let dest = Rect::from_center_size(
+                picture.center(),
+                dwm_thumbs::fit(frame.size(), picture.size()),
+            );
+            let placement =
+                dwm_thumbs::crop(dest, ui.clip_rect(), frame).map(|(shown, cropped)| Placement {
+                    dest: dwm_thumbs::physical(shown, pixels_per_point),
+                    source: dwm_thumbs::physical(cropped, 1.0),
+                    opacity: 255,
+                });
+            thumb.place(placement);
+        }
+        (thumb, _) => {
+            if let Some(thumb) = thumb {
+                thumb.place(None);
+            }
+            name_card(ui, picture, label, desktop);
+        }
+    }
+
+    let mut job = text::job(label, theme::lora(14.0), tokens.text_primary, None);
+    job.wrap = TextWrapping {
+        max_width: THUMB.x,
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('\u{2026}'),
+    };
+    let galley = ui.painter().layout_job(job);
+    ui.painter().galley(
+        pos2(area.left(), area.bottom() + CARD_INSET),
+        galley,
+        tokens.text_primary,
+    );
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// Stands in for a picture DWM cannot give: the name, and the desktop.
+fn name_card(ui: &Ui, area: Rect, label: &str, desktop: &str) {
+    let tokens = Tokens::get(ui.ctx());
+    let painter = ui.painter();
+    let mut job = text::job(label, theme::cormorant(17.0), tokens.text_primary, None);
+    job.wrap = TextWrapping {
+        max_width: area.width() - 24.0,
+        max_rows: 2,
+        break_anywhere: false,
+        overflow_character: Some('\u{2026}'),
+    };
+    job.halign = egui::Align::Center;
+    let title = painter.layout_job(job);
+    let detail = painter.layout_job(text::job(
+        desktop,
         theme::lora(12.0),
-        theme::with_alpha(tokens.text_secondary, opacity),
+        tokens.text_secondary,
         None,
     ));
-    let stack = label_galley.size().y
-        + if detail.is_empty() {
+    let height = title.size().y
+        + if desktop.is_empty() {
             0.0
         } else {
-            detail_galley.size().y + 2.0
+            4.0 + detail.size().y
         };
-    let top = rect.center().y - stack / 2.0;
-    painter.galley(pos2(text_x, top), label_galley.clone(), tokens.text_primary);
-    if !detail.is_empty() {
+    let top = area.center().y - height / 2.0;
+    painter.galley(
+        pos2(area.center().x, top),
+        title.clone(),
+        tokens.text_primary,
+    );
+    if !desktop.is_empty() {
         painter.galley(
-            pos2(text_x, top + label_galley.size().y + 2.0),
-            detail_galley,
+            pos2(
+                area.center().x - detail.size().x / 2.0,
+                top + title.size().y + 4.0,
+            ),
+            detail,
             tokens.text_secondary,
         );
     }
-    let rule = theme::snap(1.0, ui.ctx().pixels_per_point());
-    painter.rect_filled(
-        Rect::from_min_max(pos2(rect.left(), rect.bottom() - rule), rect.right_bottom()),
-        0,
-        tokens.border,
-    );
-    response.on_hover_cursor(egui::CursorIcon::Grab)
-}
-
-/// The row being dragged follows the pointer as a small label.
-fn drag_ghost(ui: &Ui, label: &str) {
-    let tokens = Tokens::get(ui.ctx());
-    let Some(pointer) = ui.ctx().pointer_interact_pos() else {
-        return;
-    };
-    let painter = ui
-        .ctx()
-        .layer_painter(LayerId::new(Order::Tooltip, Id::new("arrange-ghost")));
-    let galley = painter.layout_no_wrap(label.to_string(), theme::lora(14.0), tokens.text_primary);
-    let rect = Rect::from_min_size(pointer + vec2(12.0, 8.0), galley.size() + vec2(20.0, 12.0));
-    painter.rect_filled(rect, 4, tokens.elevated_bg);
-    painter.rect_stroke(
-        rect,
-        4,
-        theme::stroke(ui.ctx(), 1.0, tokens.border),
-        egui::StrokeKind::Inside,
-    );
-    painter.text(
-        rect.left_center() + vec2(10.0, 0.0),
-        Align2::LEFT_CENTER,
-        label,
-        theme::lora(14.0),
-        tokens.text_primary,
-    );
-}
-
-/// Where a drop on row `index` lands: before it when the pointer is in its
-/// upper half, after it otherwise.
-fn drop_slot(ui: &Ui, response: &Response, index: usize) -> usize {
-    let y = ui
-        .ctx()
-        .pointer_interact_pos()
-        .map(|pointer| pointer.y)
-        .unwrap_or(response.rect.center().y);
-    if y < response.rect.center().y {
-        index
-    } else {
-        index + 1
-    }
-}
-
-/// Moves the item at `from` so it lands in front of what is now at `slot`
-/// (`slot == len` means the end).
-fn move_to_slot(order: &[isize], from: usize, slot: usize) -> Vec<isize> {
-    let mut moved = order.to_vec();
-    if from >= moved.len() {
-        return moved;
-    }
-    let item = moved.remove(from);
-    let at = if slot > from { slot - 1 } else { slot }.min(moved.len());
-    moved.insert(at, item);
-    moved
 }
 
 #[cfg(test)]
@@ -396,32 +576,71 @@ mod tests {
     use super::*;
     use crate::core::ui_bridge::ArrangeWindow;
 
-    #[test]
-    fn moving_to_a_slot_counts_slots_in_the_old_order() {
-        let order = [10, 20, 30, 40];
-        assert_eq!(move_to_slot(&order, 0, 2), [20, 10, 30, 40]);
-        assert_eq!(move_to_slot(&order, 3, 0), [40, 10, 20, 30]);
-        assert_eq!(move_to_slot(&order, 1, 4), [10, 30, 40, 20]);
-        assert_eq!(move_to_slot(&order, 2, 2), order);
-        assert_eq!(move_to_slot(&order, 2, 3), order);
-        assert_eq!(move_to_slot(&order, 9, 0), order);
+    fn desktop(id: &str, name: &str, current: bool) -> ArrangeDesktop {
+        ArrangeDesktop {
+            id: id.to_string(),
+            name: name.to_string(),
+            current,
+        }
+    }
+
+    fn group(desktops: &[&str]) -> ArrangeGroup {
+        ArrangeGroup {
+            exe: "chrome.exe".to_string(),
+            label: "Chrome".to_string(),
+            windows: desktops
+                .iter()
+                .enumerate()
+                .map(|(i, d)| ArrangeWindow {
+                    hwnd: i as isize,
+                    label: format!("w{i}"),
+                    desktop: d.to_string(),
+                })
+                .collect(),
+        }
     }
 
     #[test]
-    fn a_group_is_redrawn_in_the_new_order_at_once() {
-        let window = |hwnd| ArrangeWindow {
-            hwnd,
-            label: hwnd.to_string(),
-            detail: String::new(),
+    fn the_current_desktop_comes_first_then_task_view_order() {
+        let desktops = [
+            desktop("home", "Home", false),
+            desktop("work", "Work", true),
+            desktop("read", "Reading", false),
+        ];
+        let rows = rows(&group(&["read", "work", "home", "work", ""]), &desktops);
+        let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();
+        assert_eq!(titles, ["This desktop", "Home", "Reading"]);
+        assert_eq!(rows[0].members, [1, 3, 4]);
+        assert_eq!(rows[1].members, [2]);
+        assert_eq!(rows[2].members, [0]);
+    }
+
+    #[test]
+    fn this_desktop_is_listed_even_when_it_has_no_windows() {
+        let desktops = [
+            desktop("home", "Home", false),
+            desktop("work", "Work", true),
+        ];
+        let rows = rows(&group(&["home"]), &desktops);
+        assert_eq!(rows.len(), 2);
+        assert!(rows[0].members.is_empty());
+        assert_eq!(rows[1].members, [0]);
+    }
+
+    #[test]
+    fn the_panel_grows_with_the_widest_row_up_to_the_limit() {
+        let row = |n: usize| Row {
+            title: String::new(),
+            desktop: String::new(),
+            members: (0..n).collect(),
         };
-        let mut group = ArrangeGroup {
-            exe: "chrome.exe".to_string(),
-            label: "Chrome".to_string(),
-            windows: vec![window(1), window(2), window(3)],
-            note: String::new(),
-        };
-        reorder_group(&mut group, &[3, 1, 2]);
-        let order: Vec<isize> = group.windows.iter().map(|w| w.hwnd).collect();
-        assert_eq!(order, [3, 1, 2]);
+        let size = panel_size(&[row(3), row(1)], vec2(5000.0, 5000.0));
+        assert_eq!(size.x, 2.0 * PADDING + 3.0 * CARD.x + 2.0 * CARD_GAP);
+        assert_eq!(
+            size.y,
+            2.0 * PADDING + 2.0 * (HEADER + HEADER_GAP + CARD.y) + ROW_GAP
+        );
+        let capped = panel_size(&[row(30)], vec2(1000.0, 5000.0));
+        assert_eq!(capped.x, 1000.0);
     }
 }

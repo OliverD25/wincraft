@@ -90,6 +90,7 @@ struct Host {
 pub struct StartupFlags {
     pub open_detector: bool,
     pub open_palette: bool,
+    pub open_arrange: bool,
     pub open_settings: bool,
 }
 
@@ -202,6 +203,9 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
     }
     if flags.open_palette {
         show_palette();
+    }
+    if flags.open_arrange {
+        open_arrange();
     }
     if flags.open_settings {
         with_host(|host| host.to_ui.send(UiCommand::ShowSettings(Page::General)));
@@ -624,25 +628,23 @@ impl Host {
     /// Asks the first enabled plugin that keeps a window order for its groups
     /// and sends them to the Arrange window.
     fn send_arrange(&mut self, open: bool) {
-        let found = self.slots.iter_mut().enumerate().find_map(|(index, slot)| {
+        let found = self.slots.iter_mut().find_map(|slot| {
             if !slot.enabled {
                 return None;
             }
             let groups = slot.plugin.window_groups()?;
-            Some((index, slot.plugin.metadata().id, groups))
+            Some((slot.plugin.metadata().id, groups))
         });
-        let Some((index, id, groups)) = found else {
+        let Some((id, groups)) = found else {
             log::info!("no enabled plugin keeps a window order");
             return;
         };
         let snapshot = ArrangeSnapshot {
             plugin: id.to_string(),
             groups: groups.groups,
-            restore: groups.restore_action.map(|action| CommandId::Plugin {
-                index,
-                kind: ActionKind::Hotkey,
-                action,
-            }),
+            desktops: groups.desktops,
+            focus: groups.focus,
+            watched: groups.watched,
         };
         self.to_ui.send(if open {
             UiCommand::ShowArrange(snapshot)
@@ -709,14 +711,14 @@ impl Host {
                 self.publish();
             }
             HostRequest::RunCommand(id) => self.run_command(id),
-            HostRequest::ReorderGroup { plugin, exe, order } => {
+            HostRequest::Arrange { plugin, action } => {
                 if let Some(index) = self.index_of(&plugin) {
                     if self.slots[index].enabled {
-                        self.slots[index].plugin.on_reorder(&exe, &order);
+                        self.slots[index].plugin.on_arrange_action(&action);
                     }
                 }
-                self.send_arrange(false);
             }
+            HostRequest::FocusWindow(hwnd) => bring_to_front(hwnd as HWND),
             HostRequest::SetPluginEnabled { id, enabled } => {
                 if let Some(index) = self.index_of(&id) {
                     if enabled {
@@ -942,7 +944,7 @@ fn cursor_monitor() -> MonitorRect {
 /// Runs on the host thread on purpose. Delivering the hotkey is what gives this
 /// process the right to take the foreground, and that right belongs to the
 /// thread the hotkey was delivered to.
-fn bring_to_front(hwnd: HWND) {
+pub fn bring_to_front(hwnd: HWND) {
     if hwnd.is_null() {
         return;
     }

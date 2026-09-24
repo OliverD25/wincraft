@@ -58,15 +58,16 @@ pub enum HostSetting {
     PaletteHotkey(String),
 }
 
-/// One window in the Arrange windows list.
+/// One window in the Arrange strip.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ArrangeWindow {
-    /// The window handle as a number; the list sends it back to say which
-    /// window moved.
+    /// The window handle as a number: the strip draws its live picture from
+    /// it and sends it back to say which window to act on.
     pub hwnd: isize,
     pub label: String,
-    /// Secondary text, such as the desktop the window is on.
-    pub detail: String,
+    /// The id of the virtual desktop the window is on, as the registry spells
+    /// it; empty when unknown or shown on every desktop.
+    pub desktop: String,
 }
 
 /// One program's taskbar group, windows in thumbnail order.
@@ -75,15 +76,31 @@ pub struct ArrangeGroup {
     pub exe: String,
     pub label: String,
     pub windows: Vec<ArrangeWindow>,
-    /// Windows the list can reorder but the taskbar only picks up later.
-    pub note: String,
+}
+
+/// A virtual desktop, in Task View order.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArrangeDesktop {
+    pub id: String,
+    pub name: String,
+    pub current: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ArrangeSnapshot {
     pub plugin: String,
     pub groups: Vec<ArrangeGroup>,
-    pub restore: Option<CommandId>,
+    pub desktops: Vec<ArrangeDesktop>,
+    /// The group to show when the strip opens.
+    pub focus: usize,
+    /// The exe names being watched, for the strip's empty state.
+    pub watched: Vec<String>,
+}
+
+/// What the strip asks the plugin to do with one window.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ArrangeAction {
+    Activate(isize),
 }
 
 /// Screen rectangle in physical pixels, as Win32 reports it.
@@ -112,11 +129,13 @@ pub enum HostRequest {
         palette_hwnd: isize,
     },
     RunCommand(CommandId),
-    ReorderGroup {
+    Arrange {
         plugin: String,
-        exe: String,
-        order: Vec<isize>,
+        action: ArrangeAction,
     },
+    /// The strip's own window, which only the host thread may bring forward
+    /// right after the hotkey that opened it.
+    FocusWindow(isize),
     SetPluginEnabled {
         id: String,
         enabled: bool,

@@ -1,4 +1,5 @@
 mod arrange;
+mod dwm_thumbs;
 pub mod fuzzy;
 mod palette;
 mod settings;

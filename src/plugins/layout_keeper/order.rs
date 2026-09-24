@@ -148,27 +148,6 @@ impl OrderModel {
             .filter_map(|entry| entry.hwnd.map(|hwnd| (hwnd, &entry.identity)))
     }
 
-    /// Puts the live windows in the given order; windows the list leaves
-    /// out keep their relative order after it.
-    pub fn set_order(&mut self, wanted: &[Handle]) {
-        let mut ordered: Vec<Entry> = wanted
-            .iter()
-            .filter_map(|hwnd| {
-                self.entries
-                    .iter()
-                    .find(|entry| entry.hwnd == Some(*hwnd))
-                    .cloned()
-            })
-            .collect();
-        ordered.extend(
-            self.entries
-                .iter()
-                .filter(|entry| entry.hwnd.is_none_or(|hwnd| !wanted.contains(&hwnd)))
-                .cloned(),
-        );
-        self.entries = ordered;
-    }
-
     /// What `apply` would send, or None when the taskbar already shows it.
     pub fn pending(&self) -> Option<Vec<Handle>> {
         let handles = self.handles();
@@ -351,44 +330,6 @@ mod tests {
         assert!(model.shift(102, 1, &[100, 102]));
         assert_eq!(labels(&model), ["C", "B", "A"]);
         assert!(!model.shift(101, 1, &[100, 102]));
-    }
-
-    #[test]
-    fn set_order_puts_the_listed_windows_first() {
-        let mut model = OrderModel::default();
-        model.refresh(&live(&["C", "B", "A"]), 0, 30);
-        model.set_order(&[100, 102]);
-        assert_eq!(labels(&model), ["C", "A", "B"]);
-        model.set_order(&[999]);
-        assert_eq!(labels(&model), ["C", "A", "B"]);
-        let listed: Vec<Handle> = model.windows().map(|(hwnd, _)| hwnd).collect();
-        assert_eq!(listed, [100, 102, 101]);
-    }
-
-    #[test]
-    fn a_saved_order_is_re_added_first_to_last() {
-        // Saved order C, A, B; live windows top of the z-order first.
-        let mut model = OrderModel::from_saved(vec![window("C"), window("A"), window("B")]);
-        model.refresh(&live(&["A", "B", "C"]), 0, 30);
-        let (a, b, c) = (100, 101, 102);
-        assert_eq!(model.handles(), [c, a, b]);
-
-        let calls = tab_calls(&model.handles(), b);
-        let added: Vec<Handle> = calls
-            .iter()
-            .filter_map(|call| match call {
-                TabCall::Add(hwnd) => Some(*hwnd),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(added, [c, a, b]);
-        for hwnd in [c, a, b] {
-            let delete = calls.iter().position(|x| *x == TabCall::Delete(hwnd));
-            let add = calls.iter().position(|x| *x == TabCall::Add(hwnd));
-            assert!(delete < add, "each window is removed before it is added");
-        }
-        assert_eq!(calls.last(), Some(&TabCall::Activate(b)));
-        assert_eq!(tab_calls(&[c], a), [TabCall::Delete(c), TabCall::Add(c)]);
     }
 
     #[test]
