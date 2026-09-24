@@ -233,6 +233,23 @@ impl LayoutKeeper {
             }
         }
         let Some(taskbar) = &self.taskbar else { return };
+        if log::log_enabled!(log::Level::Debug) {
+            let labels: Vec<&str> = self
+                .groups
+                .get(exe)
+                .map(|group| {
+                    group
+                        .windows()
+                        .filter(|(hwnd, _)| send.contains(hwnd))
+                        .map(|(_, identity)| identity.label())
+                        .collect()
+                })
+                .unwrap_or_default();
+            log::debug!(
+                "re-adding {exe} buttons in this order: {}",
+                labels.join(" | ")
+            );
+        }
         let took = taskbar.apply(&send);
         log::info!(
             "applied the order of {} {exe} windows in {} ms ({} on other desktops left alone)",

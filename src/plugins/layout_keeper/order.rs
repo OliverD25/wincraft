@@ -180,6 +180,33 @@ impl OrderModel {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TabCall {
+    Delete(Handle),
+    Add(Handle),
+    Activate(Handle),
+}
+
+/// The ITaskbarList calls that put `handles` in that order, first thumbnail
+/// first: each window is removed and added again, so the last one added
+/// ends up last in the group.
+pub fn tab_calls(handles: &[Handle], foreground: Handle) -> Vec<TabCall> {
+    let mut calls: Vec<TabCall> = handles
+        .iter()
+        .flat_map(|hwnd| [TabCall::Delete(*hwnd), TabCall::Add(*hwnd)])
+        .collect();
+    if handles.contains(&foreground) {
+        calls.push(TabCall::Activate(foreground));
+    }
+    calls
+}
+
+/// With DeleteTab and AddTab back to back the group came out in exactly the
+/// reverse order on build 26200, although the calls were made first to last;
+/// the manual test that showed a re-added window going last waited between
+/// the two calls.
+const REINSERT_PAUSE: Duration = Duration::from_millis(20);
+
 const CLSID_TASKBAR_LIST: GUID = GUID::from_u128(0x56fdf344_fd6d_11d0_958a_006097c9a090);
 const IID_ITASKBAR_LIST: GUID = GUID::from_u128(0x56fdf342_fd6d_11d0_958a_006097c9a090);
 
@@ -221,14 +248,16 @@ impl Taskbar {
         let started = Instant::now();
         let vtable = unsafe { self.0.vtable::<ITaskbarListVtbl>() };
         let foreground = unsafe { GetForegroundWindow() } as Handle;
-        for hwnd in handles {
-            unsafe {
-                (vtable.delete_tab)(self.0.as_raw(), *hwnd as HWND);
-                (vtable.add_tab)(self.0.as_raw(), *hwnd as HWND);
+        for call in tab_calls(handles, foreground) {
+            let (method, hwnd) = match call {
+                TabCall::Delete(hwnd) => (vtable.delete_tab, hwnd),
+                TabCall::Add(hwnd) => (vtable.add_tab, hwnd),
+                TabCall::Activate(hwnd) => (vtable.activate_tab, hwnd),
+            };
+            unsafe { method(self.0.as_raw(), hwnd as HWND) };
+            if matches!(call, TabCall::Delete(_)) {
+                std::thread::sleep(REINSERT_PAUSE);
             }
-        }
-        if handles.contains(&foreground) {
-            unsafe { (vtable.activate_tab)(self.0.as_raw(), foreground as HWND) };
         }
         started.elapsed()
     }
@@ -334,6 +363,32 @@ mod tests {
         assert_eq!(labels(&model), ["C", "A", "B"]);
         let listed: Vec<Handle> = model.windows().map(|(hwnd, _)| hwnd).collect();
         assert_eq!(listed, [100, 102, 101]);
+    }
+
+    #[test]
+    fn a_saved_order_is_re_added_first_to_last() {
+        // Saved order C, A, B; live windows top of the z-order first.
+        let mut model = OrderModel::from_saved(vec![window("C"), window("A"), window("B")]);
+        model.refresh(&live(&["A", "B", "C"]), 0, 30);
+        let (a, b, c) = (100, 101, 102);
+        assert_eq!(model.handles(), [c, a, b]);
+
+        let calls = tab_calls(&model.handles(), b);
+        let added: Vec<Handle> = calls
+            .iter()
+            .filter_map(|call| match call {
+                TabCall::Add(hwnd) => Some(*hwnd),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(added, [c, a, b]);
+        for hwnd in [c, a, b] {
+            let delete = calls.iter().position(|x| *x == TabCall::Delete(hwnd));
+            let add = calls.iter().position(|x| *x == TabCall::Add(hwnd));
+            assert!(delete < add, "each window is removed before it is added");
+        }
+        assert_eq!(calls.last(), Some(&TabCall::Activate(b)));
+        assert_eq!(tab_calls(&[c], a), [TabCall::Delete(c), TabCall::Add(c)]);
     }
 
     #[test]
