@@ -16,6 +16,14 @@
       "author": "community",
       "description": "Find taken and free global key combinations, and test a shortcut before you assign it.",
       "readme": "src/plugins/shortcut_detector/README.md"
+    },
+    {
+      "id": "layout_keeper",
+      "name": "LayoutKeeper",
+      "version": "1.0.0",
+      "author": "community",
+      "description": "Remembers which desktop each window is on, the taskbar thumbnail order and which window is in front, and restores them after a reboot.",
+      "readme": "src/plugins/layout_keeper/README.md"
     }
   ]
 }

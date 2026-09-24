@@ -129,7 +129,7 @@ The About page lists the kinds the build you are running can draw.
 | `on_tray_action(id)` | When your menu entry or its palette entry is chosen. |
 | `palette_commands` | For entries that are neither a hotkey nor a tray item. |
 | `on_palette_command(id)` | When one of those is chosen. |
-| `on_windows_message` | On `WM_DISPLAYCHANGE`, `WM_SETTINGCHANGE`, `WM_POWERBROADCAST` and `WM_TIMER`. |
+| `on_windows_message` | On `WM_DISPLAYCHANGE`, `WM_SETTINGCHANGE`, `WM_POWERBROADCAST`, `WM_TIMER`, `WM_QUERYENDSESSION` and `WM_ENDSESSION`. The two session messages arrive while every program is still open; the host answers `WM_QUERYENDSESSION` with TRUE itself. |
 | `teardown` | When the plugin is switched off and at exit. Release every window and handle here. |
 
 Hotkey and tray actions appear in the command palette automatically. You only

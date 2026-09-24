@@ -38,6 +38,7 @@ features = [
     "Win32_Graphics_Dwm",
     "Win32_System_Time",
     "Win32_UI_Controls_Dialogs",
+    "Win32_System_Com",
 ]
 
 [build-dependencies]

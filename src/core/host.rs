@@ -19,8 +19,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetCursorPos, GetForegroundWindow,
     GetMessageW, GetWindowThreadProcessId, PostQuitMessage, RegisterClassW, RegisterWindowMessageW,
     SetForegroundWindow, TranslateMessage, MSG, SW_SHOWNORMAL, WM_CONTEXTMENU, WM_DESTROY,
-    WM_DISPLAYCHANGE, WM_HOTKEY, WM_LBUTTONUP, WM_POWERBROADCAST, WM_RBUTTONUP, WM_SETTINGCHANGE,
-    WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
+    WM_DISPLAYCHANGE, WM_ENDSESSION, WM_HOTKEY, WM_LBUTTONUP, WM_POWERBROADCAST,
+    WM_QUERYENDSESSION, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
 };
 
 use serde_json::Value;
@@ -1065,6 +1065,21 @@ unsafe extern "system" fn wnd_proc(
                 }
             });
             0
+        }
+        // Plugins get these synchronously, while every program is still
+        // open, so a plugin can record the session before it goes away.
+        // Answering TRUE never holds up the shutdown.
+        WM_QUERYENDSESSION | WM_ENDSESSION => {
+            with_host(|host| {
+                for slot in host.slots.iter_mut().filter(|slot| slot.enabled) {
+                    slot.plugin.on_windows_message(msg, wparam, lparam);
+                }
+            });
+            if msg == WM_QUERYENDSESSION {
+                1
+            } else {
+                0
+            }
         }
         WM_DESTROY => {
             with_host(|host| host.shutdown());

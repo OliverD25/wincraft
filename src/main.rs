@@ -6,6 +6,7 @@ mod store;
 mod ui;
 
 use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, HANDLE};
+use windows_sys::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
 use windows_sys::Win32::System::Threading::CreateMutexW;
 use windows_sys::Win32::UI::HiDpi::{
     SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
@@ -62,7 +63,19 @@ fn main() {
         open_palette: args.iter().any(|arg| arg == "--open-palette"),
         open_settings: args.iter().any(|arg| arg == "--open-settings"),
     };
+    // Plugins talk to shell COM objects from the host thread, and those are
+    // apartment-threaded; the message loop host::run pumps is what that needs.
+    let com = unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) };
+    if com < 0 {
+        log::warn!(
+            "COM could not start on the host thread (0x{:08X})",
+            com as u32
+        );
+    }
     host::run(config, plugins::load_active_plugins(), flags);
+    if com >= 0 {
+        unsafe { CoUninitialize() };
+    }
 
     unsafe { CloseHandle(mutex) };
 }

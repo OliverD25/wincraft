@@ -28,6 +28,37 @@ pub fn day_month(time: SystemTime) -> String {
     format!("{} {month}", local.wDay)
 }
 
+/// A moment as "2026-09-24T21:40:11Z", for files other programs may read.
+pub fn utc_iso(time: SystemTime) -> String {
+    let secs = time
+        .duration_since(UNIX_EPOCH)
+        .map(|since| since.as_secs())
+        .unwrap_or(0);
+    let (year, month, day) = civil_from_days((secs / 86_400) as i64);
+    let rest = secs % 86_400;
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        rest / 3600,
+        rest % 3600 / 60,
+        rest % 60
+    )
+}
+
+/// Howard Hinnant's days-to-date algorithm for the proleptic Gregorian
+/// calendar; the same one build.rs uses for the build date.
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    (year, month, day)
+}
+
 /// FILETIME counts 100 ns steps since 1601; the Unix epoch is 11,644,473,600
 /// seconds after that.
 fn local_system_time(time: SystemTime) -> Option<SYSTEMTIME> {
@@ -59,6 +90,14 @@ mod tests {
         let moment = UNIX_EPOCH + std::time::Duration::from_secs(1_790_000_000);
         let text = day_month(moment);
         assert!(text.ends_with("Sep"), "{text}");
+    }
+
+    #[test]
+    fn utc_moments_format_as_iso_8601() {
+        let at = |secs| UNIX_EPOCH + std::time::Duration::from_secs(secs);
+        assert_eq!(utc_iso(at(1_790_000_000)), "2026-09-21T14:13:20Z");
+        assert_eq!(utc_iso(at(951_782_400)), "2000-02-29T00:00:00Z");
+        assert_eq!(utc_iso(at(0)), "1970-01-01T00:00:00Z");
     }
 
     #[test]
