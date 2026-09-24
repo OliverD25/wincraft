@@ -22,6 +22,10 @@ pub fn issues_url() -> &'static str {
     "https://github.com/OliverD25/wincraft/issues"
 }
 
+pub fn release_url(tag: &str) -> String {
+    format!("https://github.com/OliverD25/wincraft/releases/tag/{tag}")
+}
+
 pub fn releases_url() -> &'static str {
     "https://github.com/OliverD25/wincraft/releases"
 }

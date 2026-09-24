@@ -85,13 +85,27 @@ fn write_cache(name: &str, text: &str) {
     let _ = std::fs::write(path, text);
 }
 
-fn read_cache(name: &str) -> Option<String> {
-    std::fs::read_to_string(cache_path(name)).ok()
+fn read_cache(name: &str) -> Option<(String, std::time::SystemTime)> {
+    let path = cache_path(name);
+    let text = std::fs::read_to_string(&path).ok()?;
+    let written = std::fs::metadata(&path)
+        .and_then(|meta| meta.modified())
+        .unwrap_or_else(|_| std::time::SystemTime::now());
+    Some((text, written))
+}
+
+/// Where the answer came from, so the status line can say "updated 14:02",
+/// "the cached copy from 21 Sep" or "the plugins built into this copy".
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Source {
+    Live,
+    Cache(std::time::SystemTime),
+    BuiltIn,
 }
 
 pub struct Fetched<T> {
     pub value: T,
-    pub note: String,
+    pub source: Source,
 }
 
 pub fn fetch_index() -> Result<Fetched<PluginIndex>, String> {
@@ -104,18 +118,18 @@ pub fn fetch_index() -> Result<Fetched<PluginIndex>, String> {
                 log::info!("plugin index fetched ({} plugins)", index.plugins.len());
                 Ok(Fetched {
                     value: index,
-                    note: format!("{} plugins listed", index_count(&body)),
+                    source: Source::Live,
                 })
             }
             Err(err) => Err(err),
         },
         Err(err) => {
-            if let Some(cached) = read_cache(&name) {
+            if let Some((cached, written)) = read_cache(&name) {
                 let index = parse(&cached)?;
                 log::info!("offline, using cache ({} plugins)", index.plugins.len());
                 return Ok(Fetched {
                     value: index,
-                    note: "offline, showing the cached copy".to_string(),
+                    source: Source::Cache(written),
                 });
             }
             // Never nothing to show: the index this exe was built from is
@@ -124,7 +138,7 @@ pub fn fetch_index() -> Result<Fetched<PluginIndex>, String> {
             log::info!("offline with no cache, using the built-in index ({err})");
             Ok(Fetched {
                 value: index,
-                note: "offline, showing the plugins built into this copy".to_string(),
+                source: Source::BuiltIn,
             })
         }
     }
@@ -138,21 +152,17 @@ pub fn fetch_readme(path: &str) -> Result<Fetched<String>, String> {
             write_cache(&name, &body);
             Ok(Fetched {
                 value: body,
-                note: String::new(),
+                source: Source::Live,
             })
         }
         Err(err) => match read_cache(&name) {
-            Some(cached) => Ok(Fetched {
+            Some((cached, written)) => Ok(Fetched {
                 value: cached,
-                note: "offline, showing the cached copy".to_string(),
+                source: Source::Cache(written),
             }),
             None => Err(format!("offline, and nothing cached yet ({err})")),
         },
     }
-}
-
-fn index_count(body: &str) -> usize {
-    parse(body).map(|index| index.plugins.len()).unwrap_or(0)
 }
 
 pub fn write_committed_copy() -> Result<std::path::PathBuf, String> {

@@ -2,10 +2,15 @@ use std::sync::Arc;
 
 use crate::core::config::ThemeChoice;
 use crate::core::hotkeys;
-use crate::core::theme::Tokens;
+use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{HostChannel, HostRequest, HostSetting, UiSnapshot};
-use crate::ui::settings::SettingsState;
-use crate::ui::widgets::hotkey_capture;
+use crate::ui::settings::{self as page, SettingsState};
+use crate::ui::widgets::button::{self, Kind};
+use crate::ui::widgets::capture::{self, Outcome};
+use crate::ui::widgets::row::{settings_row, RowText};
+use crate::ui::widgets::{choice, keycap, text, toggle};
+
+const PALETTE_OWNER: &str = "host/palette";
 
 pub fn show(
     ui: &mut egui::Ui,
@@ -13,92 +18,126 @@ pub fn show(
     state: &mut SettingsState,
     to_host: &Arc<HostChannel>,
 ) {
-    ui.heading("General");
-    ui.add_space(12.0);
-
-    let mut autostart = snapshot.start_with_windows;
-    if ui.checkbox(&mut autostart, "Start with Windows").changed() {
-        to_host.send(HostRequest::SetHostSetting(HostSetting::StartWithWindows(
-            autostart,
-        )));
-    }
-    ui.label(
-        egui::RichText::new("Adds WinCraft to the Run key for your account only.")
-            .weak()
-            .small(),
-    );
-    ui.add_space(16.0);
-
-    ui.horizontal(|ui| {
-        ui.label("Theme");
-        for choice in ThemeChoice::ALL {
-            if ui
-                .selectable_label(snapshot.theme == choice, choice.label())
-                .clicked()
-                && snapshot.theme != choice
-            {
-                to_host.send(HostRequest::SetHostSetting(HostSetting::Theme(choice)));
-            }
-        }
-    });
-    ui.add_space(16.0);
-
-    ui.label("Palette hotkey");
-    ui.horizontal(|ui| {
-        let capturing = state.capture_owner.as_deref() == Some(PALETTE_OWNER);
-        let label = if capturing {
-            hotkey_capture::describe(hotkey_capture::live_modifiers())
-        } else {
-            snapshot.palette_hotkey.clone()
-        };
-        if ui.selectable_label(capturing, label).clicked() {
-            state.begin_capture(PALETTE_OWNER.to_string());
-        }
-        if !snapshot.palette_hotkey_registered {
-            ui.label(
-                egui::RichText::new("not registered \u{2014} another app holds it")
-                    .small()
-                    .color(Tokens::get(ui.ctx()).warning),
+    let tokens = Tokens::get(ui.ctx());
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            page::page_header(
+                ui,
+                "General",
+                None,
+                "WinCraft follows the Windows theme unless you choose one here.",
+                |_| {},
             );
-        }
-    });
-    if state.capture_owner.as_deref() == Some(PALETTE_OWNER) {
-        ui.label(
-            egui::RichText::new("Press the combination you want, or Esc to cancel.")
-                .weak()
-                .small(),
-        );
-        if let Some(hotkey) = hotkey_capture::take_result() {
-            to_host.send(HostRequest::SetHostSetting(HostSetting::PaletteHotkey(
-                hotkeys::format(hotkey),
-            )));
-            state.end_capture();
-        }
-        if hotkey_capture::take_cancelled() {
-            state.end_capture();
-        }
-    }
+            ui.add_space(16.0);
+            ui.spacing_mut().item_spacing.y = 0.0;
 
-    ui.add_space(20.0);
-    ui.separator();
-    ui.add_space(12.0);
+            settings_row(
+                ui,
+                "autostart",
+                RowText::new("Start with Windows")
+                    .desc("Launch when you sign in.", tokens.text_secondary),
+                false,
+                |ui| {
+                    let mut on = snapshot.start_with_windows;
+                    if toggle::toggle(ui, &mut on).changed() {
+                        to_host.send(HostRequest::SetHostSetting(HostSetting::StartWithWindows(
+                            on,
+                        )));
+                    }
+                },
+            );
 
-    file_row(ui, "Config file", &snapshot.config_path, to_host);
-    file_row(ui, "Log file", &snapshot.log_path, to_host);
+            settings_row(
+                ui,
+                "theme",
+                RowText::new("Theme").desc(
+                    "System follows the Windows app mode.",
+                    tokens.text_secondary,
+                ),
+                false,
+                |ui| {
+                    let labels: Vec<&str> = ThemeChoice::ALL
+                        .iter()
+                        .map(|choice| choice.label())
+                        .collect();
+                    let current = ThemeChoice::ALL
+                        .iter()
+                        .position(|choice| *choice == snapshot.theme);
+                    if let Some(index) = choice::segmented(ui, &labels, current) {
+                        to_host.send(HostRequest::SetHostSetting(HostSetting::Theme(
+                            ThemeChoice::ALL[index],
+                        )));
+                    }
+                },
+            );
+
+            let (verdict, colour) = if snapshot.palette_hotkey_registered {
+                ("registered", tokens.success)
+            } else {
+                ("taken by another app", tokens.warning)
+            };
+            settings_row(
+                ui,
+                "palette-hotkey",
+                RowText::new("Palette hotkey").desc(verdict, colour),
+                false,
+                |ui| {
+                    keycap::chips(ui, &snapshot.palette_hotkey, 12.0, false);
+                    if button::button(ui, "Change", Kind::Secondary).clicked() {
+                        state.begin_capture(PALETTE_OWNER.to_string());
+                    }
+                },
+            );
+            if let Some(session) = state
+                .capture
+                .as_mut()
+                .filter(|session| session.owner == PALETTE_OWNER)
+            {
+                match capture::show(ui, session, |hotkey| {
+                    page::verdict(hotkey, snapshot, &tokens)
+                }) {
+                    Some(Outcome::Apply(hotkey)) => {
+                        to_host.send(HostRequest::SetHostSetting(HostSetting::PaletteHotkey(
+                            hotkeys::format(hotkey),
+                        )));
+                        state.end_capture();
+                    }
+                    Some(Outcome::Cancel) => state.end_capture(),
+                    None => {}
+                }
+            }
+
+            file_row(
+                ui,
+                "config-file",
+                "Config file",
+                &snapshot.config_path,
+                to_host,
+            );
+            file_row(ui, "log-file", "Log file", &snapshot.log_path, to_host);
+        });
 }
 
-const PALETTE_OWNER: &str = "host/palette";
-
-fn file_row(ui: &mut egui::Ui, label: &str, path: &std::path::Path, to_host: &Arc<HostChannel>) {
-    ui.horizontal(|ui| {
-        ui.label(label);
-        ui.add_space(8.0);
-        ui.label(
-            egui::RichText::new(path.display().to_string())
-                .monospace()
-                .small(),
+fn file_row(
+    ui: &mut egui::Ui,
+    id: &str,
+    label: &str,
+    path: &std::path::Path,
+    to_host: &Arc<HostChannel>,
+) {
+    let tokens = Tokens::get(ui.ctx());
+    settings_row(ui, id, RowText::new(label), false, |ui| {
+        text::single(
+            ui,
+            text::job(
+                &page::display_path(path),
+                theme::mono(12.0),
+                tokens.text_secondary,
+                None,
+            ),
         );
-        if ui.button("Open").clicked() {
+        if button::button(ui, "Open", Kind::Secondary).clicked() {
             to_host.send(HostRequest::OpenPath(path.to_path_buf()));
         }
     });

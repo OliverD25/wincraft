@@ -102,6 +102,8 @@ struct App {
     settings: Settings,
     quitting: bool,
     applied_scale: f32,
+    painted_once: bool,
+    rehide_root: bool,
 }
 
 impl App {
@@ -119,6 +121,8 @@ impl App {
             settings: Settings::new(to_host_for_settings, snapshot_for_settings),
             quitting: false,
             applied_scale: 0.0,
+            painted_once: false,
+            rehide_root: false,
         }
     }
 
@@ -205,6 +209,11 @@ impl eframe::App for App {
         }
         self.place_palette(ctx);
 
+        if std::mem::take(&mut self.rehide_root) && !self.palette_visible {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            ctx.request_repaint();
+        }
+
         if ctx.input(|i| i.viewport().close_requested()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.hide_palette(ctx);
@@ -213,6 +222,18 @@ impl eframe::App for App {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+
+        // eframe shows the root window after its first painted frame, to avoid
+        // a white flash at startup. The root is the palette and starts hidden,
+        // so that first frame only comes when the settings window opens, and
+        // the palette would then sit on screen, transparent but always on top,
+        // catching clicks meant for the windows under it. eframe does this
+        // once, so hiding it once on the next frame is enough. Its own
+        // visibility flag cannot be used: it stays unknown on Windows.
+        if !std::mem::replace(&mut self.painted_once, true) && !self.palette_visible {
+            self.rehide_root = true;
+            ctx.request_repaint();
+        }
 
         if self.settings_open {
             if self.settings.was_closed() {

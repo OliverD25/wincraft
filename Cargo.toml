@@ -36,6 +36,8 @@ features = [
     "Win32_System_Memory",
     "Win32_System_Ole",
     "Win32_Graphics_Dwm",
+    "Win32_System_Time",
+    "Win32_UI_Controls_Dialogs",
 ]
 
 [build-dependencies]

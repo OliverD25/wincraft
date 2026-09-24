@@ -106,6 +106,7 @@ pub struct HotkeyInfo {
     pub action: String,
     pub label: String,
     pub binding: String,
+    pub default_binding: String,
     pub registered: bool,
 }
 

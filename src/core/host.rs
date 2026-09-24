@@ -468,6 +468,14 @@ impl Host {
     fn hotkey_infos(&self, index: usize) -> Vec<HotkeyInfo> {
         let slot = &self.slots[index];
         let meta = slot.plugin.metadata();
+        let actions = slot.plugin.hotkey_actions();
+        let default_of = |action_id: u32| {
+            actions
+                .iter()
+                .find(|action| action.id == action_id)
+                .map(|action| hotkeys::format(action.default))
+                .unwrap_or_default()
+        };
         if slot.enabled {
             return slot
                 .registered
@@ -476,17 +484,18 @@ impl Host {
                     action: self.action_name(index, entry.action_id).to_string(),
                     label: entry.label.to_string(),
                     binding: entry.keys.clone(),
+                    default_binding: default_of(entry.action_id),
                     registered: entry.ok,
                 })
                 .collect();
         }
-        slot.plugin
-            .hotkey_actions()
+        actions
             .iter()
             .map(|action| HotkeyInfo {
                 action: action.name.to_string(),
                 label: action.label.to_string(),
                 binding: hotkeys::format(self.resolve_hotkey(meta.id, action.name, action.default)),
+                default_binding: hotkeys::format(action.default),
                 registered: true,
             })
             .collect()

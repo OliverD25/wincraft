@@ -11,7 +11,6 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WM_KEYDOWN, WM_SYSKEYDOWN,
 };
 
-use crate::core::hotkeys;
 use crate::core::traits::Hotkey;
 
 #[derive(Default)]
@@ -133,13 +132,4 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         return 1;
     }
     unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
-}
-
-pub fn describe(modifiers: u32) -> String {
-    let text = hotkeys::format_modifiers(modifiers);
-    if text.is_empty() {
-        "Press a combination\u{2026}".to_string()
-    } else {
-        format!("{text}+\u{2026}")
-    }
 }
