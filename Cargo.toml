@@ -39,6 +39,9 @@ features = [
     "Win32_System_Time",
     "Win32_UI_Controls_Dialogs",
     "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    "Win32_UI_Shell_PropertiesSystem",
 ]
 
 [build-dependencies]

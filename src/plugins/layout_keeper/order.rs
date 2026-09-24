@@ -106,6 +106,11 @@ impl OrderModel {
         }
     }
 
+    /// No windows at all, not even ones waiting to come back.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     /// The live windows in thumbnail order.
     pub fn handles(&self) -> Vec<Handle> {
         self.entries.iter().filter_map(|entry| entry.hwnd).collect()

@@ -70,11 +70,21 @@ each program and makes the taskbar match it. New windows join at the end, as
 Windows adds them; a window that stays closed for one save interval is
 dropped from the list.
 
+### Groups
+
+Windows groups taskbar buttons by app, not by program: Chrome's installed web
+apps (Gemini, for example) get buttons of their own, next to Chrome's. They
+do because each window carries an app ID, and LayoutKeeper groups windows by
+that same ID, so each taskbar group keeps its own order. A window without an
+ID is grouped by its program's path, as Windows does. **Programs** still
+takes exe names, so `chrome.exe` covers Chrome and all its web apps.
+
 ### Arrange windows
 
 `Win+Alt+A` (or the palette, or the button on this page) opens a strip above
-the taskbar with a live picture of every window of the front window's
-program, like the taskbar's own thumbnails. There is one row per virtual
+the taskbar with a live picture of every window in the front window's
+taskbar group, like the taskbar's own thumbnails. A list at the top switches
+to the other watched groups. There is one row per virtual
 desktop: this desktop first, then the others under their names. The pictures
 are drawn by Windows itself (DWM thumbnails) and stay live while the strip
 is open; windows on other desktops have pictures too. A window Windows

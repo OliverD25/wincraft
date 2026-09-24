@@ -19,7 +19,7 @@ use crate::core::ui_bridge::{
 use crate::ui::dwm_thumbs::{self, Placement, Thumbnail};
 use crate::ui::settings;
 use crate::ui::widgets::empty_state::empty_state;
-use crate::ui::widgets::{focus, text};
+use crate::ui::widgets::{choice, focus, text};
 
 /// Unique, so the strip's window can be found among the UI thread's windows.
 const TITLE: &str = "WinCraft Arrange";
@@ -39,6 +39,8 @@ const ROW_GAP: f32 = 16.0;
 const EMPTY_PANEL: Vec2 = Vec2::new(520.0, 150.0);
 /// The note under the rows when more than one desktop is shown.
 const FOOTER: f32 = 28.0;
+/// The group switcher above the rows, when there is more than one group.
+const SWITCHER: f32 = 44.0;
 /// Rows that fit exactly can round to a pixel too tall and grow a scroll bar.
 const SLACK: f32 = 4.0;
 /// Space left between the strip and the taskbar.
@@ -172,7 +174,8 @@ struct Drag {
 
 struct Shared {
     snapshot: Option<ArrangeSnapshot>,
-    exe: Option<String>,
+    /// The taskbar group on screen.
+    key: Option<String>,
     /// The card the arrow keys act on.
     cursor: Option<isize>,
     drag: Option<Drag>,
@@ -190,8 +193,8 @@ struct Shared {
 impl Shared {
     fn group(&self) -> Option<&ArrangeGroup> {
         let snapshot = self.snapshot.as_ref()?;
-        let exe = self.exe.as_ref()?;
-        snapshot.groups.iter().find(|group| &group.exe == exe)
+        let key = self.key.as_ref()?;
+        snapshot.groups.iter().find(|group| &group.key == key)
     }
 
     fn panel(&self) -> Vec2 {
@@ -200,7 +203,14 @@ impl Shared {
             .map(|monitor| monitor.limit())
             .unwrap_or(vec2(1600.0, 900.0));
         match (self.group(), &self.snapshot) {
-            (Some(group), Some(snapshot)) => panel_size(&rows(group, &snapshot.desktops), limit),
+            (Some(group), Some(snapshot)) => {
+                let mut size = panel_size(&rows(group, &snapshot.desktops), limit);
+                if snapshot.groups.len() > 1 {
+                    size.y = (size.y + SWITCHER).min(limit.y);
+                    size.x = size.x.max(2.0 * PADDING + 240.0).min(limit.x);
+                }
+                size
+            }
             _ => EMPTY_PANEL.min(limit),
         }
     }
@@ -218,7 +228,7 @@ impl Arrange {
         Self {
             shared: Arc::new(Mutex::new(Shared {
                 snapshot: None,
-                exe: None,
+                key: None,
                 cursor: None,
                 drag: None,
                 row_rects: Vec::new(),
@@ -238,10 +248,10 @@ impl Arrange {
         let Ok(mut shared) = self.shared.lock() else {
             return;
         };
-        shared.exe = snapshot
+        shared.key = snapshot
             .groups
             .get(snapshot.focus)
-            .map(|group| group.exe.clone());
+            .map(|group| group.key.clone());
         shared.snapshot = Some(snapshot);
         shared.closed = false;
         shared.window = 0;
@@ -251,20 +261,20 @@ impl Arrange {
         shared.monitor = Monitor::under_pointer();
     }
 
-    /// Takes fresh data and keeps the same program on screen.
+    /// Takes fresh data and keeps the same taskbar group on screen.
     pub fn update(&self, snapshot: ArrangeSnapshot) {
         let Ok(mut shared) = self.shared.lock() else {
             return;
         };
         let still_there = shared
-            .exe
+            .key
             .as_ref()
-            .is_some_and(|exe| snapshot.groups.iter().any(|group| &group.exe == exe));
+            .is_some_and(|key| snapshot.groups.iter().any(|group| &group.key == key));
         if !still_there {
-            shared.exe = snapshot
+            shared.key = snapshot
                 .groups
                 .get(snapshot.focus)
-                .map(|group| group.exe.clone());
+                .map(|group| group.key.clone());
         }
         shared.snapshot = Some(snapshot);
     }
@@ -499,6 +509,25 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
         .as_ref()
         .map(|s| s.plugin.clone())
         .unwrap_or_default();
+
+    let mut content = content;
+    if let Some(snapshot) = shared.snapshot.clone().filter(|s| s.groups.len() > 1) {
+        let labels: Vec<&str> = snapshot.groups.iter().map(|g| g.label.as_str()).collect();
+        let current = snapshot.groups.iter().position(|g| g.key == group.key);
+        let area = Rect::from_min_size(content.min, vec2(content.width(), SWITCHER));
+        let chosen = ui
+            .scope_builder(UiBuilder::new().max_rect(area), |ui| {
+                choice::dropdown(ui, "arrange-group", &labels, current)
+            })
+            .inner;
+        if let Some(index) = chosen.filter(|index| Some(*index) != current) {
+            shared.key = Some(snapshot.groups[index].key.clone());
+            shared.cursor = None;
+            shared.drag = None;
+            ui.ctx().request_repaint();
+        }
+        content.min.y += SWITCHER;
+    }
 
     let rows = rows(&group, &desktops);
     shared
@@ -818,7 +847,7 @@ fn drop_actions(
         .collect();
     if order != now || !actions.is_empty() {
         actions.push(ArrangeAction::Reorder {
-            exe: group.exe.clone(),
+            group: group.key.clone(),
             order,
         });
     }
@@ -881,13 +910,13 @@ fn keyboard(
 /// Shows a change at once; the plugin's own data follows a moment later and
 /// replaces it.
 fn apply_locally(shared: &mut Shared, action: &ArrangeAction) {
-    let Some(exe) = shared.exe.clone() else {
+    let Some(key) = shared.key.clone() else {
         return;
     };
     let Some(group) = shared
         .snapshot
         .as_mut()
-        .and_then(|snapshot| snapshot.groups.iter_mut().find(|group| group.exe == exe))
+        .and_then(|snapshot| snapshot.groups.iter_mut().find(|group| group.key == key))
     else {
         return;
     };
@@ -1082,7 +1111,7 @@ mod tests {
 
     fn group(desktops: &[&str]) -> ArrangeGroup {
         ArrangeGroup {
-            exe: "chrome.exe".to_string(),
+            key: "chrome.exe".to_string(),
             label: "Chrome".to_string(),
             windows: desktops
                 .iter()
@@ -1192,7 +1221,7 @@ mod tests {
         assert_eq!(
             actions[1],
             ArrangeAction::Reorder {
-                exe: "chrome.exe".to_string(),
+                group: "chrome.exe".to_string(),
                 order: vec![0, 2, 3, 1]
             }
         );

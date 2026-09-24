@@ -70,10 +70,12 @@ pub struct ArrangeWindow {
     pub desktop: String,
 }
 
-/// One program's taskbar group, windows in thumbnail order.
+/// One taskbar group, windows in thumbnail order. Windows groups buttons by
+/// AppUserModelID, so one program can have several (Chrome and each of its
+/// installed web apps).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ArrangeGroup {
-    pub exe: String,
+    pub key: String,
     pub label: String,
     pub windows: Vec<ArrangeWindow>,
 }
@@ -101,9 +103,9 @@ pub struct ArrangeSnapshot {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ArrangeAction {
     Activate(isize),
-    /// The program's windows in their new taskbar order.
+    /// A taskbar group's windows in their new order.
     Reorder {
-        exe: String,
+        group: String,
         order: Vec<isize>,
     },
     MoveToDesktop {

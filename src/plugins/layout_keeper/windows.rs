@@ -15,6 +15,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_EX_TOOLWINDOW,
 };
 
+use super::appid;
 use super::identity::WindowIdentity;
 
 /// Explorer owns the desktop and the taskbars as well as its folder windows.
@@ -29,6 +30,11 @@ const SHELL_CLASSES: &[&str] = &[
 pub struct LiveWindow {
     pub hwnd: HWND,
     pub identity: WindowIdentity,
+    /// The taskbar group the window's button is in (see `appid::group_key`).
+    pub group: String,
+    /// The app's own name, when the window gives one.
+    pub app_name: Option<String>,
+    pub exe_path: String,
 }
 
 /// The watched programs' windows that have a taskbar button, top of the
@@ -42,7 +48,7 @@ pub fn enumerate(programs: &[String]) -> Vec<LiveWindow> {
     }
     unsafe { EnumWindows(Some(collect), &mut candidates as *mut Vec<HWND> as LPARAM) };
 
-    let mut exe_of_pid: HashMap<u32, String> = HashMap::new();
+    let mut path_of_pid: HashMap<u32, String> = HashMap::new();
     let mut windows = Vec::new();
     for hwnd in candidates {
         if !has_taskbar_button(hwnd) {
@@ -50,10 +56,11 @@ pub fn enumerate(programs: &[String]) -> Vec<LiveWindow> {
         }
         let mut pid = 0;
         unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
-        let exe = exe_of_pid
+        let exe_path = path_of_pid
             .entry(pid)
-            .or_insert_with(|| exe_name(pid))
+            .or_insert_with(|| exe_path(pid))
             .clone();
+        let exe = file_name(&exe_path);
         if !programs.iter().any(|program| *program == exe) {
             continue;
         }
@@ -62,9 +69,13 @@ pub fn enumerate(programs: &[String]) -> Vec<LiveWindow> {
             continue;
         }
         let (rect, maximized) = placement(hwnd);
+        let app = appid::read(hwnd);
         windows.push(LiveWindow {
             hwnd,
             identity: WindowIdentity::new(&exe, &title, rect, maximized),
+            group: appid::group_key(app.id.as_deref(), &exe_path),
+            app_name: app.name,
+            exe_path,
         });
     }
     windows
@@ -106,8 +117,24 @@ fn cloak(hwnd: HWND) -> u32 {
     cloaked
 }
 
-/// Lower-case file name of the process's image, like "chrome.exe".
-pub fn exe_name(pid: u32) -> String {
+/// A window's program and taskbar group, for a window found some other way,
+/// such as the one in front: (exe name, group key).
+pub fn describe(hwnd: HWND) -> (String, String) {
+    let mut pid = 0;
+    unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+    let path = exe_path(pid);
+    let app = appid::read(hwnd);
+    (file_name(&path), appid::group_key(app.id.as_deref(), &path))
+}
+
+/// Lower-case file name of a program path, like "chrome.exe".
+fn file_name(path: &str) -> String {
+    path.rsplit('\\').next().unwrap_or("").to_lowercase()
+}
+
+/// The full path of the process's image, which is also what Windows groups
+/// taskbar buttons by when a window names no app of its own.
+pub fn exe_path(pid: u32) -> String {
     let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if process.is_null() {
         return String::new();
@@ -121,8 +148,7 @@ pub fn exe_name(pid: u32) -> String {
     if ok == 0 {
         return String::new();
     }
-    let path = String::from_utf16_lossy(&buffer[..len as usize]);
-    path.rsplit('\\').next().unwrap_or("").to_lowercase()
+    String::from_utf16_lossy(&buffer[..len as usize])
 }
 
 pub fn window_text(hwnd: HWND) -> String {

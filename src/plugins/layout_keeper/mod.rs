@@ -1,3 +1,4 @@
+mod appid;
 mod com;
 mod desktops;
 mod identity;
@@ -13,9 +14,9 @@ use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetWindowThreadProcessId, IsIconic, KillTimer, PostMessageW, SetTimer,
-    SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE,
-    SW_SHOWNORMAL, WM_CLOSE, WM_ENDSESSION, WM_QUERYENDSESSION, WM_TIMER,
+    GetForegroundWindow, IsIconic, KillTimer, PostMessageW, SetTimer, SetWindowPos, ShowWindow,
+    HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE, SW_SHOWNORMAL, WM_CLOSE,
+    WM_ENDSESSION, WM_QUERYENDSESSION, WM_TIMER,
 };
 
 use crate::core::traits::{
@@ -77,7 +78,10 @@ pub struct LayoutKeeper {
     started_once: bool,
     reader: Option<desktops::Reader>,
     writer: state::Writer,
+    /// One order model per taskbar group, keyed like Windows keys the group:
+    /// by AppUserModelID, or by program path when a window names none.
     groups: BTreeMap<String, OrderModel>,
+    labels: BTreeMap<String, String>,
     taskbar: Option<order::Taskbar>,
     mover: Mover,
     restore: Restore,
@@ -104,6 +108,7 @@ impl Default for LayoutKeeper {
             reader: None,
             writer: state::Writer::default(),
             groups: BTreeMap::new(),
+            labels: BTreeMap::new(),
             taskbar: None,
             mover: Mover::Untried,
             restore: Restore::new(DEFAULT_SETTLE_SECONDS, DEFAULT_RESTORE_MINUTES * 60),
@@ -142,15 +147,48 @@ impl LayoutKeeper {
     /// Looks at the windows and brings every group's order model up to date.
     fn refresh(&mut self) -> Vec<windows::LiveWindow> {
         let live = windows::enumerate(&self.programs);
-        for exe in &self.programs {
-            let mine = handles_of(&live, exe);
-            self.groups.entry(exe.clone()).or_default().refresh(
-                &mine,
-                self.ticks,
-                self.snapshot_seconds,
-            );
+        let mut keys: Vec<String> = Vec::new();
+        for window in &live {
+            if !keys.contains(&window.group) {
+                keys.push(window.group.clone());
+            }
+            if !self.labels.contains_key(&window.group) {
+                let name = window
+                    .app_name
+                    .clone()
+                    .or_else(|| appid::registered_name(&window.group));
+                let label = appid::group_label(
+                    &product_name(&window.identity.exe),
+                    name.as_deref(),
+                    &window.group,
+                    &window.exe_path,
+                );
+                log::debug!("new taskbar group {} labelled \"{label}\"", window.group);
+                self.labels.insert(window.group.clone(), label);
+            }
         }
+        let known: Vec<String> = self.groups.keys().cloned().collect();
+        for key in known {
+            if !keys.contains(&key) {
+                keys.push(key);
+            }
+        }
+        for key in keys {
+            let mine = handles_in(&live, &key);
+            self.groups
+                .entry(key)
+                .or_default()
+                .refresh(&mine, self.ticks, self.snapshot_seconds);
+        }
+        self.groups.retain(|_, group| !group.is_empty());
         live
+    }
+
+    fn label_of(&self, key: &str) -> String {
+        self.labels
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| key.to_string())
     }
 
     /// The watched programs' windows as they are now, each program's list in
@@ -163,7 +201,6 @@ impl LayoutKeeper {
                 .iter()
                 .filter(|window| &window.identity.exe == exe)
                 .collect();
-            let group = self.groups.get(exe);
             let mut saved: Vec<SavedWindow> = mine
                 .iter()
                 .enumerate()
@@ -179,7 +216,10 @@ impl LayoutKeeper {
                         maximized: window.identity.maximized,
                         desktop: desktop.map(|id| id.to_string()),
                         desktop_name: desktop.and_then(|id| desktops::name_of(&desktops, id)),
-                        taskbar_index: group
+                        group: window.group.clone(),
+                        taskbar_index: self
+                            .groups
+                            .get(&window.group)
                             .and_then(|group| group.position_of(window.hwnd as Handle))
                             .unwrap_or(z_index),
                         z_index,
@@ -250,12 +290,13 @@ impl LayoutKeeper {
         }
     }
 
-    /// Makes one program's taskbar group match its model, if it does not
-    /// already. Re-adding a button pulls a window on another desktop over to
-    /// this one, so those windows are only included when `pull` is set and
-    /// the caller will move them back.
-    fn apply_group(&mut self, exe: &str, pull: bool) {
-        let Some(pending) = self.groups.get(exe).and_then(OrderModel::pending) else {
+    /// Makes one taskbar group match its model, if it does not already. Only
+    /// that group's buttons are rebuilt. Re-adding a button pulls a window on
+    /// another desktop over to this one, so those windows are only included
+    /// when `pull` is set and the caller will move them back.
+    fn apply_group(&mut self, key: &str, pull: bool) {
+        let label = self.label_of(key);
+        let Some(pending) = self.groups.get(key).and_then(OrderModel::pending) else {
             return;
         };
         let send: Vec<Handle> = pending
@@ -264,7 +305,7 @@ impl LayoutKeeper {
             .filter(|hwnd| pull || !windows::on_other_desktop(*hwnd as HWND))
             .collect();
         if send.is_empty() {
-            if let Some(group) = self.groups.get_mut(exe) {
+            if let Some(group) = self.groups.get_mut(key) {
                 group.mark_applied(pending);
             }
             return;
@@ -282,7 +323,7 @@ impl LayoutKeeper {
         if log::log_enabled!(log::Level::Debug) {
             let labels: Vec<&str> = self
                 .groups
-                .get(exe)
+                .get(key)
                 .map(|group| {
                     group
                         .windows()
@@ -292,18 +333,18 @@ impl LayoutKeeper {
                 })
                 .unwrap_or_default();
             log::debug!(
-                "re-adding {exe} buttons in this order: {}",
+                "re-adding {label} buttons in this order: {}",
                 labels.join(" | ")
             );
         }
         let took = taskbar.apply(&send);
         log::info!(
-            "applied the order of {} {exe} windows in {} ms ({} on other desktops left alone)",
+            "applied the order of {} {label} windows in {} ms ({} on other desktops left alone)",
             send.len(),
             took.as_millis(),
             pending.len() - send.len()
         );
-        if let Some(group) = self.groups.get_mut(exe) {
+        if let Some(group) = self.groups.get_mut(key) {
             group.mark_applied(pending);
         }
     }
@@ -311,9 +352,7 @@ impl LayoutKeeper {
     /// Moves the front window one place along its taskbar group.
     fn shift_front(&mut self, step: isize) {
         let front = unsafe { GetForegroundWindow() };
-        let mut pid = 0;
-        unsafe { GetWindowThreadProcessId(front, &mut pid) };
-        let exe = windows::exe_name(pid);
+        let (exe, key) = windows::describe(front);
         if !self.programs.contains(&exe) {
             log::info!("the front window belongs to \"{exe}\", which is not watched");
             host::notify(
@@ -328,12 +367,12 @@ impl LayoutKeeper {
         let live = self.refresh();
         let visible: Vec<Handle> = live
             .iter()
-            .filter(|window| window.identity.exe == exe && !windows::on_other_desktop(window.hwnd))
+            .filter(|window| window.group == key && !windows::on_other_desktop(window.hwnd))
             .map(|window| window.hwnd as Handle)
             .collect();
         let moved = self
             .groups
-            .get_mut(&exe)
+            .get_mut(&key)
             .is_some_and(|group| group.shift(front as Handle, step, &visible));
         if !moved {
             log::info!("the front window is already at that end of its group");
@@ -347,7 +386,7 @@ impl LayoutKeeper {
             );
             return;
         }
-        self.apply_group(&exe, false);
+        self.apply_group(&key, false);
         self.save("manual");
     }
 
@@ -410,10 +449,23 @@ impl LayoutKeeper {
                 .map(|window| self.reader.as_ref().and_then(|r| r.read(window.hwnd)))
                 .collect();
 
-            let mut model = OrderModel::from_saved(saved_ids);
-            model.refresh(&handles_of(&live, &exe), self.ticks, self.snapshot_seconds);
-            self.groups.insert(exe.clone(), model);
-            self.apply_group(&exe, can_move);
+            // One program can have several taskbar groups (Chrome and each
+            // installed web app); each gets its own saved order back.
+            let live_groups: Vec<String> = mine.iter().map(|window| window.group.clone()).collect();
+            let mut keys: Vec<String> = Vec::new();
+            for key in &live_groups {
+                if !keys.contains(key) {
+                    keys.push(key.clone());
+                }
+            }
+            for key in keys {
+                let members = state::saved_for_group(&windows, &matching, &live_groups, &key);
+                let ids = members.iter().map(|s| saved_ids[*s].clone()).collect();
+                let mut model = OrderModel::from_saved(ids);
+                model.refresh(&handles_in(&live, &key), self.ticks, self.snapshot_seconds);
+                self.groups.insert(key.clone(), model);
+                self.apply_group(&key, can_move);
+            }
 
             if can_move {
                 for (l, window) in mine.iter().enumerate() {
@@ -604,9 +656,9 @@ impl LayoutKeeper {
     }
 }
 
-fn handles_of(live: &[windows::LiveWindow], exe: &str) -> Vec<(Handle, identity::WindowIdentity)> {
+fn handles_in(live: &[windows::LiveWindow], key: &str) -> Vec<(Handle, identity::WindowIdentity)> {
     live.iter()
-        .filter(|window| window.identity.exe == exe)
+        .filter(|window| window.group == key)
         .map(|window| (window.hwnd as Handle, window.identity.clone()))
         .collect()
 }
@@ -755,21 +807,23 @@ impl WinCraftPlugin for LayoutKeeper {
             }
         };
         self.writer = state::Writer::new(state::path(), state::load().map(|file| file.programs));
-        self.groups = self
-            .writer
-            .last()
-            .map(|programs| {
-                programs
-                    .iter()
-                    .map(|(exe, program)| {
-                        let mut windows = program.windows.clone();
-                        windows.sort_by_key(|window| window.taskbar_index);
-                        let identities = windows.iter().map(|w| w.identity(exe)).collect();
-                        (exe.clone(), OrderModel::from_saved(identities))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        // Windows from a version 1 file have no group yet; their groups are
+        // built when the windows are first seen.
+        self.groups = BTreeMap::new();
+        for (exe, program) in self.writer.last().cloned().unwrap_or_default() {
+            let mut windows = program.windows;
+            windows.sort_by_key(|window| window.taskbar_index);
+            let mut by_group: BTreeMap<String, Vec<identity::WindowIdentity>> = BTreeMap::new();
+            for window in windows.iter().filter(|window| !window.group.is_empty()) {
+                by_group
+                    .entry(window.group.clone())
+                    .or_default()
+                    .push(window.identity(&exe));
+            }
+            for (key, identities) in by_group {
+                self.groups.insert(key, OrderModel::from_saved(identities));
+            }
+        }
         if unsafe { SetTimer(ctx.hwnd, TIMER_ID, TICK_MS, None) } == 0 {
             return Err("could not start its timer".to_string());
         }
@@ -860,10 +914,9 @@ impl WinCraftPlugin for LayoutKeeper {
         let registry = desktops::list();
         let current = desktops::current();
         let groups: Vec<ArrangeGroup> = self
-            .programs
+            .groups
             .iter()
-            .filter_map(|exe| {
-                let model = self.groups.get(exe)?;
+            .filter_map(|(key, model)| {
                 let windows: Vec<ArrangeWindow> = model
                     .windows()
                     .map(|(hwnd, identity)| {
@@ -882,21 +935,20 @@ impl WinCraftPlugin for LayoutKeeper {
                     })
                     .collect();
                 (!windows.is_empty()).then(|| ArrangeGroup {
-                    exe: exe.clone(),
-                    label: product_name(exe),
+                    key: key.clone(),
+                    label: self.label_of(key),
                     windows,
                 })
             })
             .collect();
 
-        // The strip opens on the front window's program when it is watched.
+        // The strip opens on the front window's taskbar group when it is
+        // watched, else on the first group with windows.
         let front = unsafe { GetForegroundWindow() };
-        let mut pid = 0;
-        unsafe { GetWindowThreadProcessId(front, &mut pid) };
-        let front_exe = windows::exe_name(pid);
+        let (_, front_key) = windows::describe(front);
         let focus = groups
             .iter()
-            .position(|group| group.exe == front_exe)
+            .position(|group| group.key == front_key)
             .unwrap_or(0);
 
         Some(WindowGroups {
@@ -923,13 +975,13 @@ impl WinCraftPlugin for LayoutKeeper {
                 }
                 host::bring_to_front(hwnd);
             }
-            ArrangeAction::Reorder { exe, order } => {
+            ArrangeAction::Reorder { group, order } => {
                 self.refresh();
-                let Some(model) = self.groups.get_mut(exe) else {
+                let Some(model) = self.groups.get_mut(group) else {
                     return;
                 };
                 model.set_order(order);
-                self.apply_group(exe, false);
+                self.apply_group(group, false);
                 self.save("manual");
             }
             ArrangeAction::MoveToDesktop { hwnd, desktop } => {
@@ -1023,6 +1075,7 @@ impl WinCraftPlugin for LayoutKeeper {
         self.taskbar = None;
         self.mover = Mover::Untried;
         self.groups.clear();
+        self.labels.clear();
     }
 }
 

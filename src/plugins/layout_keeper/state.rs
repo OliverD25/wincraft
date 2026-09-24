@@ -4,10 +4,11 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use super::identity::{Rect, WindowIdentity};
+use super::identity::{Matching, Rect, WindowIdentity};
 use crate::core::config;
 
-pub const VERSION: u32 = 1;
+/// 2 added each window's taskbar group; 1 kept one order per program.
+pub const VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StateFile {
@@ -35,6 +36,10 @@ pub struct SavedWindow {
     pub desktop: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub desktop_name: Option<String>,
+    /// The taskbar group (AppUserModelID or program path). Empty in files
+    /// from version 1, which had one order per program.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub group: String,
     /// Position in the taskbar group, first thumbnail = 0.
     pub taskbar_index: usize,
     /// Position among the program's windows from the top of the z-order.
@@ -68,7 +73,7 @@ pub fn load() -> Option<StateFile> {
     let path = path();
     let text = fs::read_to_string(&path).ok()?;
     match serde_json::from_str(config::strip_bom(&text)) {
-        Ok(state) => Some(state),
+        Ok(state) => Some(migrate(state)),
         Err(err) => {
             log::warn!(
                 target: "layout_keeper",
@@ -78,6 +83,46 @@ pub fn load() -> Option<StateFile> {
             None
         }
     }
+}
+
+/// Brings an older file up to this version. Version 1 kept one taskbar order
+/// per program and did not know the group of each window: its windows keep
+/// an empty group and, when restored, join the group of the live window they
+/// are matched to. For a program without app IDs of its own that is the
+/// group of its path, which is the group Windows gave them.
+pub fn migrate(mut file: StateFile) -> StateFile {
+    if file.version < VERSION {
+        log::info!(
+            target: "layout_keeper",
+            "the layout file is version {}; reading it as version {VERSION}",
+            file.version
+        );
+        file.version = VERSION;
+    }
+    file
+}
+
+/// The saved windows (sorted by taskbar position) that make up live group
+/// `group`, in their saved order: those saved with that group, plus windows
+/// from a version 1 file whose matched live window is in it.
+pub fn saved_for_group(
+    saved: &[SavedWindow],
+    matching: &Matching,
+    live_groups: &[String],
+    group: &str,
+) -> Vec<usize> {
+    (0..saved.len())
+        .filter(|s| {
+            if saved[*s].group.is_empty() {
+                matching
+                    .pairs
+                    .iter()
+                    .any(|(ms, l)| ms == s && live_groups[*l] == group)
+            } else {
+                saved[*s].group == group
+            }
+        })
+        .collect()
 }
 
 /// Folds a fresh look at the windows into what was saved before.
@@ -165,6 +210,7 @@ mod tests {
             maximized: true,
             desktop: Some("{1150CF3A-755E-4731-B223-B07262115AD0}".to_string()),
             desktop_name: Some("Work&Study AI".to_string()),
+            group: "Chrome".to_string(),
             taskbar_index: index,
             z_index: index,
         }
@@ -225,6 +271,44 @@ mod tests {
         assert_eq!(written.saved, "t3");
         assert_eq!(written.programs, layout);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_version_1_file_is_read_and_its_windows_follow_their_matches() {
+        let v1 = r#"{"version":1,"saved":"2026-09-24T21:40:11Z","reason":"timer",
+            "programs":{"chrome.exe":{"windows":[
+              {"name":"Mail","title":"Mail","rect":[0,0,1,1],"maximized":true,"taskbar_index":0,"z_index":1},
+              {"name":"Gemini","title":"Gemini","rect":[0,0,1,1],"maximized":true,"taskbar_index":1,"z_index":0}
+            ]}}}"#;
+        let file = migrate(serde_json::from_str(v1).unwrap());
+        assert_eq!(file.version, VERSION);
+        let saved = &file.programs["chrome.exe"].windows;
+        assert!(saved.iter().all(|window| window.group.is_empty()));
+
+        // Mail matched a plain Chrome window, Gemini a window of its web app.
+        let matching = Matching {
+            pairs: vec![(0, 1), (1, 0)],
+            unmatched_saved: vec![],
+            unmatched_live: vec![],
+        };
+        let live_groups = ["Chrome._crx_gemini".to_string(), "Chrome".to_string()];
+        assert_eq!(
+            saved_for_group(saved, &matching, &live_groups, "Chrome"),
+            [0]
+        );
+        assert_eq!(
+            saved_for_group(saved, &matching, &live_groups, "Chrome._crx_gemini"),
+            [1]
+        );
+    }
+
+    #[test]
+    fn version_2_windows_stay_in_their_saved_group_even_unmatched() {
+        let mut saved = vec![window("A", 0), window("B", 1)];
+        saved[1].group = "Other".to_string();
+        let matching = Matching::default();
+        assert_eq!(saved_for_group(&saved, &matching, &[], "Chrome"), [0]);
+        assert_eq!(saved_for_group(&saved, &matching, &[], "Other"), [1]);
     }
 
     #[test]
