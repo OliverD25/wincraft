@@ -1,6 +1,7 @@
 mod appid;
 mod com;
 mod desktops;
+mod guard;
 mod identity;
 mod order;
 mod restore;
@@ -8,7 +9,7 @@ mod state;
 mod windows;
 
 use std::collections::BTreeMap;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
@@ -93,6 +94,7 @@ pub struct LayoutKeeper {
     reapply: Vec<String>,
     /// The strip needs fresh data on the next tick.
     arrange_stale: bool,
+    guard: guard::Guard,
     last_saved: Option<String>,
     last_restore: Option<String>,
 }
@@ -117,6 +119,7 @@ impl Default for LayoutKeeper {
             finishing: None,
             reapply: Vec::new(),
             arrange_stale: false,
+            guard: guard::Guard::default(),
             last_saved: None,
             last_restore: None,
         }
@@ -234,6 +237,94 @@ impl LayoutKeeper {
         programs
     }
 
+    /// Tells the guard what each taskbar group holds now and logs any hold
+    /// that starts or ends.
+    fn watch_bursts(&mut self, live: &[windows::LiveWindow]) {
+        let mut groups: BTreeMap<String, Vec<Handle>> = BTreeMap::new();
+        for window in live {
+            groups
+                .entry(window.group.clone())
+                .or_default()
+                .push(window.hwnd as Handle);
+        }
+        let timing = guard::Timing {
+            stable_seconds: self.restore.settle_seconds * 6,
+            refill_seconds: self.restore.give_up_seconds,
+        };
+        for event in self.guard.observe(self.ticks, &groups, timing) {
+            match event {
+                guard::Event::Held { group, why } => {
+                    let what = match why {
+                        guard::Why::Dropped { before, now } => {
+                            format!("its windows went from {before} to {now}")
+                        }
+                        guard::Why::Replaced { replaced, before } => {
+                            format!("{replaced} of its {before} windows were replaced")
+                        }
+                    };
+                    log::info!(
+                        "holding timer saves for \"{}\": {what}, which looks like a crash or restart",
+                        self.label_of(&group)
+                    );
+                }
+                guard::Event::Refilled { group, now } => log::info!(
+                    "\"{}\" is back with {now} windows; saves stay held until the count is steady for {} s",
+                    self.label_of(&group),
+                    timing.stable_seconds
+                ),
+                guard::Event::Released {
+                    group,
+                    stable_seconds,
+                } => log::info!(
+                    "\"{}\" has been steady for {stable_seconds} s; timer saves resume",
+                    self.label_of(&group)
+                ),
+                guard::Event::Closed { group } => log::info!(
+                    "\"{}\" did not come back within {} s, so its windows were closed on purpose; timer saves resume",
+                    self.label_of(&group),
+                    timing.refill_seconds
+                ),
+            }
+        }
+    }
+
+    /// A fresh look at the windows, written to the state file. A timer save
+    /// keeps the saved windows of any group the guard holds, and the first
+    /// write that puts a held group's new windows in the file copies the old
+    /// file aside first. Returns whether anything was written and how many
+    /// windows the file holds.
+    fn write_layout(&mut self, reason: &str, force: bool) -> Result<(bool, usize), String> {
+        let timer = reason == "timer";
+        let live = self.refresh();
+        self.watch_bursts(&live);
+        let mut merged = state::merge(
+            self.writer.last(),
+            self.capture(&live),
+            reason == "shutdown",
+        );
+        if timer {
+            merged = state::keep_groups(self.writer.last(), merged, &self.guard.held());
+        }
+        let count: usize = merged.values().map(|program| program.windows.len()).sum();
+        let backup = self.guard.backup_needed(timer);
+        // Only windows that differ from the file can lose anything; a burst
+        // that came back exactly as saved needs no copy.
+        let changes = self.writer.last() != Some(&merged);
+        if backup && changes && self.writer.keep_previous()? {
+            log::info!(
+                "kept the previous layout as {} before writing over it",
+                self.writer.prev_path().display()
+            );
+        }
+        let wrote =
+            self.writer
+                .write(merged, reason, clock::local_iso(SystemTime::now()), force)?;
+        if backup {
+            self.guard.wrote(timer);
+        }
+        Ok((wrote, count))
+    }
+
     fn save(&mut self, reason: &str) {
         // Until the restore has run, the windows on screen are the scrambled
         // ones the file is meant to fix; saving them would lose the layout.
@@ -241,20 +332,13 @@ impl LayoutKeeper {
             log::info!("a restore is under way, so the layout is not saved ({reason})");
             return;
         }
-        let shutdown = reason == "shutdown";
-        let live = self.refresh();
-        let merged = state::merge(self.writer.last(), self.capture(&live), shutdown);
-        let count: usize = merged.values().map(|program| program.windows.len()).sum();
-        match self
-            .writer
-            .write(merged, reason, clock::utc_iso(SystemTime::now()), false)
-        {
-            Ok(true) => {
+        match self.write_layout(reason, false) {
+            Ok((true, count)) => {
                 log::info!("saved {count} windows ({reason})");
                 self.last_saved = Some(clock::now_hours_minutes());
                 host::plugin_changed();
             }
-            Ok(false) => log::debug!("layout unchanged ({reason})"),
+            Ok((false, _)) => log::debug!("layout unchanged ({reason})"),
             Err(err) => log::error!("could not save the layout: {err}"),
         }
     }
@@ -270,14 +354,8 @@ impl LayoutKeeper {
             );
             return;
         }
-        let live = self.refresh();
-        let merged = state::merge(self.writer.last(), self.capture(&live), false);
-        let count: usize = merged.values().map(|program| program.windows.len()).sum();
-        match self
-            .writer
-            .write(merged, "manual", clock::utc_iso(SystemTime::now()), true)
-        {
-            Ok(_) => {
+        match self.write_layout("manual", true) {
+            Ok((_, count)) => {
                 log::info!("saved {count} windows (manual)");
                 self.last_saved = Some(clock::now_hours_minutes());
                 host::notify("LayoutKeeper", &format!("Layout saved, {count} windows"));
@@ -808,7 +886,26 @@ impl WinCraftPlugin for LayoutKeeper {
                 None
             }
         };
-        self.writer = state::Writer::new(state::path(), state::load().map(|file| file.programs));
+        let file = state::load();
+        if let Some(file) = &file {
+            let count: usize = file
+                .programs
+                .values()
+                .map(|program| program.windows.len())
+                .sum();
+            match clock::parse_iso(&file.saved) {
+                Some(secs) => log::info!(
+                    "the saved layout has {count} windows, saved {} ({})",
+                    clock::local_iso(UNIX_EPOCH + Duration::from_secs(secs.max(0) as u64)),
+                    file.reason
+                ),
+                None => log::info!(
+                    "the saved layout has {count} windows; its save time \"{}\" cannot be read",
+                    file.saved
+                ),
+            }
+        }
+        self.writer = state::Writer::new(state::path(), file.map(|file| file.programs));
         // Windows from a version 1 file have no group yet; their groups are
         // built when the windows are first seen.
         self.groups = BTreeMap::new();
@@ -1088,6 +1185,7 @@ impl WinCraftPlugin for LayoutKeeper {
         self.reader = None;
         self.taskbar = None;
         self.mover = Mover::Untried;
+        self.guard = guard::Guard::default();
         self.groups.clear();
         self.labels.clear();
     }

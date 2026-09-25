@@ -19,12 +19,35 @@ For every window of the programs you list (Chrome by default):
 The layout is saved every 30 seconds when it changed, when Windows shuts down
 or restarts, and when you press **Save layout now**. It lives in
 `%LOCALAPPDATA%\WinCraft\plugins\layout_keeper.state.json`; the palette command
-**Open state file** shows it.
+**Open state file** shows it. Its `saved` field is your local time with its
+offset from UTC, such as `2026-09-25T02:48:11+03:00`. Files written before
+WinCraft 0.6.1 have UTC time (`...Z`) there and are still read.
 
 If a program is closed, its last saved windows are kept, so closing Chrome
 before a restart loses nothing. At shutdown, programs close their windows
 while the layout is being saved, so a list that got shorter at that moment
 keeps the complete one from before.
+
+### After a browser crash or restart during the day
+
+When Chrome crashes or restarts, its windows come back in a scrambled order.
+LayoutKeeper does not save that scrambled order over the good one:
+
+- If a taskbar group loses more than half of its windows, or all of them,
+  timer saves keep that group's saved windows. If the windows come back
+  within the restore time (3 minutes by default), it was a restart; saving
+  stays held until the number of windows has not changed for six times the
+  settle time (30 seconds by default). If they do not come back, you closed
+  them on purpose, and saving goes on as normal.
+- If more than a third of a group's windows are replaced by new windows
+  between two saves, saving is held the same way until the number is steady.
+- Before the new windows of a held group are first written into the file,
+  the file is copied to `layout_keeper.state.prev.json`, next to it. To go
+  back to the layout from before the crash, quit WinCraft, copy that file
+  over `layout_keeper.state.json` and start WinCraft again.
+
+Other groups are saved as normal during a hold, and **Save layout now** is
+never held. The log says when a hold starts and ends.
 
 ## Restoring
 

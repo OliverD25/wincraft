@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
@@ -13,6 +13,8 @@ pub const VERSION: u32 = 2;
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StateFile {
     pub version: u32,
+    /// Local time with its UTC offset, "2026-09-25T02:48:11+03:00"; files
+    /// from before 0.6.1 have UTC, "2026-09-24T21:40:11Z".
     pub saved: String,
     pub reason: String,
     pub programs: Programs,
@@ -151,6 +153,40 @@ pub fn merge(previous: Option<&Programs>, fresh: Programs, shutdown: bool) -> Pr
     merged
 }
 
+/// For the groups in `held`, the windows saved before replace the fresh ones:
+/// a group in the middle of a crash or restart has its windows in a
+/// scrambled order, or has too few of them.
+pub fn keep_groups(
+    previous: Option<&Programs>,
+    mut merged: Programs,
+    held: &BTreeSet<String>,
+) -> Programs {
+    if held.is_empty() {
+        return merged;
+    }
+    for program in merged.values_mut() {
+        program
+            .windows
+            .retain(|window| !held.contains(&window.group));
+    }
+    for (exe, program) in previous.into_iter().flatten() {
+        let kept: Vec<SavedWindow> = program
+            .windows
+            .iter()
+            .filter(|window| held.contains(&window.group))
+            .cloned()
+            .collect();
+        if kept.is_empty() {
+            continue;
+        }
+        let entry = merged.entry(exe.clone()).or_default();
+        entry.windows.extend(kept);
+        entry.windows.sort_by_key(|window| window.taskbar_index);
+    }
+    merged.retain(|_, program| !program.windows.is_empty());
+    merged
+}
+
 /// Remembers what it last wrote so an unchanged layout costs no disk write.
 pub struct Writer {
     path: PathBuf,
@@ -170,6 +206,23 @@ impl Writer {
 
     pub fn last(&self) -> Option<&Programs> {
         self.last.as_ref()
+    }
+
+    /// `layout_keeper.state.prev.json`, next to the state file.
+    pub fn prev_path(&self) -> PathBuf {
+        self.path.with_extension("prev.json")
+    }
+
+    /// Copies the state file to `prev_path` before a crash or restart burst
+    /// is written over it. Returns false when there is no file yet.
+    pub fn keep_previous(&self) -> Result<bool, String> {
+        if !self.path.exists() {
+            return Ok(false);
+        }
+        let prev = self.prev_path();
+        fs::copy(&self.path, &prev)
+            .map(|_| true)
+            .map_err(|e| format!("cannot copy the layout to {}: {e}", prev.display()))
     }
 
     /// Returns whether anything was written. `force` writes even an
@@ -271,6 +324,63 @@ mod tests {
         assert_eq!(written.saved, "t3");
         assert_eq!(written.programs, layout);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_previous_file_is_kept_next_to_the_state_file() {
+        let dir = std::env::temp_dir().join(format!("wincraft-prev-{}", std::process::id()));
+        let file = dir.join("layout_keeper.state.json");
+        let mut writer = Writer::new(file.clone(), None);
+        assert_eq!(
+            writer.prev_path(),
+            dir.join("layout_keeper.state.prev.json")
+        );
+        assert_eq!(writer.keep_previous(), Ok(false));
+
+        writer
+            .write(programs(&["Before"]), "timer", "t1".into(), false)
+            .unwrap();
+        assert_eq!(writer.keep_previous(), Ok(true));
+        writer
+            .write(programs(&["After"]), "timer", "t2".into(), false)
+            .unwrap();
+        let prev: StateFile =
+            serde_json::from_str(&fs::read_to_string(writer.prev_path()).unwrap()).unwrap();
+        assert_eq!(prev.programs, programs(&["Before"]));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_held_group_keeps_its_saved_windows_and_the_others_update() {
+        let mut before = programs(&["A", "B"]);
+        let mut app = window("App", 0);
+        app.group = "Chrome._crx_app".to_string();
+        before.get_mut("chrome.exe").unwrap().windows.push(app);
+
+        // After a restart the Chrome group shows other windows; the app
+        // group moved on normally.
+        let mut fresh = programs(&["X", "Y", "Z"]);
+        let mut moved = window("App moved", 0);
+        moved.group = "Chrome._crx_app".to_string();
+        fresh
+            .get_mut("chrome.exe")
+            .unwrap()
+            .windows
+            .push(moved.clone());
+
+        let held = BTreeSet::from(["Chrome".to_string()]);
+        let kept = keep_groups(Some(&before), fresh.clone(), &held);
+        let titles: Vec<&str> = kept["chrome.exe"]
+            .windows
+            .iter()
+            .map(|window| window.title.as_str())
+            .collect();
+        assert_eq!(titles, ["App moved", "A", "B"]);
+
+        assert_eq!(
+            keep_groups(Some(&before), fresh.clone(), &BTreeSet::new()),
+            fresh
+        );
     }
 
     #[test]

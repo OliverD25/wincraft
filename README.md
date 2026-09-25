@@ -115,6 +115,7 @@ plugins\
   shortcut_detector.json
   layout_keeper.json
   layout_keeper.state.json   the saved window layout, written by LayoutKeeper
+  layout_keeper.state.prev.json   the layout from before a browser crash or restart
 cache\                 the last plugin index fetched from GitHub
 wincraft.log           what the program did, emptied on every start
 ```
