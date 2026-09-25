@@ -149,9 +149,26 @@ impl LayoutKeeper {
             * 60;
     }
 
+    /// The watched programs' app windows, top of the z-order first.
+    fn live_windows(&self) -> Vec<windows::LiveWindow> {
+        let registry = desktops::list();
+        // Without the desktop reader a cloaked window cannot be placed, and
+        // it is kept as it was before the reader existed.
+        let on_known_desktop = |hwnd: HWND| match &self.reader {
+            Some(reader) => reader
+                .read(hwnd)
+                .is_some_and(|id| registry.iter().any(|desktop| desktop.id == id)),
+            None => true,
+        };
+        windows::enumerate(
+            &|exe| self.programs.iter().any(|p| p == exe),
+            &on_known_desktop,
+        )
+    }
+
     /// Looks at the windows and brings every group's order model up to date.
     fn refresh(&mut self) -> Vec<windows::LiveWindow> {
-        let live = windows::enumerate(&self.programs);
+        let live = self.live_windows();
         let mut keys: Vec<String> = Vec::new();
         for window in &live {
             if !keys.contains(&window.group) {
@@ -694,7 +711,7 @@ impl LayoutKeeper {
             return;
         }
         if self.restore.is_running() {
-            let count = windows::enumerate(&self.programs).len();
+            let count = self.live_windows().len();
             match self.restore.step(self.ticks, count) {
                 Step::Apply => self.restore_layout(),
                 Step::TimedOut => {

@@ -1,31 +1,20 @@
 use std::collections::HashMap;
 
-use windows_sys::core::BOOL;
-use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, RECT};
-use windows_sys::Win32::Graphics::Dwm::{
-    DwmGetWindowAttribute, DWMWA_CLOAKED, DWM_CLOAKED_APP, DWM_CLOAKED_SHELL,
-};
+use windows_sys::Win32::Foundation::{CloseHandle, HWND, RECT};
+use windows_sys::Win32::Graphics::Dwm::DWM_CLOAKED_SHELL;
 use windows_sys::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetWindow, GetWindowLongW, GetWindowPlacement, GetWindowRect,
-    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, IsZoomed, GWL_EXSTYLE,
-    GW_OWNER, SW_SHOWMAXIMIZED, WINDOWPLACEMENT, WPF_RESTORETOMAXIMIZED, WS_EX_APPWINDOW,
-    WS_EX_TOOLWINDOW,
+    GetWindowPlacement, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsZoomed,
+    SW_SHOWMAXIMIZED, WINDOWPLACEMENT, WPF_RESTORETOMAXIMIZED,
 };
 
 use super::appid;
 use super::identity::WindowIdentity;
+use crate::core::windows_list;
 
-/// Explorer owns the desktop and the taskbars as well as its folder windows.
-/// None of them has a taskbar button.
-const SHELL_CLASSES: &[&str] = &[
-    "Progman",
-    "WorkerW",
-    "Shell_TrayWnd",
-    "Shell_SecondaryTrayWnd",
-];
+pub use crate::core::windows_list::window_text;
 
 pub struct LiveWindow {
     pub hwnd: HWND,
@@ -37,23 +26,17 @@ pub struct LiveWindow {
     pub exe_path: String,
 }
 
-/// The watched programs' windows that have a taskbar button, top of the
-/// z-order first, across every virtual desktop.
-pub fn enumerate(programs: &[String]) -> Vec<LiveWindow> {
-    let mut candidates: Vec<HWND> = Vec::new();
-    unsafe extern "system" fn collect(hwnd: HWND, found: LPARAM) -> BOOL {
-        let found = unsafe { &mut *(found as *mut Vec<HWND>) };
-        found.push(hwnd);
-        1
-    }
-    unsafe { EnumWindows(Some(collect), &mut candidates as *mut Vec<HWND> as LPARAM) };
-
+/// The app windows (as Alt+Tab counts them) of the programs `watched`
+/// accepts, top of the z-order first, across every virtual desktop.
+/// `on_known_desktop` tells a window on another desktop from one the shell
+/// hid.
+pub fn enumerate(
+    watched: &dyn Fn(&str) -> bool,
+    on_known_desktop: &dyn Fn(HWND) -> bool,
+) -> Vec<LiveWindow> {
     let mut path_of_pid: HashMap<u32, String> = HashMap::new();
     let mut windows = Vec::new();
-    for hwnd in candidates {
-        if !has_taskbar_button(hwnd) {
-            continue;
-        }
+    for hwnd in windows_list::app_windows(on_known_desktop) {
         let mut pid = 0;
         unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
         let exe_path = path_of_pid
@@ -61,13 +44,10 @@ pub fn enumerate(programs: &[String]) -> Vec<LiveWindow> {
             .or_insert_with(|| exe_path(pid))
             .clone();
         let exe = file_name(&exe_path);
-        if !programs.iter().any(|program| *program == exe) {
+        if !watched(&exe) {
             continue;
         }
         let title = window_text(hwnd);
-        if title.is_empty() || SHELL_CLASSES.contains(&class_name(hwnd).as_str()) {
-            continue;
-        }
         let (rect, maximized) = placement(hwnd);
         let app = appid::read(hwnd);
         windows.push(LiveWindow {
@@ -81,40 +61,9 @@ pub fn enumerate(programs: &[String]) -> Vec<LiveWindow> {
     windows
 }
 
-/// The taskbar's own rule: visible, not a tool window, and either unowned or
-/// explicitly asking for a button. Windows on other virtual desktops are
-/// cloaked by the shell and still count; windows an app cloaked itself do not.
-fn has_taskbar_button(hwnd: HWND) -> bool {
-    if unsafe { IsWindowVisible(hwnd) } == 0 {
-        return false;
-    }
-    let ex_style = unsafe { GetWindowLongW(hwnd, GWL_EXSTYLE) } as u32;
-    if ex_style & WS_EX_TOOLWINDOW != 0 {
-        return false;
-    }
-    let owned = !unsafe { GetWindow(hwnd, GW_OWNER) }.is_null();
-    if owned && ex_style & WS_EX_APPWINDOW == 0 {
-        return false;
-    }
-    cloak(hwnd) & DWM_CLOAKED_APP == 0
-}
-
 /// The shell cloaks the windows of every desktop but the current one.
 pub fn on_other_desktop(hwnd: HWND) -> bool {
-    cloak(hwnd) & DWM_CLOAKED_SHELL != 0
-}
-
-fn cloak(hwnd: HWND) -> u32 {
-    let mut cloaked: u32 = 0;
-    unsafe {
-        DwmGetWindowAttribute(
-            hwnd,
-            DWMWA_CLOAKED as u32,
-            &mut cloaked as *mut u32 as *mut core::ffi::c_void,
-            std::mem::size_of::<u32>() as u32,
-        )
-    };
-    cloaked
+    windows_list::cloak(hwnd) & DWM_CLOAKED_SHELL != 0
 }
 
 /// A window's program and taskbar group, for a window found some other way,
@@ -149,18 +98,6 @@ pub fn exe_path(pid: u32) -> String {
         return String::new();
     }
     String::from_utf16_lossy(&buffer[..len as usize])
-}
-
-pub fn window_text(hwnd: HWND) -> String {
-    let mut buffer = [0u16; 512];
-    let len = unsafe { GetWindowTextW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
-    String::from_utf16_lossy(&buffer[..len.max(0) as usize])
-}
-
-fn class_name(hwnd: HWND) -> String {
-    let mut buffer = [0u16; 128];
-    let len = unsafe { GetClassNameW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
-    String::from_utf16_lossy(&buffer[..len.max(0) as usize])
 }
 
 /// A minimized window reports -32000 as its position, so its restored

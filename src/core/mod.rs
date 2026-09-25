@@ -8,6 +8,7 @@ pub mod theme;
 pub mod traits;
 pub mod tray;
 pub mod ui_bridge;
+pub mod windows_list;
 
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
