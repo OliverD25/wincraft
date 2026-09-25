@@ -2,6 +2,7 @@
 
 mod core;
 mod plugins;
+mod search;
 mod store;
 mod ui;
 

@@ -35,6 +35,7 @@ use crate::core::ui_bridge::{
     UiCommand, UiSnapshot, WM_APP_UI,
 };
 use crate::core::{autostart, config, hotkeys, instance, taskbar, theme, wide};
+use crate::search::{self, Router, SearchProvider};
 use crate::ui;
 
 /// The host window's class, which `--quit` looks for; see instance::name.
@@ -194,6 +195,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         Arc::clone(&bridge.to_ui),
         Arc::clone(&bridge.to_host),
         host.snapshot(),
+        host.search_router(),
     );
 
     host.tray.add();
@@ -551,6 +553,7 @@ impl Host {
             log_path: config::log_path(),
             commands: self.palette_entries(&plugins),
             plugins,
+            search: self.config.search.clone(),
         }
     }
 
@@ -656,6 +659,21 @@ impl Host {
             }
         }
         entries
+    }
+
+    fn search_router(&self) -> Router {
+        let mut providers: Vec<(Option<String>, Box<dyn SearchProvider>)> =
+            search::providers::built_in()
+                .into_iter()
+                .map(|provider| (None, provider))
+                .collect();
+        for slot in &self.slots {
+            let id = slot.plugin.metadata().id;
+            for provider in slot.plugin.search_providers() {
+                providers.push((Some(id.to_string()), provider));
+            }
+        }
+        Router::new(providers, &self.config.search.prefixes)
     }
 
     fn publish(&self) {
@@ -777,6 +795,8 @@ impl Host {
                 self.publish();
             }
             HostRequest::RunCommand(id) => self.run_command(id),
+            HostRequest::RunAction(search::Action::Command(id)) => self.run_command(id),
+            HostRequest::RunAction(action) => search::actions::perform(&action, self.hwnd),
             HostRequest::Arrange { plugin, action } => {
                 if let Some(index) = self.index_of(&plugin) {
                     if self.slots[index].enabled {
@@ -897,6 +917,7 @@ impl Host {
                 }
                 Err(err) => log::error!("could not change autostart: {err}"),
             },
+            HostSetting::Search(search) => self.config.search = search,
             HostSetting::Theme(choice) => {
                 self.config.theme = choice;
                 theme::set_current(choice);

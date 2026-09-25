@@ -42,6 +42,8 @@ pub struct Config {
     pub theme: ThemeChoice,
     #[serde(default = "default_palette_hotkey")]
     pub palette_hotkey: String,
+    #[serde(default)]
+    pub search: SearchConfig,
 }
 
 impl Default for Config {
@@ -50,8 +52,68 @@ impl Default for Config {
             start_with_windows: false,
             theme: ThemeChoice::System,
             palette_hotkey: DEFAULT_PALETTE_HOTKEY.to_string(),
+            search: SearchConfig::default(),
         }
     }
+}
+
+/// The palette's search. The prefixes are read at startup; the rest is
+/// changed from the settings window and applies at once.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchConfig {
+    /// Provider id → the prefix that sends a query to it. A provider left
+    /// out keeps its built-in prefix; an empty string switches it off.
+    #[serde(default = "default_prefixes")]
+    pub prefixes: BTreeMap<String, String>,
+    /// Web search address, with `{query}` where the words go.
+    #[serde(default = "default_web_url")]
+    pub web_url: String,
+    /// What the `>` prefix runs commands in: one of
+    /// `search::providers::shell::SHELL_NAMES`.
+    #[serde(default = "default_terminal_shell")]
+    pub terminal_shell: String,
+    /// The command template for the "Custom" shell, with `{cmd}` and
+    /// optionally `{cwd}`.
+    #[serde(default)]
+    pub terminal_custom: String,
+    /// Whether the commands run from the palette are remembered in
+    /// terminal_history.json.
+    #[serde(default = "enabled_by_default")]
+    pub terminal_history: bool,
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            prefixes: default_prefixes(),
+            web_url: default_web_url(),
+            terminal_shell: default_terminal_shell(),
+            terminal_custom: String::new(),
+            terminal_history: true,
+        }
+    }
+}
+
+/// Written out in full so the file shows every prefix that can be changed.
+fn default_prefixes() -> BTreeMap<String, String> {
+    [
+        ("windows", "<"),
+        ("paths", "/"),
+        ("calc", "="),
+        ("terminal", ">"),
+        ("web", "?"),
+    ]
+    .into_iter()
+    .map(|(id, prefix)| (id.to_string(), prefix.to_string()))
+    .collect()
+}
+
+fn default_terminal_shell() -> String {
+    crate::search::providers::shell::DEFAULT_SHELL.to_string()
+}
+
+fn default_web_url() -> String {
+    crate::search::providers::web::DEFAULT_URL.to_string()
 }
 
 fn default_palette_hotkey() -> String {
@@ -385,6 +447,9 @@ mod tests {
         assert_eq!(config.theme, ThemeChoice::System);
         assert_eq!(config.palette_hotkey, DEFAULT_PALETTE_HOTKEY);
 
+        assert_eq!(config.search, SearchConfig::default());
+        assert_eq!(config.search.prefixes["paths"], "/");
+
         let plugin: PluginConfig = serde_json::from_str("{}").unwrap();
         assert!(plugin.enabled);
         assert!(plugin.hotkeys.is_empty());
@@ -400,6 +465,14 @@ mod tests {
             serde_json::from_str(strip_bom("\u{feff}{\"enabled\":false}")).unwrap();
         assert!(!plugin.enabled);
         assert_eq!(strip_bom("{}"), "{}");
+    }
+
+    #[test]
+    fn a_search_section_with_only_some_keys_keeps_the_other_defaults() {
+        let (config, _) = Config::parse(r#"{"search":{"prefixes":{"web":"g "}}}"#).unwrap();
+        assert_eq!(config.search.prefixes.len(), 1);
+        assert_eq!(config.search.prefixes["web"], "g ");
+        assert_eq!(config.search.web_url, default_web_url());
     }
 
     #[test]

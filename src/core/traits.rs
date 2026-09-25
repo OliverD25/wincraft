@@ -1,6 +1,7 @@
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 
 use crate::core::ui_bridge::{ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup};
+use crate::search::SearchProvider;
 
 pub struct PluginMetadata {
     pub id: &'static str,
@@ -158,6 +159,14 @@ pub trait WinCraftPlugin {
 
     fn on_palette_command(&mut self, id: u32) {
         let _ = id;
+    }
+
+    /// Extra sources of palette results, such as a list of bookmarks. Asked
+    /// once at startup whether the plugin is on or not; the palette asks a
+    /// provider for rows only while its plugin is on. The provider is moved
+    /// to the UI thread and queried there on every keystroke.
+    fn search_providers(&self) -> Vec<Box<dyn SearchProvider>> {
+        Vec::new()
     }
 
     /// One line shown under the description on the plugin's page, for state

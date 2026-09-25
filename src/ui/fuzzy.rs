@@ -1,3 +1,8 @@
+/// The score of a query that equals the whole text. Ordinary matches score
+/// about 12 per letter plus up to 30 for a short text, so a long query can pass
+/// 100; this stays above anything a partial match can reach.
+pub const EXACT: i32 = 10_000;
+
 /// Subsequence match with a score, the same idea every command palette uses:
 /// the query letters must appear in order, and matches that start a word or run
 /// together score higher, so "dim2" beats a scattered accidental match.
@@ -6,6 +11,9 @@
 pub fn score(query: &str, text: &str) -> Option<i32> {
     if query.is_empty() {
         return Some(0);
+    }
+    if query.to_lowercase() == text.to_lowercase() {
+        return Some(EXACT);
     }
     let needle: Vec<char> = query.chars().flat_map(char::to_lowercase).collect();
     let hay: Vec<char> = text.chars().collect();
@@ -138,6 +146,15 @@ mod tests {
         let direct = score_command("toggle", "ScreenDimmer", "Toggle monitor 1").unwrap();
         let viagroup = score_command("screendim", "ScreenDimmer", "Toggle monitor 1").unwrap();
         assert!(direct > 0 && viagroup > 0);
+    }
+
+    #[test]
+    fn an_exact_match_beats_every_partial_one() {
+        assert_eq!(score("notepad", "Notepad"), Some(EXACT));
+        let partial = score("notepad", "Notepad++ portable notepad edition").unwrap();
+        assert!(partial < EXACT);
+        let long = "abcdefghijklmnopqrstuvwxyz";
+        assert!(score(long, &format!("{long}!")).unwrap() < EXACT);
     }
 
     #[test]

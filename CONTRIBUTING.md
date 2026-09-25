@@ -130,6 +130,7 @@ The About page lists the kinds the build you are running can draw.
 | `on_tray_action(id)` | When your menu entry or its palette entry is chosen. |
 | `palette_commands` | For entries that are neither a hotkey nor a tray item. |
 | `on_palette_command(id)` | When one of those is chosen. |
+| `search_providers` | Once at startup, whether the plugin is on or not. Extra sources of palette results; see below. |
 | `status` | When building your page. One line under your description; call `host::plugin_changed()` when it changes. |
 | `page_action` | When building your page. One of your hotkey actions, shown as a button under the status line. |
 | `palette_subtitle(kind, id)` | Each time the palette's list is rebuilt. A second line under one of your palette entries, such as the state the command would change; `kind` says whether `id` is a hotkey, tray or palette id, because those numbers can overlap. Return `None` for no subtitle, and call `host::plugin_changed()` when the answer changes. |
@@ -145,6 +146,83 @@ reached through the palette.
 
 `host::notify(title, text)` shows a tray balloon. It is safe to call from any
 callback: the balloon appears once the host's message loop comes round.
+
+## Adding a source of palette results
+
+Commands are for things your plugin *does*. When it has things to *find* — a
+list of bookmarks, recent files, saved layouts — give it a search provider.
+The palette asks every provider on each keystroke and merges the rows; a
+provider can also own a prefix so that typing it sends the search there alone.
+WinCraft's own apps, windows, folders, calculator and web search are providers
+too, in `src/search/providers/`; read one of them before writing yours.
+
+```rust
+use crate::search::{Action, Choice, Context, Query, ResultItem, SearchProvider};
+use crate::ui::fuzzy;
+
+struct Bookmarks {
+    urls: Vec<(String, String)>,
+}
+
+impl SearchProvider for Bookmarks {
+    fn id(&self) -> &'static str { "bookmarks" }
+    fn name(&self) -> &'static str { "Bookmarks" }
+    fn description(&self) -> &'static str { "Open a saved address" }
+    fn default_prefix(&self) -> Option<&'static str> { Some("*") }
+
+    fn query(&mut self, query: &Query, _context: &Context) -> Vec<ResultItem> {
+        self.urls
+            .iter()
+            .filter_map(|(name, url)| {
+                let score = fuzzy::score(&query.text, name)?;
+                Some(ResultItem {
+                    group: "Bookmarks".to_string(),
+                    title: name.clone(),
+                    subtitle: url.clone(),
+                    score,
+                    enter: Some(Choice {
+                        label: "Open".to_string(),
+                        action: Action::OpenUrl(url.clone()),
+                    }),
+                    ..Default::default()
+                })
+            })
+            .take(query.limit)
+            .collect()
+    }
+}
+
+// In your plugin:
+fn search_providers(&self) -> Vec<Box<dyn SearchProvider>> {
+    vec![Box::new(Bookmarks { urls: load_bookmarks() })]
+}
+```
+
+What to know:
+
+- **The provider lives on the UI thread**, not with your plugin. It is moved
+  there at startup, which is why the trait needs `Send`. It cannot call your
+  plugin; give it the data it needs when you create it, or share it through an
+  `Arc<Mutex<…>>` that your plugin updates.
+- **`query` runs on every keystroke** and must answer in a millisecond or two.
+  Answer from memory. If you have to read something slow, do it on your own
+  thread and let `query` read the result, as the apps provider does with the
+  Start menu.
+- **It is only asked while your plugin is on.**
+- **A row's keys** are `enter`, `shift_enter`, `ctrl_enter` and `tab`. The
+  `Action`s a row can carry are listed in `src/search/mod.rs`; the host runs
+  most of them. `Action::Provider` comes back to your provider's `act()` on
+  the UI thread, for work only it can do, such as starting a command whose
+  output it then shows.
+- **Work in the background** by answering `waiting()` while it runs and
+  `has_news()` once it has something; the palette then asks `query` again.
+  The drives list and the terminal work this way.
+- **`blended()`** returns true to also answer searches typed without a prefix.
+  Keep that for things people look for all the time, and limit yourself to
+  `query.limit` rows so you do not bury the commands.
+- **Users can move or switch off your prefix** in config.json under
+  `search.prefixes`, keyed by your provider's `id`. If your default prefix is
+  already taken, your provider gets none and the log says so.
 
 ## If your plugin opens a window
 
