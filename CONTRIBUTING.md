@@ -340,6 +340,37 @@ it is a separate instance:
   exits with 0 when WinCraft closed, 1 when none was running and 2 when it was
   still running after 10 seconds. It uses `WINCRAFT_INSTANCE` too.
 
+### Screenshots while you are away
+
+`tools\screenshots.ps1` takes a PNG of every scene (the palette empty and
+with `/`, `=2+2*3`, `<` and `?`; settings General, Plugins, LayoutKeeper's
+page and About; the strip; the strip with a peek on a card with a monitor
+chip), in the dark and the light theme, from test instances only. It is
+built for a PC someone is using: it starts only after `-IdleSeconds` (180 by
+default) without keyboard or mouse input and only while the desktop is
+unlocked, it sends no input itself, and it checks the last input time before
+and after every scene. Any input stops it at once: the test instance quits,
+the window that was in front gets the focus back, `ABORTED.txt` names the
+scene it reached, and it exits with 3. Your own WinCraft is never touched;
+the report says whether its process was the same before and after.
+
+```powershell
+cargo build --release --target-dir target\verify
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\screenshots.ps1 -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\screenshots.ps1
+```
+
+`-DryRun` checks the conditions and prints the plan without starting
+anything. The pictures, `report.txt` and the test instance's scratch
+folder go to `target\shots\<date-time>\` (or `-Out`). `-Exe` picks another
+build; it refuses an exe that is already running. `-SimulateInputAfterScene
+N` acts as if you came back after scene N, to test the abort. Exit codes: 0
+done, 1 error, 2 refused to start, 3 aborted.
+
+The palette pictures include the shadow margin around the panel, so they
+show a little of whatever is behind it, and the peek pictures show the real
+windows on that monitor.
+
 ## Ids
 
 Three separate numbering spaces, all local to your plugin:
