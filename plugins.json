@@ -24,6 +24,14 @@
       "author": "community",
       "description": "Remembers which desktop each window is on, the taskbar thumbnail order and which window is in front, and restores them after a reboot.",
       "readme": "src/plugins/layout_keeper/README.md"
+    },
+    {
+      "id": "language_indicator",
+      "name": "LanguageIndicator",
+      "version": "1.0.0",
+      "author": "community",
+      "description": "Shows which input language you switched to, in the middle of the screen.",
+      "readme": "src/plugins/language_indicator/README.md"
     }
   ]
 }
