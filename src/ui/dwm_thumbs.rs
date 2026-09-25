@@ -32,7 +32,7 @@ impl Thumbnail {
     pub fn register(destination: HWND, source: HWND) -> Option<Self> {
         let mut id = 0;
         let hr = unsafe { DwmRegisterThumbnail(destination, source, &mut id) };
-        (hr >= 0 && id != 0).then_some(Self {
+        (hr >= 0 && id != 0).then(|| Self {
             id,
             shown: None,
             hidden: true,

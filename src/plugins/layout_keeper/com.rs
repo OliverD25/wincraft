@@ -17,7 +17,7 @@ impl ComPtr {
 
     /// Takes ownership of a pointer a COM method handed out.
     pub fn from_raw(raw: *mut c_void) -> Option<Self> {
-        (!raw.is_null()).then_some(Self(raw))
+        (!raw.is_null()).then(|| Self(raw))
     }
 
     pub fn as_raw(&self) -> *mut c_void {
