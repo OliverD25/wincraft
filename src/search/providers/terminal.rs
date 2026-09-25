@@ -244,8 +244,9 @@ impl SearchProvider for Terminal {
         "Type a command: Enter runs it here, Ctrl+Enter in a terminal"
     }
 
-    fn needle<'a>(&self, text: &'a str) -> &'a str {
-        text
+    /// Underlining the matched letters of a command line reads as noise.
+    fn needle<'a>(&self, _text: &'a str) -> &'a str {
+        ""
     }
 
     fn waiting(&self) -> bool {

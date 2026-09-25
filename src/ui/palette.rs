@@ -211,8 +211,7 @@ impl Palette {
                     self.follow_selection = true;
                 }
             }
-            if pressed(egui::Key::Enter) {
-                let modifiers = ctx.input(|input| input.modifiers);
+            if let Some(modifiers) = key_modifiers(&ctx, egui::Key::Enter) {
                 run = self.selected_item().and_then(|item| {
                     let slot = if modifiers.command {
                         &item.ctrl_enter
@@ -224,9 +223,8 @@ impl Palette {
                     slot.as_ref().map(|choice| choice.action.clone())
                 });
             }
-            let copy_all = ctx.input(|input| {
-                input.modifiers.command && input.modifiers.shift && input.key_pressed(egui::Key::C)
-            });
+            let copy_all = key_modifiers(&ctx, egui::Key::C)
+                .is_some_and(|modifiers| modifiers.command && modifiers.shift);
             if copy_all {
                 if let Some(text) = self.router.copy_all(self.prefix.as_deref()) {
                     to_host.send(HostRequest::RunAction(Action::Copy(text)));
@@ -498,6 +496,23 @@ fn prefix_chip(
         tokens.text_secondary,
     );
     rect
+}
+
+/// The modifiers held when `key` went down this frame. Read from the key's
+/// own event: a quick Ctrl+Enter can arrive together with the Ctrl release
+/// in one frame, and the frame's modifier state would then say no Ctrl.
+fn key_modifiers(ctx: &egui::Context, key: egui::Key) -> Option<egui::Modifiers> {
+    ctx.input(|input| {
+        input.events.iter().find_map(|event| match event {
+            egui::Event::Key {
+                key: pressed_key,
+                pressed: true,
+                modifiers,
+                ..
+            } if *pressed_key == key => Some(*modifiers),
+            _ => None,
+        })
+    })
 }
 
 /// What every provider may read, from the host's latest snapshot.
