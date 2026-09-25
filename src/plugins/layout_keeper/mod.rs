@@ -54,6 +54,22 @@ const DEFAULT_PROGRAMS: &str = "*";
 const OLD_DEFAULT_PROGRAMS: &str = "chrome.exe";
 /// WinCraft's own windows are never arranged: the strip would arrange itself.
 const OWN_EXE: &str = "wincraft.exe";
+/// Windows' own helper processes. They can own visible windows with titles
+/// (rundll32 hosts the Sound control panel, the shell hosts draw Start,
+/// search, the touch keyboard and the lock screen), but they are not apps a
+/// person arranges, and a restore must never move them. Always skipped,
+/// whatever the settings say. ApplicationFrameHost is not here: it owns the
+/// windows of Settings and other Store apps.
+const SYSTEM_HELPERS: &[&str] = &[
+    "rundll32.exe",
+    "dllhost.exe",
+    "ShellExperienceHost.exe",
+    "StartMenuExperienceHost.exe",
+    "SearchHost.exe",
+    "TextInputHost.exe",
+    "LockApp.exe",
+    "ShellHost.exe",
+];
 const DEFAULT_SNAPSHOT_SECONDS: u64 = 30;
 const DEFAULT_SETTLE_SECONDS: u64 = 5;
 const DEFAULT_RESTORE_MINUTES: u64 = 3;
@@ -895,9 +911,18 @@ impl Watch {
         let exe = exe.to_lowercase();
         !exe.is_empty()
             && exe != OWN_EXE
+            && !is_system_helper(&exe)
             && !self.excluded.contains(&exe)
             && (self.all || self.programs.contains(&exe))
     }
+}
+
+/// Matches the file name, in any case, whether given alone or as a path.
+fn is_system_helper(exe: &str) -> bool {
+    let name = exe.rsplit(['\\', '/']).next().unwrap_or(exe);
+    SYSTEM_HELPERS
+        .iter()
+        .any(|helper| helper.eq_ignore_ascii_case(name))
 }
 
 /// "any app", "any app except telegram.exe", "chrome.exe, msedge.exe".
@@ -1027,7 +1052,7 @@ impl WinCraftPlugin for LayoutKeeper {
             SettingField {
                 key: "excluded_programs",
                 label: "Never touch",
-                help: "Exe names to leave alone, separated by commas, such as telegram.exe.",
+                help: "Exe names to leave alone, separated by commas, such as telegram.exe. Windows helpers are always left alone: rundll32, dllhost, ShellExperienceHost, StartMenuExperienceHost, SearchHost, TextInputHost, LockApp and ShellHost.",
                 kind: FieldKind::Text,
             },
             SettingField {
@@ -1444,6 +1469,123 @@ mod tests {
         assert_eq!(listed.to_string(), "chrome.exe, charmap.exe");
         // The exclude list wins over a list that names the same program.
         assert!(!Watch::new("chrome.exe", "chrome.exe").covers("chrome.exe"));
+    }
+
+    #[test]
+    fn windows_helpers_are_matched_by_file_name_in_any_case() {
+        for helper in SYSTEM_HELPERS {
+            assert!(is_system_helper(helper), "{helper}");
+            assert!(is_system_helper(&helper.to_lowercase()), "{helper}");
+            assert!(is_system_helper(&helper.to_uppercase()), "{helper}");
+        }
+        assert!(is_system_helper(r"C:\Windows\System32\rundll32.exe"));
+        assert!(is_system_helper(
+            r"c:\windows\systemapps\shellexperiencehost_cw5n1h2txyewy\ShellExperienceHost.exe"
+        ));
+        assert!(is_system_helper("C:/Windows/System32/DllHost.exe"));
+        // Only the whole file name counts.
+        assert!(!is_system_helper("rundll32.exe.bak"));
+        assert!(!is_system_helper("myrundll32.exe"));
+        assert!(!is_system_helper(r"C:\Tools\rundll32\app.exe"));
+        assert!(!is_system_helper("rundll32"));
+        assert!(!is_system_helper(""));
+    }
+
+    #[test]
+    fn real_apps_are_not_helpers() {
+        for app in [
+            "SystemSettings.exe",
+            "ApplicationFrameHost.exe",
+            "explorer.exe",
+            "WindowsTerminal.exe",
+            "chrome.exe",
+            "notepad.exe",
+            "Taskmgr.exe",
+        ] {
+            assert!(!is_system_helper(app), "{app}");
+            assert!(Watch::new("*", "").covers(app), "{app}");
+        }
+    }
+
+    #[test]
+    fn helpers_are_skipped_whatever_the_program_list_says() {
+        let every = Watch::new("*", "");
+        let listed = Watch::new("rundll32.exe, dllhost.exe, chrome.exe", "");
+        for watch in [&every, &listed] {
+            assert!(!watch.covers("rundll32.exe"));
+            assert!(!watch.covers("RUNDLL32.EXE"));
+            assert!(!watch.covers("dllhost.exe"));
+            assert!(!watch.covers("SearchHost.exe"));
+            assert!(watch.covers("chrome.exe"));
+        }
+        assert!(!listed.covers("notepad.exe"));
+    }
+
+    #[test]
+    fn the_users_own_exclude_list_still_applies_next_to_the_helpers() {
+        let watch = Watch::new("*", "telegram.exe");
+        assert!(!watch.covers("telegram.exe"));
+        assert!(!watch.covers("rundll32.exe"));
+        assert!(watch.covers("viber.exe"));
+        // Naming a helper in the exclude list changes nothing either way.
+        let both = Watch::new("*", "rundll32.exe");
+        assert!(!both.covers("rundll32.exe"));
+        assert!(both.covers("chrome.exe"));
+        assert_eq!(watch.to_string(), "any app except telegram.exe");
+    }
+
+    fn saved(group: &str) -> state::SavedWindow {
+        state::SavedWindow {
+            name: Some(group.to_string()),
+            title: group.to_string(),
+            rect: [0, 0, 800, 600],
+            maximized: false,
+            desktop: None,
+            desktop_name: None,
+            group: group.to_string(),
+            taskbar_index: 0,
+            z_index: 0,
+            monitor: None,
+        }
+    }
+
+    fn old_file() -> Programs {
+        let mut programs = Programs::new();
+        for (exe, group) in [
+            ("rundll32.exe", r"c:\windows\system32\rundll32.exe"),
+            ("chrome.exe", "Chrome.UserData.Profile3"),
+            ("dllhost.exe", r"c:\windows\system32\dllhost.exe"),
+        ] {
+            programs.insert(
+                exe.to_string(),
+                state::ProgramState {
+                    windows: vec![saved(group)],
+                },
+            );
+        }
+        programs
+    }
+
+    #[test]
+    fn a_helper_in_an_old_state_file_is_left_out_of_the_restore() {
+        let mut keeper = LayoutKeeper {
+            watch: Watch::new("*", ""),
+            ..LayoutKeeper::default()
+        };
+        keeper.writer = state::Writer::new(
+            std::env::temp_dir().join("wincraft-test-never-written.json"),
+            Some(old_file()),
+        );
+        assert_eq!(keeper.saved_groups(), ["Chrome.UserData.Profile3"]);
+    }
+
+    #[test]
+    fn a_helper_in_an_old_state_file_is_dropped_at_the_next_save() {
+        let watch = Watch::new("*", "");
+        let merged = state::merge(Some(&old_file()), Programs::new(), false, &|exe| {
+            watch.covers(exe)
+        });
+        assert_eq!(merged.keys().collect::<Vec<_>>(), ["chrome.exe"]);
     }
 
     #[test]

@@ -18,7 +18,12 @@ other virtual desktops count too.
 **Programs** is `*` (every app) by default; it can also be a list of exe
 names, such as `chrome.exe, telegram.exe`. **Never touch** lists apps to
 leave alone, such as `telegram.exe` if Telegram should stay where it opens.
-WinCraft's own windows are always left out. Settings from before 0.8 that
+WinCraft's own windows are always left out, and so are Windows' own helper
+processes that can show a titled window but are not apps: `rundll32.exe`
+(the Sound control panel, for one), `dllhost.exe`, `ShellExperienceHost.exe`,
+`StartMenuExperienceHost.exe`, `SearchHost.exe`, `TextInputHost.exe`,
+`LockApp.exe` and `ShellHost.exe`, whatever the two settings say. Settings
+and other Store apps are still tracked. Settings from before 0.8 that
 still had the old default `chrome.exe` were changed to `*` once; any other
 list you wrote was kept.
 
@@ -210,7 +215,7 @@ saved order.
 | Setting | Default | Meaning |
 |---|---|---|
 | Programs | `*` | `*` for every app, or exe names separated by commas. |
-| Never touch | (empty) | Exe names to leave alone, separated by commas. |
+| Never touch | (empty) | Exe names to leave alone, separated by commas. Windows' helper processes are always left alone. |
 | Restore when WinCraft starts | on | Restore once the windows have settled after start. |
 | Wait for windows (seconds) | 5 | How long the window count must hold still. |
 | Give up after (minutes) | 3 | Stop waiting if it never does. |
