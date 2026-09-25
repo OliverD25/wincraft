@@ -446,7 +446,11 @@ fn footer_keys(item: Option<&ResultItem>) -> Vec<(&'static str, String)> {
             keys.push(("Tab", completion.label.clone()));
         }
     }
-    keys.push(("\u{2191}\u{2193}", "Move".to_string()));
+    // With three row actions at the 12 px chip size the footer would run into
+    // the wordmark, and the arrow keys need no reminder.
+    if keys.len() < 3 {
+        keys.push(("\u{2191}\u{2193}", "Move".to_string()));
+    }
     keys.push(("Esc", "Close".to_string()));
     keys
 }
