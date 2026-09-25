@@ -53,10 +53,11 @@ pub fn enumerate(
         let title = window_text(hwnd);
         let (rect, maximized) = placement(hwnd);
         let app = appid::read(hwnd);
+        let group = appid::group_key(app.id.as_deref(), &exe_path);
         windows.push(LiveWindow {
             hwnd,
-            identity: WindowIdentity::new(&exe, &title, rect, maximized),
-            group: appid::group_key(app.id.as_deref(), &exe_path),
+            identity: WindowIdentity::new(&exe, &title, rect, maximized).in_group(&group),
+            group,
             app_name: app.name,
             exe_path,
         });

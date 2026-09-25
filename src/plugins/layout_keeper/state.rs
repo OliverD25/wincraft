@@ -61,6 +61,7 @@ impl SavedWindow {
             title: self.title.clone(),
             rect: self.rect,
             maximized: self.maximized,
+            group: self.group.clone(),
         }
     }
 }

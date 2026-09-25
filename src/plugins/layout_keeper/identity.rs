@@ -8,6 +8,8 @@ pub struct WindowIdentity {
     pub title: String,
     pub rect: Rect,
     pub maximized: bool,
+    /// The taskbar group; empty for windows saved before groups were kept.
+    pub group: String,
 }
 
 /// The browsers append their product name to the page title. A window the
@@ -46,7 +48,13 @@ impl WindowIdentity {
             title: title.to_string(),
             rect,
             maximized,
+            group: String::new(),
         }
+    }
+
+    pub fn in_group(mut self, group: &str) -> Self {
+        self.group = group.to_string();
+        self
     }
 }
 
@@ -72,13 +80,23 @@ pub fn match_windows(saved: &[WindowIdentity], live: &[WindowIdentity]) -> Match
             == 1
     };
 
-    let rules: [&dyn Fn(&WindowIdentity, &WindowIdentity) -> bool; 4] = [
+    // Apps other than the browsers often keep one window whose title
+    // changes with what it shows (Telegram shows the open chat). When a
+    // taskbar group holds exactly one window on each side, it is the same.
+    let alone_in_group = |group: &str| {
+        !group.is_empty()
+            && saved.iter().filter(|window| window.group == group).count() == 1
+            && live.iter().filter(|window| window.group == group).count() == 1
+    };
+
+    let rules: [&dyn Fn(&WindowIdentity, &WindowIdentity) -> bool; 5] = [
         &|s, l| s.name.is_some() && s.name == l.name,
         &|s, l| s.title == l.title && s.rect == l.rect,
         &|s, l| s.title == l.title,
         // Most windows are maximized and share one rectangle, so a rectangle
         // only identifies a window that is neither maximized nor duplicated.
         &|s, l| !s.maximized && !l.maximized && s.rect == l.rect && unique_rect(&l.rect, &l.exe),
+        &|s, l| s.group == l.group && alone_in_group(&s.group),
     ];
 
     for rule in rules {
@@ -187,6 +205,35 @@ mod tests {
         assert_eq!(matching.pairs, vec![(0, 0)]);
         assert_eq!(matching.unmatched_saved, vec![1, 2]);
         assert_eq!(matching.unmatched_live, vec![1]);
+    }
+
+    fn telegram(title: &str) -> WindowIdentity {
+        WindowIdentity::new("telegram.exe", title, FULL, true).in_group("Telegram.TelegramDesktop")
+    }
+
+    #[test]
+    fn a_lone_window_in_its_group_matches_whatever_its_title() {
+        let saved = vec![telegram("Saved Messages")];
+        let live = vec![telegram("Family chat")];
+        assert_eq!(match_windows(&saved, &live).pairs, vec![(0, 0)]);
+    }
+
+    #[test]
+    fn two_windows_in_a_group_are_not_guessed() {
+        let saved = vec![telegram("Saved Messages"), telegram("Work chat")];
+        let live = vec![telegram("Family chat")];
+        assert!(match_windows(&saved, &live).pairs.is_empty());
+
+        let saved = vec![telegram("Saved Messages")];
+        let live = vec![telegram("Family chat"), telegram("Work chat")];
+        assert!(match_windows(&saved, &live).pairs.is_empty());
+    }
+
+    #[test]
+    fn windows_without_a_group_never_match_by_being_alone() {
+        let saved = vec![chrome("Old - Google Chrome", FULL, true)];
+        let live = vec![chrome("New - Google Chrome", FULL, true)];
+        assert!(match_windows(&saved, &live).pairs.is_empty());
     }
 
     #[test]
