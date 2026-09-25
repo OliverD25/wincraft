@@ -7,8 +7,10 @@ use serde::{Deserialize, Serialize};
 use super::identity::{Matching, Rect, WindowIdentity};
 use crate::core::config;
 
+/// 3 added each window's monitor and counts `z_index` across all programs;
 /// 2 added each window's taskbar group; 1 kept one order per program.
-pub const VERSION: u32 = 2;
+/// Older files need no change to be read: the new fields are optional.
+pub const VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StateFile {
@@ -44,8 +46,23 @@ pub struct SavedWindow {
     pub group: String,
     /// Position in the taskbar group, first thumbnail = 0.
     pub taskbar_index: usize,
-    /// Position among the program's windows from the top of the z-order.
+    /// Position from the top of the z-order: among all watched windows since
+    /// version 3, among the program's own windows before.
     pub z_index: usize,
+    /// The monitor the window is on (the one it returns to when minimized).
+    /// Recorded for grouping by monitor later; nothing reads it yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monitor: Option<SavedMonitor>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SavedMonitor {
+    /// The GDI device name, such as "\\.\DISPLAY1".
+    pub device: String,
+    /// The name from the monitor itself, such as "DELL U2720Q"; can be empty.
+    pub name: String,
+    /// Place from the left, 0 first.
+    pub position: usize,
 }
 
 impl SavedWindow {
@@ -277,6 +294,7 @@ mod tests {
             group: "Chrome".to_string(),
             taskbar_index: index,
             z_index: index,
+            monitor: None,
         }
     }
 
@@ -392,6 +410,30 @@ mod tests {
             keep_groups(Some(&before), fresh.clone(), &BTreeSet::new()),
             fresh
         );
+    }
+
+    #[test]
+    fn a_version_2_file_reads_as_version_3_without_monitors() {
+        let v2 = r#"{"version":2,"saved":"2026-09-24T21:40:11Z","reason":"timer",
+            "programs":{"chrome.exe":{"windows":[
+              {"name":"Mail","title":"Mail","rect":[0,0,1,1],"maximized":true,
+               "group":"Chrome","taskbar_index":0,"z_index":0}
+            ]}}}"#;
+        let file = migrate(serde_json::from_str(v2).unwrap());
+        assert_eq!(file.version, VERSION);
+        assert_eq!(file.programs["chrome.exe"].windows[0].monitor, None);
+
+        let mut with_monitor = file.clone();
+        with_monitor.programs.get_mut("chrome.exe").unwrap().windows[0].monitor =
+            Some(SavedMonitor {
+                device: r"\\.\DISPLAY2".to_string(),
+                name: "DELL U2720Q".to_string(),
+                position: 1,
+            });
+        let text = serde_json::to_string(&with_monitor).unwrap();
+        assert!(text.contains(r#""position":1"#), "{text}");
+        let back: StateFile = serde_json::from_str(&text).unwrap();
+        assert_eq!(back, with_monitor);
     }
 
     #[test]

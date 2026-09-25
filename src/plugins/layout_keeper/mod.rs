@@ -3,6 +3,7 @@ mod com;
 mod desktops;
 mod guard;
 mod identity;
+mod monitors;
 mod order;
 mod restore;
 mod state;
@@ -238,6 +239,7 @@ impl LayoutKeeper {
     /// between apps can be put back too.
     fn capture(&self, live: &[windows::LiveWindow]) -> Programs {
         let desktops = desktops::list();
+        let monitors = monitors::list();
         let mut programs = Programs::new();
         let mut exes: Vec<&str> = Vec::new();
         for window in live {
@@ -273,6 +275,7 @@ impl LayoutKeeper {
                             .and_then(|group| group.position_of(window.hwnd as Handle))
                             .unwrap_or(z_index),
                         z_index,
+                        monitor: monitors::of_rect(window.identity.rect, &monitors),
                     }
                 })
                 .collect();

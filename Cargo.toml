@@ -19,6 +19,7 @@ raw-window-handle = "=0.6.2"
 [dependencies.windows-sys]
 version = "=0.61.2"
 features = [
+    "Win32_Devices_Display",
     "Win32_Foundation",
     "Win32_Globalization",
     "Win32_UI_WindowsAndMessaging",
