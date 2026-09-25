@@ -105,12 +105,12 @@ correct and merely slower.
 
 | `FieldKind` | Control |
 |---|---|
-| `Toggle` | Tick box |
+| `Toggle` | On/off switch |
 | `Slider { min, max, step }` | Slider with the value shown |
-| `Number { min, max }` | Drag-to-change number |
+| `Number { min, max }` | Box you type a number into, kept between `min` and `max` |
 | `Text` | One-line text box |
-| `Choice(&["a", "b"])` | Dropdown |
-| `Path` | One-line text box for a file path |
+| `Choice(&["a", "b"])` | Segmented control for up to 4 options, a dropdown for 5 or more |
+| `Path` | One-line text box for a file path, with a Browse… button |
 
 The About page lists the kinds the build you are running can draw.
 
@@ -125,19 +125,22 @@ The About page lists the kinds the build you are running can draw.
 | `on_settings_changed` | After the user changes one of your settings. |
 | `hotkey_actions` | To register your hotkeys, and to list them in the palette and on your page. |
 | `on_hotkey(id)` | When one of your hotkeys is pressed. |
-| `tray_actions` | Every time the tray menu opens. |
+| `tray_actions` | Every time the tray menu opens. Only your **first** tray action goes into the tray menu; every tray action appears in the palette. |
 | `on_tray_action(id)` | When your menu entry or its palette entry is chosen. |
 | `palette_commands` | For entries that are neither a hotkey nor a tray item. |
 | `on_palette_command(id)` | When one of those is chosen. |
 | `status` | When building your page. One line under your description; call `host::plugin_changed()` when it changes. |
 | `page_action` | When building your page. One of your hotkey actions, shown as a button under the status line. |
-| `window_groups` | When the Arrange windows list opens (`host::open_arrange()`) and after every reorder. Only for plugins that keep a window order. |
-| `on_reorder(exe, order)` | When the user drags a window to a new place in that list. |
+| `palette_subtitle(kind, id)` | Each time the palette's list is rebuilt. A second line under one of your palette entries, such as the state the command would change; `kind` says whether `id` is a hotkey, tray or palette id, because those numbers can overlap. Return `None` for no subtitle, and call `host::plugin_changed()` when the answer changes. |
+| `window_groups` | When the Arrange strip opens (`host::open_arrange()`) and after every change made in it. Only for plugins that keep a window order. |
+| `on_arrange_action(action)` | When the user does something in the Arrange strip: activates a window, drags windows into a new order inside a taskbar group, moves a window to another desktop, or closes it. |
 | `on_windows_message` | On `WM_DISPLAYCHANGE`, `WM_SETTINGCHANGE`, `WM_POWERBROADCAST`, `WM_TIMER`, `WM_QUERYENDSESSION` and `WM_ENDSESSION`. The two session messages arrive while every program is still open; the host answers `WM_QUERYENDSESSION` with TRUE itself. |
 | `teardown` | When the plugin is switched off and at exit. Release every window and handle here. |
 
 Hotkey and tray actions appear in the command palette automatically. You only
-need `palette_commands` for something that has neither.
+need `palette_commands` for something that has neither. The tray menu stays
+short on purpose: it shows each plugin's first tray action, and the rest are
+reached through the palette.
 
 `host::notify(title, text)` shows a tray balloon. It is safe to call from any
 callback: the balloon appears once the host's message loop comes round.
@@ -191,9 +194,20 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   feel like one family.
 - **No new crates without discussing it first.** WinCraft depends on
   `windows-sys`, `serde`, `serde_json`, `log`, `eframe`/`egui`,
-  `egui_commonmark` and `ureq`, and that is meant to stay true. If you need a
+  `egui_commonmark`, `ureq`, `winit` and `raw-window-handle`, and that is
+  meant to stay true. `winit` and `raw-window-handle` are the versions eframe
+  already uses, named directly: `winit` lets the egui event loop run on the UI
+  thread instead of the main thread, and `raw-window-handle` gives the host the
+  palette window's `HWND`. If you need a
   Win32 call that is not enabled yet, add the feature to the existing
   `windows-sys` entry in `Cargo.toml`.
+- **Fonts.** The UI text is Segoe UI, read from `%WINDIR%\Fonts` when WinCraft
+  starts; it is never bundled or committed. If it is missing, the bundled
+  Selawik (a free, metric-compatible Segoe UI substitute) is used instead.
+  JetBrains Mono is bundled for code and file paths. Both bundled fonts are
+  under the SIL Open Font License 1.1, and their licence files sit next to them
+  in `assets/fonts/`. Use the helpers in `core::theme` (`regular`, `semibold`,
+  `mono`) rather than naming a font.
 - **Log with `log::info!`, `log::warn!`, `log::error!`.** They go to
   `%LOCALAPPDATA%\WinCraft\wincraft.log`. Use `log::debug!` for detail that
   only matters while debugging; it is off unless `WINCRAFT_DEBUG=1` is set.

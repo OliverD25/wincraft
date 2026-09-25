@@ -12,8 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # rust-toolchain.toml pins the compiler; `rustup show` is what makes
-      # rustup read it and install that exact version before anything else runs.
+      # rust-toolchain.toml pins the compiler. Since rustup 1.28 `rustup show`
+      # only reports it; the first cargo command below installs that exact
+      # version on first use, so this step just puts the version in the log.
       - name: Install the pinned toolchain
         run: rustup show
 

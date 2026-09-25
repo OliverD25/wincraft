@@ -25,18 +25,21 @@ Version 0.6 ships three plugins: **ScreenDimmer**, **ShortcutDetector** and
 
 ## Install
 
-Download `wincraft.exe` from the
-[Releases page](https://github.com/OliverD25/wincraft/releases) and run it.
-There is no installer and nothing to unpack — it is a single file that writes
-its settings to `%LOCALAPPDATA%\WinCraft`.
-
-To build it yourself you need the Windows SDK (for `rc.exe`, which compiles the
-icon into the exe). The Rust version is pinned by `rust-toolchain.toml`, so
-rustup fetches the right compiler on its own:
+No release is published yet, so for now you build WinCraft from source. You
+need [rustup](https://rustup.rs) and the Windows SDK (for `rc.exe`, which
+compiles the icon into the exe). The Rust version is pinned by
+`rust-toolchain.toml`, so cargo fetches the right compiler on first use:
 
 ```powershell
-cd "E:\codespace\_claude_code\_rde\wincraft_windows_utilities_rust"; cargo build --release
+git clone https://github.com/OliverD25/wincraft; cd wincraft; cargo build --release
 ```
+
+The result is `target\release\wincraft.exe`. There is no installer and nothing
+to unpack — it is a single file that writes its settings to
+`%LOCALAPPDATA%\WinCraft`.
+
+Once a release is published, you can instead download `wincraft.exe` from the
+[Releases page](https://github.com/OliverD25/wincraft/releases) and run it.
 
 ## Plugins
 
@@ -135,7 +138,7 @@ in the log.
 
 | Key | Meaning |
 |---|---|
-| `start_with_windows` | Mirrors the tick box and the registry Run value. |
+| `start_with_windows` | Mirrors the "Start with Windows" switch and the registry Run value. |
 | `theme` | `system`, `light` or `dark`. |
 | `palette_hotkey` | What opens the command palette. |
 
@@ -165,10 +168,11 @@ Modifiers joined to one key with `+`, in any case:
   `NumpadDivide`, `NumpadDecimal`, and the punctuation keys `;` `=` `,` `-` `.`
   `/` `` ` `` `[` `\` `]` `'`
 
-At least one modifier is needed — Windows will not hand a bare key to a
-background program. If another program already owns a combination, WinCraft
-keeps running, shows a tray notification and marks the hotkey as not
-registered on the plugin's page.
+A bare key without modifiers is accepted too, such as `F13` or `Pause`. Keep
+it to keys you never type with, because WinCraft takes that key from every
+other program while it runs. If another program already owns a combination,
+WinCraft keeps running, shows a tray notification and marks the hotkey
+"taken by another app" on the plugin's page and on the About page.
 
 ## Command line
 

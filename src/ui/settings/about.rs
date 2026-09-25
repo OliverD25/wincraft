@@ -7,7 +7,7 @@ use crate::store::github;
 use crate::ui::settings::{self as page, SettingsState};
 use crate::ui::widgets::button::{self, Kind};
 use crate::ui::widgets::row::{settings_row, RowText};
-use crate::ui::widgets::text;
+use crate::ui::widgets::{keycap, text};
 
 #[derive(Clone, Debug, PartialEq)]
 enum UpdateState {
@@ -132,11 +132,77 @@ pub fn show(ui: &mut egui::Ui, snapshot: &UiSnapshot, state: &mut SettingsState)
                 |_| {},
             );
 
+            page::section_header(ui, "Hotkeys");
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for (index, row) in hotkey_rows(snapshot).iter().enumerate() {
+                let owner = if row.state == HotkeyState::PluginOff {
+                    format!("{} \u{00B7} plugin off", row.owner)
+                } else {
+                    row.owner.clone()
+                };
+                settings_row(
+                    ui,
+                    &format!("hotkey-{index}"),
+                    RowText::new(&row.label).desc(&owner, tokens.text_secondary),
+                    false,
+                    |ui| {
+                        if row.state == HotkeyState::Taken {
+                            text::secondary(ui, "taken by another app", tokens.warning);
+                        }
+                        keycap::binding(ui, &keycap::spaced(&row.binding), false);
+                    },
+                );
+            }
+
             ui.add_space(20.0);
             text::group_header(ui, "For plugin authors");
             ui.add_space(6.0);
             authors_note(ui);
         });
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum HotkeyState {
+    Registered,
+    Taken,
+    /// A disabled plugin registers nothing, so its keys are neither live nor
+    /// taken.
+    PluginOff,
+}
+
+#[derive(Debug, PartialEq)]
+struct HotkeyRow {
+    owner: String,
+    label: String,
+    binding: String,
+    state: HotkeyState,
+}
+
+/// Every hotkey WinCraft knows about, the palette's first, then each plugin's
+/// in plugin order, as the v0.1 About listed them.
+fn hotkey_rows(snapshot: &UiSnapshot) -> Vec<HotkeyRow> {
+    let state = |plugin_on: bool, registered: bool| match (plugin_on, registered) {
+        (false, _) => HotkeyState::PluginOff,
+        (true, true) => HotkeyState::Registered,
+        (true, false) => HotkeyState::Taken,
+    };
+    let mut rows = vec![HotkeyRow {
+        owner: "WinCraft".to_string(),
+        label: "Open the palette".to_string(),
+        binding: snapshot.palette_hotkey.clone(),
+        state: state(true, snapshot.palette_hotkey_registered),
+    }];
+    for plugin in &snapshot.plugins {
+        for info in &plugin.hotkeys {
+            rows.push(HotkeyRow {
+                owner: plugin.name.clone(),
+                label: info.label.clone(),
+                binding: info.binding.clone(),
+                state: state(plugin.enabled, info.registered),
+            });
+        }
+    }
+    rows
 }
 
 /// The result sits in the status text beside the button; the button itself
@@ -196,4 +262,65 @@ fn authors_note(ui: &mut egui::Ui) {
     ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
         text::wrapped(ui, job);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ui_bridge::{HotkeyInfo, PluginInfo};
+
+    fn plugin(name: &str, enabled: bool, keys: &[(&str, bool)]) -> PluginInfo {
+        PluginInfo {
+            id: name.to_lowercase(),
+            name: name.to_string(),
+            enabled,
+            hotkeys: keys
+                .iter()
+                .map(|(binding, registered)| HotkeyInfo {
+                    action: binding.to_string(),
+                    label: format!("Action {binding}"),
+                    binding: binding.to_string(),
+                    default_binding: binding.to_string(),
+                    registered: *registered,
+                })
+                .collect(),
+            version: String::new(),
+            author: String::new(),
+            description: String::new(),
+            readme: String::new(),
+            config_path: Default::default(),
+            fields: Vec::new(),
+            status: None,
+            page_action: None,
+        }
+    }
+
+    #[test]
+    fn the_palette_comes_first_and_only_live_keys_can_be_taken() {
+        let snapshot = UiSnapshot {
+            palette_hotkey: "Win+Alt+P".to_string(),
+            palette_hotkey_registered: false,
+            plugins: vec![
+                plugin(
+                    "Dimmer",
+                    true,
+                    &[("Win+Alt+F1", true), ("Win+Alt+F2", false)],
+                ),
+                plugin("Keeper", false, &[("Win+Alt+L", true)]),
+            ],
+            ..UiSnapshot::default()
+        };
+        let rows: Vec<(String, String, HotkeyState)> = hotkey_rows(&snapshot)
+            .into_iter()
+            .map(|row| (row.owner, row.binding, row.state))
+            .collect();
+        let expected = [
+            ("WinCraft", "Win+Alt+P", HotkeyState::Taken),
+            ("Dimmer", "Win+Alt+F1", HotkeyState::Registered),
+            ("Dimmer", "Win+Alt+F2", HotkeyState::Taken),
+            ("Keeper", "Win+Alt+L", HotkeyState::PluginOff),
+        ]
+        .map(|(owner, binding, state)| (owner.to_string(), binding.to_string(), state));
+        assert_eq!(rows, expected);
+    }
 }
