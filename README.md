@@ -116,8 +116,8 @@ a chip before the search box; Backspace in the empty box removes it.
 
 | Prefix | What it searches | Enter | Shift+Enter | Tab |
 |---|---|---|---|---|
-| none | Commands, apps and open windows | Run, open or switch to | | Put the title in the box |
-| `<` | Open windows only, by title or program | Switch to it, restoring it if minimized | | Put the title in the box |
+| none | Commands, apps and open windows | Run, open or switch to | | Put the title in the box; on a File Explorer window, browse its folder under `/` |
+| `<` | Open windows only, the ones Alt+Tab shows, by title or program | Switch to it, restoring it if minimized | | Put the title in the box; on a File Explorer window, browse its folder under `/` |
 | `/` | Drives, then one folder at a time: `/C:\Users\` | Open the file or folder | Show it in Explorer, selected | Go into the folder |
 | `=` | A sum: `+ - * / ^ %` and brackets; `×` and `÷` work too | Copy the answer | | Put the answer in the box |
 | `>` | A command for the terminal shell chosen in settings (WSL bash unless you change it), then your earlier commands | Run it here, with its output in the palette | | Put the earlier command in the box |

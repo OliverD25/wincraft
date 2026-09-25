@@ -66,11 +66,17 @@ pub enum Action {
 }
 
 /// What the palette does after a provider handled an action.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reply {
     Stay,
     /// Stays open with the text after the prefix emptied.
     ClearQuery,
+    /// Switches to another provider's prefix with this text after it, as
+    /// Tab on an Explorer window does to browse its folder under `/`.
+    Switch {
+        provider: &'static str,
+        text: String,
+    },
     Hide,
 }
 
@@ -167,6 +173,10 @@ pub struct ResultItem {
     /// but is not advertised in the footer.
     #[serde(default)]
     pub tab: Option<Completion>,
+    /// Tab as an action instead of a completion, used when the provider can
+    /// say `available` for it; otherwise `tab` applies.
+    #[serde(default)]
+    pub tab_action: Option<Choice>,
     #[serde(default)]
     pub tone: Tone,
     /// A one-line monospace row, 24 px high, for command output.
@@ -246,6 +256,13 @@ pub trait SearchProvider: Send {
     fn act(&mut self, command: &str, context: &Context) -> Reply {
         let _ = (command, context);
         Reply::Stay
+    }
+
+    /// Whether an `Action::Provider` on the selected row can do anything,
+    /// asked only for that row so a slow check runs once, not per keystroke.
+    fn available(&mut self, command: &str) -> bool {
+        let _ = command;
+        true
     }
 
     /// The folder the last answer was browsing, shared with other providers
@@ -412,6 +429,21 @@ impl Router {
             Some(slot) => slot.provider.act(command, &context),
             None => Reply::Stay,
         }
+    }
+
+    pub fn available(&mut self, provider: &str, command: &str) -> bool {
+        self.slots
+            .iter_mut()
+            .find(|slot| slot.provider.id() == provider)
+            .is_some_and(|slot| slot.provider.available(command))
+    }
+
+    /// The prefix a provider answers to, if it has one.
+    pub fn prefix_of(&self, provider: &str) -> Option<String> {
+        self.slots
+            .iter()
+            .find(|slot| slot.provider.id() == provider)
+            .and_then(|slot| slot.prefix.clone())
     }
 
     pub fn escape(&mut self, prefix: Option<&str>) -> bool {

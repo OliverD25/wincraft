@@ -3,6 +3,7 @@ mod calc;
 mod commands;
 mod danger;
 mod drives;
+mod explorer;
 mod paths;
 mod process;
 pub mod shell;

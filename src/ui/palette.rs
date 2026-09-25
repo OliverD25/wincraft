@@ -140,9 +140,21 @@ impl Palette {
         self.set_query(String::new());
     }
 
-    /// Tab: the row's completion, if it has one. On a row of the `?` list it
-    /// switches to that prefix, the same as Enter.
+    /// The selected row's Tab action, when its provider says it can run.
+    fn tab_action(&mut self) -> Option<Choice> {
+        let choice = self.selected_item()?.tab_action.clone()?;
+        let Action::Provider { provider, command } = &choice.action else {
+            return Some(choice);
+        };
+        self.router.available(provider, command).then_some(choice)
+    }
+
+    /// Tab: the row's Tab action or completion, if it has one. On a row of
+    /// the `?` list it switches to that prefix, the same as Enter.
     fn complete(&mut self) -> Option<Action> {
+        if let Some(choice) = self.tab_action() {
+            return Some(choice.action);
+        }
         let item = self.selected_item()?;
         if let Some(Choice {
             action: action @ Action::SetPrefix(_),
@@ -333,7 +345,8 @@ impl Palette {
             panel.max,
         );
         painter.hline(footer.x_range(), footer.top() + line.width / 2.0, line);
-        let hints = footer_keys(self.selected_item(), self.results.escape_label);
+        let tab_action = self.tab_action().map(|choice| choice.label);
+        let hints = footer_keys(self.selected_item(), tab_action, self.results.escape_label);
         ui.scope_builder(
             UiBuilder::new()
                 .max_rect(footer.shrink2(vec2(16.0, 0.0)))
@@ -415,6 +428,13 @@ impl Palette {
                             self.set_query(String::new());
                             Outcome::Stay
                         }
+                        Reply::Switch { provider, text } => {
+                            if let Some(prefix) = self.router.prefix_of(provider) {
+                                self.prefix = Some(prefix);
+                                self.set_query(text);
+                            }
+                            Outcome::Stay
+                        }
                         Reply::Hide => Outcome::Hide,
                     }
                 }
@@ -494,6 +514,7 @@ fn context(snapshot: &UiSnapshot) -> Context<'_> {
 /// work. A Tab completion without a label works but is not advertised.
 fn footer_keys(
     item: Option<&ResultItem>,
+    tab_action: Option<String>,
     escape: Option<&'static str>,
 ) -> Vec<(&'static str, String)> {
     let mut keys = Vec::new();
@@ -507,7 +528,9 @@ fn footer_keys(
         if let Some(choice) = &item.ctrl_enter {
             keys.push(("Ctrl+\u{21B5}", choice.label.clone()));
         }
-        if let Some(completion) = item.tab.as_ref().filter(|tab| !tab.label.is_empty()) {
+        if let Some(label) = tab_action {
+            keys.push(("Tab", label));
+        } else if let Some(completion) = item.tab.as_ref().filter(|tab| !tab.label.is_empty()) {
             keys.push(("Tab", completion.label.clone()));
         }
     }

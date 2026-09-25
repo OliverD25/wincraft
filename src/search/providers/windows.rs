@@ -19,10 +19,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_EX_TOOLWINDOW,
 };
 
+use super::explorer;
 use crate::core::wide;
 use crate::search::com::{self, ComPtr};
 use crate::search::{
-    Action, Choice, Completion, Context, IconRef, Query, ResultItem, SearchProvider,
+    Action, Choice, Completion, Context, IconRef, Query, Reply, ResultItem, SearchProvider,
 };
 use crate::ui::fuzzy;
 
@@ -42,13 +43,45 @@ pub struct OpenWindow {
     /// "chrome", without the folder and ".exe", for matching and display.
     pub program: String,
     pub other_desktop: bool,
+    /// A File Explorer window, whose folder Tab can browse.
+    pub explorer: bool,
 }
+
+const EXPLORER_CLASS: &str = "CabinetWClass";
+const BROWSE: &str = "browse";
 
 /// The windows Alt+Tab would show, on every virtual desktop, read once when
 /// the palette opens.
 #[derive(Default)]
 pub struct Windows {
     windows: Vec<OpenWindow>,
+    /// Explorer windows' folders, looked up when first needed while the
+    /// palette is open; None for a folder without a path, like This PC.
+    folders: HashMap<isize, Option<String>>,
+}
+
+impl Windows {
+    fn folder(&mut self, command: &str) -> Option<String> {
+        let hwnd: isize = command.strip_prefix(BROWSE)?.trim().parse().ok()?;
+        if let Some(known) = self.folders.get(&hwnd) {
+            return known.clone();
+        }
+        let title = self
+            .windows
+            .iter()
+            .find(|window| window.hwnd == hwnd)
+            .map(|window| window.title.clone())
+            .unwrap_or_default();
+        let started = Instant::now();
+        let folder = explorer::folder_of(hwnd, &title);
+        log::debug!(
+            "read the folder of an Explorer window in {:.1} ms: {}",
+            started.elapsed().as_secs_f64() * 1000.0,
+            folder.as_deref().unwrap_or("none")
+        );
+        self.folders.insert(hwnd, folder.clone());
+        folder
+    }
 }
 
 impl SearchProvider for Windows {
@@ -78,12 +111,33 @@ impl SearchProvider for Windows {
 
     fn opened(&mut self) {
         let started = Instant::now();
+        self.folders.clear();
         self.windows = enumerate();
         log::debug!(
             "listed {} open windows in {:.2} ms",
             self.windows.len(),
             started.elapsed().as_secs_f64() * 1000.0
         );
+    }
+
+    fn available(&mut self, command: &str) -> bool {
+        self.folder(command).is_some()
+    }
+
+    /// Tab on an Explorer window: browse its folder under the paths prefix,
+    /// without bringing the window forward.
+    fn act(&mut self, command: &str, _context: &Context) -> Reply {
+        match self.folder(command) {
+            Some(folder) => Reply::Switch {
+                provider: "paths",
+                text: if folder.ends_with('\\') {
+                    folder
+                } else {
+                    format!("{folder}\\")
+                },
+            },
+            None => Reply::Stay,
+        }
     }
 
     fn query(&mut self, query: &Query, _context: &Context) -> Vec<ResultItem> {
@@ -128,6 +182,13 @@ pub fn search(windows: &[OpenWindow], text: &str, limit: usize) -> Vec<ResultIte
                 action: Action::Activate(window.hwnd),
             }),
             tab: Some(Completion::quiet(&window.title)),
+            tab_action: window.explorer.then(|| Choice {
+                label: "Browse folder".to_string(),
+                action: Action::Provider {
+                    provider: "windows".to_string(),
+                    command: format!("{BROWSE} {}", window.hwnd),
+                },
+            }),
             ..Default::default()
         })
         .collect()
@@ -206,7 +267,8 @@ fn enumerate() -> Vec<OpenWindow> {
         if pid == own {
             continue;
         }
-        let Some(other_desktop) = alt_tab(&candidate(hwnd, desktops.as_ref())) else {
+        let window = candidate(hwnd, desktops.as_ref());
+        let Some(other_desktop) = alt_tab(&window) else {
             continue;
         };
         let exe_path = exe_of_pid
@@ -215,10 +277,11 @@ fn enumerate() -> Vec<OpenWindow> {
             .clone();
         windows.push(OpenWindow {
             hwnd: hwnd as isize,
-            title: text_of(hwnd, GetWindowTextW),
             program: program_name(&exe_path),
             exe_path,
             other_desktop,
+            explorer: window.class == EXPLORER_CLASS,
+            title: window.title,
         });
     }
     windows
@@ -364,6 +427,7 @@ mod tests {
             program: program_name(&exe_path),
             exe_path,
             other_desktop: false,
+            explorer: false,
         }
     }
 

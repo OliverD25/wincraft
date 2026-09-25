@@ -33,6 +33,12 @@ impl ComPtr {
     pub unsafe fn vtable<T>(&self) -> &T {
         unsafe { &**(self.0 as *const *const T) }
     }
+
+    pub fn query(&self, iid: &GUID) -> Option<ComPtr> {
+        let mut raw = std::ptr::null_mut();
+        let hr = unsafe { (self.vtable::<IUnknown_Vtbl>().QueryInterface)(self.0, iid, &mut raw) };
+        ok(hr).then(|| Self::from_raw(raw)).flatten()
+    }
 }
 
 impl Drop for ComPtr {
