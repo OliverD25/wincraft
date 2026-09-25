@@ -29,6 +29,23 @@ fn main() {
         return;
     }
 
+    // A check that reads the screen and exits. It skips logging::init, which
+    // would empty the log of the WinCraft already running.
+    if let Some(point) = arg_after("--probe-taskbar-at") {
+        unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+        let parsed = point
+            .split_once(',')
+            .and_then(|(x, y)| Some((x.trim().parse().ok()?, y.trim().parse().ok()?)));
+        match parsed {
+            Some((x, y)) => {
+                let app = core::taskbar::app_at(x, y);
+                println!("{x},{y}: {}", app.as_deref().unwrap_or("none"));
+            }
+            None => println!("expected --probe-taskbar-at X,Y, got {point}"),
+        }
+        return;
+    }
+
     let Some(mutex) = claim_single_instance() else {
         return;
     };
@@ -79,6 +96,12 @@ fn main() {
     }
 
     unsafe { CloseHandle(mutex) };
+}
+
+fn arg_after(flag: &str) -> Option<String> {
+    let mut args = std::env::args();
+    args.find(|arg| arg == flag)?;
+    args.next()
 }
 
 fn claim_single_instance() -> Option<HANDLE> {

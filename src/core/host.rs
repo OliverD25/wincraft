@@ -34,7 +34,7 @@ use crate::core::ui_bridge::{
     HostRequest, HostSetting, HotkeyInfo, MonitorRect, Page, PaletteEntry, PluginInfo, UiChannel,
     UiCommand, UiSnapshot, WM_APP_UI,
 };
-use crate::core::{autostart, config, hotkeys, theme, wide};
+use crate::core::{autostart, config, hotkeys, taskbar, theme, wide};
 use crate::ui;
 
 const CLASS_NAME: &str = "WinCraftHost";
@@ -637,6 +637,13 @@ impl Host {
     /// Asks the first enabled plugin that keeps a window order for its groups
     /// and sends them to the Arrange window.
     fn send_arrange(&mut self, open: bool) {
+        // Read before the plugin builds its groups, so the mouse is still
+        // where it was when the hotkey came.
+        let hovered = if open {
+            taskbar::app_under_cursor()
+        } else {
+            None
+        };
         let found = self.slots.iter_mut().find_map(|slot| {
             if !slot.enabled {
                 return None;
@@ -648,11 +655,31 @@ impl Host {
             log::info!("no enabled plugin keeps a window order");
             return;
         };
+        let mut focus = groups.focus;
+        if open {
+            let under_cursor = hovered.as_deref().and_then(|app| {
+                groups
+                    .groups
+                    .iter()
+                    .position(|group| taskbar::same_app(app, &group.key))
+            });
+            let rule = match under_cursor {
+                Some(index) => {
+                    focus = index;
+                    "taskbar button under cursor"
+                }
+                None => "front window",
+            };
+            match groups.groups.get(focus) {
+                Some(group) => log::info!("arrange opened on {} ({rule})", group.label),
+                None => log::info!("arrange opened with no app windows"),
+            }
+        }
         let snapshot = ArrangeSnapshot {
             plugin: id.to_string(),
             groups: groups.groups,
             desktops: groups.desktops,
-            focus: groups.focus,
+            focus,
             watched: groups.watched,
         };
         self.to_ui.send(if open {
