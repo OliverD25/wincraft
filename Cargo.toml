@@ -1,6 +1,6 @@
 [package]
 name = "wincraft"
-version = "0.8.4"
+version = "0.9.0"
 edition = "2021"
 description = "Modular Windows 11 tray utility"
 authors = ["WinCraft contributors"]
@@ -47,7 +47,6 @@ features = [
     "Win32_System_Pipes",
     "Win32_System_JobObjects",
     "Win32_System_IO",
-    "Win32_Globalization",
 ]
 
 [build-dependencies]

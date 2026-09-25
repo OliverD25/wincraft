@@ -6,8 +6,9 @@ hotkeys, a command palette and a settings window. Features are written as
 **plugins** that plug into one Rust trait, so adding a feature never means
 touching the Win32 plumbing or writing any UI code.
 
-Version 0.8 ships four plugins: **ScreenDimmer**, **ShortcutDetector**,
-**LayoutKeeper** and **LanguageIndicator**.
+Version 0.9 ships four plugins: **ScreenDimmer**, **ShortcutDetector**,
+**LayoutKeeper** and **LanguageIndicator**, and a palette that also finds
+apps, open windows, folders, sums, web searches and terminal commands.
 
 ## What you get
 

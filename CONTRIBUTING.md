@@ -290,6 +290,11 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
 - **Log with `log::info!`, `log::warn!`, `log::error!`.** They go to
   `%LOCALAPPDATA%\WinCraft\wincraft.log`. Use `log::debug!` for detail that
   only matters while debugging; it is off unless `WINCRAFT_DEBUG=1` is set.
+- **Use the shared Win32 helpers in `src/core/`** instead of writing another
+  copy: `com` (the owned COM pointer), `windows_list` (the Alt+Tab window
+  filter, window text, a process's program path), `desktop_manager` (which
+  virtual desktop a window is on), `clipboard`, `monitors` (left, middle,
+  right) and `wide` / `from_wide_ptr` for UTF-16 strings.
 - **Clean up in `teardown`.** A plugin can be switched off and on again from
   the settings window, so `init` must work a second time.
 - **`cargo fmt`, `cargo test` and a warning-free `cargo build --release`.** CI
