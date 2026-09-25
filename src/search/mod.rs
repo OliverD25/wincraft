@@ -6,6 +6,7 @@
 //! palette changing.
 
 pub mod actions;
+mod com;
 pub mod icons;
 pub mod providers;
 
