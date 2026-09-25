@@ -27,7 +27,7 @@ use crate::core::traits::{
 use crate::core::ui_bridge::{
     ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeWindow,
 };
-use crate::core::{clock, host, wide};
+use crate::core::{clock, host, instance, wide};
 use desktops::{Desktop, DesktopId};
 use order::{Handle, OrderModel};
 use restore::{Restore, Step};
@@ -121,6 +121,12 @@ pub struct LayoutKeeper {
     guard: guard::Guard,
     last_saved: Option<String>,
     last_restore: Option<String>,
+    /// A test instance (WINCRAFT_INSTANCE) watches, saves and shows the
+    /// strip, but never restores, reorders, moves, raises or closes the
+    /// user's real windows.
+    read_only: bool,
+    /// Changes a read-only instance turned down, for its status line.
+    refused: u32,
 }
 
 impl Default for LayoutKeeper {
@@ -148,6 +154,8 @@ impl Default for LayoutKeeper {
             guard: guard::Guard::default(),
             last_saved: None,
             last_restore: None,
+            read_only: instance::is_test(),
+            refused: 0,
         }
     }
 }
@@ -155,6 +163,17 @@ impl Default for LayoutKeeper {
 impl LayoutKeeper {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// True, after logging it, when this is a read-only test instance and
+    /// `what` would change a real window; the caller then does nothing.
+    fn refuses(&mut self, what: &str) -> bool {
+        if !self.read_only {
+            return false;
+        }
+        self.refused += 1;
+        log::info!("read-only test instance: {what} skipped");
+        true
     }
 
     fn apply_settings(&mut self, settings: &serde_json::Value) {
@@ -448,6 +467,9 @@ impl LayoutKeeper {
     /// another desktop over to this one, so those windows are only included
     /// when `pull` is set and the caller will move them back.
     fn apply_group(&mut self, key: &str, pull: bool) {
+        if self.refuses("taskbar reorder") {
+            return;
+        }
         let label = self.label_of(key);
         let Some(pending) = self.groups.get(key).and_then(OrderModel::pending) else {
             return;
@@ -504,6 +526,9 @@ impl LayoutKeeper {
 
     /// Moves the front window one place along its taskbar group.
     fn shift_front(&mut self, step: isize) {
+        if self.refuses("moving the front window in its group") {
+            return;
+        }
         let front = unsafe { GetForegroundWindow() };
         let (exe, key) = windows::describe(front);
         if !self.watch.covers(&exe) {
@@ -563,6 +588,9 @@ impl LayoutKeeper {
     }
 
     fn start_restore(&mut self) {
+        if self.refuses("restore") {
+            return;
+        }
         let groups = self.saved_groups();
         if groups.is_empty() {
             log::info!("no layout has been saved yet, so there is nothing to restore");
@@ -708,6 +736,9 @@ impl LayoutKeeper {
     /// window's old desktop, so every window whose desktop is not the current
     /// one is moved without asking where it is.
     fn finish_restore(&mut self, finish: Finish) {
+        if self.refuses("finishing a restore") {
+            return;
+        }
         let registry = desktops::list();
         let current = desktops::current();
         for (hwnd, target, label) in &finish.moves {
@@ -758,6 +789,9 @@ impl LayoutKeeper {
         registry: &[Desktop],
         label: &str,
     ) {
+        if self.refuses("desktop move") {
+            return;
+        }
         if target == DesktopId::ALL {
             return;
         }
@@ -1329,6 +1363,15 @@ impl WinCraftPlugin for LayoutKeeper {
     }
 
     fn on_arrange_action(&mut self, action: &ArrangeAction) {
+        let what = match action {
+            ArrangeAction::Activate(_) => "switching to a window",
+            ArrangeAction::Reorder { .. } => "reordering from the strip",
+            ArrangeAction::MoveToDesktop { .. } => "moving a window to another desktop",
+            ArrangeAction::Close(_) => "closing a window",
+        };
+        if self.refuses(what) {
+            return;
+        }
         match action {
             ArrangeAction::Activate(hwnd) => {
                 let hwnd = *hwnd as HWND;
@@ -1408,6 +1451,12 @@ impl WinCraftPlugin for LayoutKeeper {
             Mover::Disabled(reason) => format!("Desktop moves: disabled ({reason})"),
         };
         let mut parts = vec![saved];
+        if self.read_only {
+            parts.push(format!(
+                "Read-only test instance: {} changes to real windows skipped",
+                self.refused
+            ));
+        }
         if self.restore.is_running() {
             parts.push(format!(
                 "Restore waiting for {} apps to settle",
@@ -1585,6 +1634,104 @@ mod tests {
             watch.covers(exe)
         });
         assert_eq!(merged.keys().collect::<Vec<_>>(), ["chrome.exe"]);
+    }
+
+    fn read_only() -> LayoutKeeper {
+        LayoutKeeper {
+            read_only: true,
+            watch: Watch::new("*", ""),
+            ..LayoutKeeper::default()
+        }
+    }
+
+    // A handle no window has: if a guard were missing, the call would reach
+    // Win32 with it and the refusal count would not move.
+    const NO_WINDOW: HWND = 0x7fff_fff0 as HWND;
+
+    #[test]
+    fn a_normal_instance_is_not_read_only() {
+        // cargo test runs without WINCRAFT_INSTANCE.
+        assert!(!instance::is_test());
+        let mut keeper = LayoutKeeper::default();
+        assert!(!keeper.read_only);
+        assert!(!keeper.refuses("anything"));
+        assert_eq!(keeper.refused, 0);
+    }
+
+    #[test]
+    fn a_read_only_instance_starts_no_restore() {
+        let mut keeper = read_only();
+        keeper.writer = state::Writer::new(
+            std::env::temp_dir().join("wincraft-test-never-written.json"),
+            Some(old_file()),
+        );
+        keeper.start_restore();
+        assert_eq!(keeper.refused, 1);
+        assert!(!keeper.restore.is_running());
+    }
+
+    #[test]
+    fn a_read_only_instance_never_touches_the_taskbar_or_desktops() {
+        let mut keeper = read_only();
+        keeper.apply_group("Chrome.UserData.Profile3", true);
+        assert!(keeper.taskbar.is_none(), "no ITaskbarList was made");
+        keeper.move_to_desktop(NO_WINDOW, DesktopId(7), &[], "w");
+        assert!(matches!(keeper.mover, Mover::Untried));
+        keeper.shift_front(1);
+        keeper.shift_front(-1);
+        assert_eq!(keeper.refused, 4);
+    }
+
+    #[test]
+    fn a_read_only_instance_does_not_finish_a_restore() {
+        let mut keeper = read_only();
+        keeper.finish_restore(Finish {
+            moves: vec![(NO_WINDOW, DesktopId(7), "w".to_string())],
+            stack: vec![(0, NO_WINDOW)],
+            foreground: NO_WINDOW,
+            summary: "Restored 1 of 1 test windows".to_string(),
+        });
+        assert_eq!(keeper.refused, 1);
+        assert!(keeper.last_restore.is_none());
+    }
+
+    #[test]
+    fn every_strip_action_is_turned_down_in_a_read_only_instance() {
+        let mut keeper = read_only();
+        let hwnd = NO_WINDOW as isize;
+        let actions = [
+            ArrangeAction::Activate(hwnd),
+            ArrangeAction::Reorder {
+                group: "Chrome.UserData.Profile3".to_string(),
+                order: vec![hwnd],
+            },
+            ArrangeAction::MoveToDesktop {
+                hwnd,
+                desktop: "{00000000-0000-0000-0000-000000000007}".to_string(),
+            },
+            ArrangeAction::Close(hwnd),
+        ];
+        for (done, action) in actions.iter().enumerate() {
+            keeper.on_arrange_action(action);
+            assert_eq!(keeper.refused as usize, done + 1, "{action:?}");
+        }
+        assert!(keeper.reapply.is_empty());
+        assert!(!keeper.arrange_stale);
+    }
+
+    #[test]
+    fn the_hotkeys_that_move_windows_are_turned_down_too() {
+        let mut keeper = read_only();
+        keeper.on_hotkey(ACTION_RESTORE);
+        keeper.on_hotkey(ACTION_MOVE_LEFT);
+        keeper.on_hotkey(ACTION_MOVE_RIGHT);
+        keeper.on_tray_action(ACTION_RESTORE);
+        assert_eq!(keeper.refused, 4);
+        let status = keeper.status().unwrap();
+        assert!(
+            status.contains("Read-only test instance: 4 changes"),
+            "{status}"
+        );
     }
 
     #[test]
