@@ -1,7 +1,7 @@
 # LanguageIndicator
 
 Shows which input language you switched to, in the middle of the screen, the
-way macOS does. Switch from Ukrainian to English and a glassy panel shows
+way macOS does. Switch from Ukrainian to English and a translucent panel shows
 **UK → EN** with "English (United States) · US" under it, then fades out.
 
 ## When it appears

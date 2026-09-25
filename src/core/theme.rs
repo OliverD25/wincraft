@@ -18,6 +18,11 @@ const SELAWIK: &str = "Selawik";
 const SELAWIK_SEMIBOLD: &str = "SelawikSemibold";
 const MONO: &str = "JetBrainsMono";
 
+/// The bundled Segoe UI substitute, shared with the LanguageIndicator's GDI
+/// panel so the files are embedded once.
+pub const SELAWIK_REGULAR_TTF: &[u8] = include_bytes!("../../assets/fonts/Selawik-Regular.ttf");
+pub const SELAWIK_SEMIBOLD_TTF: &[u8] = include_bytes!("../../assets/fonts/Selawik-Semibold.ttf");
+
 /// Family name for the semibold weight: egui picks faces by family, not by
 /// weight, so the second weight is a family of its own.
 pub const SEMIBOLD_FAMILY: &str = "semibold";
@@ -268,13 +273,10 @@ fn install_fonts_from(ctx: &egui::Context, system: Option<(Vec<u8>, Vec<u8>)>) {
     let mut add = |name: &str, data: FontData| {
         fonts.font_data.insert(name.to_string(), Arc::new(data));
     };
-    add(
-        SELAWIK,
-        FontData::from_static(include_bytes!("../../assets/fonts/Selawik-Regular.ttf")),
-    );
+    add(SELAWIK, FontData::from_static(SELAWIK_REGULAR_TTF));
     add(
         SELAWIK_SEMIBOLD,
-        FontData::from_static(include_bytes!("../../assets/fonts/Selawik-Semibold.ttf")),
+        FontData::from_static(SELAWIK_SEMIBOLD_TTF),
     );
     add(
         MONO,
@@ -491,10 +493,7 @@ mod tests {
         let ctx = egui::Context::default();
         install_fonts_from(
             &ctx,
-            Some((
-                bundled(include_bytes!("../../assets/fonts/Selawik-Regular.ttf")),
-                bundled(include_bytes!("../../assets/fonts/Selawik-Semibold.ttf")),
-            )),
+            Some((bundled(SELAWIK_REGULAR_TTF), bundled(SELAWIK_SEMIBOLD_TTF))),
         );
         apply(&ctx, ThemeChoice::Dark);
         let [regular, semibold, _] = first_faces(&ctx);

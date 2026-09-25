@@ -6,8 +6,8 @@ hotkeys, a command palette and a settings window. Features are written as
 **plugins** that plug into one Rust trait, so adding a feature never means
 touching the Win32 plumbing or writing any UI code.
 
-Version 0.6 ships three plugins: **ScreenDimmer**, **ShortcutDetector** and
-**LayoutKeeper**.
+Version 0.7 ships four plugins: **ScreenDimmer**, **ShortcutDetector**,
+**LayoutKeeper** and **LanguageIndicator**.
 
 ## What you get
 
@@ -97,6 +97,15 @@ taskbar's thumbnail flyout is not possible from outside Explorer on Windows 11
 reorders, but WinCraft cannot see its changes, and the next restore replaces
 them.
 
+### LanguageIndicator
+
+Shows which input language you switched to, in the middle of the screen, the
+way macOS does: switch from Ukrainian to English and a translucent panel shows
+**UK → EN** with "English (United States) · US" under it, then fades out. It
+never takes the focus and lets clicks through. It has no hotkeys; the palette
+command **Show current input language** shows it on demand.
+[Full README](src/plugins/language_indicator/README.md)
+
 ### Host hotkeys
 
 | Hotkey | What it does |
@@ -114,6 +123,7 @@ plugins\
   screen_dimmer.json   one file per plugin
   shortcut_detector.json
   layout_keeper.json
+  language_indicator.json
   layout_keeper.state.json   the saved window layout, written by LayoutKeeper
   layout_keeper.state.prev.json   the layout from before a browser crash or restart
 cache\                 the last plugin index fetched from GitHub
