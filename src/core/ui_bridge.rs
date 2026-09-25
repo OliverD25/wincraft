@@ -85,6 +85,20 @@ pub struct ArrangeGroup {
     pub windows: Vec<ArrangeWindow>,
 }
 
+impl ArrangeGroup {
+    /// The group a scene asks for: by its place in the list ("0" is the
+    /// first) or by its key, in any case.
+    pub fn pick(groups: &[ArrangeGroup], wanted: &str) -> Option<usize> {
+        let wanted = wanted.trim();
+        if let Ok(index) = wanted.parse::<usize>() {
+            return (index < groups.len()).then_some(index);
+        }
+        groups
+            .iter()
+            .position(|group| group.key.eq_ignore_ascii_case(wanted))
+    }
+}
+
 /// A virtual desktop, in Task View order.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ArrangeDesktop {
@@ -134,6 +148,14 @@ pub struct MonitorRect {
 pub enum UiCommand {
     ShowPalette(MonitorRect),
     ShowSettings(Page),
+    /// Test instances only: a plugin's own page in the settings window.
+    ShowPluginPage(String),
+    /// Test instances only: text put in the palette's box as if typed,
+    /// prefix and all. Nothing runs.
+    TypeInPalette(String),
+    /// Test instances only: the strip shows the peek for one card, as if the
+    /// mouse rested on it.
+    PeekCard(PeekCard),
     ShowArrange(ArrangeSnapshot),
     /// A fresh list for the Arrange window, if it is still open.
     ArrangeUpdate(ArrangeSnapshot),
@@ -141,6 +163,22 @@ pub enum UiCommand {
     Snapshot(Box<UiSnapshot>),
     ThemeChanged,
     Quit,
+}
+
+/// Which card a test scene peeks at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PeekCard {
+    /// The card at this place, counting from 0 across the rows.
+    Index(usize),
+    /// The first card with a monitor chip, else the first card.
+    Chip,
+}
+
+/// Which settings page a test scene opens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SettingsTarget {
+    Page(Page),
+    Plugin(String),
 }
 
 pub enum HostRequest {
@@ -313,5 +351,39 @@ pub fn create() -> Bridge {
         }),
         ui_rx,
         host_rx,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn group(key: &str) -> ArrangeGroup {
+        ArrangeGroup {
+            key: key.to_string(),
+            label: key.to_string(),
+            windows: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_group_is_picked_by_place_or_by_key() {
+        let groups = [
+            group("Chrome.UserData.Profile3"),
+            group("Telegram.TelegramDesktop"),
+        ];
+        assert_eq!(ArrangeGroup::pick(&groups, "0"), Some(0));
+        assert_eq!(ArrangeGroup::pick(&groups, "1"), Some(1));
+        assert_eq!(ArrangeGroup::pick(&groups, "2"), None);
+        assert_eq!(
+            ArrangeGroup::pick(&groups, "telegram.telegramdesktop"),
+            Some(1)
+        );
+        assert_eq!(
+            ArrangeGroup::pick(&groups, " Chrome.UserData.Profile3 "),
+            Some(0)
+        );
+        assert_eq!(ArrangeGroup::pick(&groups, "Viber"), None);
+        assert_eq!(ArrangeGroup::pick(&[], "0"), None);
     }
 }

@@ -128,6 +128,19 @@ impl Palette {
         self.results.items.get(self.selected)
     }
 
+    /// Puts `text` in the box as if it had been typed, so a prefix at its
+    /// start becomes the chip. Runs nothing.
+    pub fn type_in(&mut self, text: &str) {
+        match self.router.split(text) {
+            Some((prefix, rest)) => {
+                let rest = rest.to_string();
+                self.prefix = Some(prefix);
+                self.set_query(rest);
+            }
+            None => self.set_query(text.to_string()),
+        }
+    }
+
     fn set_query(&mut self, text: String) {
         self.query = text;
         self.selected = 0;

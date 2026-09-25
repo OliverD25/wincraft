@@ -317,6 +317,24 @@ it is a separate instance:
   `{"enabled": false}` for every plugin you are not testing: with no file, a
   plugin starts enabled with its defaults, and LayoutKeeper would then watch
   and restore your real windows.
+- **A test instance is read-only towards real windows.** Its LayoutKeeper
+  watches, saves into the scratch folder and shows the strip, but never
+  restores, reorders taskbar buttons, moves, raises, switches to or closes a
+  real window; each such step is logged as "read-only test instance: ...
+  skipped".
+- **Scene flags open one view without any input**, and only in a test
+  instance (a normal WinCraft logs that it ignored them):
+
+  | Flag | Opens |
+  |---|---|
+  | `--open-palette=<query>` | The palette with the query typed in, prefix and all: `/`, `=2+2*3`, `<chrome`, `?`. Nothing runs. |
+  | `--open-settings=<page>` | `general`, `plugins`, `store`, `about`, or a plugin's page: `plugin:layout_keeper`. |
+  | `--open-arrange=<group>` | The Arrange strip on a group, by its place (`0` is the first) or its key. |
+  | `--peek-card=<n>` | The strip with the hover peek on card `n` (from 0), or `chip` for the first card with a monitor chip. |
+  | `--theme=light` or `dark` | That theme for this run. |
+
+  Each scene is a fresh test instance, started with its flags and stopped
+  with `--quit`, so no scene can leave state behind for the next.
 - **`wincraft.exe --quit`** asks the running instance to shut down the way
   the tray's Quit does and waits up to 10 seconds. It prints one line and
   exits with 0 when WinCraft closed, 1 when none was running and 2 when it was

@@ -201,6 +201,21 @@ impl App {
                     self.arrange.update(snapshot);
                     ctx.request_repaint_of(arrange::viewport_id());
                 }
+                UiCommand::ShowPluginPage(id) => {
+                    self.settings.open_plugin(&id);
+                    self.settings_open = true;
+                    ctx.request_repaint();
+                    log::info!("settings shown on the {id} page");
+                }
+                UiCommand::TypeInPalette(text) => {
+                    self.palette.type_in(&text);
+                    ctx.request_repaint();
+                    log::info!("palette query set to \"{text}\"");
+                }
+                UiCommand::PeekCard(card) => {
+                    self.arrange.peek_card(card);
+                    ctx.request_repaint_of(arrange::viewport_id());
+                }
                 UiCommand::HideAll => {
                     self.hide_palette(ctx);
                     self.settings_open = false;

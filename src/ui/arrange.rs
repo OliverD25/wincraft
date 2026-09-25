@@ -16,6 +16,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{
     ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeSnapshot, HostChannel, HostRequest,
+    PeekCard,
 };
 use crate::ui::dwm_thumbs::{self, Placement, Thumbnail};
 use crate::ui::peek::{self, Hover, Peek, Step};
@@ -206,6 +207,8 @@ struct Shared {
     thumbs: HashMap<isize, Option<Thumbnail>>,
     peek: Peek,
     hover: Hover,
+    /// A test scene's card to peek at, without a mouse.
+    forced_peek: Option<PeekCard>,
 }
 
 impl Shared {
@@ -264,6 +267,7 @@ impl Arrange {
                 thumbs: HashMap::new(),
                 peek: Peek::default(),
                 hover: Hover::default(),
+                forced_peek: None,
             })),
             palette_hwnd,
         }
@@ -304,6 +308,13 @@ impl Arrange {
         shared.snapshot = Some(snapshot);
     }
 
+    /// Test scenes only: peek at one card as if the mouse rested on it.
+    pub fn peek_card(&self, card: PeekCard) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.forced_peek = Some(card);
+        }
+    }
+
     pub fn was_closed(&self) -> bool {
         self.shared
             .lock()
@@ -320,6 +331,7 @@ impl Arrange {
             shared.drag = None;
             shared.thumbs.clear();
             shared.hide_peek();
+            shared.forced_peek = None;
         }
     }
 
@@ -573,6 +585,7 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     let mut actions: Vec<ArrangeAction> = Vec::new();
     let mut activate: Option<isize> = None;
     let mut hovered: Option<isize> = None;
+    let mut cards: Vec<(isize, bool)> = Vec::new();
 
     let flat: Vec<usize> = rows.iter().flat_map(|row| row.members.clone()).collect();
     if shared
@@ -660,6 +673,7 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
                                     is_cursor,
                                 );
                                 cards_here.push(response.rect);
+                                cards.push((window.hwnd, window.monitor.is_some()));
                                 if response.hovered() {
                                     hovered = Some(window.hwnd);
                                 }
@@ -712,10 +726,18 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     // so a menu or drag that started on this frame hides the peek at once.
     let blocked =
         !preview || egui::Popup::is_any_open(&ctx) || shared.drag.is_some() || shared.window == 0;
-    match shared.hover.step(Instant::now(), hovered, in_rows, blocked) {
-        Step::Show(hwnd) => shared.peek.show(hwnd, shared.window as HWND),
-        Step::Hide => shared.peek.hide(),
-        Step::Wait(after) => ctx.request_repaint_after(after),
+    let forced = shared
+        .forced_peek
+        .and_then(|card| forced_card(&cards, card));
+    match forced {
+        Some(hwnd) if !blocked && hovered.is_none() => {
+            shared.peek.show(hwnd, shared.window as HWND)
+        }
+        _ => match shared.hover.step(Instant::now(), hovered, in_rows, blocked) {
+            Step::Show(hwnd) => shared.peek.show(hwnd, shared.window as HWND),
+            Step::Hide => shared.peek.hide(),
+            Step::Wait(after) => ctx.request_repaint_after(after),
+        },
     }
     if shared.peek.is_shown() {
         // Looks again now and then, so a window that closes takes its
@@ -807,6 +829,19 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
             action: ArrangeAction::Activate(hwnd),
         });
         shared.closed = true;
+    }
+}
+
+/// The card a test scene asked to peek at, from the cards in their order on
+/// screen, each with whether it has a monitor chip.
+fn forced_card(cards: &[(isize, bool)], card: PeekCard) -> Option<isize> {
+    match card {
+        PeekCard::Index(index) => cards.get(index).map(|(hwnd, _)| *hwnd),
+        PeekCard::Chip => cards
+            .iter()
+            .find(|(_, chip)| *chip)
+            .or(cards.first())
+            .map(|(hwnd, _)| *hwnd),
     }
 }
 
@@ -1225,6 +1260,22 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn a_scene_peeks_at_the_card_it_names() {
+        let cards = [(10, false), (11, true), (12, true)];
+        assert_eq!(forced_card(&cards, PeekCard::Index(0)), Some(10));
+        assert_eq!(forced_card(&cards, PeekCard::Index(2)), Some(12));
+        assert_eq!(forced_card(&cards, PeekCard::Index(3)), None);
+        assert_eq!(forced_card(&cards, PeekCard::Chip), Some(11));
+        // Without a chip card, the first card stands in.
+        assert_eq!(
+            forced_card(&[(10, false), (11, false)], PeekCard::Chip),
+            Some(10)
+        );
+        assert_eq!(forced_card(&[], PeekCard::Chip), None);
+        assert_eq!(forced_card(&[], PeekCard::Index(0)), None);
     }
 
     #[test]

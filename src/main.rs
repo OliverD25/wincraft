@@ -13,7 +13,9 @@ use windows_sys::Win32::UI::HiDpi::{
     SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
 
-use crate::core::config::Config;
+use crate::core::config::{Config, ThemeChoice};
+use crate::core::host::SceneFlags;
+use crate::core::ui_bridge::{Page, PeekCard, SettingsTarget};
 use crate::core::{autostart, host, instance, logging, quit, wide};
 
 const SINGLE_INSTANCE_MUTEX: &str = r"Local\WinCraft.SingleInstance";
@@ -80,11 +82,20 @@ fn main() {
         }
     }
 
+    let (scene, theme, notes) = scene_flags(&args, instance::is_test());
+    for note in notes {
+        log::info!("{note}");
+    }
+    if let Some(theme) = theme {
+        log::info!("theme set to {} for this test run", theme.label());
+        config.theme = theme;
+    }
     let flags = host::StartupFlags {
         open_detector: has_flag(&args, "--open-detector"),
         open_palette: has_flag(&args, "--open-palette"),
         open_arrange: has_flag(&args, "--open-arrange"),
         open_settings: has_flag(&args, "--open-settings"),
+        scene,
     };
     // Plugins talk to shell COM objects from the host thread, and those are
     // apartment-threaded; the message loop host::run pumps is what that needs.
@@ -111,6 +122,96 @@ fn has_flag(args: &[String], flag: &str) -> bool {
 fn arg_after(args: &[String], flag: &str) -> Option<String> {
     let at = args.iter().skip(1).position(|arg| arg == flag)?;
     args.get(at + 2).cloned()
+}
+
+/// The test-scene flags: `--open-palette=<query>`, `--open-settings=<page>`,
+/// `--open-arrange=<group>`, `--peek-card=<n|chip>` and `--theme=<light|dark>`.
+/// Only a test instance takes them, so the user's WinCraft can never be
+/// opened on a scene by a stray command line. The notes say what was
+/// ignored or could not be read, for the log.
+fn scene_flags(
+    args: &[String],
+    test_instance: bool,
+) -> (SceneFlags, Option<ThemeChoice>, Vec<String>) {
+    let mut scene = SceneFlags::default();
+    let mut theme = None;
+    let mut notes = Vec::new();
+    for arg in args.iter().skip(1) {
+        let Some((flag, value)) = arg.split_once('=') else {
+            continue;
+        };
+        if !matches!(
+            flag,
+            "--open-palette" | "--open-settings" | "--open-arrange" | "--peek-card" | "--theme"
+        ) {
+            continue;
+        }
+        if !test_instance {
+            notes.push(format!(
+                "{flag}= ignored: only a test instance (WINCRAFT_INSTANCE) takes it"
+            ));
+            continue;
+        }
+        let read = match flag {
+            "--open-palette" => {
+                scene.palette_query = Some(value.to_string());
+                true
+            }
+            "--open-settings" => {
+                scene.settings = settings_target(value);
+                scene.settings.is_some()
+            }
+            "--open-arrange" => {
+                scene.arrange_focus = Some(value.to_string());
+                true
+            }
+            "--peek-card" => {
+                scene.peek_card = peek_card(value);
+                scene.peek_card.is_some()
+            }
+            _ => {
+                theme = theme_choice(value);
+                theme.is_some()
+            }
+        };
+        if !read {
+            notes.push(format!("{flag}={value} cannot be read and is ignored"));
+        }
+    }
+    (scene, theme, notes)
+}
+
+/// "general", "plugins", "store", "about", or "plugin:<id>".
+fn settings_target(value: &str) -> Option<SettingsTarget> {
+    let value = value.trim();
+    if let Some(id) = value.strip_prefix("plugin:") {
+        let id = id.trim();
+        return (!id.is_empty()).then(|| SettingsTarget::Plugin(id.to_string()));
+    }
+    let page = match value.to_ascii_lowercase().as_str() {
+        "general" => Page::General,
+        "plugins" => Page::Plugins,
+        "store" => Page::Store,
+        "about" => Page::About,
+        _ => return None,
+    };
+    Some(SettingsTarget::Page(page))
+}
+
+fn peek_card(value: &str) -> Option<PeekCard> {
+    let value = value.trim();
+    if value.eq_ignore_ascii_case("chip") {
+        return Some(PeekCard::Chip);
+    }
+    value.parse().ok().map(PeekCard::Index)
+}
+
+fn theme_choice(value: &str) -> Option<ThemeChoice> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "light" => Some(ThemeChoice::Light),
+        "dark" => Some(ThemeChoice::Dark),
+        _ => None,
+    }
 }
 
 /// "X,Y" in screen pixels; either may be negative on a monitor left of or
@@ -178,6 +279,127 @@ mod tests {
             arg_after(&args(&["--probe-taskbar-at", "1,2"]), "--probe-taskbar-at"),
             None
         );
+    }
+
+    #[test]
+    fn scene_flags_are_ignored_outside_a_test_instance() {
+        let list = args(&[
+            "wincraft.exe",
+            "--open-palette=/",
+            "--open-settings=about",
+            "--open-arrange=0",
+            "--peek-card=chip",
+            "--theme=light",
+        ]);
+        let (scene, theme, notes) = scene_flags(&list, false);
+        assert_eq!(scene, SceneFlags::default());
+        assert_eq!(theme, None);
+        assert_eq!(notes.len(), 5);
+        assert!(notes
+            .iter()
+            .all(|note| note.contains("only a test instance")));
+    }
+
+    #[test]
+    fn a_test_instance_reads_every_scene_flag() {
+        let list = args(&[
+            "wincraft.exe",
+            "--open-palette==2+2*3",
+            "--open-settings=plugin:layout_keeper",
+            "--open-arrange=Chrome.UserData.Profile3",
+            "--peek-card=2",
+            "--theme=Dark",
+        ]);
+        let (scene, theme, notes) = scene_flags(&list, true);
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(scene.palette_query.as_deref(), Some("=2+2*3"));
+        assert_eq!(
+            scene.settings,
+            Some(SettingsTarget::Plugin("layout_keeper".to_string()))
+        );
+        assert_eq!(
+            scene.arrange_focus.as_deref(),
+            Some("Chrome.UserData.Profile3")
+        );
+        assert_eq!(scene.peek_card, Some(PeekCard::Index(2)));
+        assert_eq!(theme, Some(ThemeChoice::Dark));
+    }
+
+    #[test]
+    fn palette_queries_keep_every_prefix_as_typed() {
+        for query in ["/", "=2+2*3", "<", "<chrome", "?", "> ls", ""] {
+            let list = args(&["wincraft.exe", &format!("--open-palette={query}")]);
+            let (scene, _, notes) = scene_flags(&list, true);
+            assert!(notes.is_empty());
+            assert_eq!(scene.palette_query.as_deref(), Some(query));
+        }
+    }
+
+    #[test]
+    fn flags_without_a_value_are_left_to_the_plain_flags() {
+        let list = args(&["wincraft.exe", "--open-palette", "--open-settings"]);
+        let (scene, theme, notes) = scene_flags(&list, true);
+        assert_eq!(scene, SceneFlags::default());
+        assert_eq!(theme, None);
+        assert!(notes.is_empty());
+        assert!(has_flag(&list, "--open-palette"));
+    }
+
+    #[test]
+    fn unreadable_scene_values_are_noted_and_skipped() {
+        let list = args(&[
+            "wincraft.exe",
+            "--open-settings=nowhere",
+            "--open-settings=plugin:",
+            "--peek-card=first",
+            "--theme=blue",
+            "--other=1",
+        ]);
+        let (scene, theme, notes) = scene_flags(&list, true);
+        assert_eq!(scene, SceneFlags::default());
+        assert_eq!(theme, None);
+        assert_eq!(notes.len(), 4, "{notes:?}");
+    }
+
+    #[test]
+    fn settings_pages_are_named_in_any_case() {
+        assert_eq!(
+            settings_target("General"),
+            Some(SettingsTarget::Page(Page::General))
+        );
+        assert_eq!(
+            settings_target("PLUGINS"),
+            Some(SettingsTarget::Page(Page::Plugins))
+        );
+        assert_eq!(
+            settings_target("store"),
+            Some(SettingsTarget::Page(Page::Store))
+        );
+        assert_eq!(
+            settings_target(" about "),
+            Some(SettingsTarget::Page(Page::About))
+        );
+        assert_eq!(
+            settings_target("plugin: screen_dimmer"),
+            Some(SettingsTarget::Plugin("screen_dimmer".to_string()))
+        );
+        assert_eq!(settings_target(""), None);
+    }
+
+    #[test]
+    fn a_peek_card_is_a_place_or_the_chip() {
+        assert_eq!(peek_card("0"), Some(PeekCard::Index(0)));
+        assert_eq!(peek_card(" 12 "), Some(PeekCard::Index(12)));
+        assert_eq!(peek_card("CHIP"), Some(PeekCard::Chip));
+        assert_eq!(peek_card("-1"), None);
+        assert_eq!(peek_card(""), None);
+    }
+
+    #[test]
+    fn a_theme_is_light_or_dark() {
+        assert_eq!(theme_choice("light"), Some(ThemeChoice::Light));
+        assert_eq!(theme_choice(" DARK "), Some(ThemeChoice::Dark));
+        assert_eq!(theme_choice("system"), None);
     }
 
     #[test]

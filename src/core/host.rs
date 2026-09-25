@@ -30,9 +30,9 @@ use crate::core::config::{Config, PluginConfig, DEFAULT_PALETTE_HOTKEY};
 use crate::core::traits::{HostContext, Hotkey, WinCraftPlugin};
 use crate::core::tray::{show_menu, MenuItem, Tray, WM_TRAY_CALLBACK};
 use crate::core::ui_bridge::{
-    self, ActionKind, ArrangeAction, ArrangeSnapshot, CommandId, FieldInfo, HostCommand,
-    HostRequest, HostSetting, HotkeyInfo, MonitorRect, Page, PaletteEntry, PluginInfo, UiChannel,
-    UiCommand, UiSnapshot, WM_APP_UI,
+    self, ActionKind, ArrangeAction, ArrangeGroup, ArrangeSnapshot, CommandId, FieldInfo,
+    HostCommand, HostRequest, HostSetting, HotkeyInfo, MonitorRect, Page, PaletteEntry, PeekCard,
+    PluginInfo, SettingsTarget, UiChannel, UiCommand, UiSnapshot, WM_APP_UI,
 };
 use crate::core::{autostart, config, hotkeys, instance, taskbar, theme, wide};
 use crate::search::{self, Router, SearchProvider};
@@ -87,14 +87,29 @@ struct Host {
     /// Clicking a "hotkey is taken" balloon opens ShortcutDetector; clicking
     /// a plugin's own notice must not.
     balloon_opens_detector: bool,
+    /// A test scene's group and peek for the next time the strip opens.
+    arrange_focus: Option<String>,
+    peek_card: Option<PeekCard>,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct StartupFlags {
     pub open_detector: bool,
     pub open_palette: bool,
     pub open_arrange: bool,
     pub open_settings: bool,
+    /// The rest are for test instances only; main.rs leaves them empty
+    /// otherwise.
+    pub scene: SceneFlags,
+}
+
+/// What a test scene opens, from the `--open-*=` and `--peek-card=` flags.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SceneFlags {
+    pub palette_query: Option<String>,
+    pub settings: Option<SettingsTarget>,
+    pub arrange_focus: Option<String>,
+    pub peek_card: Option<PeekCard>,
 }
 
 thread_local! {
@@ -169,6 +184,8 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         host_rx: bridge.host_rx,
         palette_hwnd: std::ptr::null_mut(),
         balloon_opens_detector: true,
+        arrange_focus: flags.scene.arrange_focus.clone(),
+        peek_card: flags.scene.peek_card,
     };
     HOST_WINDOW.with(|cell| cell.set(hwnd));
     TASKBAR_CREATED
@@ -206,14 +223,27 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
     if flags.open_detector {
         open_shortcut_detector();
     }
-    if flags.open_palette {
+    if flags.open_palette || flags.scene.palette_query.is_some() {
         show_palette();
     }
-    if flags.open_arrange {
+    if let Some(text) = flags.scene.palette_query.filter(|text| !text.is_empty()) {
+        with_host(|host| host.to_ui.send(UiCommand::TypeInPalette(text)));
+    }
+    if flags.open_arrange || flags.scene.arrange_focus.is_some() || flags.scene.peek_card.is_some()
+    {
         open_arrange();
     }
-    if flags.open_settings {
-        with_host(|host| host.to_ui.send(UiCommand::ShowSettings(Page::General)));
+    match flags.scene.settings {
+        Some(SettingsTarget::Page(page)) => {
+            with_host(|host| host.to_ui.send(UiCommand::ShowSettings(page)));
+        }
+        Some(SettingsTarget::Plugin(id)) => {
+            with_host(|host| host.to_ui.send(UiCommand::ShowPluginPage(id)));
+        }
+        None if flags.open_settings => {
+            with_host(|host| host.to_ui.send(UiCommand::ShowSettings(Page::General)));
+        }
+        None => {}
     }
 
     let mut msg: MSG = unsafe { std::mem::zeroed() };
@@ -710,12 +740,23 @@ impl Host {
                     .iter()
                     .position(|group| taskbar::same_app(app, &group.key))
             });
-            let rule = match under_cursor {
-                Some(index) => {
+            let asked = self.arrange_focus.take().and_then(|wanted| {
+                let found = ArrangeGroup::pick(&groups.groups, &wanted);
+                if found.is_none() {
+                    log::info!("the scene asked for group \"{wanted}\", which is not open");
+                }
+                found
+            });
+            let rule = match (asked, under_cursor) {
+                (Some(index), _) => {
+                    focus = index;
+                    "asked for by the test scene"
+                }
+                (None, Some(index)) => {
                     focus = index;
                     "taskbar button under cursor"
                 }
-                None => "front window",
+                (None, None) => "front window",
             };
             match groups.groups.get(focus) {
                 Some(group) => log::info!("arrange opened on {} ({rule})", group.label),
@@ -735,6 +776,11 @@ impl Host {
         } else {
             UiCommand::ArrangeUpdate(snapshot)
         });
+        if open {
+            if let Some(card) = self.peek_card.take() {
+                self.to_ui.send(UiCommand::PeekCard(card));
+            }
+        }
     }
 
     fn index_of(&self, id: &str) -> Option<usize> {
