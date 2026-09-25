@@ -218,6 +218,27 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   runs all three and builds with `-D warnings`, so a warning fails the build.
   Do not reach for `#[allow]`; fix the cause.
 
+## Testing next to your own WinCraft
+
+A test build can run while your everyday WinCraft keeps running, as long as
+it is a separate instance:
+
+- **`WINCRAFT_INSTANCE=<suffix>`** adds `.<suffix>` to everything that tells
+  one WinCraft from another: the single-instance mutex, the host window class
+  and the autostart value in the registry. With it set, a test instance
+  starts beside yours, `--quit` only reaches the instance with the same
+  suffix, and the autostart setting cannot touch yours. Unset, every name is
+  exactly as in a normal install. Only letters, digits, `-` and `_` count.
+- **Point `LOCALAPPDATA` at a scratch folder** so the test instance has its
+  own config, log and plugin files. Write a `plugins\<id>.json` with
+  `{"enabled": false}` for every plugin you are not testing: with no file, a
+  plugin starts enabled with its defaults, and LayoutKeeper would then watch
+  and restore your real windows.
+- **`wincraft.exe --quit`** asks the running instance to shut down the way
+  the tray's Quit does and waits up to 10 seconds. It prints one line and
+  exits with 0 when WinCraft closed, 1 when none was running and 2 when it was
+  still running after 10 seconds. It uses `WINCRAFT_INSTANCE` too.
+
 ## Ids
 
 Three separate numbering spaces, all local to your plugin:

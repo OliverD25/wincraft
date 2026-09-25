@@ -196,6 +196,7 @@ WinCraft keeps running, shows a tray notification and marks the hotkey
 | `--open-arrange` | Opens LayoutKeeper's Arrange strip at startup. |
 | `--open-settings` | Opens the settings window at startup. |
 | `--open-detector` | Opens the ShortcutDetector window at startup. |
+| `--quit` | Asks the running WinCraft to shut down cleanly, as the tray's Quit does, and waits up to 10 s. Exit code 0: it closed; 1: none was running; 2: still running. |
 | `--write-plugin-index` | Regenerates `plugins.json`. For contributors. |
 
 Set `WINCRAFT_DEBUG=1` for a more detailed log.

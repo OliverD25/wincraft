@@ -34,10 +34,11 @@ use crate::core::ui_bridge::{
     HostRequest, HostSetting, HotkeyInfo, MonitorRect, Page, PaletteEntry, PluginInfo, UiChannel,
     UiCommand, UiSnapshot, WM_APP_UI,
 };
-use crate::core::{autostart, config, hotkeys, taskbar, theme, wide};
+use crate::core::{autostart, config, hotkeys, instance, taskbar, theme, wide};
 use crate::ui;
 
-const CLASS_NAME: &str = "WinCraftHost";
+/// The host window's class, which `--quit` looks for; see instance::name.
+pub const CLASS_NAME: &str = "WinCraftHost";
 
 const MENU_QUIT: u32 = 5;
 const MENU_PALETTE: u32 = 6;
@@ -50,6 +51,7 @@ const DETECTOR_OPEN_ACTION: u32 = 1;
 /// The palette belongs to the host, not to a plugin, so it takes the one id
 /// that plugin hotkeys never use.
 const PALETTE_HOTKEY_ID: i32 = 0;
+const UI_STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Posted by `notify` and `plugin_changed`, which plugins call while the host
 /// is busy calling them; the work happens when the message comes round.
@@ -110,7 +112,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
     theme::set_current(config.theme);
     let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
 
-    let class_name = wide(CLASS_NAME);
+    let class_name = wide(&instance::name(CLASS_NAME));
     let mut class: WNDCLASSW = unsafe { std::mem::zeroed() };
     class.lpfnWndProc = Some(wnd_proc);
     class.hInstance = hinstance;
@@ -187,7 +189,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
     }
     host.save_config();
 
-    ui::start(
+    let ui_thread = ui::start(
         bridge.ui_rx,
         Arc::clone(&bridge.to_ui),
         Arc::clone(&bridge.to_host),
@@ -221,7 +223,25 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
     }
 
     HOST.with(|cell| *cell.borrow_mut() = None);
+    if let Some(thread) = ui_thread {
+        wait_for_ui(thread);
+    }
     log::info!("WinCraft stopped");
+}
+
+/// Gives the UI thread a moment to close its windows (the Arrange peek
+/// among them) after being told to quit, without ever hanging the exit.
+fn wait_for_ui(thread: std::thread::JoinHandle<()>) {
+    let start = std::time::Instant::now();
+    while !thread.is_finished() && start.elapsed() < UI_STOP_WAIT {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    if thread.is_finished() {
+        let _ = thread.join();
+        log::info!("the UI thread stopped");
+    } else {
+        log::warn!("the UI thread did not stop within {UI_STOP_WAIT:?}");
+    }
 }
 
 impl Host {
@@ -364,8 +384,20 @@ impl Host {
     }
 
     fn disable_slot(&mut self, index: usize) {
-        if !self.slots[index].enabled {
+        if !self.stop_slot(index) {
             return;
+        }
+        let id = self.slots[index].plugin.metadata().id;
+        self.plugin_mut(id).enabled = false;
+        self.save_plugin(id);
+        log::info!("{id} disabled");
+    }
+
+    /// Frees the plugin's hotkeys and tears it down, leaving its saved
+    /// enabled flag alone. False when it was not running.
+    fn stop_slot(&mut self, index: usize) -> bool {
+        if !self.slots[index].enabled {
+            return false;
         }
         for entry in self.slots[index].registered.drain(..) {
             if entry.ok {
@@ -374,10 +406,7 @@ impl Host {
         }
         self.slots[index].plugin.teardown();
         self.slots[index].enabled = false;
-        let id = self.slots[index].plugin.metadata().id;
-        self.plugin_mut(id).enabled = false;
-        self.save_plugin(id);
-        log::info!("{id} disabled");
+        true
     }
 
     /// Open palette, Settings, then one primary action per enabled plugin,
@@ -903,10 +932,15 @@ impl Host {
         }
     }
 
+    /// Quitting stops every plugin but must not save it as disabled, or
+    /// the next start would come up with every plugin switched off.
     fn shutdown(&mut self) {
+        log::info!("WinCraft is shutting down");
         self.to_ui.send(UiCommand::Quit);
         for index in 0..self.slots.len() {
-            self.disable_slot(index);
+            if self.stop_slot(index) {
+                log::info!("{} stopped", self.slots[index].plugin.metadata().id);
+            }
         }
         if let Some((_, true)) = self.palette_hotkey {
             unsafe { UnregisterHotKey(self.hwnd, PALETTE_HOTKEY_ID) };

@@ -24,12 +24,16 @@ pub fn start(
     to_ui: Arc<UiChannel>,
     to_host: Arc<HostChannel>,
     snapshot: UiSnapshot,
-) {
+) -> Option<std::thread::JoinHandle<()>> {
     let started = std::thread::Builder::new()
         .name("wincraft-ui".to_string())
         .spawn(move || run(rx, to_ui, to_host, snapshot));
-    if let Err(err) = started {
-        log::error!("could not start the UI thread: {err}");
+    match started {
+        Ok(thread) => Some(thread),
+        Err(err) => {
+            log::error!("could not start the UI thread: {err}");
+            None
+        }
     }
 }
 

@@ -4,7 +4,7 @@ use windows_sys::Win32::System::Registry::{
     HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_SZ,
 };
 
-use crate::core::wide;
+use crate::core::{instance, wide};
 
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const VALUE_NAME: &str = "WinCraft";
@@ -41,7 +41,7 @@ pub fn is_enabled() -> bool {
     let status = unsafe {
         RegQueryValueExW(
             key,
-            wide(VALUE_NAME).as_ptr(),
+            wide(&instance::name(VALUE_NAME)).as_ptr(),
             std::ptr::null(),
             std::ptr::null_mut(),
             std::ptr::null_mut(),
@@ -54,7 +54,7 @@ pub fn is_enabled() -> bool {
 
 pub fn set(enabled: bool) -> Result<(), String> {
     let key = open(true).ok_or_else(|| "cannot open the Run registry key".to_string())?;
-    let name = wide(VALUE_NAME);
+    let name = wide(&instance::name(VALUE_NAME));
 
     let status = if enabled {
         let exe = std::env::current_exe().map_err(|e| format!("cannot find own path: {e}"))?;

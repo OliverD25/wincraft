@@ -98,6 +98,7 @@ impl Tray {
         if self.visible {
             unsafe { Shell_NotifyIconW(NIM_DELETE, &self.data) };
             self.visible = false;
+            log::info!("tray icon removed");
         }
     }
 
