@@ -8,7 +8,7 @@ mod restore;
 mod state;
 mod windows;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -93,6 +93,9 @@ pub struct LayoutKeeper {
     mover: Mover,
     restore: Restore,
     finishing: Option<Finish>,
+    /// Every window this restore run has put back, with its saved place in
+    /// the front-to-back order, so each later group raises them all again.
+    restored_stack: Vec<(usize, HWND)>,
     /// Groups to rebuild again on the next tick, after a desktop move that
     /// Windows only reports a moment later.
     reapply: Vec<String>,
@@ -121,6 +124,7 @@ impl Default for LayoutKeeper {
             mover: Mover::Untried,
             restore: Restore::new(DEFAULT_SETTLE_SECONDS, DEFAULT_RESTORE_MINUTES * 60),
             finishing: None,
+            restored_stack: Vec::new(),
             reapply: Vec::new(),
             arrange_stale: false,
             guard: guard::Guard::default(),
@@ -344,9 +348,16 @@ impl LayoutKeeper {
             reason == "shutdown",
             &|exe| self.watch.covers(exe),
         );
-        if timer {
-            merged = state::keep_groups(self.writer.last(), merged, &self.guard.held());
-        }
+        // Groups in a crash burst keep their saved windows for timer saves;
+        // groups still waiting for their restore keep them for every save,
+        // because what is on screen is the scrambled order the file fixes.
+        let mut held = if timer {
+            self.guard.held()
+        } else {
+            BTreeSet::new()
+        };
+        held.extend(self.restore.pending());
+        merged = state::keep_groups(self.writer.last(), merged, &held);
         let count: usize = merged.values().map(|program| program.windows.len()).sum();
         let backup = self.guard.backup_needed(timer);
         // Only windows that differ from the file can lose anything; a burst
@@ -368,9 +379,8 @@ impl LayoutKeeper {
     }
 
     fn save(&mut self, reason: &str) {
-        // Until the restore has run, the windows on screen are the scrambled
-        // ones the file is meant to fix; saving them would lose the layout.
-        if self.restore_busy() {
+        // Between the two halves of a restore the windows are half moved.
+        if self.restore_finishing() {
             log::info!("a restore is under way, so the layout is not saved ({reason})");
             return;
         }
@@ -388,7 +398,7 @@ impl LayoutKeeper {
     /// Save layout now: always a fresh look and a write, and always a word
     /// back, because an unchanged layout used to make the hotkey look dead.
     fn save_now(&mut self) {
-        if self.restore_busy() {
+        if self.restore_finishing() {
             log::info!("a restore is under way, so the layout is not saved (manual)");
             host::notify(
                 "LayoutKeeper",
@@ -509,12 +519,31 @@ impl LayoutKeeper {
         self.save("manual");
     }
 
-    fn restore_busy(&self) -> bool {
-        self.restore.is_running() || self.finishing.is_some()
+    fn restore_finishing(&self) -> bool {
+        self.finishing.is_some()
+    }
+
+    /// The groups a restore waits for: every watched group with saved
+    /// windows. Windows saved before groups were recorded have none and are
+    /// left to the groups of the windows they match.
+    fn saved_groups(&self) -> Vec<String> {
+        let mut groups: Vec<String> = Vec::new();
+        for (exe, program) in self.writer.last().into_iter().flatten() {
+            if !self.watch.covers(exe) {
+                continue;
+            }
+            for window in &program.windows {
+                if !window.group.is_empty() && !groups.contains(&window.group) {
+                    groups.push(window.group.clone());
+                }
+            }
+        }
+        groups
     }
 
     fn start_restore(&mut self) {
-        if self.writer.last().is_none() {
+        let groups = self.saved_groups();
+        if groups.is_empty() {
             log::info!("no layout has been saved yet, so there is nothing to restore");
             host::notify(
                 "LayoutKeeper",
@@ -523,41 +552,48 @@ impl LayoutKeeper {
             return;
         }
         log::info!(
-            "restore starts once the windows have held still for {} s",
+            "restore watches {} saved taskbar groups for {} minutes; each is put back once its windows have held still for {} s",
+            groups.len(),
+            self.restore.give_up_seconds / 60,
             self.restore.settle_seconds
         );
-        self.restore.start(self.ticks);
+        self.restored_stack.clear();
+        self.restore.start(self.ticks, groups);
     }
 
-    /// First half of a restore: each group's taskbar order. Re-adding the
-    /// buttons pulls every window onto the current desktop, a moment later
-    /// and not at once, so the desktop moves and the front-to-back order wait
-    /// for the next tick in `finish_restore`. Without the desktop mover only
-    /// the windows already on this desktop are re-added. The current desktop
-    /// and the foreground window are left as they are.
-    fn restore_layout(&mut self) {
+    /// First half of restoring the groups in `due`: their taskbar order.
+    /// Re-adding the buttons pulls every window onto the current desktop, a
+    /// moment later and not at once, so the desktop moves and the
+    /// front-to-back order wait for the next tick in `finish_restore`.
+    /// Without the desktop mover only the windows already on this desktop
+    /// are re-added. The current desktop and the foreground window are left
+    /// as they are.
+    fn restore_groups(&mut self, due: Vec<String>) {
         let Some(saved) = self.writer.last().cloned() else {
             return;
         };
         let live = self.refresh();
         let registry = desktops::list();
+        let known: Vec<DesktopId> = registry.iter().map(|desktop| desktop.id).collect();
         let can_move = self.ensure_mover(&registry);
         let foreground = unsafe { GetForegroundWindow() };
-        let mut stack: Vec<(usize, HWND)> = Vec::new();
         let mut moves: Vec<(HWND, DesktopId, String)> = Vec::new();
         let mut parts: Vec<String> = Vec::new();
         let mut missing = 0;
 
         let exes: Vec<String> = saved
-            .keys()
-            .filter(|exe| self.watch.covers(exe))
-            .cloned()
+            .iter()
+            .filter(|(exe, program)| {
+                self.watch.covers(exe)
+                    && program
+                        .windows
+                        .iter()
+                        .any(|window| due.contains(&window.group))
+            })
+            .map(|(exe, _)| exe.clone())
             .collect();
         for exe in exes {
-            let Some(program) = saved.get(&exe) else {
-                continue;
-            };
-            let mut windows = program.windows.clone();
+            let mut windows = saved[&exe].windows.clone();
             windows.sort_by_key(|window| window.taskbar_index);
             let saved_ids: Vec<identity::WindowIdentity> =
                 windows.iter().map(|window| window.identity(&exe)).collect();
@@ -568,78 +604,79 @@ impl LayoutKeeper {
             let live_ids: Vec<identity::WindowIdentity> =
                 mine.iter().map(|window| window.identity.clone()).collect();
             let matching = identity::match_windows(&saved_ids, &live_ids);
+            // Read before any button is re-added, which pulls windows here.
             let before: Vec<Option<DesktopId>> = mine
                 .iter()
                 .map(|window| self.reader.as_ref().and_then(|r| r.read(window.hwnd)))
                 .collect();
-
-            // One program can have several taskbar groups (Chrome and each
-            // installed web app); each gets its own saved order back.
             let live_groups: Vec<String> = mine.iter().map(|window| window.group.clone()).collect();
-            let mut keys: Vec<String> = Vec::new();
-            for key in &live_groups {
-                if !keys.contains(key) {
-                    keys.push(key.clone());
-                }
-            }
-            for key in keys {
-                let members = state::saved_for_group(&windows, &matching, &live_groups, &key);
+
+            for key in due.iter().filter(|key| live_groups.contains(key)) {
+                let members = state::saved_for_group(&windows, &matching, &live_groups, key);
                 let ids = members.iter().map(|s| saved_ids[*s].clone()).collect();
                 let mut model = OrderModel::from_saved(ids);
-                model.refresh(&handles_in(&live, &key), self.ticks, self.snapshot_seconds);
+                model.refresh(&handles_in(&live, key), self.ticks, self.snapshot_seconds);
                 self.groups.insert(key.clone(), model);
-                self.apply_group(&key, can_move);
-            }
+                self.apply_group(key, can_move);
 
-            if can_move {
-                for (l, window) in mine.iter().enumerate() {
-                    let saved_desktop = matching
-                        .pairs
-                        .iter()
-                        .find(|(_, live)| *live == l)
-                        .and_then(|(s, _)| windows[*s].desktop.as_deref())
-                        .and_then(DesktopId::parse)
-                        .filter(|id| {
-                            *id == DesktopId::ALL || desktops::name_of(&registry, *id).is_some()
-                        });
-                    if let Some(target) = saved_desktop.or(before[l]) {
-                        moves.push((window.hwnd, target, window.identity.label().to_string()));
+                let pairs: Vec<(usize, usize)> = matching
+                    .pairs
+                    .iter()
+                    .filter(|(s, l)| members.contains(s) && live_groups[*l] == *key)
+                    .copied()
+                    .collect();
+                if can_move {
+                    for (l, window) in mine.iter().enumerate() {
+                        if live_groups[l] != *key {
+                            continue;
+                        }
+                        let saved_desktop = pairs
+                            .iter()
+                            .find(|(_, live)| *live == l)
+                            .and_then(|(s, _)| windows[*s].desktop.as_deref());
+                        if let Some(target) = desktop_target(before[l], saved_desktop, &known) {
+                            moves.push((window.hwnd, target, window.identity.label().to_string()));
+                        }
                     }
                 }
-            }
-            for (s, l) in &matching.pairs {
-                stack.push((windows[*s].z_index, mine[*l].hwnd));
-            }
+                for (s, l) in &pairs {
+                    self.restored_stack
+                        .push((windows[*s].z_index, mine[*l].hwnd));
+                }
 
-            let lost: Vec<&str> = matching
-                .unmatched_saved
-                .iter()
-                .map(|s| windows[*s].label())
-                .collect();
-            log::info!(
-                "restored {} of {} {exe} windows",
-                matching.pairs.len(),
-                windows.len()
-            );
-            if !lost.is_empty() {
-                log::info!("not matched: {}", lost.join(" | "));
+                let label = self.label_of(key);
+                let lost: Vec<&str> = members
+                    .iter()
+                    .filter(|s| !pairs.iter().any(|(paired, _)| paired == *s))
+                    .map(|s| windows[*s].label())
+                    .collect();
+                log::info!(
+                    "restored {} of {} {label} windows",
+                    pairs.len(),
+                    members.len()
+                );
+                if !lost.is_empty() {
+                    log::info!("not matched: {}", lost.join(" | "));
+                }
+                missing += lost.len();
+                parts.push(format!(
+                    "{} of {} {label} windows",
+                    pairs.len(),
+                    members.len()
+                ));
             }
-            missing += lost.len();
-            parts.push(format!(
-                "{} of {} {} windows",
-                matching.pairs.len(),
-                windows.len(),
-                program_name(&exe)
-            ));
         }
 
+        if parts.is_empty() {
+            return;
+        }
         let mut summary = format!("Restored {}", parts.join(", "));
         if missing > 0 {
             summary.push_str(&format!(" ({missing} not found)"));
         }
         self.finishing = Some(Finish {
             moves,
-            stack,
+            stack: self.restored_stack.clone(),
             foreground,
             summary,
         });
@@ -738,22 +775,31 @@ impl LayoutKeeper {
             return;
         }
         if self.restore.is_running() {
-            let count = self.live_windows().len();
-            match self.restore.step(self.ticks, count) {
-                Step::Apply => self.restore_layout(),
-                Step::TimedOut => {
-                    let summary = format!(
-                        "No windows of {} settled within {} minutes, so nothing was restored",
-                        self.watch,
-                        self.restore.give_up_seconds / 60
+            let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+            for window in self.live_windows() {
+                *counts.entry(window.group).or_default() += 1;
+            }
+            match self.restore.step(self.ticks, &counts) {
+                Step::Apply(groups) => self.restore_groups(groups),
+                Step::TimedOut(left) => {
+                    let labels: Vec<String> =
+                        left.iter().map(|group| self.label_of(group)).collect();
+                    log::info!(
+                        "stopped waiting after {} minutes; not restored because no windows settled: {}",
+                        self.restore.give_up_seconds / 60,
+                        labels.join(", ")
                     );
-                    log::info!("{summary}");
-                    host::notify("LayoutKeeper", &summary);
-                    self.last_restore = Some(summary);
+                    if self.restore.restored() == 0 {
+                        let summary = format!(
+                            "None of the saved apps settled within {} minutes, so nothing was restored",
+                            self.restore.give_up_seconds / 60
+                        );
+                        host::notify("LayoutKeeper", &summary);
+                        self.last_restore = Some(summary);
+                    }
                 }
                 Step::Wait | Step::Nothing => {}
             }
-            return;
         }
         if self.ticks % self.snapshot_seconds.max(1) == 0 {
             self.save("timer");
@@ -786,6 +832,23 @@ fn handles_in(live: &[windows::LiveWindow], key: &str) -> Vec<(Handle, identity:
 }
 
 /// Puts a window on top of the z-order without activating it.
+/// Where a restored window goes, given the desktop it is on before its
+/// button is re-added (which pulls it to the current one) and the desktop it
+/// was saved on. A window on no desktop, or pinned to all of them, is never
+/// moved; a saved desktop that is pinned or gone sends the window back where
+/// it was, only undoing the pull.
+fn desktop_target(
+    now: Option<DesktopId>,
+    saved: Option<&str>,
+    known: &[DesktopId],
+) -> Option<DesktopId> {
+    let now = now.filter(|id| known.contains(id))?;
+    let saved = saved
+        .and_then(DesktopId::parse)
+        .filter(|id| known.contains(id));
+    Some(saved.unwrap_or(now))
+}
+
 fn raise(hwnd: HWND) {
     unsafe {
         SetWindowPos(
@@ -1305,9 +1368,13 @@ impl WinCraftPlugin for LayoutKeeper {
             Mover::Disabled(reason) => format!("Desktop moves: disabled ({reason})"),
         };
         let mut parts = vec![saved];
-        if self.restore_busy() {
-            parts.push("Restore waiting for the windows to settle".to_string());
-        } else if let Some(restore) = &self.last_restore {
+        if self.restore.is_running() {
+            parts.push(format!(
+                "Restore waiting for {} apps to settle",
+                self.restore.pending().len()
+            ));
+        }
+        if let Some(restore) = &self.last_restore {
             parts.push(restore.clone());
         }
         parts.push(moves);
@@ -1330,6 +1397,7 @@ impl WinCraftPlugin for LayoutKeeper {
         }
         self.restore = Restore::new(self.restore.settle_seconds, self.restore.give_up_seconds);
         self.finishing = None;
+        self.restored_stack.clear();
         self.reader = None;
         self.taskbar = None;
         self.mover = Mover::Untried;
@@ -1389,6 +1457,34 @@ mod tests {
         assert_eq!(app_label(None, None, "claude.exe"), "Claude");
         assert_eq!(app_label(Some("  "), None, "code.exe"), "Code");
         assert_eq!(program_name("msedge.exe"), "Edge");
+    }
+
+    #[test]
+    fn pinned_and_untracked_windows_are_never_moved() {
+        let one = DesktopId(1);
+        let two = DesktopId(2);
+        let known = [one, two];
+        let saved_two = two.to_string();
+        // A window on desktop 1 that was saved on desktop 2 goes back there.
+        assert_eq!(
+            desktop_target(Some(one), Some(&saved_two), &known),
+            Some(two)
+        );
+        // No desktop at all ("not tracked"), or pinned to every desktop.
+        assert_eq!(desktop_target(None, Some(&saved_two), &known), None);
+        assert_eq!(
+            desktop_target(Some(DesktopId::ALL), Some(&saved_two), &known),
+            None
+        );
+        assert_eq!(
+            desktop_target(Some(DesktopId(9)), Some(&saved_two), &known),
+            None
+        );
+        // Saved as pinned, or on a desktop that is gone: only undo the pull.
+        let gone = DesktopId(9).to_string();
+        assert_eq!(desktop_target(Some(one), Some(&gone), &known), Some(one));
+        assert_eq!(desktop_target(Some(one), None, &known), Some(one));
+        assert_eq!(desktop_target(Some(one), Some(""), &known), Some(one));
     }
 
     #[test]
