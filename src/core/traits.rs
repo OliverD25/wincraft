@@ -93,6 +93,8 @@ pub struct WindowGroups {
     /// The group to show first, usually the front window's program.
     pub focus: usize,
     pub watched: Vec<String>,
+    /// Whether resting the mouse on a card shows that window on its monitor.
+    pub preview: bool,
 }
 
 pub struct HostContext<'a> {

@@ -151,6 +151,11 @@ desktop with many windows wraps onto more lines instead of running off the
 screen. The strip takes at most 90 % of the screen's width and 60 % of its
 height; beyond that the mouse wheel scrolls it.
 
+- **Rest the mouse** on a picture for a quarter of a second to see that
+  window where it really is: its monitor goes dark and the window's live
+  picture is drawn on top, even for a window on another desktop. The window
+  itself is not raised or moved, and the peek goes away when the mouse
+  leaves the picture. **Preview window on hover** turns this off.
 - **Click** a picture to switch to that window; the strip closes.
 - **Drag** a picture to a new place. Every change goes to the taskbar at once
   and is saved. Dropping it in another desktop's row moves the window to
@@ -211,3 +216,4 @@ saved order.
 | Give up after (minutes) | 3 | Stop waiting if it never does. |
 | Save every (seconds) | 30 | How often the layout is saved when it changed. |
 | Restore which window is in front | on | Also restore the front-to-back order. |
+| Preview window on hover | on | Resting the mouse on a picture in the Arrange strip shows that window on its monitor. |

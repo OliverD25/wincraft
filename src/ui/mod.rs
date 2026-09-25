@@ -2,6 +2,7 @@ mod arrange;
 mod dwm_thumbs;
 pub mod fuzzy;
 mod palette;
+mod peek;
 mod settings;
 mod widgets;
 
@@ -341,6 +342,7 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.arrange.hidden();
         if !self.quitting {
             self.to_host.send(HostRequest::Exit);
         }

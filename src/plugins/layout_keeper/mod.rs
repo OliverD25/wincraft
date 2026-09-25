@@ -82,6 +82,7 @@ pub struct LayoutKeeper {
     snapshot_seconds: u64,
     restore_on_start: bool,
     front_order: bool,
+    preview_on_hover: bool,
     ticks: u64,
     started_once: bool,
     reader: Option<desktops::Reader>,
@@ -115,6 +116,7 @@ impl Default for LayoutKeeper {
             snapshot_seconds: DEFAULT_SNAPSHOT_SECONDS,
             restore_on_start: true,
             front_order: true,
+            preview_on_hover: true,
             ticks: 0,
             started_once: false,
             reader: None,
@@ -156,6 +158,7 @@ impl LayoutKeeper {
             .unwrap_or(DEFAULT_SNAPSHOT_SECONDS);
         self.restore_on_start = flag(settings, "restore_on_start");
         self.front_order = flag(settings, "restore_front_order");
+        self.preview_on_hover = flag(settings, "preview_on_hover");
         self.restore.settle_seconds =
             number(settings, "settle_seconds", 1, 60).unwrap_or(DEFAULT_SETTLE_SECONDS);
         self.restore.give_up_seconds = number(settings, "restore_window_minutes", 1, 30)
@@ -1009,6 +1012,7 @@ impl WinCraftPlugin for LayoutKeeper {
             "restore_window_minutes": DEFAULT_RESTORE_MINUTES,
             "snapshot_interval_seconds": DEFAULT_SNAPSHOT_SECONDS,
             "restore_front_order": true,
+            "preview_on_hover": true,
         })
     }
 
@@ -1064,6 +1068,12 @@ impl WinCraftPlugin for LayoutKeeper {
                 key: "restore_front_order",
                 label: "Restore which window is in front",
                 help: "Also put the windows back in their front-to-back order on each desktop.",
+                kind: FieldKind::Toggle,
+            },
+            SettingField {
+                key: "preview_on_hover",
+                label: "Preview window on hover",
+                help: "Resting the mouse on a picture in the Arrange strip shows that window on its monitor.",
                 kind: FieldKind::Toggle,
             },
         ]
@@ -1290,6 +1300,7 @@ impl WinCraftPlugin for LayoutKeeper {
                 .collect(),
             focus,
             watched: vec![self.watch.to_string()],
+            preview: self.preview_on_hover,
         })
     }
 

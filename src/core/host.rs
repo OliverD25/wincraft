@@ -681,6 +681,7 @@ impl Host {
             desktops: groups.desktops,
             focus,
             watched: groups.watched,
+            preview: groups.preview,
         };
         self.to_ui.send(if open {
             UiCommand::ShowArrange(snapshot)

@@ -100,6 +100,8 @@ pub struct ArrangeSnapshot {
     pub focus: usize,
     /// The exe names being watched, for the strip's empty state.
     pub watched: Vec<String>,
+    /// Whether resting the mouse on a card shows that window on its monitor.
+    pub preview: bool,
 }
 
 /// What the strip asks the plugin to do.

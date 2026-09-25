@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use egui::text::TextWrapping;
 use egui::{pos2, vec2, Rect, Response, Sense, StrokeKind, Ui, UiBuilder, Vec2};
@@ -17,6 +18,7 @@ use crate::core::ui_bridge::{
     ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeSnapshot, HostChannel, HostRequest,
 };
 use crate::ui::dwm_thumbs::{self, Placement, Thumbnail};
+use crate::ui::peek::{self, Hover, Peek, Step};
 use crate::ui::settings;
 use crate::ui::widgets::empty_state::empty_state;
 use crate::ui::widgets::{choice, focus, text};
@@ -202,9 +204,16 @@ struct Shared {
     monitor: Option<Monitor>,
     focused_once: bool,
     thumbs: HashMap<isize, Option<Thumbnail>>,
+    peek: Peek,
+    hover: Hover,
 }
 
 impl Shared {
+    fn hide_peek(&mut self) {
+        self.peek.hide();
+        self.hover = Hover::default();
+    }
+
     fn group(&self) -> Option<&ArrangeGroup> {
         let snapshot = self.snapshot.as_ref()?;
         let key = self.key.as_ref()?;
@@ -253,6 +262,8 @@ impl Arrange {
                 monitor: None,
                 focused_once: false,
                 thumbs: HashMap::new(),
+                peek: Peek::default(),
+                hover: Hover::default(),
             })),
             palette_hwnd,
         }
@@ -300,13 +311,15 @@ impl Arrange {
             .unwrap_or(false)
     }
 
-    /// Unregisters every picture; runs on the UI thread, which owns them.
+    /// Unregisters every picture and hides the peek; runs on the UI thread,
+    /// which owns them.
     pub fn hidden(&self) {
         if let Ok(mut shared) = self.shared.lock() {
             shared.closed = false;
             shared.window = 0;
             shared.drag = None;
             shared.thumbs.clear();
+            shared.hide_peek();
         }
     }
 
@@ -520,6 +533,7 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
             );
         });
         shared.thumbs.clear();
+        shared.hide_peek();
         return;
     };
     let plugin = shared
@@ -542,6 +556,7 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
             shared.key = Some(snapshot.groups[index].key.clone());
             shared.cursor = None;
             shared.drag = None;
+            shared.hide_peek();
             ui.ctx().request_repaint();
         }
         content.min.y += SWITCHER;
@@ -557,6 +572,7 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     let pointer = ctx.pointer_latest_pos();
     let mut actions: Vec<ArrangeAction> = Vec::new();
     let mut activate: Option<isize> = None;
+    let mut hovered: Option<isize> = None;
 
     let flat: Vec<usize> = rows.iter().flat_map(|row| row.members.clone()).collect();
     if shared
@@ -644,6 +660,9 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
                                     is_cursor,
                                 );
                                 cards_here.push(response.rect);
+                                if response.hovered() {
+                                    hovered = Some(window.hwnd);
+                                }
                                 if has_picture {
                                     pending.push(Pending {
                                         hwnd: window.hwnd,
@@ -684,6 +703,25 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     });
     shared.row_rects = row_rects;
     shared.card_rects = card_rects;
+
+    let preview = shared.snapshot.as_ref().is_some_and(|s| s.preview);
+    let in_rows = ctx
+        .input(|i| i.pointer.hover_pos())
+        .is_some_and(|at| rows_area.contains(at));
+    // Asked again rather than reusing the flags from the top of the frame,
+    // so a menu or drag that started on this frame hides the peek at once.
+    let blocked =
+        !preview || egui::Popup::is_any_open(&ctx) || shared.drag.is_some() || shared.window == 0;
+    match shared.hover.step(Instant::now(), hovered, in_rows, blocked) {
+        Step::Show(hwnd) => shared.peek.show(hwnd, shared.window as HWND),
+        Step::Hide => shared.peek.hide(),
+        Step::Wait(after) => ctx.request_repaint_after(after),
+    }
+    if shared.peek.is_shown() {
+        // Looks again now and then, so a window that closes takes its
+        // peek with it even when nothing else repaints the strip.
+        ctx.request_repaint_after(peek::REST);
+    }
 
     // The dragged card rides above everything, following the pointer.
     let mut floating: Option<Rect> = None;
@@ -763,6 +801,7 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
         });
     }
     if let Some(hwnd) = activate {
+        shared.hide_peek();
         shared.to_host.send(HostRequest::Arrange {
             plugin,
             action: ArrangeAction::Activate(hwnd),
