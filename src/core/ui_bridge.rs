@@ -68,6 +68,9 @@ pub struct ArrangeWindow {
     /// The id of the virtual desktop the window is on, as the registry spells
     /// it; empty when unknown or shown on every desktop.
     pub desktop: String,
+    /// Which monitor the window is on ("Left", "Right"), the one it returns
+    /// to when minimized; None on the primary monitor or with just one.
+    pub monitor: Option<String>,
 }
 
 /// One taskbar group, windows in thumbnail order. Windows groups buttons by

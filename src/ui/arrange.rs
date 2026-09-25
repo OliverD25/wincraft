@@ -28,10 +28,13 @@ const PADDING: f32 = 12.0;
 /// 16:9, small enough that a group of 15+ windows fits on one screen.
 const THUMB: Vec2 = Vec2::new(144.0, 81.0);
 const CARD_INSET: f32 = 4.0;
+/// The line above the picture that holds the monitor chip. Every card has
+/// it, so cards on the primary monitor line up with the others.
+const LABEL_LINE: f32 = 18.0;
 const NAME_HEIGHT: f32 = 16.0;
 const CARD: Vec2 = Vec2::new(
     THUMB.x + 2.0 * CARD_INSET,
-    CARD_INSET + THUMB.y + CARD_INSET + NAME_HEIGHT + CARD_INSET,
+    CARD_INSET + LABEL_LINE + CARD_INSET + THUMB.y + CARD_INSET + NAME_HEIGHT + CARD_INSET,
 );
 const CARD_GAP: f32 = 8.0;
 const HEADER: f32 = 15.0;
@@ -632,8 +635,14 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
                                     && thumbnail(shared, window.hwnd)
                                         .is_some_and(|thumb| thumb.source_size().is_some());
                                 let is_cursor = shared.cursor == Some(window.hwnd);
-                                let (response, picture) =
-                                    card(ui, &window.label, desktop_name, has_picture, is_cursor);
+                                let (response, picture) = card(
+                                    ui,
+                                    &window.label,
+                                    desktop_name,
+                                    window.monitor.as_deref(),
+                                    has_picture,
+                                    is_cursor,
+                                );
                                 cards_here.push(response.rect);
                                 if has_picture {
                                     pending.push(Pending {
@@ -686,7 +695,10 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
             egui::Id::new("arrange-drag"),
         ));
         layer.rect_filled(rect, 6, tokens.hover_bg);
-        let area = Rect::from_min_size(rect.min + Vec2::splat(CARD_INSET), THUMB);
+        if let Some(monitor) = &window.monitor {
+            monitor_chip(&layer, rect, monitor);
+        }
+        let area = picture_area(rect);
         layer.rect(
             area,
             4,
@@ -976,13 +988,15 @@ fn card_menu(
     chosen
 }
 
-/// One window: its picture area (the live picture is put on top of it
-/// later) and its name underneath. Without a picture the area shows the name
-/// and desktop instead. Returns the card's response and the picture area.
+/// One window: the monitor chip when it is not on the primary monitor, its
+/// picture area (the live picture is put on top of it later) and its name
+/// underneath. Without a picture the area shows the name and desktop
+/// instead. Returns the card's response and the picture area.
 fn card(
     ui: &mut Ui,
     label: &str,
     desktop: &str,
+    monitor: Option<&str>,
     has_picture: bool,
     is_cursor: bool,
 ) -> (Response, Rect) {
@@ -993,7 +1007,10 @@ fn card(
     if lit {
         painter.rect_filled(rect, 6, tokens.hover_bg);
     }
-    let area = Rect::from_min_size(rect.min + Vec2::splat(CARD_INSET), THUMB);
+    if let Some(monitor) = monitor {
+        monitor_chip(painter, rect, monitor);
+    }
+    let area = picture_area(rect);
     let border = if lit { tokens.accent } else { tokens.border };
     painter.rect(
         area,
@@ -1023,11 +1040,46 @@ fn card(
     (response.on_hover_cursor(egui::CursorIcon::Grab), picture)
 }
 
+/// Where a card's picture goes, below its label line.
+fn picture_area(card: Rect) -> Rect {
+    Rect::from_min_size(
+        card.min + vec2(CARD_INSET, CARD_INSET + LABEL_LINE + CARD_INSET),
+        THUMB,
+    )
+}
+
+/// The monitor a window is on, left-aligned in the card's label line: the
+/// hotkey chip's look at 12 px, with an opaque fill.
+fn monitor_chip(painter: &egui::Painter, card: Rect, text: &str) {
+    let tokens = Tokens::get(painter.ctx());
+    let galley = painter.layout_no_wrap(
+        text.to_string(),
+        theme::regular(12.0),
+        tokens.text_secondary,
+    );
+    let chip = Rect::from_min_size(
+        card.min + Vec2::splat(CARD_INSET),
+        vec2(galley.size().x + 12.0, LABEL_LINE),
+    );
+    painter.rect(
+        chip,
+        4,
+        tokens.panel_bg,
+        theme::stroke(painter.ctx(), 1.0, tokens.border),
+        StrokeKind::Inside,
+    );
+    painter.galley(
+        chip.center() - galley.size() / 2.0,
+        galley,
+        tokens.text_secondary,
+    );
+}
+
 /// The gap a dragged card would land in.
 fn gap(ui: &mut Ui) {
     let tokens = Tokens::get(ui.ctx());
     let (rect, _) = ui.allocate_exact_size(CARD, Sense::hover());
-    let area = Rect::from_min_size(rect.min + Vec2::splat(CARD_INSET), THUMB);
+    let area = picture_area(rect);
     ui.painter().rect(
         area,
         4,
@@ -1041,7 +1093,7 @@ fn gap(ui: &mut Ui) {
 fn placeholder(ui: &mut Ui, text_line: &str) {
     let tokens = Tokens::get(ui.ctx());
     let (rect, _) = ui.allocate_exact_size(CARD, Sense::hover());
-    let area = Rect::from_min_size(rect.min + Vec2::splat(CARD_INSET), THUMB);
+    let area = picture_area(rect);
     ui.painter().rect(
         area,
         4,
@@ -1130,6 +1182,7 @@ mod tests {
                     hwnd: i as isize,
                     label: format!("w{i}"),
                     desktop: d.to_string(),
+                    monitor: None,
                 })
                 .collect(),
         }

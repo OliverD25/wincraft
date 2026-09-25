@@ -1230,6 +1230,7 @@ impl WinCraftPlugin for LayoutKeeper {
         self.refresh();
         let registry = desktops::list();
         let current = desktops::current();
+        let monitors = monitors::list();
         let mut groups: Vec<ArrangeGroup> = self
             .groups
             .iter()
@@ -1248,6 +1249,7 @@ impl WinCraftPlugin for LayoutKeeper {
                             hwnd,
                             label: identity.label().to_string(),
                             desktop,
+                            monitor: monitors::strip_label(identity.rect, &monitors),
                         }
                     })
                     .collect();

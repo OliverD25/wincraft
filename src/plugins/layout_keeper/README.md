@@ -142,7 +142,9 @@ the top switches to every other app that has windows, most windows first. There 
 desktop: this desktop first, then the others under their names. The pictures
 are drawn by Windows itself (DWM thumbnails) and stay live while the strip
 is open; windows on other desktops have pictures too. A window Windows
-cannot picture shows its name instead.
+cannot picture shows its name instead. A window that is not on the primary
+monitor has a small label above its picture saying which monitor it is on
+("Left", "Right"; "Monitor 4" and so on with four or more).
 
 The pictures are small (16:9, about the size of the taskbar's own), and a
 desktop with many windows wraps onto more lines instead of running off the

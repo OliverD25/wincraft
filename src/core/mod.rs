@@ -4,6 +4,7 @@ pub mod config;
 pub mod host;
 pub mod hotkeys;
 pub mod logging;
+pub mod monitors;
 pub mod taskbar;
 pub mod theme;
 pub mod traits;

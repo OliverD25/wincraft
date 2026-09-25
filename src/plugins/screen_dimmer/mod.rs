@@ -4,12 +4,12 @@ use windows_sys::Win32::Foundation::{LPARAM, WPARAM};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
 use windows_sys::Win32::UI::WindowsAndMessaging::WM_DISPLAYCHANGE;
 
-use crate::core::host;
 use crate::core::traits::{
     FieldKind, HostContext, Hotkey, HotkeyAction, PluginMetadata, SettingField, TrayAction,
     WinCraftPlugin,
 };
 use crate::core::ui_bridge::ActionKind;
+use crate::core::{host, monitors};
 use overlay::Overlay;
 
 const ACTION_TOGGLE_BASE: u32 = 1;
@@ -21,7 +21,7 @@ const TRAY_WAKE_ALL: u32 = 1;
 pub struct ScreenDimmer {
     overlays: Vec<Overlay>,
     /// Where each overlay's monitor sits, for the palette: "left" and so on.
-    positions: Vec<Option<&'static str>>,
+    positions: Vec<Option<String>>,
     idle_alpha: u8,
     hover_alpha: u8,
 }
@@ -34,7 +34,10 @@ impl ScreenDimmer {
     fn build_overlays(&mut self, dimmed: &[bool]) {
         let monitors = overlay::monitors();
         let lefts: Vec<i32> = monitors.iter().map(|(_, rect)| rect.left).collect();
-        self.positions = position_names(&lefts);
+        self.positions = monitors::position_names(&lefts)
+            .into_iter()
+            .map(|name| name.map(|name| name.to_lowercase()))
+            .collect();
         for (index, (monitor, rect)) in monitors.into_iter().enumerate() {
             let Some(mut item) = Overlay::create(monitor, rect, self.idle_alpha, self.hover_alpha)
             else {
@@ -78,20 +81,6 @@ impl ScreenDimmer {
         log::info!("all monitors back to normal");
         host::plugin_changed();
     }
-}
-
-/// "left", "middle", "right" by where each monitor's left edge is; just left
-/// and right for two, nothing for one, and "N from left" past three.
-fn position_names(lefts: &[i32]) -> Vec<Option<&'static str>> {
-    const NAMES: [&[&str]; 4] = [&[], &[], &["left", "right"], &["left", "middle", "right"]];
-    let mut order: Vec<usize> = (0..lefts.len()).collect();
-    order.sort_by_key(|index| lefts[*index]);
-    let names = NAMES.get(lefts.len()).copied().unwrap_or(&[]);
-    let mut result = vec![None; lefts.len()];
-    for (rank, index) in order.into_iter().enumerate() {
-        result[index] = names.get(rank).copied();
-    }
-    result
 }
 
 fn alpha_from(settings: &serde_json::Value, key: &str, fallback: f64) -> u8 {
@@ -234,7 +223,7 @@ impl WinCraftPlugin for ScreenDimmer {
         let index = (action_id - ACTION_TOGGLE_BASE) as usize;
         let overlay = self.overlays.get(index)?;
         let state = if overlay.visible { "dimmed" } else { "on" };
-        Some(match self.positions.get(index).copied().flatten() {
+        Some(match self.positions.get(index).cloned().flatten() {
             Some(position) => format!("{state} \u{b7} {position}"),
             None => state.to_string(),
         })
@@ -249,21 +238,5 @@ fn win_alt(vk: u32) -> Hotkey {
     Hotkey {
         modifiers: MOD_NOREPEAT | MOD_WIN | MOD_ALT,
         vk,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn monitors_are_named_by_where_they_sit() {
-        assert_eq!(
-            position_names(&[1920, -1920, 0]),
-            [Some("right"), Some("left"), Some("middle")]
-        );
-        assert_eq!(position_names(&[0, 2560]), [Some("left"), Some("right")]);
-        assert_eq!(position_names(&[0]), [None]);
-        assert_eq!(position_names(&[0, 1, 2, 3]), [None, None, None, None]);
     }
 }

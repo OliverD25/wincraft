@@ -14,49 +14,62 @@ use windows_sys::Win32::Graphics::Gdi::{
     EnumDisplayMonitors, GetMonitorInfoW, MonitorFromRect, HDC, HMONITOR, MONITORINFO,
     MONITORINFOEXW, MONITOR_DEFAULTTONEAREST,
 };
+use windows_sys::Win32::UI::WindowsAndMessaging::MONITORINFOF_PRIMARY;
 
 use super::identity::Rect;
 use super::state::SavedMonitor;
+use crate::core::monitors::position_names;
 
 pub struct Monitor {
     handle: HMONITOR,
     saved: SavedMonitor,
+    left: i32,
+    primary: bool,
+}
+
+struct Found {
+    handle: HMONITOR,
+    device: String,
+    rect: RECT,
+    primary: bool,
 }
 
 /// Every active monitor, numbered from the left.
 pub fn list() -> Vec<Monitor> {
-    let mut found: Vec<(HMONITOR, String, RECT)> = Vec::new();
+    let mut found: Vec<Found> = Vec::new();
     unsafe {
         EnumDisplayMonitors(
             std::ptr::null_mut(),
             std::ptr::null(),
             Some(collect),
-            &mut found as *mut Vec<(HMONITOR, String, RECT)> as LPARAM,
+            &mut found as *mut Vec<Found> as LPARAM,
         )
     };
     let friendly = friendly_names();
     let order = left_to_right(
         &found
             .iter()
-            .map(|(_, _, r)| (r.left, r.top))
+            .map(|monitor| (monitor.rect.left, monitor.rect.top))
             .collect::<Vec<_>>(),
     );
     found
         .into_iter()
         .zip(order)
-        .map(|((handle, device, _), position)| {
+        .map(|(monitor, position)| {
             let name = friendly
                 .iter()
-                .find(|(gdi, _)| *gdi == device)
+                .find(|(gdi, _)| *gdi == monitor.device)
                 .map(|(_, name)| name.clone())
                 .unwrap_or_default();
             Monitor {
-                handle,
+                handle: monitor.handle,
                 saved: SavedMonitor {
-                    device,
+                    device: monitor.device,
                     name,
                     position,
                 },
+                left: monitor.rect.left,
+                primary: monitor.primary,
             }
         })
         .collect()
@@ -77,12 +90,13 @@ unsafe extern "system" fn collect(
         )
     } != 0
     {
-        let found = unsafe { &mut *(data as *mut Vec<(HMONITOR, String, RECT)>) };
-        found.push((
-            monitor,
-            from_wide(&info.szDevice),
-            info.monitorInfo.rcMonitor,
-        ));
+        let found = unsafe { &mut *(data as *mut Vec<Found>) };
+        found.push(Found {
+            handle: monitor,
+            device: from_wide(&info.szDevice),
+            rect: info.monitorInfo.rcMonitor,
+            primary: info.monitorInfo.dwFlags & MONITORINFOF_PRIMARY != 0,
+        });
     }
     1
 }
@@ -90,6 +104,21 @@ unsafe extern "system" fn collect(
 /// The monitor a window's rectangle is mostly on; for a minimized window
 /// the rectangle is the one it will come back to.
 pub fn of_rect(rect: Rect, monitors: &[Monitor]) -> Option<SavedMonitor> {
+    index_of(rect, monitors).map(|index| monitors[index].saved.clone())
+}
+
+/// What the Arrange strip says about a window's monitor: its place word,
+/// or nothing when the window is on the primary monitor.
+pub fn strip_label(rect: Rect, monitors: &[Monitor]) -> Option<String> {
+    let index = index_of(rect, monitors)?;
+    if monitors[index].primary {
+        return None;
+    }
+    let lefts: Vec<i32> = monitors.iter().map(|monitor| monitor.left).collect();
+    position_names(&lefts).swap_remove(index)
+}
+
+fn index_of(rect: Rect, monitors: &[Monitor]) -> Option<usize> {
     let rect = RECT {
         left: rect[0],
         top: rect[1],
@@ -97,10 +126,7 @@ pub fn of_rect(rect: Rect, monitors: &[Monitor]) -> Option<SavedMonitor> {
         bottom: rect[3],
     };
     let handle = unsafe { MonitorFromRect(&rect, MONITOR_DEFAULTTONEAREST) };
-    monitors
-        .iter()
-        .find(|monitor| monitor.handle == handle)
-        .map(|monitor| monitor.saved.clone())
+    monitors.iter().position(|monitor| monitor.handle == handle)
 }
 
 /// Each monitor's place from the left, 0 first; monitors stacked above one
