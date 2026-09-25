@@ -10,7 +10,7 @@ use windows_sys::Win32::UI::Shell::{
     SHCreateItemFromParsingName, SHLoadIndirectString, SIGDN_NORMALDISPLAY,
 };
 
-use super::com::ComPtr;
+use crate::core::com::ComPtr;
 use crate::core::wide;
 
 const IID_IPROPERTY_STORE: GUID = GUID::from_u128(0x886d8eeb_8cf2_4446_8d02_cdba1dbdcf99);

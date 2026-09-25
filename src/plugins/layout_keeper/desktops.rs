@@ -37,7 +37,7 @@ use windows_sys::Win32::System::Registry::{
     RegGetValueW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_BINARY, RRF_RT_REG_SZ,
 };
 
-use super::com::{self, ComPtr};
+use crate::core::com::{self, ComPtr};
 use crate::core::wide;
 
 const VIRTUAL_DESKTOPS: &str =

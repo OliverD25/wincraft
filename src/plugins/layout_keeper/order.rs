@@ -6,8 +6,8 @@ use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::System::Com::CLSCTX_INPROC_SERVER;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
-use super::com::{self, ComPtr};
 use super::identity::{match_windows, WindowIdentity};
+use crate::core::com::{self, ComPtr};
 
 /// A window handle kept as a number: the model is compared and cloned freely,
 /// and a raw HWND is neither Eq nor Send.

@@ -20,10 +20,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::explorer;
+use crate::core::com::{self, ComPtr};
 use crate::core::wide;
-use crate::search::com::{self, ComPtr};
 use crate::search::{
-    Action, Choice, Completion, Context, IconRef, Query, Reply, ResultItem, SearchProvider,
+    self, Action, Choice, Completion, Context, IconRef, Query, Reply, ResultItem, SearchProvider,
 };
 use crate::ui::fuzzy;
 
@@ -364,7 +364,7 @@ struct DesktopReader(ComPtr);
 
 impl DesktopReader {
     fn new() -> Option<Self> {
-        ComPtr::create(
+        search::create_com(
             &CLSID_VIRTUAL_DESKTOP_MANAGER,
             &IID_IVIRTUAL_DESKTOP_MANAGER,
         )

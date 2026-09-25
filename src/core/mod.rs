@@ -1,5 +1,6 @@
 pub mod autostart;
 pub mod clock;
+pub mod com;
 pub mod config;
 pub mod host;
 pub mod hotkeys;

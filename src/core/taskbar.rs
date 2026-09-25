@@ -9,14 +9,15 @@ use std::time::Duration;
 use windows_sys::core::{IUnknown_Vtbl, BSTR, GUID, HRESULT, PWSTR};
 use windows_sys::Win32::Foundation::{SysFreeString, SysStringLen, POINT};
 use windows_sys::Win32::System::Com::{
-    CLSIDFromString, CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize,
-    CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
+    CLSIDFromString, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
+    COINIT_MULTITHREADED,
 };
 use windows_sys::Win32::UI::Shell::SHGetKnownFolderPath;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetAncestor, GetCursorPos, WindowFromPoint, GA_ROOT,
 };
 
+use crate::core::com::{self, ComPtr};
 use crate::core::wide;
 use crate::core::windows_list::class_name;
 
@@ -91,29 +92,6 @@ struct IUIAutomationElementVtbl {
     get_current_class_name: unsafe extern "system" fn(*mut c_void, *mut BSTR) -> HRESULT,
 }
 
-/// An owned COM pointer, released on drop.
-struct Com(*mut c_void);
-
-impl Com {
-    fn from_raw(raw: *mut c_void) -> Option<Self> {
-        // Not then_some: that builds the value first, and dropping a null
-        // one would call Release through it.
-        (!raw.is_null()).then(|| Self(raw))
-    }
-
-    /// # Safety
-    /// `T` must be the vtable of the interface this pointer was obtained as.
-    unsafe fn vtable<T>(&self) -> &T {
-        unsafe { &**(self.0 as *const *const T) }
-    }
-}
-
-impl Drop for Com {
-    fn drop(&mut self) {
-        unsafe { (self.vtable::<IUnknown_Vtbl>().Release)(self.0) };
-    }
-}
-
 /// The app ID of the taskbar button under the mouse, without the
 /// `Appid: ` prefix, or `None` when the mouse is not on an app button.
 pub fn app_under_cursor() -> Option<String> {
@@ -165,7 +143,7 @@ fn on_taskbar(point: POINT) -> bool {
 fn on_worker(point: POINT) -> Result<Option<String>, String> {
     let hr = unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32) };
     if hr < 0 {
-        return Err(format!("COM did not start ({})", hex(hr)));
+        return Err(format!("COM did not start ({})", com::hex(hr)));
     }
     let result = button_at(point);
     unsafe { CoUninitialize() };
@@ -173,35 +151,27 @@ fn on_worker(point: POINT) -> Result<Option<String>, String> {
 }
 
 fn button_at(point: POINT) -> Result<Option<String>, String> {
-    let mut raw = std::ptr::null_mut();
-    let hr = unsafe {
-        CoCreateInstance(
-            &CLSID_CUI_AUTOMATION,
-            std::ptr::null_mut(),
-            CLSCTX_INPROC_SERVER,
-            &IID_IUI_AUTOMATION,
-            &mut raw,
-        )
-    };
-    let automation = (hr >= 0)
-        .then(|| Com::from_raw(raw))
-        .flatten()
-        .ok_or_else(|| format!("UI Automation is unavailable ({})", hex(hr)))?;
+    let automation = ComPtr::create(
+        &CLSID_CUI_AUTOMATION,
+        &IID_IUI_AUTOMATION,
+        CLSCTX_INPROC_SERVER,
+    )
+    .map_err(|hr| format!("UI Automation is unavailable ({})", com::hex(hr)))?;
     let vtable = unsafe { automation.vtable::<IUIAutomationVtbl>() };
 
     let mut raw = std::ptr::null_mut();
-    let hr = unsafe { (vtable.get_raw_view_walker)(automation.0, &mut raw) };
+    let hr = unsafe { (vtable.get_raw_view_walker)(automation.as_raw(), &mut raw) };
     let walker = (hr >= 0)
-        .then(|| Com::from_raw(raw))
+        .then(|| ComPtr::from_raw(raw))
         .flatten()
-        .ok_or_else(|| format!("RawViewWalker failed ({})", hex(hr)))?;
+        .ok_or_else(|| format!("RawViewWalker failed ({})", com::hex(hr)))?;
 
     let mut raw = std::ptr::null_mut();
-    let hr = unsafe { (vtable.element_from_point)(automation.0, point, &mut raw) };
+    let hr = unsafe { (vtable.element_from_point)(automation.as_raw(), point, &mut raw) };
     let mut element = (hr >= 0)
-        .then(|| Com::from_raw(raw))
+        .then(|| ComPtr::from_raw(raw))
         .flatten()
-        .ok_or_else(|| format!("ElementFromPoint failed ({})", hex(hr)))?;
+        .ok_or_else(|| format!("ElementFromPoint failed ({})", com::hex(hr)))?;
 
     for _ in 0..MAX_DEPTH {
         let element_vtable = unsafe { element.vtable::<IUIAutomationElementVtbl>() };
@@ -214,9 +184,9 @@ fn button_at(point: POINT) -> Result<Option<String>, String> {
         let hr = unsafe {
             (walker
                 .vtable::<IUIAutomationTreeWalkerVtbl>()
-                .get_parent_element)(walker.0, element.0, &mut raw)
+                .get_parent_element)(walker.as_raw(), element.as_raw(), &mut raw)
         };
-        match (hr >= 0).then(|| Com::from_raw(raw)).flatten() {
+        match (hr >= 0).then(|| ComPtr::from_raw(raw)).flatten() {
             Some(parent) => element = parent,
             None => break,
         }
@@ -225,11 +195,11 @@ fn button_at(point: POINT) -> Result<Option<String>, String> {
 }
 
 fn bstr_property(
-    element: &Com,
+    element: &ComPtr,
     getter: unsafe extern "system" fn(*mut c_void, *mut BSTR) -> HRESULT,
 ) -> Option<String> {
     let mut value: BSTR = std::ptr::null();
-    let hr = unsafe { getter(element.0, &mut value) };
+    let hr = unsafe { getter(element.as_raw(), &mut value) };
     if hr < 0 || value.is_null() {
         return None;
     }
@@ -288,10 +258,6 @@ fn known_folder(guid: &str) -> Option<String> {
     // The shell allocates the buffer even when the call fails.
     unsafe { CoTaskMemFree(path as *const c_void) };
     text
-}
-
-fn hex(hr: HRESULT) -> String {
-    format!("0x{:08X}", hr as u32)
 }
 
 #[cfg(test)]

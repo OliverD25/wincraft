@@ -6,7 +6,6 @@
 //! palette changing.
 
 pub mod actions;
-mod com;
 pub mod icons;
 pub mod providers;
 
@@ -15,10 +14,29 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
+use windows_sys::core::GUID;
+use windows_sys::Win32::System::Com::{CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED};
 
+use crate::core::com::ComPtr;
 use crate::core::config::SearchConfig;
 use crate::core::ui_bridge::{CommandId, PaletteEntry, PluginInfo};
 use crate::ui::fuzzy;
+
+thread_local! {
+    static COM_STARTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// A COM object for the search, which runs on the UI thread. winit usually
+/// has COM running there already; if not, this starts it. It is never shut
+/// down: the thread lives as long as WinCraft.
+pub(crate) fn create_com(clsid: &GUID, iid: &GUID) -> Option<ComPtr> {
+    COM_STARTED.with(|done| {
+        if !done.replace(true) {
+            unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) };
+        }
+    });
+    ComPtr::create(clsid, iid, CLSCTX_ALL).ok()
+}
 
 /// Typed alone, lists every prefix. A provider may still own it for queries
 /// with text after it, as web search does by default.

@@ -1,5 +1,4 @@
 mod appid;
-mod com;
 mod desktops;
 mod guard;
 mod identity;

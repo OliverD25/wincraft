@@ -9,7 +9,8 @@ use windows_sys::Win32::Foundation::{SysFreeString, SysStringLen};
 use windows_sys::Win32::System::Com::CoTaskMemFree;
 use windows_sys::Win32::System::Variant::{VARIANT, VT_I4};
 
-use crate::search::com::{self, ComPtr};
+use crate::core::com::{self, ComPtr};
+use crate::search;
 
 #[link(name = "shell32")]
 extern "system" {
@@ -104,7 +105,7 @@ unsafe fn method<F: Copy>(object: &ComPtr, index: usize) -> F {
 /// Explorer keeps each tab as its own shell window with the same handle;
 /// the tab whose name the window title starts with is the one on screen.
 pub fn folder_of(hwnd: isize, title: &str) -> Option<String> {
-    let windows = ComPtr::create(&CLSID_SHELL_WINDOWS, &IID_ISHELL_WINDOWS)?;
+    let windows = search::create_com(&CLSID_SHELL_WINDOWS, &IID_ISHELL_WINDOWS)?;
     let mut count = 0i32;
     let hr =
         unsafe { method::<GetLong>(&windows, SHELL_WINDOWS_COUNT)(windows.as_raw(), &mut count) };
