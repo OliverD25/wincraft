@@ -1,20 +1,36 @@
 # LayoutKeeper
 
-Remembers where your windows were and puts them back after a reboot.
+Remembers where your windows were and puts them back after a reboot. It
+works for any app: Chrome, Claude, Telegram, anything with a window.
 
-Chrome with "Continue where you left off" brings every window back after a
-restart, but in random order: the thumbnails in its taskbar group are
-scrambled, windows land on the wrong virtual desktop, and the wrong one is in
-front. LayoutKeeper records the layout while you work and restores it.
+Apps that bring their windows back after a restart (Chrome with "Continue
+where you left off", Telegram and many others that start with Windows) do it
+in random order: the thumbnails in their taskbar group are scrambled,
+windows land on the wrong virtual desktop, and the wrong one is in front.
+LayoutKeeper records the layout while you work and restores it.
+
+## Which windows
+
+Every app window, the way Alt+Tab counts them: visible windows with a
+title, not tool windows, dialogs or windows an app keeps hidden. Windows on
+other virtual desktops count too.
+
+**Programs** is `*` (every app) by default; it can also be a list of exe
+names, such as `chrome.exe, telegram.exe`. **Never touch** lists apps to
+leave alone, such as `telegram.exe` if Telegram should stay where it opens.
+WinCraft's own windows are always left out. Settings from before 0.8 that
+still had the old default `chrome.exe` were changed to `*` once; any other
+list you wrote was kept.
 
 ## What it records
 
-For every window of the programs you list (Chrome by default):
+For every window:
 
 - its name or title, size and position,
 - the virtual desktop it is on,
+- the monitor it is on (the one it returns to when minimized),
 - its place in the taskbar group,
-- its place in the front-to-back order.
+- its place in the front-to-back order, across all apps.
 
 The layout is saved every 30 seconds when it changed, when Windows shuts down
 or restarts, and when you press **Save layout now**. It lives in
@@ -23,8 +39,8 @@ or restarts, and when you press **Save layout now**. It lives in
 offset from UTC, such as `2026-09-25T02:48:11+03:00`. Files written before
 WinCraft 0.6.1 have UTC time (`...Z`) there and are still read.
 
-If a program is closed, its last saved windows are kept, so closing Chrome
-before a restart loses nothing. At shutdown, programs close their windows
+If an app is closed, its last saved windows are kept, so closing Chrome or
+Telegram before a restart loses nothing. At shutdown, programs close their windows
 while the layout is being saved, so a list that got shorter at that moment
 keeps the complete one from before.
 
@@ -51,20 +67,28 @@ never held. The log says when a hold starts and ends.
 
 ## Restoring
 
-When WinCraft starts, LayoutKeeper waits until the watched programs have
-opened their windows: the restore begins once the number of windows has not
-changed for 5 seconds, and it gives up after 3 minutes. Then it:
+Apps open their windows at their own pace after you sign in, so each app's
+taskbar group is restored on its own: once that group's number of windows
+has not changed for 5 seconds, as long as that happens within 3 minutes of
+WinCraft's start. An app that starts a little later, such as Telegram, is
+still covered; an app you open an hour later is left where you put it. Apps
+with nothing saved are not touched. For each group, LayoutKeeper:
 
-1. puts each program's taskbar thumbnails back in the saved order,
+1. puts the taskbar thumbnails back in the saved order,
 2. moves every window back to its saved virtual desktop,
-3. puts the windows back in their saved front-to-back order.
+3. puts the restored windows back in their saved front-to-back order.
 
 The desktop you are on and the window you are using stay as they are. A
 notification says how many windows were found, and the log lists the ones
 that were not. **Restore layout** runs the same steps at any time.
 
-Nothing is saved while a restore is waiting, so the scrambled windows of a
-fresh start never overwrite the layout they are about to be put back into.
+**Never moved between desktops:** a window pinned to all desktops, and a
+window Windows does not place on any desktop (WhatsApp's, for example). They
+still get their place in the taskbar.
+
+While a group waits for its restore, saves keep its saved windows, so the
+scrambled windows of a fresh start never overwrite the layout they are about
+to be put back into. Everything else is saved as normal.
 
 ## Naming windows
 
@@ -72,12 +96,14 @@ Chrome can give a window a name: right-click the tab strip and choose
 **Name window…**. A named window keeps the same title whatever tab is open,
 which is the surest way for LayoutKeeper to recognise it after a restart.
 Unnamed windows are recognised by title and position, which works less well
-when many windows are maximized.
+when many windows are maximized. An app with a single window in its taskbar
+group, such as Telegram whose title shows the open chat, is recognised by
+being the only one.
 
 ## Virtual desktops
 
 Windows lets a program read which desktop any window is on, but only lets it
-move its own windows. To move Chrome's windows, LayoutKeeper uses the same
+move its own windows. To move other apps' windows, LayoutKeeper uses the same
 undocumented interfaces as
 [MScholtes' VirtualDesktop](https://github.com/MScholtes/VirtualDesktop)
 (MIT), for Windows 11 24H2 and later. Microsoft changes them between builds,
@@ -89,7 +115,7 @@ for the session, the plugin page says why, and everything else still works.
 
 Windows has no setting for the order of thumbnails inside a taskbar group,
 and no way to read it. LayoutKeeper keeps its own list of the wanted order for
-each program and makes the taskbar match it. New windows join at the end, as
+each taskbar group and makes the taskbar match it. New windows join at the end, as
 Windows adds them; a window that stays closed for one save interval is
 dropped from the list.
 
@@ -99,15 +125,17 @@ Windows groups taskbar buttons by app, not by program: Chrome's installed web
 apps (Gemini, for example) get buttons of their own, next to Chrome's. They
 do because each window carries an app ID, and LayoutKeeper groups windows by
 that same ID, so each taskbar group keeps its own order. A window without an
-ID is grouped by its program's path, as Windows does. **Programs** still
-takes exe names, so `chrome.exe` covers Chrome and all its web apps.
+ID is grouped by its program's path, as Windows does. **Programs** and
+**Never touch** take exe names, so `chrome.exe` covers Chrome and all its web
+apps. A group is named by the app's own name ("Telegram", "Claude"), else
+the description in its program file, else the file name.
 
 ### Arrange windows
 
 `Win+Alt+A` (or the palette, or the button on this page) opens a strip above
 the taskbar with a live picture of every window in the front window's
-taskbar group, like the taskbar's own thumbnails. A list at the top switches
-to the other watched groups. There is one row per virtual
+taskbar group, whatever the app, like the taskbar's own thumbnails. A list at
+the top switches to every other app that has windows, most windows first. There is one row per virtual
 desktop: this desktop first, then the others under their names. The pictures
 are drawn by Windows itself (DWM thumbnails) and stay live while the strip
 is open; windows on other desktops have pictures too. A window Windows
@@ -171,7 +199,8 @@ saved order.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| Programs | `chrome.exe` | Exe names to watch, separated by commas. |
+| Programs | `*` | `*` for every app, or exe names separated by commas. |
+| Never touch | (empty) | Exe names to leave alone, separated by commas. |
 | Restore when WinCraft starts | on | Restore once the windows have settled after start. |
 | Wait for windows (seconds) | 5 | How long the window count must hold still. |
 | Give up after (minutes) | 3 | Stop waiting if it never does. |

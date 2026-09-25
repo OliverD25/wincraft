@@ -6,7 +6,7 @@ hotkeys, a command palette and a settings window. Features are written as
 **plugins** that plug into one Rust trait, so adding a feature never means
 touching the Win32 plumbing or writing any UI code.
 
-Version 0.7 ships four plugins: **ScreenDimmer**, **ShortcutDetector**,
+Version 0.8 ships four plugins: **ScreenDimmer**, **ShortcutDetector**,
 **LayoutKeeper** and **LanguageIndicator**.
 
 ## What you get
@@ -72,9 +72,12 @@ injecting code into every running process, and the window says so.
 
 ### LayoutKeeper
 
-Remembers which virtual desktop each Chrome window is on, the order of the
+Remembers which virtual desktop each window is on, the order of the
 thumbnails in its taskbar group and which window is in front, and puts all
-three back after a reboot. Any program can be watched, not only Chrome.
+three back after a reboot. It works for any app (Chrome, Claude, Telegram,
+anything with a window); the **Never touch** setting leaves chosen apps
+alone. Windows pinned to all desktops and windows Windows places on no
+desktop are never moved between desktops.
 [Full README](src/plugins/layout_keeper/README.md)
 
 | Hotkey | What it does |

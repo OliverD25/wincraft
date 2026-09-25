@@ -120,6 +120,7 @@ The About page lists the kinds the build you are running can draw.
 |---|---|
 | `metadata` | Any time it needs your id, name, version or README. Keep it cheap. |
 | `default_settings` | At startup, to fill missing keys in your config file. |
+| `migrate_settings(settings)` | At startup, right after missing keys were filled in, to rewrite values an older version stored. The host saves the file afterwards. |
 | `settings_fields` | When drawing your settings page. |
 | `init` | When the plugin is switched on. Return `Err` and the host logs it, shows a tray notification and leaves the plugin off. |
 | `on_settings_changed` | After the user changes one of your settings. |
