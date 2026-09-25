@@ -48,7 +48,11 @@ const VK_OPEN_BRACKET: u32 = 0xDB;
 const VK_CLOSE_BRACKET: u32 = 0xDD;
 const COMMAND_OPEN_STATE: u32 = 1;
 
-const DEFAULT_PROGRAMS: &str = "chrome.exe";
+/// Every app; the old default was "chrome.exe".
+const DEFAULT_PROGRAMS: &str = "*";
+const OLD_DEFAULT_PROGRAMS: &str = "chrome.exe";
+/// WinCraft's own windows are never arranged: the strip would arrange itself.
+const OWN_EXE: &str = "wincraft.exe";
 const DEFAULT_SNAPSHOT_SECONDS: u64 = 30;
 const DEFAULT_SETTLE_SECONDS: u64 = 5;
 const DEFAULT_RESTORE_MINUTES: u64 = 3;
@@ -73,7 +77,7 @@ enum Mover {
 
 pub struct LayoutKeeper {
     host_hwnd: Option<HWND>,
-    programs: Vec<String>,
+    watch: Watch,
     snapshot_seconds: u64,
     restore_on_start: bool,
     front_order: bool,
@@ -103,7 +107,7 @@ impl Default for LayoutKeeper {
     fn default() -> Self {
         Self {
             host_hwnd: None,
-            programs: Vec::new(),
+            watch: Watch::default(),
             snapshot_seconds: DEFAULT_SNAPSHOT_SECONDS,
             restore_on_start: true,
             front_order: true,
@@ -132,11 +136,16 @@ impl LayoutKeeper {
     }
 
     fn apply_settings(&mut self, settings: &serde_json::Value) {
-        self.programs = parse_programs(
+        let text = |key: &str, default: &'static str| {
             settings
-                .get("programs")
+                .get(key)
                 .and_then(|value| value.as_str())
-                .unwrap_or(DEFAULT_PROGRAMS),
+                .unwrap_or(default)
+                .to_string()
+        };
+        self.watch = Watch::new(
+            &text("programs", DEFAULT_PROGRAMS),
+            &text("excluded_programs", ""),
         );
         self.snapshot_seconds = number(settings, "snapshot_interval_seconds", 5, 600)
             .unwrap_or(DEFAULT_SNAPSHOT_SECONDS);
@@ -160,10 +169,7 @@ impl LayoutKeeper {
                 .is_some_and(|id| registry.iter().any(|desktop| desktop.id == id)),
             None => true,
         };
-        windows::enumerate(
-            &|exe| self.programs.iter().any(|p| p == exe),
-            &on_known_desktop,
-        )
+        windows::enumerate(&|exe| self.watch.covers(exe), &on_known_desktop)
     }
 
     /// Looks at the windows and brings every group's order model up to date.
@@ -175,16 +181,26 @@ impl LayoutKeeper {
                 keys.push(window.group.clone());
             }
             if !self.labels.contains_key(&window.group) {
-                let name = window
-                    .app_name
-                    .clone()
-                    .or_else(|| appid::registered_name(&window.group));
-                let label = appid::group_label(
-                    &product_name(&window.identity.exe),
-                    name.as_deref(),
-                    &window.group,
-                    &window.exe_path,
-                );
+                let has_id = window.group != window.exe_path.to_lowercase();
+                let name = window.app_name.clone().or_else(|| {
+                    has_id
+                        .then(|| appid::registered_name(&window.group))
+                        .flatten()
+                });
+                let exe = &window.identity.exe;
+                let label = match browser_name(exe) {
+                    Some(browser) => appid::group_label(
+                        browser,
+                        name.as_deref(),
+                        &window.group,
+                        &window.exe_path,
+                    ),
+                    None => app_label(
+                        name.as_deref(),
+                        windows::file_description(&window.exe_path).as_deref(),
+                        exe,
+                    ),
+                };
                 log::debug!("new taskbar group {} labelled \"{label}\"", window.group);
                 self.labels.insert(window.group.clone(), label);
             }
@@ -214,19 +230,27 @@ impl LayoutKeeper {
     }
 
     /// The watched programs' windows as they are now, each program's list in
-    /// taskbar order.
+    /// taskbar order. `z_index` counts across all programs, so the order
+    /// between apps can be put back too.
     fn capture(&self, live: &[windows::LiveWindow]) -> Programs {
         let desktops = desktops::list();
         let mut programs = Programs::new();
-        for exe in &self.programs {
-            let mine: Vec<&windows::LiveWindow> = live
+        let mut exes: Vec<&str> = Vec::new();
+        for window in live {
+            if !exes.contains(&window.identity.exe.as_str()) {
+                exes.push(&window.identity.exe);
+            }
+        }
+        for exe in exes {
+            let mine: Vec<(usize, &windows::LiveWindow)> = live
                 .iter()
-                .filter(|window| &window.identity.exe == exe)
+                .enumerate()
+                .filter(|(_, window)| window.identity.exe == exe)
                 .collect();
             let mut saved: Vec<SavedWindow> = mine
                 .iter()
-                .enumerate()
                 .map(|(z_index, window)| {
+                    let z_index = *z_index;
                     let desktop = self
                         .reader
                         .as_ref()
@@ -249,7 +273,7 @@ impl LayoutKeeper {
                 })
                 .collect();
             saved.sort_by_key(|window| window.taskbar_index);
-            programs.insert(exe.clone(), ProgramState { windows: saved });
+            programs.insert(exe.to_string(), ProgramState { windows: saved });
         }
         programs
     }
@@ -318,6 +342,7 @@ impl LayoutKeeper {
             self.writer.last(),
             self.capture(&live),
             reason == "shutdown",
+            &|exe| self.watch.covers(exe),
         );
         if timer {
             merged = state::keep_groups(self.writer.last(), merged, &self.guard.held());
@@ -450,14 +475,11 @@ impl LayoutKeeper {
     fn shift_front(&mut self, step: isize) {
         let front = unsafe { GetForegroundWindow() };
         let (exe, key) = windows::describe(front);
-        if !self.programs.contains(&exe) {
+        if !self.watch.covers(&exe) {
             log::info!("the front window belongs to \"{exe}\", which is not watched");
             host::notify(
                 "LayoutKeeper",
-                &format!(
-                    "Moving in the taskbar works on windows of {}",
-                    self.programs.join(", ")
-                ),
+                &format!("Moving in the taskbar works on windows of {}", self.watch),
             );
             return;
         }
@@ -526,7 +548,12 @@ impl LayoutKeeper {
         let mut parts: Vec<String> = Vec::new();
         let mut missing = 0;
 
-        for exe in self.programs.clone() {
+        let exes: Vec<String> = saved
+            .keys()
+            .filter(|exe| self.watch.covers(exe))
+            .cloned()
+            .collect();
+        for exe in exes {
             let Some(program) = saved.get(&exe) else {
                 continue;
             };
@@ -602,7 +629,7 @@ impl LayoutKeeper {
                 "{} of {} {} windows",
                 matching.pairs.len(),
                 windows.len(),
-                product_name(&exe)
+                program_name(&exe)
             ));
         }
 
@@ -715,11 +742,9 @@ impl LayoutKeeper {
             match self.restore.step(self.ticks, count) {
                 Step::Apply => self.restore_layout(),
                 Step::TimedOut => {
-                    let names: Vec<String> =
-                        self.programs.iter().map(|exe| product_name(exe)).collect();
                     let summary = format!(
-                        "No {} windows settled within {} minutes, so nothing was restored",
-                        names.join(" or "),
+                        "No windows of {} settled within {} minutes, so nothing was restored",
+                        self.watch,
                         self.restore.give_up_seconds / 60
                     );
                     log::info!("{summary}");
@@ -775,14 +800,97 @@ fn raise(hwnd: HWND) {
     };
 }
 
-fn product_name(exe: &str) -> String {
-    match exe {
-        "chrome.exe" => "Chrome".to_string(),
-        "msedge.exe" => "Edge".to_string(),
-        "firefox.exe" => "Firefox".to_string(),
-        "brave.exe" => "Brave".to_string(),
-        other => other.to_string(),
+/// Which programs LayoutKeeper looks after: every app ("*") or a list, less
+/// the excluded ones, and never WinCraft itself.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Watch {
+    all: bool,
+    programs: Vec<String>,
+    excluded: Vec<String>,
+}
+
+impl Watch {
+    fn new(programs: &str, excluded: &str) -> Self {
+        let programs = parse_programs(programs);
+        Self {
+            all: programs.iter().any(|program| program == "*"),
+            programs: programs
+                .into_iter()
+                .filter(|program| program != "*")
+                .collect(),
+            excluded: parse_programs(excluded),
+        }
     }
+
+    fn covers(&self, exe: &str) -> bool {
+        let exe = exe.to_lowercase();
+        !exe.is_empty()
+            && exe != OWN_EXE
+            && !self.excluded.contains(&exe)
+            && (self.all || self.programs.contains(&exe))
+    }
+}
+
+/// "any app", "any app except telegram.exe", "chrome.exe, msedge.exe".
+impl std::fmt::Display for Watch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.all {
+            f.write_str("any app")?;
+            if !self.excluded.is_empty() {
+                write!(f, " except {}", self.excluded.join(", "))?;
+            }
+            return Ok(());
+        }
+        f.write_str(&self.programs.join(", "))
+    }
+}
+
+/// Settings from before 0.8 name only Chrome, which was the default then,
+/// not a choice: that one value becomes "every app". A list the user wrote
+/// is kept.
+fn migrate_programs(settings: &mut serde_json::Value) -> bool {
+    let old = settings.get("programs").and_then(|value| value.as_str());
+    if old.map(str::trim) != Some(OLD_DEFAULT_PROGRAMS) {
+        return false;
+    }
+    settings["programs"] = serde_json::Value::from(DEFAULT_PROGRAMS);
+    true
+}
+
+/// The browsers keep their product name in front of each web app's name:
+/// "Chrome · Gemini".
+fn browser_name(exe: &str) -> Option<&'static str> {
+    match exe {
+        "chrome.exe" => Some("Chrome"),
+        "msedge.exe" => Some("Edge"),
+        "firefox.exe" => Some("Firefox"),
+        "brave.exe" => Some("Brave"),
+        _ => None,
+    }
+}
+
+/// A name for a program known only by its file: "telegram.exe" -> "Telegram".
+fn program_name(exe: &str) -> String {
+    if let Some(browser) = browser_name(exe) {
+        return browser.to_string();
+    }
+    let stem = exe.strip_suffix(".exe").unwrap_or(exe);
+    let mut chars = stem.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => exe.to_string(),
+    }
+}
+
+/// What the strip calls any other app's group: the name the app gives its
+/// windows or its Start menu entry, else the description in its program
+/// file, else its file name.
+fn app_label(name: Option<&str>, description: Option<&str>, exe: &str) -> String {
+    name.or(description)
+        .map(str::trim)
+        .filter(|label| !label.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| program_name(exe))
 }
 
 fn parse_programs(text: &str) -> Vec<String> {
@@ -829,6 +937,7 @@ impl WinCraftPlugin for LayoutKeeper {
     fn default_settings(&self) -> serde_json::Value {
         serde_json::json!({
             "programs": DEFAULT_PROGRAMS,
+            "excluded_programs": "",
             "restore_on_start": true,
             "settle_seconds": DEFAULT_SETTLE_SECONDS,
             "restore_window_minutes": DEFAULT_RESTORE_MINUTES,
@@ -842,7 +951,13 @@ impl WinCraftPlugin for LayoutKeeper {
             SettingField {
                 key: "programs",
                 label: "Programs",
-                help: "Exe names to watch, separated by commas.",
+                help: "* for every app, or exe names separated by commas.",
+                kind: FieldKind::Text,
+            },
+            SettingField {
+                key: "excluded_programs",
+                label: "Never touch",
+                help: "Exe names to leave alone, separated by commas, such as telegram.exe.",
                 kind: FieldKind::Text,
             },
             SettingField {
@@ -886,6 +1001,14 @@ impl WinCraftPlugin for LayoutKeeper {
                 kind: FieldKind::Toggle,
             },
         ]
+    }
+
+    fn migrate_settings(&self, settings: &mut serde_json::Value) {
+        if migrate_programs(settings) {
+            log::info!(
+                "programs was the old default \"{OLD_DEFAULT_PROGRAMS}\"; now \"*\", every app"
+            );
+        }
     }
 
     fn on_settings_changed(&mut self, settings: &serde_json::Value) -> bool {
@@ -944,7 +1067,7 @@ impl WinCraftPlugin for LayoutKeeper {
             return Err("could not start its timer".to_string());
         }
         self.host_hwnd = Some(ctx.hwnd);
-        log::info!("watching {}", self.programs.join(", "));
+        log::info!("watching {}", self.watch);
 
         // Switching the plugin off and on again is not a reboot.
         if !self.started_once && self.restore_on_start {
@@ -1041,7 +1164,7 @@ impl WinCraftPlugin for LayoutKeeper {
         self.refresh();
         let registry = desktops::list();
         let current = desktops::current();
-        let groups: Vec<ArrangeGroup> = self
+        let mut groups: Vec<ArrangeGroup> = self
             .groups
             .iter()
             .filter_map(|(key, model)| {
@@ -1070,8 +1193,16 @@ impl WinCraftPlugin for LayoutKeeper {
             })
             .collect();
 
+        // The switcher lists the apps with the most windows first.
+        groups.sort_by(|a, b| {
+            b.windows
+                .len()
+                .cmp(&a.windows.len())
+                .then_with(|| a.label.to_lowercase().cmp(&b.label.to_lowercase()))
+        });
+
         // The strip opens on the front window's taskbar group when it is
-        // watched, else on the first group with windows.
+        // watched, else on the busiest group.
         let front = unsafe { GetForegroundWindow() };
         let (_, front_key) = windows::describe(front);
         let focus = groups
@@ -1090,7 +1221,7 @@ impl WinCraftPlugin for LayoutKeeper {
                 })
                 .collect(),
             focus,
-            watched: self.programs.clone(),
+            watched: vec![self.watch.to_string()],
         })
     }
 
@@ -1211,6 +1342,54 @@ impl WinCraftPlugin for LayoutKeeper {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_app_is_watched_except_the_excluded_ones_and_wincraft() {
+        let watch = Watch::new("*", " Telegram.exe, claude.exe");
+        assert!(watch.covers("chrome.exe"));
+        assert!(watch.covers("CHARMAP.EXE"));
+        assert!(!watch.covers("telegram.exe"));
+        assert!(!watch.covers("claude.exe"));
+        assert!(!watch.covers("wincraft.exe"));
+        assert!(!watch.covers(""));
+        assert_eq!(watch.to_string(), "any app except telegram.exe, claude.exe");
+
+        let listed = Watch::new("chrome.exe, charmap.exe", "");
+        assert!(listed.covers("charmap.exe"));
+        assert!(!listed.covers("telegram.exe"));
+        assert_eq!(listed.to_string(), "chrome.exe, charmap.exe");
+        // The exclude list wins over a list that names the same program.
+        assert!(!Watch::new("chrome.exe", "chrome.exe").covers("chrome.exe"));
+    }
+
+    #[test]
+    fn only_the_old_default_becomes_every_app() {
+        let mut old = serde_json::json!({ "programs": "chrome.exe", "settle_seconds": 5 });
+        assert!(migrate_programs(&mut old));
+        assert_eq!(old["programs"], "*");
+        assert_eq!(old["settle_seconds"], 5);
+
+        for kept in ["chrome.exe, msedge.exe", "msedge.exe", "*"] {
+            let mut own = serde_json::json!({ "programs": kept });
+            assert!(!migrate_programs(&mut own), "{kept}");
+            assert_eq!(own["programs"], kept);
+        }
+    }
+
+    #[test]
+    fn apps_are_named_by_what_they_call_themselves() {
+        assert_eq!(
+            app_label(Some("Telegram"), Some("Telegram Desktop"), "telegram.exe"),
+            "Telegram"
+        );
+        assert_eq!(
+            app_label(None, Some("Character Map"), "charmap.exe"),
+            "Character Map"
+        );
+        assert_eq!(app_label(None, None, "claude.exe"), "Claude");
+        assert_eq!(app_label(Some("  "), None, "code.exe"), "Code");
+        assert_eq!(program_name("msedge.exe"), "Edge");
+    }
 
     #[test]
     fn the_program_list_is_trimmed_lowercased_and_deduplicated() {

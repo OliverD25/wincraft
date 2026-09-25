@@ -107,6 +107,13 @@ pub trait WinCraftPlugin {
         serde_json::json!({})
     }
 
+    /// Rewrites stored settings from an older version, before the plugin
+    /// starts. Called at every start after missing keys were filled in from
+    /// `default_settings`; the host saves the file afterwards.
+    fn migrate_settings(&self, settings: &mut serde_json::Value) {
+        let _ = settings;
+    }
+
     fn init(&mut self, ctx: &HostContext) -> Result<(), String>;
 
     fn hotkey_actions(&self) -> Vec<HotkeyAction> {

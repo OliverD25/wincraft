@@ -129,12 +129,22 @@ pub fn saved_for_group(
 
 /// Folds a fresh look at the windows into what was saved before.
 ///
-/// A program with no windows keeps its saved list: Chrome closed before a
-/// reboot is exactly the case the file exists for. At shutdown the programs
-/// are closing their windows while the snapshot runs, so a list that shrank
-/// keeps the earlier, complete one.
-pub fn merge(previous: Option<&Programs>, fresh: Programs, shutdown: bool) -> Programs {
+/// A program with no windows keeps its saved list, as long as it is still
+/// watched: an app closed before a reboot is exactly the case the file
+/// exists for. At shutdown the programs are closing their windows while the
+/// snapshot runs, so a list that shrank keeps the earlier, complete one.
+pub fn merge(
+    previous: Option<&Programs>,
+    fresh: Programs,
+    shutdown: bool,
+    watched: &dyn Fn(&str) -> bool,
+) -> Programs {
     let mut merged = Programs::new();
+    for (exe, state) in previous.into_iter().flatten() {
+        if !fresh.contains_key(exe) && watched(exe) && !state.windows.is_empty() {
+            merged.insert(exe.clone(), state.clone());
+        }
+    }
     for (exe, state) in fresh {
         let before = previous.and_then(|programs| programs.get(&exe));
         let keep_before = match before {
@@ -421,29 +431,42 @@ mod tests {
         assert_eq!(saved_for_group(&saved, &matching, &[], "Other"), [1]);
     }
 
+    fn every(_: &str) -> bool {
+        true
+    }
+
     #[test]
     fn a_closed_program_keeps_its_saved_windows() {
         let before = programs(&["A", "B"]);
-        let fresh = Programs::from([("chrome.exe".to_string(), ProgramState::default())]);
-        assert_eq!(merge(Some(&before), fresh, false), before);
+        let empty = Programs::from([("chrome.exe".to_string(), ProgramState::default())]);
+        assert_eq!(merge(Some(&before), empty, false, &every), before);
+        // A closed app is simply missing from the fresh look.
+        assert_eq!(merge(Some(&before), Programs::new(), false, &every), before);
+    }
+
+    #[test]
+    fn a_program_no_longer_watched_is_dropped() {
+        let before = programs(&["A", "B"]);
+        let not_chrome = |exe: &str| exe != "chrome.exe";
+        assert!(merge(Some(&before), Programs::new(), false, &not_chrome).is_empty());
     }
 
     #[test]
     fn a_list_that_shrinks_at_shutdown_keeps_the_complete_one() {
         let before = programs(&["A", "B", "C"]);
-        assert_eq!(merge(Some(&before), programs(&["A"]), true), before);
+        assert_eq!(merge(Some(&before), programs(&["A"]), true, &every), before);
     }
 
     #[test]
     fn a_window_closed_during_the_day_is_forgotten() {
         let before = programs(&["A", "B", "C"]);
         let fresh = programs(&["A"]);
-        assert_eq!(merge(Some(&before), fresh.clone(), false), fresh);
+        assert_eq!(merge(Some(&before), fresh.clone(), false, &every), fresh);
     }
 
     #[test]
     fn a_program_never_seen_with_windows_is_left_out() {
         let fresh = Programs::from([("notepad.exe".to_string(), ProgramState::default())]);
-        assert!(merge(None, fresh, false).is_empty());
+        assert!(merge(None, fresh, false, &every).is_empty());
     }
 }

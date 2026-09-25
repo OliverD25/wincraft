@@ -244,6 +244,7 @@ impl Host {
 
         let mut plugin = PluginConfig::load(meta.id);
         plugin.merge_defaults(&defaults, &settings);
+        slot.plugin.migrate_settings(&mut plugin.settings);
         self.plugins.insert(meta.id.to_string(), plugin);
         self.save_plugin(meta.id);
     }
