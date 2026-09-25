@@ -167,6 +167,18 @@ pub trait SearchProvider: Send {
     /// snapshot of something that changes, like the open windows.
     fn opened(&mut self) {}
 
+    /// Something is still being read on another thread; while this is true
+    /// the palette wakes up now and then to call `has_news`.
+    fn waiting(&self) -> bool {
+        false
+    }
+
+    /// Something read on another thread arrived since the last call, so the
+    /// palette should ask this provider again.
+    fn has_news(&mut self) -> bool {
+        false
+    }
+
     /// Answers one query. It runs on the UI thread on every keystroke, so it
     /// must answer from memory or from one cheap system call.
     fn query(&mut self, query: &Query, context: &Context) -> Vec<ResultItem>;
@@ -273,6 +285,18 @@ impl Router {
         for slot in &mut self.slots {
             slot.provider.opened();
         }
+    }
+
+    /// Whether any provider got background results since the last poll, and
+    /// whether any is still waiting for some.
+    pub fn poll(&mut self) -> (bool, bool) {
+        let mut news = false;
+        let mut waiting = false;
+        for slot in &mut self.slots {
+            news |= slot.provider.has_news();
+            waiting |= slot.provider.waiting();
+        }
+        (news, waiting)
     }
 
     pub fn search(&mut self, prefix: Option<&str>, text: &str, context: &Context) -> Results {

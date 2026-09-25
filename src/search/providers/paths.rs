@@ -1,9 +1,9 @@
 use std::os::windows::fs::MetadataExt;
 use std::path::PathBuf;
 
-use windows_sys::Win32::Storage::FileSystem::{
-    GetLogicalDrives, FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_SYSTEM,
-};
+use windows_sys::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_SYSTEM};
+
+use super::drives::Drives;
 
 use crate::search::{
     Action, Choice, Completion, Context, IconRef, Query, ResultItem, SearchProvider,
@@ -54,6 +54,7 @@ struct Entry {
 pub struct Paths {
     /// The last folder read, so typing a filter does not read it again.
     listed: Option<(String, Vec<Entry>)>,
+    drives: Drives,
 }
 
 impl SearchProvider for Paths {
@@ -88,9 +89,17 @@ impl SearchProvider for Paths {
         self.listed = None;
     }
 
+    fn waiting(&self) -> bool {
+        self.drives.waiting()
+    }
+
+    fn has_news(&mut self) -> bool {
+        self.drives.take_news()
+    }
+
     fn query(&mut self, query: &Query, _context: &Context) -> Vec<ResultItem> {
         match target(&query.text) {
-            Target::Drives(filter) => drives(filter),
+            Target::Drives(filter) => self.drives(filter),
             Target::Folder { dir, filter } => self.folder(dir, filter, query.limit),
         }
     }
@@ -195,27 +204,32 @@ fn reveal(path: &str) -> Option<Choice> {
     })
 }
 
-fn drives(filter: &str) -> Vec<ResultItem> {
-    let mask = unsafe { GetLogicalDrives() };
-    (0..26u8)
-        .filter(|bit| mask & (1 << bit) != 0)
-        .filter_map(|bit| {
-            let root = format!("{}:\\", (b'A' + bit) as char);
-            let score = fuzzy::score(filter, &root)?;
-            Some(ResultItem {
-                group: "Drives".to_string(),
-                title: root.clone(),
-                icon: IconRef::Path(PathBuf::from(&root)),
-                score,
-                enter: open(&root),
-                tab: Some(Completion {
-                    label: "Open folder".to_string(),
-                    text: root.clone(),
-                }),
-                ..Default::default()
+impl Paths {
+    /// The title stays the bare root so typing "c:" still matches it; the
+    /// label and free space fill the second line once they have been read.
+    fn drives(&self, filter: &str) -> Vec<ResultItem> {
+        self.drives
+            .list()
+            .into_iter()
+            .filter_map(|(letter, subtitle)| {
+                let root = format!("{letter}:\\");
+                let score = fuzzy::score(filter, &root)?;
+                Some(ResultItem {
+                    group: "Drives".to_string(),
+                    title: root.clone(),
+                    subtitle,
+                    icon: IconRef::Path(PathBuf::from(&root)),
+                    score,
+                    enter: open(&root),
+                    tab: Some(Completion {
+                        label: "Open folder".to_string(),
+                        text: root.clone(),
+                    }),
+                    ..Default::default()
+                })
             })
-        })
-        .collect()
+            .collect()
+    }
 }
 
 /// Folders first, then files, each by name. Hidden and system items are left
@@ -246,7 +260,7 @@ fn read_folder(dir: &str) -> Vec<Entry> {
     entries
 }
 
-fn size_text(bytes: u64) -> String {
+pub fn size_text(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["KB", "MB", "GB", "TB"];
     if bytes < 1024 {
         return format!("{bytes} bytes");

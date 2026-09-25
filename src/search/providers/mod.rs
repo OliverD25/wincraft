@@ -1,6 +1,7 @@
 mod apps;
 mod calc;
 mod commands;
+mod drives;
 mod paths;
 pub mod web;
 mod windows;

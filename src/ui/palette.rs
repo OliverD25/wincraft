@@ -88,8 +88,17 @@ impl Palette {
     }
 
     /// Asks the providers again only when the query changed, because some of
-    /// them read the disk or the window list.
-    fn refresh(&mut self, snapshot: &UiSnapshot) {
+    /// them read the disk or the window list, or when one of them has new
+    /// background results. While one still waits for some, the palette wakes
+    /// up every 100 ms to check, since nothing else would repaint it.
+    fn refresh(&mut self, snapshot: &UiSnapshot, ctx: &egui::Context) {
+        let (news, waiting) = self.router.poll();
+        if news {
+            self.searched = None;
+        }
+        if waiting {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
         let wanted = (self.prefix.clone(), self.query.clone());
         if self.searched.as_ref() != Some(&wanted) {
             let context = Context {
@@ -151,8 +160,8 @@ impl Palette {
         appear: f32,
         interactive: bool,
     ) -> Outcome {
-        self.refresh(snapshot);
         let ctx = ui.ctx().clone();
+        self.refresh(snapshot, &ctx);
         let tokens = Tokens::get(&ctx);
         let mut outcome = Outcome::Stay;
         let mut run: Option<Action> = None;
