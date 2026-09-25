@@ -7,7 +7,7 @@ use serde_json::Value;
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APP};
 
-use crate::core::config::ThemeChoice;
+use crate::core::config::{SearchConfig, ThemeChoice};
 use crate::core::traits::FieldKind;
 
 /// Posted to the host window when the UI thread has queued a request. The host
@@ -56,6 +56,8 @@ pub enum HostSetting {
     StartWithWindows(bool),
     Theme(ThemeChoice),
     PaletteHotkey(String),
+    /// The palette search settings, sent whole after one of them changed.
+    Search(SearchConfig),
 }
 
 /// One window in the Arrange strip.
@@ -232,6 +234,7 @@ pub struct UiSnapshot {
     pub log_path: PathBuf,
     pub plugins: Vec<PluginInfo>,
     pub commands: Vec<PaletteEntry>,
+    pub search: SearchConfig,
 }
 
 /// Host → UI. The egui context arrives once the UI thread is up; until then

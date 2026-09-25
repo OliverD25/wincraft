@@ -93,6 +93,15 @@ impl SearchProvider for Paths {
         self.drives.waiting()
     }
 
+    /// The folder last listed, so `>` can run a command in it. A typed path
+    /// that does not exist is not one.
+    fn folder(&self) -> Option<String> {
+        self.listed
+            .as_ref()
+            .map(|(dir, _)| dir.clone())
+            .filter(|dir| std::path::Path::new(dir).is_dir())
+    }
+
     fn has_news(&mut self) -> bool {
         self.drives.take_news()
     }
@@ -100,13 +109,13 @@ impl SearchProvider for Paths {
     fn query(&mut self, query: &Query, _context: &Context) -> Vec<ResultItem> {
         match target(&query.text) {
             Target::Drives(filter) => self.drives(filter),
-            Target::Folder { dir, filter } => self.folder(dir, filter, query.limit),
+            Target::Folder { dir, filter } => self.list_folder(dir, filter, query.limit),
         }
     }
 }
 
 impl Paths {
-    fn folder(&mut self, dir: String, filter: &str, limit: usize) -> Vec<ResultItem> {
+    fn list_folder(&mut self, dir: String, filter: &str, limit: usize) -> Vec<ResultItem> {
         if self.listed.as_ref().map(|(listed, _)| listed) != Some(&dir) {
             self.listed = Some((dir.clone(), read_folder(&dir)));
         }
@@ -342,7 +351,7 @@ mod tests {
         let dir = format!("{}\\", base.display());
 
         let mut paths = Paths::default();
-        let listed = paths.folder(dir.clone(), "", 50);
+        let listed = paths.list_folder(dir.clone(), "", 50);
         let titles: Vec<&str> = listed.iter().map(|item| item.title.as_str()).collect();
         let own_name = base.file_name().unwrap().to_string_lossy().to_string();
         assert_eq!(titles, [own_name.as_str(), "zeta", "alpha.txt"]);
@@ -352,7 +361,7 @@ mod tests {
             Some(format!("{dir}zeta\\"))
         );
 
-        let filtered = paths.folder(dir.clone(), "alp", 50);
+        let filtered = paths.list_folder(dir.clone(), "alp", 50);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].title, "alpha.txt");
         let _ = std::fs::remove_dir_all(&base);

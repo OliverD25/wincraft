@@ -523,6 +523,7 @@ impl Host {
             log_path: config::log_path(),
             commands: self.palette_entries(&plugins),
             plugins,
+            search: self.config.search.clone(),
         }
     }
 
@@ -632,7 +633,7 @@ impl Host {
 
     fn search_router(&self) -> Router {
         let mut providers: Vec<(Option<String>, Box<dyn SearchProvider>)> =
-            search::providers::built_in(&self.config.search)
+            search::providers::built_in()
                 .into_iter()
                 .map(|provider| (None, provider))
                 .collect();
@@ -858,6 +859,7 @@ impl Host {
                 }
                 Err(err) => log::error!("could not change autostart: {err}"),
             },
+            HostSetting::Search(search) => self.config.search = search,
             HostSetting::Theme(choice) => {
                 self.config.theme = choice;
                 theme::set_current(choice);

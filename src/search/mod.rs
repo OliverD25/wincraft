@@ -15,6 +15,7 @@ use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::config::SearchConfig;
 use crate::core::ui_bridge::{CommandId, PaletteEntry, PluginInfo};
 use crate::ui::fuzzy;
 
@@ -55,6 +56,31 @@ pub enum Action {
     OpenUrl(String),
     /// Switches the palette to another prefix; empty goes back to none.
     SetPrefix(String),
+    /// Handed back to the provider that made the row, on the UI thread, for
+    /// work only it can do, such as starting a command it then watches.
+    Provider {
+        provider: String,
+        command: String,
+    },
+}
+
+/// What the palette does after a provider handled an action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reply {
+    Stay,
+    /// Stays open with the text after the prefix emptied.
+    ClearQuery,
+    Hide,
+}
+
+/// The title's colour.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Tone {
+    #[default]
+    Normal,
+    Warning,
+    Danger,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -71,6 +97,17 @@ pub struct Completion {
     pub text: String,
 }
 
+impl Completion {
+    /// Puts a row's title in the box without a footer hint, the everyday
+    /// Tab that needs no explaining.
+    pub fn quiet(text: &str) -> Self {
+        Self {
+            label: String::new(),
+            text: text.to_string(),
+        }
+    }
+}
+
 /// A picture the palette draws itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -79,6 +116,7 @@ pub enum Glyph {
     Search,
     Calculator,
     Globe,
+    Terminal,
 }
 
 /// Where a row's 16 px picture comes from.
@@ -97,8 +135,8 @@ pub enum IconRef {
     },
 }
 
-/// One row of the palette. The three action slots are the keys that act on
-/// it: Enter, Shift+Enter and Tab.
+/// One row of the palette. The action slots are the keys that act on it:
+/// Enter, Shift+Enter, Ctrl+Enter and Tab.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ResultItem {
     /// Rows are listed under one header per group, as the palette always did
@@ -122,15 +160,28 @@ pub struct ResultItem {
     pub enter: Option<Choice>,
     #[serde(default)]
     pub shift_enter: Option<Choice>,
-    /// None means Tab puts the title into the search box.
+    #[serde(default)]
+    pub ctrl_enter: Option<Choice>,
+    /// None means Tab does nothing. A completion with an empty label works
+    /// but is not advertised in the footer.
     #[serde(default)]
     pub tab: Option<Completion>,
+    #[serde(default)]
+    pub tone: Tone,
+    /// A one-line monospace row, 24 px high, for command output.
+    #[serde(default)]
+    pub compact: bool,
 }
 
 /// What every provider may read besides the query.
+#[derive(Clone, Copy)]
 pub struct Context<'a> {
     pub commands: &'a [PaletteEntry],
     pub plugins: &'a [PluginInfo],
+    pub search: &'a SearchConfig,
+    /// The folder the user last browsed with a provider during this opening
+    /// of the palette, such as a folder drilled into under `/`.
+    pub folder: Option<&'a str>,
 }
 
 pub trait SearchProvider: Send {
@@ -142,6 +193,13 @@ pub trait SearchProvider: Send {
 
     /// One line for the `?` list.
     fn description(&self) -> &'static str;
+
+    /// The `?` list's line when it depends on the settings, such as the
+    /// shell the terminal provider runs commands in.
+    fn describe(&self, context: &Context) -> String {
+        let _ = context;
+        self.description().to_string()
+    }
 
     /// The prefix that sends a query here when config.json names none.
     fn default_prefix(&self) -> Option<&'static str> {
@@ -182,6 +240,44 @@ pub trait SearchProvider: Send {
     /// Answers one query. It runs on the UI thread on every keystroke, so it
     /// must answer from memory or from one cheap system call.
     fn query(&mut self, query: &Query, context: &Context) -> Vec<ResultItem>;
+
+    /// Runs an `Action::Provider` this provider put on a row.
+    fn act(&mut self, command: &str, context: &Context) -> Reply {
+        let _ = (command, context);
+        Reply::Stay
+    }
+
+    /// The folder the last answer was browsing, shared with other providers
+    /// through `Context::folder`.
+    fn folder(&self) -> Option<String> {
+        None
+    }
+
+    /// Esc was pressed while this provider's prefix is on. Returning true
+    /// keeps the palette open, as when Esc stops a running command.
+    fn escape(&mut self) -> bool {
+        false
+    }
+
+    /// The footer's word for Esc when it does not close the palette.
+    fn escape_label(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// A key other than Enter was pressed, which cancels a pending "press
+    /// Enter again".
+    fn interrupted(&mut self) {}
+
+    /// Everything Ctrl+Shift+C copies, such as a command's whole output.
+    fn copy_all(&self) -> Option<String> {
+        None
+    }
+
+    /// New rows arrive at the bottom, so the palette keeps the last one in
+    /// view as long as the cursor is already there.
+    fn follows_end(&self) -> bool {
+        false
+    }
 }
 
 struct Slot {
@@ -195,6 +291,8 @@ struct Slot {
 /// The providers a query can reach, and the prefix of each.
 pub struct Router {
     slots: Vec<Slot>,
+    /// See `Context::folder`.
+    folder: Option<String>,
 }
 
 /// What the palette draws for one query.
@@ -202,6 +300,8 @@ pub struct Router {
 pub struct Results {
     pub items: Vec<ResultItem>,
     pub needle: String,
+    pub follows_end: bool,
+    pub escape_label: Option<&'static str>,
 }
 
 const BLENDED_LIMIT: usize = 8;
@@ -247,7 +347,10 @@ impl Router {
                 log::warn!("search.prefixes names {id:?}, which is not a search provider");
             }
         }
-        Self { slots }
+        Self {
+            slots,
+            folder: None,
+        }
     }
 
     /// Splits a known prefix off the start of what was typed, preferring the
@@ -282,8 +385,47 @@ impl Router {
     }
 
     pub fn opened(&mut self) {
+        self.folder = None;
         for slot in &mut self.slots {
             slot.provider.opened();
+        }
+    }
+
+    fn slot_mut(&mut self, prefix: Option<&str>) -> Option<&mut Slot> {
+        let prefix = prefix?;
+        self.slots
+            .iter_mut()
+            .find(|slot| slot.prefix.as_deref() == Some(prefix))
+    }
+
+    pub fn act(&mut self, provider: &str, command: &str, context: &Context) -> Reply {
+        let context = Context {
+            folder: self.folder.as_deref(),
+            ..*context
+        };
+        match self
+            .slots
+            .iter_mut()
+            .find(|slot| slot.provider.id() == provider)
+        {
+            Some(slot) => slot.provider.act(command, &context),
+            None => Reply::Stay,
+        }
+    }
+
+    pub fn escape(&mut self, prefix: Option<&str>) -> bool {
+        self.slot_mut(prefix)
+            .is_some_and(|slot| slot.provider.escape())
+    }
+
+    pub fn copy_all(&mut self, prefix: Option<&str>) -> Option<String> {
+        self.slot_mut(prefix)
+            .and_then(|slot| slot.provider.copy_all())
+    }
+
+    pub fn interrupted(&mut self) {
+        for slot in &mut self.slots {
+            slot.provider.interrupted();
         }
     }
 
@@ -313,6 +455,10 @@ impl Router {
             Some(index) if !(help && text.is_empty()) => index,
             _ => return self.help(text, context),
         };
+        let context = Context {
+            folder: self.folder.as_deref(),
+            ..*context
+        };
         let slot = &mut self.slots[index];
         if !plugin_is_on(slot.plugin.as_deref(), context.plugins) {
             return Results::default();
@@ -323,10 +469,17 @@ impl Router {
             limit: PREFIXED_LIMIT,
         };
         let needle = slot.provider.needle(text).trim().to_string();
-        let items = timed(slot.provider.as_mut(), &query, context);
+        let items = timed(slot.provider.as_mut(), &query, &context);
+        let follows_end = slot.provider.follows_end();
+        let escape_label = slot.provider.escape_label();
+        if let Some(folder) = slot.provider.folder() {
+            self.folder = Some(folder);
+        }
         Results {
-            items: rank(items, needle.is_empty()),
+            items: rank(items, needle.is_empty() || follows_end),
             needle,
+            follows_end,
+            escape_label,
         }
     }
 
@@ -346,6 +499,7 @@ impl Router {
         Results {
             items: rank(items, text.is_empty()),
             needle: text.to_string(),
+            ..Default::default()
         }
     }
 
@@ -377,7 +531,7 @@ impl Router {
             }
             Some(row(
                 slot.provider.name(),
-                slot.provider.description(),
+                &slot.provider.describe(context),
                 prefix,
             ))
         }));
@@ -394,6 +548,7 @@ impl Router {
         Results {
             items: rank(items, filter.is_empty()),
             needle: filter.to_string(),
+            ..Default::default()
         }
     }
 }
@@ -450,6 +605,17 @@ pub fn rank(items: Vec<ResultItem>, keep_order: bool) -> Vec<ResultItem> {
         .into_iter()
         .filter_map(|index| taken[index].take())
         .collect()
+}
+
+/// An empty context with default settings, for providers' tests.
+#[cfg(test)]
+pub fn test_context() -> Context<'static> {
+    Context {
+        commands: &[],
+        plugins: &[],
+        search: Box::leak(Box::new(SearchConfig::default())),
+        folder: None,
+    }
 }
 
 #[cfg(test)]
@@ -530,10 +696,7 @@ mod tests {
     }
 
     fn context() -> Context<'static> {
-        Context {
-            commands: &[],
-            plugins: &[],
-        }
+        test_context()
     }
 
     #[test]

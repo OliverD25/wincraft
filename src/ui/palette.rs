@@ -1,12 +1,17 @@
 use std::sync::Arc;
 
 use egui::text::LayoutJob;
-use egui::{pos2, vec2, Align, CornerRadius, Layout, Rect, Sense, Shadow, StrokeKind, UiBuilder};
+use egui::{
+    pos2, vec2, Align, Color32, CornerRadius, FontId, Layout, Rect, Sense, Shadow, StrokeKind,
+    UiBuilder,
+};
 
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{HostChannel, HostRequest, UiSnapshot};
 use crate::search::icons::IconCache;
-use crate::search::{Action, Choice, Context, Glyph, IconRef, ResultItem, Results, Router};
+use crate::search::{
+    Action, Choice, Context, Glyph, IconRef, Reply, ResultItem, Results, Router, Tone,
+};
 use crate::ui::fuzzy;
 use crate::ui::widgets::icons::{self, Icon};
 use crate::ui::widgets::{keycap, row, text};
@@ -23,6 +28,7 @@ pub const HEIGHT: f32 = PANEL_HEIGHT + MARGIN * 2.0;
 const SEARCH_HEIGHT: f32 = 56.0;
 const FOOTER_HEIGHT: f32 = 36.0;
 const ROW_HEIGHT: f32 = 44.0;
+const COMPACT_HEIGHT: f32 = 24.0;
 const ROW_PADDING: f32 = 12.0;
 const ICON_SIZE: f32 = 16.0;
 const TITLE_LINE: f32 = 20.0;
@@ -101,13 +107,16 @@ impl Palette {
         }
         let wanted = (self.prefix.clone(), self.query.clone());
         if self.searched.as_ref() != Some(&wanted) {
-            let context = Context {
-                commands: &snapshot.commands,
-                plugins: &snapshot.plugins,
-            };
-            self.results = self
-                .router
-                .search(self.prefix.as_deref(), &self.query, &context);
+            let at_end = self.selected + 1 >= self.results.items.len();
+            self.results =
+                self.router
+                    .search(self.prefix.as_deref(), &self.query, &context(snapshot));
+            // Output streaming in keeps the newest line in view, unless the
+            // user moved the cursor up to read something.
+            if news && at_end && self.results.follows_end {
+                self.selected = self.results.items.len().saturating_sub(1);
+                self.follow_selection = true;
+            }
             self.searched = Some(wanted);
         }
         if self.selected >= self.results.items.len() {
@@ -131,7 +140,7 @@ impl Palette {
         self.set_query(String::new());
     }
 
-    /// Tab: the row's completion, or its title. On a row of the `?` list it
+    /// Tab: the row's completion, if it has one. On a row of the `?` list it
     /// switches to that prefix, the same as Enter.
     fn complete(&mut self) -> Option<Action> {
         let item = self.selected_item()?;
@@ -142,10 +151,7 @@ impl Palette {
         {
             return Some(action.clone());
         }
-        let text = match &item.tab {
-            Some(completion) => completion.text.clone(),
-            None => item.title.clone(),
-        };
+        let text = item.tab.as_ref()?.text.clone();
         self.set_query(text);
         None
     }
@@ -168,7 +174,18 @@ impl Palette {
 
         if interactive {
             let pressed = |key| ctx.input(|input| input.key_pressed(key));
-            if pressed(egui::Key::Escape) {
+            // Any key but Enter cancels a pending "press Enter again".
+            let other_key = ctx.input(|input| {
+                input.events.iter().any(|event| match event {
+                    egui::Event::Key { key, pressed, .. } => *pressed && *key != egui::Key::Enter,
+                    egui::Event::Text(_) => true,
+                    _ => false,
+                })
+            });
+            if other_key {
+                self.router.interrupted();
+            }
+            if pressed(egui::Key::Escape) && !self.router.escape(self.prefix.as_deref()) {
                 outcome = Outcome::Hide;
             }
             if !self.results.items.is_empty() {
@@ -183,15 +200,25 @@ impl Palette {
                 }
             }
             if pressed(egui::Key::Enter) {
-                let shift = ctx.input(|input| input.modifiers.shift);
+                let modifiers = ctx.input(|input| input.modifiers);
                 run = self.selected_item().and_then(|item| {
-                    let slot = if shift {
+                    let slot = if modifiers.command {
+                        &item.ctrl_enter
+                    } else if modifiers.shift {
                         &item.shift_enter
                     } else {
                         &item.enter
                     };
                     slot.as_ref().map(|choice| choice.action.clone())
                 });
+            }
+            let copy_all = ctx.input(|input| {
+                input.modifiers.command && input.modifiers.shift && input.key_pressed(egui::Key::C)
+            });
+            if copy_all {
+                if let Some(text) = self.router.copy_all(self.prefix.as_deref()) {
+                    to_host.send(HostRequest::RunAction(Action::Copy(text)));
+                }
             }
             if pressed(egui::Key::Tab) {
                 run = run.or(self.complete());
@@ -306,7 +333,7 @@ impl Palette {
             panel.max,
         );
         painter.hline(footer.x_range(), footer.top() + line.width / 2.0, line);
-        let hints = footer_keys(self.selected_item());
+        let hints = footer_keys(self.selected_item(), self.results.escape_label);
         ui.scope_builder(
             UiBuilder::new()
                 .max_rect(footer.shrink2(vec2(16.0, 0.0)))
@@ -378,6 +405,19 @@ impl Palette {
                     self.set_prefix(Some(prefix).filter(|prefix| !prefix.is_empty()));
                     Outcome::Stay
                 }
+                Action::Provider { provider, command } => {
+                    match self.router.act(&provider, &command, &context(snapshot)) {
+                        Reply::Stay => {
+                            self.searched = None;
+                            Outcome::Stay
+                        }
+                        Reply::ClearQuery => {
+                            self.set_query(String::new());
+                            Outcome::Stay
+                        }
+                        Reply::Hide => Outcome::Hide,
+                    }
+                }
                 Action::Command(id) => {
                     to_host.send(HostRequest::RunCommand(id));
                     Outcome::Hide
@@ -440,9 +480,22 @@ fn prefix_chip(
     rect
 }
 
+/// What every provider may read, from the host's latest snapshot.
+fn context(snapshot: &UiSnapshot) -> Context<'_> {
+    Context {
+        commands: &snapshot.commands,
+        plugins: &snapshot.plugins,
+        search: &snapshot.search,
+        folder: None,
+    }
+}
+
 /// The keys that do something on the selected row, then the two that always
-/// work.
-fn footer_keys(item: Option<&ResultItem>) -> Vec<(&'static str, String)> {
+/// work. A Tab completion without a label works but is not advertised.
+fn footer_keys(
+    item: Option<&ResultItem>,
+    escape: Option<&'static str>,
+) -> Vec<(&'static str, String)> {
     let mut keys = Vec::new();
     if let Some(item) = item {
         if let Some(choice) = &item.enter {
@@ -451,7 +504,10 @@ fn footer_keys(item: Option<&ResultItem>) -> Vec<(&'static str, String)> {
         if let Some(choice) = &item.shift_enter {
             keys.push(("Shift+\u{21B5}", choice.label.clone()));
         }
-        if let Some(completion) = &item.tab {
+        if let Some(choice) = &item.ctrl_enter {
+            keys.push(("Ctrl+\u{21B5}", choice.label.clone()));
+        }
+        if let Some(completion) = item.tab.as_ref().filter(|tab| !tab.label.is_empty()) {
             keys.push(("Tab", completion.label.clone()));
         }
     }
@@ -460,7 +516,7 @@ fn footer_keys(item: Option<&ResultItem>) -> Vec<(&'static str, String)> {
     if keys.len() < 3 {
         keys.push(("\u{2191}\u{2193}", "Move".to_string()));
     }
-    keys.push(("Esc", "Close".to_string()));
+    keys.push(("Esc", escape.unwrap_or("Close").to_string()));
     keys
 }
 
@@ -480,14 +536,20 @@ fn group_header(ui: &mut egui::Ui, name: &str) {
 
 /// A label with the matched letters underlined in the accent colour; the
 /// semibold weight is kept for headings, so the match is not shown in bold.
-fn label_job(label: &str, query: &str, tokens: &Tokens) -> LayoutJob {
+fn label_job(
+    label: &str,
+    query: &str,
+    font: FontId,
+    colour: Color32,
+    tokens: &Tokens,
+) -> LayoutJob {
     let matched = if query.is_empty() {
         Vec::new()
     } else {
         fuzzy::positions(query, label).unwrap_or_default()
     };
-    let plain = text::format(theme::regular(15.0), tokens.text_primary, Some(TITLE_LINE));
-    let mut hit = text::format(theme::regular(15.0), tokens.accent, Some(TITLE_LINE));
+    let plain = text::format(font.clone(), colour, Some(TITLE_LINE));
+    let mut hit = text::format(font, tokens.accent, Some(TITLE_LINE));
     hit.underline = egui::Stroke::new(1.0, tokens.accent);
     let mut job = LayoutJob::default();
     for (index, character) in label.chars().enumerate() {
@@ -503,10 +565,11 @@ fn label_job(label: &str, query: &str, tokens: &Tokens) -> LayoutJob {
 }
 
 /// A 44 px row: the 16 px picture, the title 15 with an optional 12 px
-/// subtitle under it, and one hotkey chip at the right. The cursor row is
-/// drawn from state, never from hover; hover only adds the 5 % tint. A
-/// command whose plugin is off stays listed at 45 % with an italic "plugin
-/// off", so its hotkey does not seem to vanish.
+/// subtitle under it, and one hotkey chip at the right; a compact row is one
+/// 24 px line of monospace output. The cursor row is drawn from state, never
+/// from hover; hover only adds the 5 % tint. A command whose plugin is off
+/// stays listed at 45 % with an italic "plugin off", so its hotkey does not
+/// seem to vanish.
 fn result_row(
     ui: &mut egui::Ui,
     entry: &ResultItem,
@@ -521,7 +584,12 @@ fn result_row(
     } else {
         Sense::hover()
     };
-    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_HEIGHT), sense);
+    let height = if entry.compact {
+        COMPACT_HEIGHT
+    } else {
+        ROW_HEIGHT
+    };
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), height), sense);
     if !ui.is_rect_visible(rect) {
         return (false, rect);
     }
@@ -578,16 +646,26 @@ fn result_row(
     let off_width = off.as_ref().map(|galley| galley.size().x + 10.0);
     let title_width = text_right - text_left - off_width.unwrap_or(0.0);
 
-    let mut title = label_job(&entry.title, query, &tokens);
+    let colour = match entry.tone {
+        Tone::Normal => tokens.text_primary,
+        Tone::Warning => tokens.warning,
+        Tone::Danger => tokens.danger,
+    };
+    let font = if entry.compact {
+        theme::mono(13.0)
+    } else {
+        theme::regular(15.0)
+    };
+    let mut title = label_job(&entry.title, query, font, colour, &tokens);
     title.wrap = one_line(title_width);
     let title = painter.layout_job(title);
-    let top = if entry.subtitle.is_empty() {
+    let top = if entry.subtitle.is_empty() || entry.compact {
         rect.center().y - TITLE_LINE / 2.0
     } else {
         rect.center().y - (TITLE_LINE + SUBTITLE_LINE) / 2.0
     };
     let title_width = title.size().x;
-    painter.galley(pos2(text_left, top), title, tokens.text_primary);
+    painter.galley(pos2(text_left, top), title, colour);
     if let Some(off) = off {
         let y = top + (TITLE_LINE - off.size().y) / 2.0;
         painter.galley(
@@ -596,7 +674,7 @@ fn result_row(
             tokens.text_disabled,
         );
     }
-    if !entry.subtitle.is_empty() {
+    if !entry.subtitle.is_empty() && !entry.compact {
         let mut subtitle = text::job(
             &entry.subtitle,
             theme::regular(12.0),
@@ -643,6 +721,7 @@ fn paint_icon(
                 Glyph::Search => Icon::Search,
                 Glyph::Calculator => Icon::Calculator,
                 Glyph::Globe => Icon::Globe,
+                Glyph::Terminal => Icon::Terminal,
             };
             icons::paint(painter, rect, drawn, tokens.text_disabled);
         }

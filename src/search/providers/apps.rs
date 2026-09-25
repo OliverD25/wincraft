@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::search::{Action, Choice, Context, IconRef, Query, ResultItem, SearchProvider};
+use crate::search::{
+    Action, Choice, Completion, Context, IconRef, Query, ResultItem, SearchProvider,
+};
 use crate::ui::fuzzy;
 
 const REINDEX_EVERY: Duration = Duration::from_secs(10 * 60);
@@ -100,6 +102,7 @@ pub fn search(apps: &[App], text: &str, limit: usize) -> Vec<ResultItem> {
                 label: "Open".to_string(),
                 action: Action::Open(app.shortcut.clone()),
             }),
+            tab: Some(Completion::quiet(&app.name)),
             ..Default::default()
         })
         .collect()

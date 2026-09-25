@@ -1,4 +1,6 @@
-use crate::search::{Action, Choice, Context, Glyph, IconRef, Query, ResultItem, SearchProvider};
+use crate::search::{
+    Action, Choice, Completion, Context, Glyph, IconRef, Query, ResultItem, SearchProvider,
+};
 use crate::ui::fuzzy;
 
 /// WinCraft's own commands: host items, then each plugin's hotkey actions,
@@ -48,6 +50,7 @@ impl SearchProvider for Commands {
                         label: "Run".to_string(),
                         action,
                     }),
+                    tab: Some(Completion::quiet(&entry.label)),
                     ..Default::default()
                 })
             })
@@ -80,7 +83,7 @@ mod tests {
         ];
         let context = Context {
             commands: &commands,
-            plugins: &[],
+            ..crate::search::test_context()
         };
         let query = Query {
             text: "monitor".to_string(),

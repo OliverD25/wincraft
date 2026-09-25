@@ -17,7 +17,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_EX_TOOLWINDOW,
 };
 
-use crate::search::{Action, Choice, Context, IconRef, Query, ResultItem, SearchProvider};
+use crate::search::{
+    Action, Choice, Completion, Context, IconRef, Query, ResultItem, SearchProvider,
+};
 use crate::ui::fuzzy;
 
 /// Explorer's desktop and taskbars are windows with titles too.
@@ -121,6 +123,7 @@ pub fn search(windows: &[OpenWindow], text: &str, limit: usize) -> Vec<ResultIte
                 label: "Switch to".to_string(),
                 action: Action::Activate(window.hwnd),
             }),
+            tab: Some(Completion::quiet(&window.title)),
             ..Default::default()
         })
         .collect()

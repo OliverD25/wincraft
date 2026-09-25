@@ -208,9 +208,14 @@ What to know:
   thread and let `query` read the result, as the apps provider does with the
   Start menu.
 - **It is only asked while your plugin is on.**
-- **A row's three keys** are `enter`, `shift_enter` and `tab`. The `Action`s a
-  row can carry are listed in `src/search/mod.rs`; the host runs them, so a
-  provider never launches anything itself.
+- **A row's keys** are `enter`, `shift_enter`, `ctrl_enter` and `tab`. The
+  `Action`s a row can carry are listed in `src/search/mod.rs`; the host runs
+  most of them. `Action::Provider` comes back to your provider's `act()` on
+  the UI thread, for work only it can do, such as starting a command whose
+  output it then shows.
+- **Work in the background** by answering `waiting()` while it runs and
+  `has_news()` once it has something; the palette then asks `query` again.
+  The drives list and the terminal work this way.
 - **`blended()`** returns true to also answer searches typed without a prefix.
   Keep that for things people look for all the time, and limit yourself to
   `query.limit` rows so you do not bury the commands.

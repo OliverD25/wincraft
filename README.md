@@ -120,6 +120,7 @@ a chip before the search box; Backspace in the empty box removes it.
 | `<` | Open windows only, by title or program | Switch to it, restoring it if minimized | | Put the title in the box |
 | `/` | Drives, then one folder at a time: `/C:\Users\` | Open the file or folder | Show it in Explorer, selected | Go into the folder |
 | `=` | A sum: `+ - * / ^ %` and brackets; `×` and `÷` work too | Copy the answer | | Put the answer in the box |
+| `>` | A command for the terminal shell chosen in settings (WSL bash unless you change it), then your earlier commands | Run it here, with its output in the palette | | Put the earlier command in the box |
 | `?` | Alone: this list of prefixes. With words: a web search | Pick the prefix, or search in your default browser | | Pick the prefix |
 
 In the calculator `%` after a number is a percentage (`200 * 15%` is 30) and
@@ -127,8 +128,36 @@ between two numbers is the remainder (`10 % 3` is 1). A comma works as the
 decimal mark.
 
 The keys: ↑ ↓ move, Enter runs, Shift+Enter does the second action, Tab
-completes, Esc closes. The footer always shows what Enter, Shift+Enter and Tab
-do on the selected row.
+completes, Esc closes. The footer always shows what Enter, Shift+Enter,
+Ctrl+Enter and Tab do on the selected row.
+
+### Terminal commands with `>`
+
+Typing after `>` never runs anything. Enter runs the command with no window
+and streams its output into the palette, errors in the warning colour, with
+a status line on top ("Running… 1.2 s", then "Exit 0 · 3.4 s"). The palette
+stays open; Esc stops the command and everything it started, and a second
+Esc closes the palette. A command keeps running when the palette closes, and
+`>` shows its output again until the next command. Enter on an output line
+copies it; Ctrl+Shift+C copies all of it. Ctrl+Enter opens the command in
+Windows Terminal instead (a new tab that stays open), or in a console window
+when Windows Terminal is not installed.
+
+If you browsed into a folder with `/` just before, the command runs there;
+otherwise WSL starts in its home folder and the Windows shells in your user
+folder.
+
+A command that can delete data or stop the PC (`rm -rf`, `mkfs`, `dd of=`,
+`shutdown`, `git push --force`, `git reset --hard`, `format`, `diskpart`,
+`Remove-Item -Recurse`, `del /s` and a few more) needs a second Enter
+within 5 seconds. Any other key cancels it.
+
+Commands you run are remembered in `terminal_history.json` (the last 100,
+on this PC only) unless you switch that off in settings.
+
+The shell is chosen on the General page of the settings window: WSL bash,
+PowerShell 7, Windows PowerShell, Command Prompt, or a custom command line
+with `{cmd}` where the command goes and `{cwd}` for the folder.
 
 ## Where your settings live
 
@@ -162,8 +191,11 @@ in the log.
   "theme": "system",
   "palette_hotkey": "Win+Alt+P",
   "search": {
-    "prefixes": { "calc": "=", "paths": "/", "web": "?", "windows": "<" },
-    "web_url": "https://www.google.com/search?q={query}"
+    "prefixes": { "calc": "=", "paths": "/", "terminal": ">", "web": "?", "windows": "<" },
+    "web_url": "https://www.google.com/search?q={query}",
+    "terminal_shell": "WSL bash",
+    "terminal_custom": "",
+    "terminal_history": true
   }
 }
 ```
@@ -175,8 +207,13 @@ in the log.
 | `palette_hotkey` | What opens the command palette. |
 | `search.prefixes` | The prefix of each palette search source. Change one to move it, set it to `""` to switch that prefix off. A source left out keeps its built-in prefix. Use symbols: a letter as a prefix would catch every search that starts with it. |
 | `search.web_url` | The web search address, with `{query}` where the words go. It must start with `https://` or `http://`. |
+| `search.terminal_shell` | What `>` runs commands in: `WSL bash`, `PowerShell 7`, `Windows PowerShell`, `Command Prompt` or `Custom`. |
+| `search.terminal_custom` | For `Custom`: a command line with `{cmd}` where the command goes and optionally `{cwd}` for the folder, such as `C:\msys64\usr\bin\bash.exe -lc {cmd}`. Without `{cmd}` WSL bash is used. |
+| `search.terminal_history` | Whether commands run from the palette are remembered. |
 
-The `search` section is read when WinCraft starts, so restart it after editing.
+The prefixes are read when WinCraft starts, so restart it after changing
+them. The other `search` keys are also on the General page of the settings
+window and apply at once.
 
 ### plugins/&lt;id&gt;.json
 

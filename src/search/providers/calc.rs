@@ -338,10 +338,7 @@ mod tests {
             prefix: Some("=".to_string()),
             limit: 10,
         };
-        let context = Context {
-            commands: &[],
-            plugins: &[],
-        };
+        let context = crate::search::test_context();
         let found = Calculator.query(&query, &context);
         assert_eq!(found[0].title, "42");
         assert_eq!(

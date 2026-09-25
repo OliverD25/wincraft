@@ -57,8 +57,9 @@ impl Default for Config {
     }
 }
 
-/// The palette's search. Read at startup only.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// The palette's search. The prefixes are read at startup; the rest is
+/// changed from the settings window and applies at once.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchConfig {
     /// Provider id → the prefix that sends a query to it. A provider left
     /// out keeps its built-in prefix; an empty string switches it off.
@@ -67,6 +68,18 @@ pub struct SearchConfig {
     /// Web search address, with `{query}` where the words go.
     #[serde(default = "default_web_url")]
     pub web_url: String,
+    /// What the `>` prefix runs commands in: one of
+    /// `search::providers::shell::SHELL_NAMES`.
+    #[serde(default = "default_terminal_shell")]
+    pub terminal_shell: String,
+    /// The command template for the "Custom" shell, with `{cmd}` and
+    /// optionally `{cwd}`.
+    #[serde(default)]
+    pub terminal_custom: String,
+    /// Whether the commands run from the palette are remembered in
+    /// terminal_history.json.
+    #[serde(default = "enabled_by_default")]
+    pub terminal_history: bool,
 }
 
 impl Default for SearchConfig {
@@ -74,6 +87,9 @@ impl Default for SearchConfig {
         Self {
             prefixes: default_prefixes(),
             web_url: default_web_url(),
+            terminal_shell: default_terminal_shell(),
+            terminal_custom: String::new(),
+            terminal_history: true,
         }
     }
 }
@@ -84,11 +100,16 @@ fn default_prefixes() -> BTreeMap<String, String> {
         ("windows", "<"),
         ("paths", "/"),
         ("calc", "="),
+        ("terminal", ">"),
         ("web", "?"),
     ]
     .into_iter()
     .map(|(id, prefix)| (id.to_string(), prefix.to_string()))
     .collect()
+}
+
+fn default_terminal_shell() -> String {
+    crate::search::providers::shell::DEFAULT_SHELL.to_string()
 }
 
 fn default_web_url() -> String {

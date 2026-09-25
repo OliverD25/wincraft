@@ -3,22 +3,22 @@ use crate::search::{Action, Choice, Context, Glyph, IconRef, Query, ResultItem, 
 pub const DEFAULT_URL: &str = "https://www.google.com/search?q={query}";
 
 /// Searches the web in the default browser. `?` with nothing after it is
-/// the list of prefixes, which the router answers before this is asked.
-pub struct Web {
-    /// The search address with `{query}` where the words go.
-    url: String,
+/// the list of prefixes, which the router answers before this is asked. The
+/// address is read from the settings on every query, so a change made in
+/// the settings window applies at once.
+pub struct Web;
+
+/// The address from the settings, or Google when it is not an http(s) one.
+pub fn usable_url(url: &str) -> &str {
+    if is_http(url) {
+        url
+    } else {
+        DEFAULT_URL
+    }
 }
 
-impl Web {
-    pub fn new(url: &str) -> Self {
-        let url = if url.starts_with("https://") || url.starts_with("http://") {
-            url.to_string()
-        } else {
-            log::warn!("search.web_url {url:?} is not an http address; using {DEFAULT_URL}");
-            DEFAULT_URL.to_string()
-        };
-        Self { url }
-    }
+pub fn is_http(url: &str) -> bool {
+    url.starts_with("https://") || url.starts_with("http://")
 }
 
 impl SearchProvider for Web {
@@ -46,19 +46,20 @@ impl SearchProvider for Web {
         ""
     }
 
-    fn query(&mut self, query: &Query, _context: &Context) -> Vec<ResultItem> {
+    fn query(&mut self, query: &Query, context: &Context) -> Vec<ResultItem> {
         let words = query.text.trim();
         if words.is_empty() {
             return Vec::new();
         }
+        let url = usable_url(&context.search.web_url);
         vec![ResultItem {
             group: "Web".to_string(),
             title: format!("Search the web for \u{201c}{words}\u{201d}"),
-            subtitle: host_of(&self.url).to_string(),
+            subtitle: host_of(url).to_string(),
             icon: IconRef::Glyph(Glyph::Globe),
             enter: Some(Choice {
                 label: "Search".to_string(),
-                action: Action::OpenUrl(address(&self.url, words)),
+                action: Action::OpenUrl(address(url, words)),
             }),
             ..Default::default()
         }]
@@ -119,9 +120,9 @@ mod tests {
 
     #[test]
     fn a_template_that_is_not_http_is_replaced_by_the_default() {
-        assert_eq!(Web::new("file:///C:/evil.bat?{query}").url, DEFAULT_URL);
+        assert_eq!(usable_url("file:///C:/evil.bat?{query}"), DEFAULT_URL);
         assert_eq!(
-            Web::new("https://example.com/?q={query}").url,
+            usable_url("https://example.com/?q={query}"),
             "https://example.com/?q={query}"
         );
     }

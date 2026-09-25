@@ -37,7 +37,10 @@ pub fn perform(action: &Action, owner: HWND) {
             }
         }
         // The palette handles these itself before anything reaches the host.
-        Action::Command(_) | Action::OpenPlugin(_) | Action::SetPrefix(_) => {}
+        Action::Command(_)
+        | Action::OpenPlugin(_)
+        | Action::SetPrefix(_)
+        | Action::Provider { .. } => {}
     }
 }
 
