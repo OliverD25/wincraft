@@ -50,6 +50,26 @@ impl SearchProvider for Windows {
         "windows"
     }
 
+    fn name(&self) -> &'static str {
+        "Windows"
+    }
+
+    fn description(&self) -> &'static str {
+        "Switch to an open window, on any desktop"
+    }
+
+    fn default_prefix(&self) -> Option<&'static str> {
+        Some("<")
+    }
+
+    fn blended(&self) -> bool {
+        true
+    }
+
+    fn placeholder(&self) -> &'static str {
+        "Type part of a window title or program\u{2026}"
+    }
+
     fn opened(&mut self) {
         let started = Instant::now();
         self.windows = enumerate();
@@ -96,13 +116,12 @@ pub fn search(windows: &[OpenWindow], text: &str, limit: usize) -> Vec<ResultIte
                 hwnd: window.hwnd,
                 exe: window.exe_path.clone(),
             },
-            hint: String::new(),
             score,
-            disabled: false,
             enter: Some(Choice {
                 label: "Switch to".to_string(),
                 action: Action::Activate(window.hwnd),
             }),
+            ..Default::default()
         })
         .collect()
 }

@@ -10,6 +10,18 @@ impl SearchProvider for Commands {
         "commands"
     }
 
+    fn name(&self) -> &'static str {
+        "Commands"
+    }
+
+    fn description(&self) -> &'static str {
+        "WinCraft and plugin commands"
+    }
+
+    fn blended(&self) -> bool {
+        true
+    }
+
     fn query(&mut self, query: &Query, context: &Context) -> Vec<ResultItem> {
         context
             .commands
@@ -36,6 +48,7 @@ impl SearchProvider for Commands {
                         label: "Run".to_string(),
                         action,
                     }),
+                    ..Default::default()
                 })
             })
             .collect()

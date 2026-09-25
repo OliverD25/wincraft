@@ -160,14 +160,14 @@ fn icon_pixels(icon: HICON) -> Option<Pixels> {
     } else {
         let colour = bitmap_bgra(info.hbmColor);
         let mask = bitmap_bgra(info.hbmMask);
-        colour.and_then(|(side, bgra)| {
+        colour.map(|(side, bgra)| {
             let mask = mask
                 .filter(|(mask_side, _)| *mask_side == side)
                 .map(|(_, bits)| bits);
-            Some(Pixels {
+            Pixels {
                 side,
                 rgba: to_rgba(&bgra, mask.as_deref()),
-            })
+            }
         })
     };
     unsafe {

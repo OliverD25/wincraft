@@ -6,7 +6,7 @@ use egui::{pos2, vec2, Align, CornerRadius, Layout, Rect, Sense, Shadow, StrokeK
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{HostChannel, HostRequest, UiSnapshot};
 use crate::search::icons::IconCache;
-use crate::search::{Action, Context, Glyph, IconRef, ResultItem, Results, Router};
+use crate::search::{Action, Choice, Context, Glyph, IconRef, ResultItem, Results, Router};
 use crate::ui::fuzzy;
 use crate::ui::widgets::icons::{self, Icon};
 use crate::ui::widgets::{keycap, row, text};
@@ -37,13 +37,18 @@ pub enum Outcome {
 
 pub struct Palette {
     query: String,
+    /// The prefix the user typed, drawn as a chip before the search box. The
+    /// query holds only what came after it.
+    prefix: Option<String>,
     router: Router,
     results: Results,
-    /// The query `results` answer; None when they are out of date.
-    searched: Option<String>,
+    /// The prefix and query `results` answer; None when they are out of date.
+    searched: Option<(Option<String>, String)>,
     selected: usize,
     focused_once: bool,
     follow_selection: bool,
+    /// The query was changed in code, so the text cursor goes to its end.
+    cursor_to_end: bool,
     /// Made on the first frame, because it needs the egui context.
     icons: Option<IconCache>,
 }
@@ -52,18 +57,21 @@ impl Palette {
     pub fn new(router: Router) -> Self {
         Self {
             query: String::new(),
+            prefix: None,
             router,
             results: Results::default(),
             searched: None,
             selected: 0,
             focused_once: false,
             follow_selection: false,
+            cursor_to_end: false,
             icons: None,
         }
     }
 
     pub fn opened(&mut self) {
         self.query.clear();
+        self.prefix = None;
         self.selected = 0;
         self.focused_once = false;
         self.follow_selection = true;
@@ -82,17 +90,55 @@ impl Palette {
     /// Asks the providers again only when the query changed, because some of
     /// them read the disk or the window list.
     fn refresh(&mut self, snapshot: &UiSnapshot) {
-        if self.searched.as_deref() != Some(self.query.as_str()) {
+        let wanted = (self.prefix.clone(), self.query.clone());
+        if self.searched.as_ref() != Some(&wanted) {
             let context = Context {
                 commands: &snapshot.commands,
                 plugins: &snapshot.plugins,
             };
-            self.results = self.router.search(&self.query, &context);
-            self.searched = Some(self.query.clone());
+            self.results = self
+                .router
+                .search(self.prefix.as_deref(), &self.query, &context);
+            self.searched = Some(wanted);
         }
         if self.selected >= self.results.items.len() {
             self.selected = self.results.items.len().saturating_sub(1);
         }
+    }
+
+    fn selected_item(&self) -> Option<&ResultItem> {
+        self.results.items.get(self.selected)
+    }
+
+    fn set_query(&mut self, text: String) {
+        self.query = text;
+        self.selected = 0;
+        self.follow_selection = true;
+        self.cursor_to_end = true;
+    }
+
+    fn set_prefix(&mut self, prefix: Option<String>) {
+        self.prefix = prefix;
+        self.set_query(String::new());
+    }
+
+    /// Tab: the row's completion, or its title. On a row of the `?` list it
+    /// switches to that prefix, the same as Enter.
+    fn complete(&mut self) -> Option<Action> {
+        let item = self.selected_item()?;
+        if let Some(Choice {
+            action: action @ Action::SetPrefix(_),
+            ..
+        }) = &item.enter
+        {
+            return Some(action.clone());
+        }
+        let text = match &item.tab {
+            Some(completion) => completion.text.clone(),
+            None => item.title.clone(),
+        };
+        self.set_query(text);
+        None
     }
 
     /// `appear` runs from 0 to 1 while the palette fades in, and back to 0 as
@@ -112,24 +158,39 @@ impl Palette {
         let mut run: Option<Action> = None;
 
         if interactive {
-            ctx.input(|input| {
-                if input.key_pressed(egui::Key::Escape) {
-                    outcome = Outcome::Hide;
+            let pressed = |key| ctx.input(|input| input.key_pressed(key));
+            if pressed(egui::Key::Escape) {
+                outcome = Outcome::Hide;
+            }
+            if !self.results.items.is_empty() {
+                let count = self.results.items.len();
+                if pressed(egui::Key::ArrowDown) {
+                    self.selected = (self.selected + 1) % count;
+                    self.follow_selection = true;
                 }
-                if !self.results.items.is_empty() {
-                    let count = self.results.items.len();
-                    if input.key_pressed(egui::Key::ArrowDown) {
-                        self.selected = (self.selected + 1) % count;
-                        self.follow_selection = true;
-                    }
-                    if input.key_pressed(egui::Key::ArrowUp) {
-                        self.selected = (self.selected + count - 1) % count;
-                        self.follow_selection = true;
-                    }
+                if pressed(egui::Key::ArrowUp) {
+                    self.selected = (self.selected + count - 1) % count;
+                    self.follow_selection = true;
                 }
-            });
-            if ctx.input(|input| input.key_pressed(egui::Key::Enter)) {
-                run = self.chosen_action();
+            }
+            if pressed(egui::Key::Enter) {
+                let shift = ctx.input(|input| input.modifiers.shift);
+                run = self.selected_item().and_then(|item| {
+                    let slot = if shift {
+                        &item.shift_enter
+                    } else {
+                        &item.enter
+                    };
+                    slot.as_ref().map(|choice| choice.action.clone())
+                });
+            }
+            if pressed(egui::Key::Tab) {
+                run = run.or(self.complete());
+            }
+            // Checked before the text box sees the key: it is the Backspace
+            // pressed on an already empty box that takes the prefix away.
+            if pressed(egui::Key::Backspace) && self.query.is_empty() && self.prefix.is_some() {
+                self.set_prefix(None);
             }
         }
 
@@ -159,7 +220,8 @@ impl Palette {
         );
         let line = theme::stroke(&ctx, 1.0, tokens.border);
 
-        // Search bar: 56 high, 16 px sides, the search icon then the query.
+        // Search bar: 56 high, 16 px sides, the search icon, the prefix chip
+        // when a prefix is on, then the query.
         let search = Rect::from_min_size(panel.min, vec2(PANEL_WIDTH, SEARCH_HEIGHT));
         painter.hline(search.x_range(), search.bottom() - line.width / 2.0, line);
         let icon = Rect::from_center_size(
@@ -167,11 +229,28 @@ impl Palette {
             vec2(16.0, 16.0),
         );
         icons::paint(&painter, icon, Icon::Search, tokens.text_disabled);
+        let mut field_left = icon.right() + 12.0;
+        let placeholder = match &self.prefix {
+            Some(prefix) => {
+                let (name, placeholder) = self.router.chip(prefix, &self.query);
+                let chip = prefix_chip(
+                    &ctx,
+                    &painter,
+                    pos2(field_left, search.center().y),
+                    prefix,
+                    name,
+                    &tokens,
+                );
+                field_left = chip.right() + 10.0;
+                placeholder
+            }
+            None => "Type a command, app or window\u{2026}",
+        };
         let field = Rect::from_min_max(
-            pos2(icon.right() + 12.0, search.top()),
+            pos2(field_left, search.top()),
             pos2(search.right() - 16.0, search.bottom() - line.width),
         );
-        let hint = egui::RichText::new("Type a command, app or window\u{2026}")
+        let hint = egui::RichText::new(placeholder)
             .color(tokens.text_disabled)
             .font(theme::regular(16.0));
         let edit = egui::TextEdit::singleline(&mut self.query)
@@ -182,6 +261,7 @@ impl Palette {
             .frame(egui::Frame::NONE)
             .margin(egui::Margin::ZERO)
             .vertical_align(Align::Center)
+            .lock_focus(true)
             .desired_width(field.width());
         let response = ui.put(field, edit);
         // Asked for on every frame, not once: the window only receives focus a
@@ -193,6 +273,22 @@ impl Palette {
         if response.changed() {
             self.selected = 0;
             self.follow_selection = true;
+            if self.prefix.is_none() {
+                if let Some((prefix, rest)) = self.router.split(&self.query) {
+                    let rest = rest.to_string();
+                    self.prefix = Some(prefix);
+                    self.set_query(rest);
+                }
+            }
+        }
+        if std::mem::take(&mut self.cursor_to_end) {
+            if let Some(mut state) = egui::TextEdit::load_state(&ctx, response.id) {
+                let end = egui::text::CCursor::new(self.query.chars().count());
+                state
+                    .cursor
+                    .set_char_range(Some(egui::text::CCursorRange::one(end)));
+                state.store(&ctx, response.id);
+            }
         }
 
         // Footer: 36 high, 1 px rule above, key hints left, wordmark right.
@@ -201,11 +297,12 @@ impl Palette {
             panel.max,
         );
         painter.hline(footer.x_range(), footer.top() + line.width / 2.0, line);
+        let hints = footer_keys(self.selected_item());
         ui.scope_builder(
             UiBuilder::new()
                 .max_rect(footer.shrink2(vec2(16.0, 0.0)))
                 .layout(Layout::left_to_right(Align::Center)),
-            |ui| footer_hints(ui, &tokens),
+            |ui| footer_hints(ui, &tokens, &hints),
         );
 
         // The list scrolls inside the panel; the window never changes size.
@@ -213,6 +310,7 @@ impl Palette {
             pos2(panel.left() + 8.0, search.bottom() + 4.0),
             pos2(panel.right() - 8.0, footer.top() - 4.0),
         );
+        let waiting = self.prefix.is_some() && self.query.trim().is_empty();
         ui.scope_builder(
             UiBuilder::new()
                 .max_rect(list)
@@ -220,7 +318,11 @@ impl Palette {
             |ui| {
                 ui.set_clip_rect(list.intersect(ui.clip_rect()));
                 if self.results.items.is_empty() {
-                    nothing_matches(ui, list, &tokens);
+                    // Right after a prefix the grey text in the box says what
+                    // to type; "Nothing matches" would be wrong.
+                    if !waiting {
+                        nothing_matches(ui, list, &tokens);
+                    }
                     return;
                 }
                 egui::ScrollArea::vertical()
@@ -263,6 +365,10 @@ impl Palette {
         if let Some(action) = run {
             outcome = match action {
                 Action::OpenPlugin(plugin) => Outcome::OpenPlugin(plugin),
+                Action::SetPrefix(prefix) => {
+                    self.set_prefix(Some(prefix).filter(|prefix| !prefix.is_empty()));
+                    Outcome::Stay
+                }
                 Action::Command(id) => {
                     to_host.send(HostRequest::RunCommand(id));
                     Outcome::Hide
@@ -275,11 +381,74 @@ impl Palette {
         }
         outcome
     }
+}
 
-    fn chosen_action(&self) -> Option<Action> {
-        let item = self.results.items.get(self.selected)?;
-        item.enter.as_ref().map(|choice| choice.action.clone())
+/// The active prefix and its provider's name, such as "< Windows": the
+/// prefix in accent mono, the name in secondary text, on the keycap chip's
+/// panel fill, 1 px border and radius 4. Returns the chip's rectangle so the
+/// query can start after it.
+fn prefix_chip(
+    ctx: &egui::Context,
+    painter: &egui::Painter,
+    left_centre: egui::Pos2,
+    prefix: &str,
+    name: &str,
+    tokens: &Tokens,
+) -> Rect {
+    let mark = painter.layout_no_wrap(prefix.to_string(), theme::mono(13.0), tokens.accent);
+    let label = painter.layout_no_wrap(
+        name.to_string(),
+        theme::regular(13.0),
+        tokens.text_secondary,
+    );
+    let height = mark.size().y.max(label.size().y) + 6.0;
+    let width = 8.0 + mark.size().x + 6.0 + label.size().x + 8.0;
+    let rect = Rect::from_min_size(
+        pos2(left_centre.x, left_centre.y - height / 2.0),
+        vec2(width, height),
+    );
+    painter.rect(
+        rect,
+        4,
+        tokens.panel_bg,
+        theme::stroke(ctx, 1.0, tokens.border),
+        StrokeKind::Inside,
+    );
+    let mark_width = mark.size().x;
+    painter.galley(
+        pos2(rect.left() + 8.0, rect.center().y - mark.size().y / 2.0),
+        mark,
+        tokens.accent,
+    );
+    painter.galley(
+        pos2(
+            rect.left() + 8.0 + mark_width + 6.0,
+            rect.center().y - label.size().y / 2.0,
+        ),
+        label,
+        tokens.text_secondary,
+    );
+    rect
+}
+
+/// The keys that do something on the selected row, then the two that always
+/// work.
+fn footer_keys(item: Option<&ResultItem>) -> Vec<(&'static str, String)> {
+    let mut keys = Vec::new();
+    if let Some(item) = item {
+        if let Some(choice) = &item.enter {
+            keys.push(("\u{21B5}", choice.label.clone()));
+        }
+        if let Some(choice) = &item.shift_enter {
+            keys.push(("Shift+\u{21B5}", choice.label.clone()));
+        }
+        if let Some(completion) = &item.tab {
+            keys.push(("Tab", completion.label.clone()));
+        }
     }
+    keys.push(("\u{2191}\u{2193}", "Move".to_string()));
+    keys.push(("Esc", "Close".to_string()));
+    keys
 }
 
 /// Group header inside the list: 24 high, 12 px regular, padding 8 12 2.
@@ -458,6 +627,9 @@ fn paint_icon(
         IconRef::Glyph(glyph) => {
             let drawn = match glyph {
                 Glyph::Command => Icon::ChevronRight,
+                Glyph::Search => Icon::Search,
+                Glyph::Calculator => Icon::Calculator,
+                Glyph::Globe => Icon::Globe,
             };
             icons::paint(painter, rect, drawn, tokens.text_disabled);
         }
@@ -495,18 +667,11 @@ fn nothing_matches(ui: &mut egui::Ui, list: Rect, tokens: &Tokens) {
     });
 }
 
-/// `↵ Run  ↑↓ Move  Esc Close`, 12 px with the keys as chips, and the
-/// wordmark. The arrows are drawn in the monospace family: the return arrow
-/// exists only in egui's monospace fallback font.
-fn footer_hints(ui: &mut egui::Ui, tokens: &Tokens) {
-    for (index, (key, label)) in [
-        ("\u{21B5}", "Run"),
-        ("\u{2191}\u{2193}", "Move"),
-        ("Esc", "Close"),
-    ]
-    .into_iter()
-    .enumerate()
-    {
+/// Such as `↵ Open  Shift+↵ Show in folder  ↑↓ Move  Esc Close`, 12 px with
+/// the keys as chips, and the wordmark. The arrows are drawn in the monospace
+/// family: the return arrow exists only in egui's monospace fallback font.
+fn footer_hints(ui: &mut egui::Ui, tokens: &Tokens, keys: &[(&str, String)]) {
+    for (index, (key, label)) in keys.iter().enumerate() {
         if index > 0 {
             ui.add_space(16.0);
         }

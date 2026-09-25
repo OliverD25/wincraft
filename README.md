@@ -12,8 +12,9 @@ Version 0.6 ships three plugins: **ScreenDimmer**, **ShortcutDetector** and
 ## What you get
 
 - **Command palette** — `Win+Alt+P` opens a search box on the monitor your
-  pointer is on. Type a few letters, press Enter. Every plugin action, every
-  plugin on/off switch and the host's own items are in it.
+  pointer is on. Type a few letters, press Enter. It finds WinCraft's commands,
+  Start menu apps and open windows, and with a prefix it browses folders,
+  does sums and searches the web. See [Command palette](#command-palette).
 - **Settings window** — General, Plugins, Plugin Store and About, with a page
   per plugin: its options, its hotkeys, its config file and its README.
 - **Plugin store** — what exists, what this copy has, and what needs a newer
@@ -103,6 +104,32 @@ them.
 |---|---|
 | `Win+Alt+P` | Open the command palette |
 
+## Command palette
+
+Without a prefix, the palette searches three things at once and lists the best
+matches first: WinCraft's own commands (every plugin action, every plugin
+on/off switch, the host's items), the programs in your Start menu, and the
+windows that are open on any virtual desktop.
+
+A prefix typed at the start sends the search to one source only. It turns into
+a chip before the search box; Backspace in the empty box removes it.
+
+| Prefix | What it searches | Enter | Shift+Enter | Tab |
+|---|---|---|---|---|
+| none | Commands, apps and open windows | Run, open or switch to | | Put the title in the box |
+| `<` | Open windows only, by title or program | Switch to it, restoring it if minimized | | Put the title in the box |
+| `/` | Drives, then one folder at a time: `/C:\Users\` | Open the file or folder | Show it in Explorer, selected | Go into the folder |
+| `=` | A sum: `+ - * / ^ %` and brackets; `×` and `÷` work too | Copy the answer | | Put the answer in the box |
+| `?` | Alone: this list of prefixes. With words: a web search | Pick the prefix, or search in your default browser | | Pick the prefix |
+
+In the calculator `%` after a number is a percentage (`200 * 15%` is 30) and
+between two numbers is the remainder (`10 % 3` is 1). A comma works as the
+decimal mark.
+
+The keys: ↑ ↓ move, Enter runs, Shift+Enter does the second action, Tab
+completes, Esc closes. The footer always shows what Enter, Shift+Enter and Tab
+do on the selected row.
+
 ## Where your settings live
 
 Everything is under `%LOCALAPPDATA%\WinCraft`, which is
@@ -133,7 +160,11 @@ in the log.
 {
   "start_with_windows": false,
   "theme": "system",
-  "palette_hotkey": "Win+Alt+P"
+  "palette_hotkey": "Win+Alt+P",
+  "search": {
+    "prefixes": { "calc": "=", "paths": "/", "web": "?", "windows": "<" },
+    "web_url": "https://www.google.com/search?q={query}"
+  }
 }
 ```
 
@@ -142,6 +173,10 @@ in the log.
 | `start_with_windows` | Mirrors the "Start with Windows" switch and the registry Run value. |
 | `theme` | `system`, `light` or `dark`. |
 | `palette_hotkey` | What opens the command palette. |
+| `search.prefixes` | The prefix of each palette search source. Change one to move it, set it to `""` to switch that prefix off. A source left out keeps its built-in prefix. Use symbols: a letter as a prefix would catch every search that starts with it. |
+| `search.web_url` | The web search address, with `{query}` where the words go. It must start with `https://` or `http://`. |
+
+The `search` section is read when WinCraft starts, so restart it after editing.
 
 ### plugins/&lt;id&gt;.json
 

@@ -57,6 +57,18 @@ impl SearchProvider for Apps {
         "apps"
     }
 
+    fn name(&self) -> &'static str {
+        "Apps"
+    }
+
+    fn description(&self) -> &'static str {
+        "Programs in the Start menu"
+    }
+
+    fn blended(&self) -> bool {
+        true
+    }
+
     fn query(&mut self, query: &Query, _context: &Context) -> Vec<ResultItem> {
         if query.text.is_empty() {
             return Vec::new();
@@ -83,13 +95,12 @@ pub fn search(apps: &[App], text: &str, limit: usize) -> Vec<ResultItem> {
             title: app.name.clone(),
             subtitle: app.folder.clone(),
             icon: IconRef::Path(app.shortcut.clone()),
-            hint: String::new(),
             score,
-            disabled: false,
             enter: Some(Choice {
                 label: "Open".to_string(),
                 action: Action::Open(app.shortcut.clone()),
             }),
+            ..Default::default()
         })
         .collect()
 }

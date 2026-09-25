@@ -10,6 +10,8 @@ pub enum Icon {
     Refresh,
     ExternalLink,
     FolderOpen,
+    Calculator,
+    Globe,
 }
 
 struct Path {
@@ -57,6 +59,17 @@ impl Path {
             .collect();
         Self { points }
     }
+
+    fn ellipse(centre: Pos2, radius_x: f32, radius_y: f32) -> Self {
+        let mut path = Self::arc(centre, 1.0, 0.0, 360.0);
+        for point in &mut path.points {
+            *point = pos2(
+                centre.x + (point.x - centre.x) * radius_x,
+                centre.y + (point.y - centre.y) * radius_y,
+            );
+        }
+        path
+    }
 }
 
 fn paths(icon: Icon) -> Vec<Path> {
@@ -102,6 +115,33 @@ fn paths(icon: Icon) -> Vec<Path> {
             .line(18.0, 6.0)
             .corner(20.0, 6.0, 20.0, 8.0)
             .line(20.0, 10.0)],
+        // Lucide's calculator, with its key dots drawn as short dashes: a
+        // path of one point draws nothing.
+        Icon::Calculator => {
+            let mut paths = vec![
+                Path::start(6.0, 2.0)
+                    .line(18.0, 2.0)
+                    .corner(20.0, 2.0, 20.0, 4.0)
+                    .line(20.0, 20.0)
+                    .corner(20.0, 22.0, 18.0, 22.0)
+                    .line(6.0, 22.0)
+                    .corner(4.0, 22.0, 4.0, 20.0)
+                    .line(4.0, 4.0)
+                    .corner(4.0, 2.0, 6.0, 2.0),
+                Path::start(8.0, 6.0).line(16.0, 6.0),
+            ];
+            for y in [10.0, 14.0, 18.0] {
+                for x in [8.0, 12.0, 16.0] {
+                    paths.push(Path::start(x - 0.5, y).line(x + 0.5, y));
+                }
+            }
+            paths
+        }
+        Icon::Globe => vec![
+            Path::arc(pos2(12.0, 12.0), 10.0, 0.0, 360.0),
+            Path::ellipse(pos2(12.0, 12.0), 4.5, 10.0),
+            Path::start(2.0, 12.0).line(22.0, 12.0),
+        ],
     }
 }
 

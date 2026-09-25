@@ -632,7 +632,7 @@ impl Host {
 
     fn search_router(&self) -> Router {
         let mut providers: Vec<(Option<String>, Box<dyn SearchProvider>)> =
-            search::providers::built_in()
+            search::providers::built_in(&self.config.search)
                 .into_iter()
                 .map(|provider| (None, provider))
                 .collect();
@@ -642,7 +642,7 @@ impl Host {
                 providers.push((Some(id.to_string()), provider));
             }
         }
-        Router::new(providers)
+        Router::new(providers, &self.config.search.prefixes)
     }
 
     fn publish(&self) {
@@ -737,7 +737,7 @@ impl Host {
             }
             HostRequest::RunCommand(id) => self.run_command(id),
             HostRequest::RunAction(search::Action::Command(id)) => self.run_command(id),
-            HostRequest::RunAction(action) => search::actions::perform(&action),
+            HostRequest::RunAction(action) => search::actions::perform(&action, self.hwnd),
             HostRequest::Arrange { plugin, action } => {
                 if let Some(index) = self.index_of(&plugin) {
                     if self.slots[index].enabled {
