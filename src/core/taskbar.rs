@@ -7,7 +7,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use windows_sys::core::{IUnknown_Vtbl, BSTR, GUID, HRESULT, PWSTR};
-use windows_sys::Win32::Foundation::{SysFreeString, SysStringLen, POINT};
+use windows_sys::Win32::Foundation::POINT;
 use windows_sys::Win32::System::Com::{
     CLSIDFromString, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
     COINIT_MULTITHREADED,
@@ -18,8 +18,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::core::com::{self, ComPtr};
-use crate::core::wide;
 use crate::core::windows_list::class_name;
+use crate::core::{from_wide_ptr, wide};
 
 const CLSID_CUI_AUTOMATION: GUID = GUID::from_u128(0xff48dba4_60ef_4201_aa87_54103eef594e);
 const IID_IUI_AUTOMATION: GUID = GUID::from_u128(0x30cbe57d_d9d0_452a_ab13_7ac5ac4825ee);
@@ -200,15 +200,8 @@ fn bstr_property(
 ) -> Option<String> {
     let mut value: BSTR = std::ptr::null();
     let hr = unsafe { getter(element.as_raw(), &mut value) };
-    if hr < 0 || value.is_null() {
-        return None;
-    }
-    let text = unsafe {
-        let len = SysStringLen(value) as usize;
-        String::from_utf16_lossy(std::slice::from_raw_parts(value, len))
-    };
-    unsafe { SysFreeString(value) };
-    Some(text)
+    let text = unsafe { com::take_bstr(value) };
+    com::ok(hr).then_some(text).flatten()
 }
 
 fn strip_prefix(id: &str) -> &str {
@@ -248,13 +241,7 @@ fn known_folder(guid: &str) -> Option<String> {
     }
     let mut path: PWSTR = std::ptr::null_mut();
     let hr = unsafe { SHGetKnownFolderPath(&id, 0, std::ptr::null_mut(), &mut path) };
-    let text = (hr >= 0 && !path.is_null()).then(|| unsafe {
-        let mut len = 0;
-        while *path.add(len) != 0 {
-            len += 1;
-        }
-        String::from_utf16_lossy(std::slice::from_raw_parts(path, len))
-    });
+    let text = (hr >= 0 && !path.is_null()).then(|| unsafe { from_wide_ptr(path) });
     // The shell allocates the buffer even when the call fails.
     unsafe { CoTaskMemFree(path as *const c_void) };
     text

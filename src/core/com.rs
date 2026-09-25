@@ -4,7 +4,8 @@
 
 use std::ffi::c_void;
 
-use windows_sys::core::{IUnknown_Vtbl, GUID, HRESULT};
+use windows_sys::core::{IUnknown_Vtbl, BSTR, GUID, HRESULT};
+use windows_sys::Win32::Foundation::{SysFreeString, SysStringLen};
 use windows_sys::Win32::System::Com::CoCreateInstance;
 
 pub struct ComPtr(*mut c_void);
@@ -45,6 +46,23 @@ impl Drop for ComPtr {
     fn drop(&mut self) {
         unsafe { (self.vtable::<IUnknown_Vtbl>().Release)(self.0) };
     }
+}
+
+/// The text of a BSTR a COM method handed out, freeing it; None for a null
+/// one. A BSTR carries its length, so it may hold NULs.
+///
+/// # Safety
+/// `text` must be null or a BSTR this caller owns.
+pub unsafe fn take_bstr(text: BSTR) -> Option<String> {
+    if text.is_null() {
+        return None;
+    }
+    let value = unsafe {
+        let len = SysStringLen(text) as usize;
+        String::from_utf16_lossy(std::slice::from_raw_parts(text, len))
+    };
+    unsafe { SysFreeString(text) };
+    Some(value)
 }
 
 pub fn ok(hr: HRESULT) -> bool {
@@ -133,6 +151,18 @@ mod tests {
 
     fn raw(fake: &Fake) -> *mut c_void {
         fake as *const Fake as *mut c_void
+    }
+
+    #[test]
+    fn a_bstr_is_read_whole_and_freed() {
+        use windows_sys::Win32::Foundation::SysAllocStringLen;
+        let units: Vec<u16> = "Folder\0with nul".encode_utf16().collect();
+        let text = unsafe { SysAllocStringLen(units.as_ptr(), units.len() as u32) };
+        assert_eq!(
+            unsafe { take_bstr(text) }.as_deref(),
+            Some("Folder\0with nul")
+        );
+        assert_eq!(unsafe { take_bstr(std::ptr::null()) }, None);
     }
 
     #[test]

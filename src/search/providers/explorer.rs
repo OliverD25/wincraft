@@ -5,7 +5,6 @@
 use std::ffi::c_void;
 
 use windows_sys::core::{BSTR, GUID, HRESULT};
-use windows_sys::Win32::Foundation::{SysFreeString, SysStringLen};
 use windows_sys::Win32::System::Com::CoTaskMemFree;
 use windows_sys::Win32::System::Variant::{VARIANT, VT_I4};
 
@@ -152,13 +151,8 @@ fn item(windows: &ComPtr, index: i32) -> Option<ComPtr> {
 fn string(object: &ComPtr, index: usize) -> Option<String> {
     let mut text: BSTR = std::ptr::null_mut();
     let hr = unsafe { method::<GetString>(object, index)(object.as_raw(), &mut text) };
-    if !com::ok(hr) || text.is_null() {
-        return None;
-    }
-    let len = unsafe { SysStringLen(text) } as usize;
-    let value = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, len) });
-    unsafe { SysFreeString(text) };
-    Some(value)
+    let value = unsafe { com::take_bstr(text) };
+    com::ok(hr).then_some(value).flatten()
 }
 
 /// Asks the window's view which folder it holds, and the shell for that

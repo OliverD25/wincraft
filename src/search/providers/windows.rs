@@ -2,18 +2,12 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use std::ffi::c_void;
-
-use windows_sys::core::{IUnknown_Vtbl, BOOL, GUID, HRESULT};
-use windows_sys::Win32::Foundation::{CloseHandle, HWND};
-use windows_sys::Win32::System::Threading::{
-    GetCurrentProcessId, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-    PROCESS_QUERY_LIMITED_INFORMATION,
-};
+use windows_sys::Win32::Foundation::HWND;
+use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
 
 use super::explorer;
-use crate::core::com::{self, ComPtr};
+use crate::core::desktop_manager::{self, DesktopManager};
 use crate::core::windows_list;
 use crate::search::{
     self, Action, Choice, Completion, Context, IconRef, Query, Reply, ResultItem, SearchProvider,
@@ -182,11 +176,13 @@ pub fn search(windows: &[OpenWindow], text: &str, limit: usize) -> Vec<ResultIte
 /// Top of the z-order first, leaving out WinCraft's own windows.
 fn enumerate() -> Vec<OpenWindow> {
     let own = unsafe { GetCurrentProcessId() };
-    let desktops = DesktopReader::new();
+    search::start_com();
+    let desktops = DesktopManager::new().ok();
     let on_a_desktop = |hwnd: HWND| {
         desktops
             .as_ref()
-            .is_some_and(|reader| reader.on_a_desktop(hwnd))
+            .and_then(|manager| manager.desktop_of(hwnd))
+            .is_some_and(|desktop| !desktop_manager::is_null(&desktop))
     };
     let mut exe_of_pid: HashMap<u32, PathBuf> = HashMap::new();
     let mut windows = Vec::new();
@@ -198,7 +194,7 @@ fn enumerate() -> Vec<OpenWindow> {
         }
         let exe_path = exe_of_pid
             .entry(pid)
-            .or_insert_with(|| image_path(pid))
+            .or_insert_with(|| PathBuf::from(windows_list::exe_path(pid)))
             .clone();
         windows.push(OpenWindow {
             hwnd: hwnd as isize,
@@ -210,72 +206,6 @@ fn enumerate() -> Vec<OpenWindow> {
         });
     }
     windows
-}
-
-#[repr(C)]
-struct IVirtualDesktopManagerVtbl {
-    _base: IUnknown_Vtbl,
-    _is_window_on_current_virtual_desktop:
-        unsafe extern "system" fn(*mut c_void, HWND, *mut BOOL) -> HRESULT,
-    get_window_desktop_id: unsafe extern "system" fn(*mut c_void, HWND, *mut GUID) -> HRESULT,
-    _move_window_to_desktop: unsafe extern "system" fn(*mut c_void, HWND, *const GUID) -> HRESULT,
-}
-
-const CLSID_VIRTUAL_DESKTOP_MANAGER: GUID = com::guid(
-    0xaa509086,
-    0x5ca9,
-    0x4c25,
-    [0x8f, 0x95, 0x58, 0x9d, 0x3c, 0x07, 0xb4, 0x8a],
-);
-const IID_IVIRTUAL_DESKTOP_MANAGER: GUID = com::guid(
-    0xa5cd92ff,
-    0x29be,
-    0x454c,
-    [0x8d, 0x04, 0xd8, 0x28, 0x79, 0xfb, 0x3f, 0x1b],
-);
-
-/// The documented IVirtualDesktopManager, made once per listing.
-struct DesktopReader(ComPtr);
-
-impl DesktopReader {
-    fn new() -> Option<Self> {
-        search::create_com(
-            &CLSID_VIRTUAL_DESKTOP_MANAGER,
-            &IID_IVIRTUAL_DESKTOP_MANAGER,
-        )
-        .map(Self)
-    }
-
-    /// A window the shell hides without giving it a desktop reads as the
-    /// null GUID, or fails.
-    fn on_a_desktop(&self, hwnd: HWND) -> bool {
-        let mut desktop = com::guid(0, 0, 0, [0; 8]);
-        let hr = unsafe {
-            (self
-                .0
-                .vtable::<IVirtualDesktopManagerVtbl>()
-                .get_window_desktop_id)(self.0.as_raw(), hwnd, &mut desktop)
-        };
-        com::ok(hr)
-            && (desktop.data1, desktop.data2, desktop.data3, desktop.data4) != (0, 0, 0, [0; 8])
-    }
-}
-
-fn image_path(pid: u32) -> PathBuf {
-    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
-    if process.is_null() {
-        return PathBuf::new();
-    }
-    let mut buffer = [0u16; 1024];
-    let mut len = buffer.len() as u32;
-    let ok = unsafe {
-        QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, buffer.as_mut_ptr(), &mut len)
-    };
-    unsafe { CloseHandle(process) };
-    if ok == 0 {
-        return PathBuf::new();
-    }
-    PathBuf::from(String::from_utf16_lossy(&buffer[..len as usize]))
 }
 
 fn program_name(exe: &Path) -> String {

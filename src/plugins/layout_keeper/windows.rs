@@ -1,12 +1,9 @@
 use std::collections::HashMap;
 
-use windows_sys::Win32::Foundation::{CloseHandle, HWND, RECT};
+use windows_sys::Win32::Foundation::{HWND, RECT};
 use windows_sys::Win32::Graphics::Dwm::DWM_CLOAKED_SHELL;
 use windows_sys::Win32::Storage::FileSystem::{
     GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW,
-};
-use windows_sys::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetWindowPlacement, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsZoomed,
@@ -17,7 +14,7 @@ use super::appid;
 use super::identity::WindowIdentity;
 use crate::core::windows_list;
 
-pub use crate::core::windows_list::window_text;
+pub use crate::core::windows_list::{exe_path, window_text};
 
 pub struct LiveWindow {
     pub hwnd: HWND,
@@ -83,25 +80,6 @@ pub fn describe(hwnd: HWND) -> (String, String) {
 /// Lower-case file name of a program path, like "chrome.exe".
 pub fn file_name(path: &str) -> String {
     path.rsplit('\\').next().unwrap_or("").to_lowercase()
-}
-
-/// The full path of the process's image, which is also what Windows groups
-/// taskbar buttons by when a window names no app of its own.
-pub fn exe_path(pid: u32) -> String {
-    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
-    if process.is_null() {
-        return String::new();
-    }
-    let mut buffer = [0u16; 1024];
-    let mut len = buffer.len() as u32;
-    let ok = unsafe {
-        QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, buffer.as_mut_ptr(), &mut len)
-    };
-    unsafe { CloseHandle(process) };
-    if ok == 0 {
-        return String::new();
-    }
-    String::from_utf16_lossy(&buffer[..len as usize])
 }
 
 /// The "FileDescription" in a program's version resource, which is the

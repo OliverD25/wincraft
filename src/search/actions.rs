@@ -1,17 +1,12 @@
 use std::path::Path;
 
-use windows_sys::Win32::Foundation::{GlobalFree, HWND};
-use windows_sys::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
-};
-use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
-use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
+use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     IsIconic, ShowWindow, SW_RESTORE, SW_SHOWNORMAL,
 };
 
-use crate::core::{host, wide};
+use crate::core::{clipboard, host, wide};
 use crate::search::Action;
 
 /// Runs a row's action on the host thread. It is the thread the palette's
@@ -25,7 +20,7 @@ pub fn perform(action: &Action, owner: HWND) {
         Action::Reveal(path) => reveal(path),
         Action::Activate(hwnd) => activate(*hwnd as HWND),
         Action::Copy(text) => {
-            if !put_on_clipboard(owner, text) {
+            if !clipboard::put_text(owner, text) {
                 log::warn!("could not put the answer on the clipboard");
             }
         }
@@ -85,38 +80,4 @@ fn activate(hwnd: HWND) {
         unsafe { ShowWindow(hwnd, SW_RESTORE) };
     }
     host::bring_to_front(hwnd);
-}
-
-fn put_on_clipboard(owner: HWND, text: &str) -> bool {
-    let encoded = wide(text);
-    let bytes = encoded.len() * 2;
-    if unsafe { OpenClipboard(owner) } == 0 {
-        return false;
-    }
-    let handle = unsafe { GlobalAlloc(GMEM_MOVEABLE, bytes) };
-    if handle.is_null() {
-        unsafe { CloseClipboard() };
-        return false;
-    }
-    let target = unsafe { GlobalLock(handle) } as *mut u16;
-    if target.is_null() {
-        unsafe {
-            GlobalFree(handle);
-            CloseClipboard();
-        }
-        return false;
-    }
-    let placed = unsafe {
-        std::ptr::copy_nonoverlapping(encoded.as_ptr(), target, encoded.len());
-        GlobalUnlock(handle);
-        EmptyClipboard();
-        !SetClipboardData(CF_UNICODETEXT as u32, handle).is_null()
-    };
-    // Once SetClipboardData succeeds the clipboard owns the block, and freeing
-    // it here would be a double free; if it failed, the block is still ours.
-    if !placed {
-        unsafe { GlobalFree(handle) };
-    }
-    unsafe { CloseClipboard() };
-    placed
 }

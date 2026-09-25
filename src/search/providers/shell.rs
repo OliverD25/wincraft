@@ -236,11 +236,7 @@ mod tests {
         let list = unsafe { CommandLineToArgvW(wide(line).as_ptr(), &mut count) };
         assert!(!list.is_null());
         let args = (0..count as usize)
-            .map(|index| unsafe {
-                let arg = *list.add(index);
-                let len = (0..).take_while(|at| *arg.add(*at) != 0).count();
-                String::from_utf16_lossy(std::slice::from_raw_parts(arg, len))
-            })
+            .map(|index| unsafe { crate::core::from_wide_ptr(*list.add(index)) })
             .collect();
         unsafe { LocalFree(list as _) };
         args

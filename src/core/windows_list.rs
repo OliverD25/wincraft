@@ -4,9 +4,12 @@
 //! and the palette's windows list both use it.
 
 use windows_sys::core::BOOL;
-use windows_sys::Win32::Foundation::{HWND, LPARAM};
+use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM};
 use windows_sys::Win32::Graphics::Dwm::{
     DwmGetWindowAttribute, DWMWA_CLOAKED, DWM_CLOAKED_APP, DWM_CLOAKED_SHELL,
+};
+use windows_sys::Win32::System::Threading::{
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, FindWindowExW, GetClassNameW, GetWindow, GetWindowLongW, GetWindowTextW,
@@ -96,6 +99,25 @@ pub fn cloak(hwnd: HWND) -> u32 {
         )
     };
     cloaked
+}
+
+/// The full path of a process's program, or empty when Windows will not
+/// say, as for some elevated or protected processes.
+pub fn exe_path(pid: u32) -> String {
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if process.is_null() {
+        return String::new();
+    }
+    let mut buffer = [0u16; 1024];
+    let mut len = buffer.len() as u32;
+    let ok = unsafe {
+        QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, buffer.as_mut_ptr(), &mut len)
+    };
+    unsafe { CloseHandle(process) };
+    if ok == 0 {
+        return String::new();
+    }
+    String::from_utf16_lossy(&buffer[..len as usize])
 }
 
 pub fn window_text(hwnd: HWND) -> String {
@@ -202,6 +224,14 @@ mod tests {
             class: "Chrome_WidgetWin_1".to_string(),
             ..WindowRecord::default()
         }
+    }
+
+    #[test]
+    fn a_process_path_is_read_and_a_missing_process_gives_nothing() {
+        let own = exe_path(std::process::id());
+        assert!(own.to_lowercase().ends_with(".exe"), "{own}");
+        assert!(std::path::Path::new(&own).is_absolute(), "{own}");
+        assert_eq!(exe_path(0), "");
     }
 
     #[test]

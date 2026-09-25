@@ -30,14 +30,15 @@
 use std::ffi::c_void;
 use std::fmt;
 
-use windows_sys::core::{IUnknown_Vtbl, BOOL, GUID, HRESULT};
+use windows_sys::core::GUID;
 use windows_sys::Win32::Foundation::{ERROR_SUCCESS, HWND};
-use windows_sys::Win32::System::Com::{CLSCTX_ALL, CLSCTX_LOCAL_SERVER};
+use windows_sys::Win32::System::Com::CLSCTX_LOCAL_SERVER;
 use windows_sys::Win32::System::Registry::{
     RegGetValueW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_BINARY, RRF_RT_REG_SZ,
 };
 
 use crate::core::com::{self, ComPtr};
+use crate::core::desktop_manager::DesktopManager;
 use crate::core::wide;
 
 const VIRTUAL_DESKTOPS: &str =
@@ -145,42 +146,20 @@ pub fn name_of(desktops: &[Desktop], id: DesktopId) -> Option<String> {
         .map(|desktop| desktop.name.clone())
 }
 
-const CLSID_VIRTUAL_DESKTOP_MANAGER: GUID = GUID::from_u128(0xaa509086_5ca9_4c25_8f95_589d3c07b48a);
-const IID_IVIRTUAL_DESKTOP_MANAGER: GUID = GUID::from_u128(0xa5cd92ff_29be_454c_8d04_d82879fb3f1b);
-
-#[repr(C)]
-struct IVirtualDesktopManagerVtbl {
-    _base: IUnknown_Vtbl,
-    _is_window_on_current_virtual_desktop:
-        unsafe extern "system" fn(*mut c_void, HWND, *mut BOOL) -> HRESULT,
-    get_window_desktop_id: unsafe extern "system" fn(*mut c_void, HWND, *mut GUID) -> HRESULT,
-    _move_window_to_desktop: unsafe extern "system" fn(*mut c_void, HWND, *const GUID) -> HRESULT,
-}
-
-/// The documented interface. It reads any window's desktop, but moving
-/// another process's window through it fails with E_ACCESSDENIED.
-pub struct Reader(ComPtr);
+/// Reads windows' desktops through the documented interface.
+pub struct Reader(DesktopManager);
 
 impl Reader {
     pub fn new() -> Result<Self, String> {
-        ComPtr::create(
-            &CLSID_VIRTUAL_DESKTOP_MANAGER,
-            &IID_IVIRTUAL_DESKTOP_MANAGER,
-            CLSCTX_ALL,
-        )
-        .map(Self)
-        .map_err(|hr| format!("IVirtualDesktopManager unavailable ({})", com::hex(hr)))
+        DesktopManager::new()
+            .map(Self)
+            .map_err(|hr| format!("IVirtualDesktopManager unavailable ({})", com::hex(hr)))
     }
 
     pub fn read(&self, hwnd: HWND) -> Option<DesktopId> {
-        let mut guid = DesktopId::ALL.to_guid();
-        let hr = unsafe {
-            (self
-                .0
-                .vtable::<IVirtualDesktopManagerVtbl>()
-                .get_window_desktop_id)(self.0.as_raw(), hwnd, &mut guid)
-        };
-        com::check(hr).ok().map(|()| DesktopId::from_guid(&guid))
+        self.0
+            .desktop_of(hwnd)
+            .map(|guid| DesktopId::from_guid(&guid))
     }
 }
 

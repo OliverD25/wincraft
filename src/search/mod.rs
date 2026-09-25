@@ -26,15 +26,20 @@ thread_local! {
     static COM_STARTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// A COM object for the search, which runs on the UI thread. winit usually
-/// has COM running there already; if not, this starts it. It is never shut
-/// down: the thread lives as long as WinCraft.
-pub(crate) fn create_com(clsid: &GUID, iid: &GUID) -> Option<ComPtr> {
+/// The search runs on the UI thread. winit usually has COM running there
+/// already; if not, this starts it. It is never shut down: the thread lives
+/// as long as WinCraft.
+pub(crate) fn start_com() {
     COM_STARTED.with(|done| {
         if !done.replace(true) {
             unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) };
         }
     });
+}
+
+/// A COM object for the search, with COM started first.
+pub(crate) fn create_com(clsid: &GUID, iid: &GUID) -> Option<ComPtr> {
+    start_com();
     ComPtr::create(clsid, iid, CLSCTX_ALL).ok()
 }
 

@@ -11,7 +11,7 @@ use windows_sys::Win32::UI::Shell::{
 };
 
 use crate::core::com::ComPtr;
-use crate::core::wide;
+use crate::core::{from_wide_ptr, wide};
 
 const IID_IPROPERTY_STORE: GUID = GUID::from_u128(0x886d8eeb_8cf2_4446_8d02_cdba1dbdcf99);
 const IID_ISHELL_ITEM: GUID = GUID::from_u128(0x43826d1e_e718_42ee_bc55_a1e261c37bfe);
@@ -79,13 +79,7 @@ fn string_value(store: &ComPtr, key: &PROPERTYKEY) -> Option<String> {
     let text = unsafe {
         let inner = &value.Anonymous.Anonymous;
         let pointer = inner.Anonymous.pwszVal;
-        (inner.vt == VT_LPWSTR && !pointer.is_null()).then(|| {
-            let mut len = 0;
-            while *pointer.add(len) != 0 {
-                len += 1;
-            }
-            String::from_utf16_lossy(std::slice::from_raw_parts(pointer, len))
-        })
+        (inner.vt == VT_LPWSTR && !pointer.is_null()).then(|| from_wide_ptr(pointer))
     };
     unsafe { PropVariantClear(&mut value) };
     text
@@ -117,13 +111,7 @@ pub fn registered_name(id: &str) -> Option<String> {
     if hr < 0 || name.is_null() {
         return None;
     }
-    let text = unsafe {
-        let mut len = 0;
-        while *name.add(len) != 0 {
-            len += 1;
-        }
-        String::from_utf16_lossy(std::slice::from_raw_parts(name, len))
-    };
+    let text = unsafe { from_wide_ptr(name) };
     unsafe { CoTaskMemFree(name as *const c_void) };
     (!text.is_empty() && text != id).then_some(text)
 }

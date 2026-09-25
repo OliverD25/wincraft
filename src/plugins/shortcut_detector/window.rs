@@ -7,12 +7,7 @@ use windows_sys::Win32::Graphics::Gdi::{
     GetTextExtentPoint32W, MonitorFromPoint, ReleaseDC, SelectObject, SetBkColor, SetBkMode,
     SetTextColor, HBRUSH, HFONT, HMONITOR, MONITORINFO, MONITOR_DEFAULTTOPRIMARY, OPAQUE,
 };
-use windows_sys::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
-};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
-use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
 use windows_sys::Win32::UI::Controls::{
     InitCommonControlsEx, BST_CHECKED, BST_UNCHECKED, ICC_LISTVIEW_CLASSES, ICC_STANDARD_CLASSES,
     INITCOMMONCONTROLSEX, LVCF_SUBITEM, LVCF_TEXT, LVCF_WIDTH, LVCOLUMNW, LVIF_TEXT, LVITEMW,
@@ -42,7 +37,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::core::traits::Hotkey;
-use crate::core::{host, hotkeys, theme, wide};
+use crate::core::{clipboard, host, hotkeys, theme, wide};
 use crate::plugins::shortcut_detector::probe::{self, Entry, ScanResult, Status};
 
 const CLASS_NAME: &str = "WinCraftShortcutDetector";
@@ -681,39 +676,11 @@ fn copy_visible(hwnd: HWND) {
     });
 
     let rows = text.lines().count().saturating_sub(1);
-    if !put_on_clipboard(hwnd, &text) {
+    if !clipboard::put_text(hwnd, &text) {
         set_text(hwnd, ID_STATUS, "Could not open the clipboard.");
         return;
     }
     set_text(hwnd, ID_STATUS, &format!("Copied {rows} rows."));
-}
-
-fn put_on_clipboard(hwnd: HWND, text: &str) -> bool {
-    let encoded = wide(text);
-    let bytes = encoded.len() * 2;
-    if unsafe { OpenClipboard(hwnd) } == 0 {
-        return false;
-    }
-    let handle = unsafe { GlobalAlloc(GMEM_MOVEABLE, bytes) };
-    if handle.is_null() {
-        unsafe { CloseClipboard() };
-        return false;
-    }
-    let target = unsafe { GlobalLock(handle) } as *mut u16;
-    if target.is_null() {
-        unsafe { CloseClipboard() };
-        return false;
-    }
-    unsafe {
-        std::ptr::copy_nonoverlapping(encoded.as_ptr(), target, encoded.len());
-        GlobalUnlock(handle);
-        EmptyClipboard();
-        // The clipboard owns the block from here on; freeing it would be a
-        // double free once Windows is done with it.
-        SetClipboardData(CF_UNICODETEXT as u32, handle);
-        CloseClipboard();
-    }
-    true
 }
 
 fn control(hwnd: HWND, id: i32) -> HWND {
