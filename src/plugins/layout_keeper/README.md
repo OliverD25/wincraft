@@ -133,8 +133,11 @@ the description in its program file, else the file name.
 ### Arrange windows
 
 `Win+Alt+A` (or the palette, or the button on this page) opens a strip above
-the taskbar with a live picture of every window in the front window's
-taskbar group, whatever the app, like the taskbar's own thumbnails. A list at
+the taskbar with a live picture of every window in one app's taskbar group,
+whatever the app, like the taskbar's own thumbnails. It opens on the app
+whose taskbar button is under the mouse, on any monitor's taskbar, else on
+the active window's app: point at a button and press the hotkey to arrange
+that app without switching to it first. A list at
 the top switches to every other app that has windows, most windows first. There is one row per virtual
 desktop: this desktop first, then the others under their names. The pictures
 are drawn by Windows itself (DWM thumbnails) and stay live while the strip

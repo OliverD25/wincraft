@@ -86,7 +86,7 @@ desktop are never moved between desktops.
 | `Win+Alt+J` | Save the layout now |
 | `Win+Alt+[` | Move the front window one place left in its taskbar group |
 | `Win+Alt+]` | Move the front window one place right in its taskbar group |
-| `Win+Alt+A` | Open the Arrange strip: live pictures of the program's windows, drag them into order |
+| `Win+Alt+A` | Open the Arrange strip: live pictures of an app's windows, drag them into order. It opens on the app whose taskbar button is under the mouse, else on the active window's app |
 
 Moving windows between desktops uses undocumented Windows interfaces, ported
 from [MScholtes' VirtualDesktop](https://github.com/MScholtes/VirtualDesktop)
