@@ -19,8 +19,10 @@ pub const DEFAULT_SHELL: &str = "WSL bash";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Shell {
     Wsl,
+    /// PowerShell 7, pwsh.exe.
     Pwsh,
-    WindowsPowerShell,
+    /// Windows PowerShell 5, powershell.exe.
+    Powershell,
     Cmd,
     /// A command template holding `{cmd}` and perhaps `{cwd}`.
     Custom(String),
@@ -47,7 +49,7 @@ impl Shell {
                 Shell::Wsl,
                 Some("PowerShell 7 is not installed, so WSL bash is used.".to_string()),
             ),
-            "Windows PowerShell" => (Shell::WindowsPowerShell, None),
+            "Windows PowerShell" => (Shell::Powershell, None),
             "Command Prompt" => (Shell::Cmd, None),
             "Custom" => match custom_problem(custom) {
                 None => (Shell::Custom(custom.trim().to_string()), None),
@@ -61,7 +63,7 @@ impl Shell {
         match self {
             Shell::Wsl => "WSL bash",
             Shell::Pwsh => "PowerShell 7",
-            Shell::WindowsPowerShell => "Windows PowerShell",
+            Shell::Powershell => "Windows PowerShell",
             Shell::Cmd => "Command Prompt",
             Shell::Custom(_) => "the custom shell",
         }
@@ -78,7 +80,7 @@ impl Shell {
                 ),
                 current_dir: None,
             },
-            Shell::Pwsh | Shell::WindowsPowerShell => Launch {
+            Shell::Pwsh | Shell::Powershell => Launch {
                 command_line: format!(
                     "{} -NoLogo -NoProfile -Command {}",
                     self.program(),
@@ -112,7 +114,7 @@ impl Shell {
                 ),
                 current_dir: None,
             },
-            Shell::Pwsh | Shell::WindowsPowerShell => Launch {
+            Shell::Pwsh | Shell::Powershell => Launch {
                 command_line: format!("{} -NoLogo -NoExit -Command {}", self.program(), quote(cmd)),
                 current_dir: cwd.map(str::to_string),
             },
@@ -127,7 +129,7 @@ impl Shell {
     fn program(&self) -> &'static str {
         match self {
             Shell::Pwsh => "pwsh.exe",
-            Shell::WindowsPowerShell => "powershell.exe",
+            Shell::Powershell => "powershell.exe",
             Shell::Cmd => "cmd.exe",
             Shell::Wsl | Shell::Custom(_) => "wsl.exe",
         }
@@ -276,7 +278,7 @@ mod tests {
     fn powershell_gets_the_command_as_one_argument_and_a_windows_folder() {
         for (shell, program) in [
             (Shell::Pwsh, "pwsh.exe"),
-            (Shell::WindowsPowerShell, "powershell.exe"),
+            (Shell::Powershell, "powershell.exe"),
         ] {
             let launch = shell.run(TRICKY, Some(r"D:\work"));
             assert_eq!(

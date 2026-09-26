@@ -225,9 +225,10 @@ fn bitmap_bgra(bitmap: HBITMAP) -> Option<(usize, Vec<u8>)> {
 /// Icons without an alpha channel mark their transparent pixels in the mask
 /// instead: a white mask pixel is see-through.
 fn to_rgba(bgra: &[u8], mask: Option<&[u8]>) -> Vec<u8> {
-    let has_alpha = bgra.chunks_exact(4).any(|pixel| pixel[3] != 0);
+    let (pixels, _) = bgra.as_chunks::<4>();
+    let has_alpha = pixels.iter().any(|pixel| pixel[3] != 0);
     let mut rgba = Vec::with_capacity(bgra.len());
-    for (index, pixel) in bgra.chunks_exact(4).enumerate() {
+    for (index, pixel) in pixels.iter().enumerate() {
         let alpha = if has_alpha {
             pixel[3]
         } else {

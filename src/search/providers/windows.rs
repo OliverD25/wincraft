@@ -143,7 +143,7 @@ pub fn search(windows: &[OpenWindow], text: &str, limit: usize) -> Vec<ResultIte
             fuzzy::score_command(text, &window.program, &window.title).map(|score| (score, window))
         })
         .collect();
-    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found.sort_by_key(|entry| std::cmp::Reverse(entry.0));
     found
         .into_iter()
         .take(limit)

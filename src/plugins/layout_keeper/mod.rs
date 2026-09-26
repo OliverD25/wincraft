@@ -747,7 +747,7 @@ impl LayoutKeeper {
         }
         let mut stack = finish.stack;
         if self.front_order && !stack.is_empty() {
-            stack.sort_by(|a, b| b.0.cmp(&a.0));
+            stack.sort_by_key(|entry| std::cmp::Reverse(entry.0));
             for (_, hwnd) in &stack {
                 raise(*hwnd);
             }
@@ -855,7 +855,7 @@ impl LayoutKeeper {
                 Step::Wait | Step::Nothing => {}
             }
         }
-        if self.ticks % self.snapshot_seconds.max(1) == 0 {
+        if self.ticks.is_multiple_of(self.snapshot_seconds.max(1)) {
             self.save("timer");
         }
     }

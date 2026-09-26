@@ -66,6 +66,9 @@ pub struct Matching {
     pub unmatched_live: Vec<usize>,
 }
 
+/// One way to tell that a saved window and a live one are the same.
+type Rule<'a> = &'a dyn Fn(&WindowIdentity, &WindowIdentity) -> bool;
+
 /// Pairs saved windows with live ones, strongest evidence first. Each live
 /// window is used at most once, and a pass only sees what earlier passes left.
 pub fn match_windows(saved: &[WindowIdentity], live: &[WindowIdentity]) -> Matching {
@@ -89,7 +92,7 @@ pub fn match_windows(saved: &[WindowIdentity], live: &[WindowIdentity]) -> Match
             && live.iter().filter(|window| window.group == group).count() == 1
     };
 
-    let rules: [&dyn Fn(&WindowIdentity, &WindowIdentity) -> bool; 5] = [
+    let rules: [Rule; 5] = [
         &|s, l| s.name.is_some() && s.name == l.name,
         &|s, l| s.title == l.title && s.rect == l.rect,
         &|s, l| s.title == l.title,

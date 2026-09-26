@@ -179,7 +179,9 @@ fn ensure_class() -> Option<()> {
     class.hInstance = hinstance;
     class.lpszClassName = name.as_ptr();
     class.hCursor = unsafe { LoadCursorW(std::ptr::null_mut(), IDC_ARROW) };
-    class.hIcon = unsafe { LoadIconW(hinstance, 1 as *const u16) };
+    // Resource id 1, as MAKEINTRESOURCE spells it: a pointer whose address
+    // is the id. ptr::dangling would give 2, the alignment of u16.
+    class.hIcon = unsafe { LoadIconW(hinstance, std::ptr::without_provenance::<u16>(1)) };
     if unsafe { RegisterClassW(&class) } == 0 {
         log::error!("could not register the shortcut detector window class");
         return None;

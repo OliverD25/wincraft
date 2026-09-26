@@ -179,7 +179,7 @@ mod tests {
                 score_command("dim 2", group, label).map(|points| (points, *label))
             })
             .collect();
-        ranked.sort_by(|a, b| b.0.cmp(&a.0));
+        ranked.sort_by_key(|entry| std::cmp::Reverse(entry.0));
         assert_eq!(
             ranked.first().map(|entry| entry.1),
             Some("Toggle monitor 2")

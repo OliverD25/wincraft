@@ -200,10 +200,7 @@ pub fn classify(hotkey: Hotkey, probe_failed: bool, wincraft: Option<(&str, &str
     }
 }
 
-fn owner_in<'a>(
-    wincraft: &'a [(String, String, Hotkey)],
-    hotkey: Hotkey,
-) -> Option<(&'a str, &'a str)> {
+fn owner_in(wincraft: &[(String, String, Hotkey)], hotkey: Hotkey) -> Option<(&str, &str)> {
     wincraft
         .iter()
         .find(|(_, _, mine)| *mine == hotkey)
@@ -233,7 +230,7 @@ fn thousands(value: usize) -> String {
     let digits = value.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index) % 3 == 0 {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
             out.push(',');
         }
         out.push(digit);

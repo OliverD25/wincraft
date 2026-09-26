@@ -149,7 +149,7 @@ impl Paths {
                 fuzzy::score(filter, &entry.name).map(|score| (score, entry))
             })
             .collect();
-        scored.sort_by(|a, b| b.0.cmp(&a.0));
+        scored.sort_by_key(|entry| std::cmp::Reverse(entry.0));
         items.extend(scored.into_iter().take(limit).map(|(score, entry)| {
             let path = format!("{dir}{}", entry.name);
             ResultItem {

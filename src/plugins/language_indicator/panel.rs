@@ -284,7 +284,9 @@ fn faces() -> &'static [(&'static str, u32); 2] {
                     font.as_ptr().cast(),
                     font.len() as u32,
                     std::ptr::null(),
-                    &mut count,
+                    // The binding says *const, but GDI writes the count here,
+                    // so the pointer keeps its right to write.
+                    (&raw mut count).cast_const(),
                 )
             };
         }

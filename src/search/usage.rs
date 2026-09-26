@@ -576,7 +576,7 @@ mod tests {
         let rows: Vec<ResultItem> = (0..2000)
             .map(|index| {
                 let key = format!("apps:app{index}");
-                row("Apps", &key, (index % 97) as i32, Some(&key))
+                row("Apps", &key, index % 97, Some(&key))
             })
             .collect();
         let started = Instant::now();

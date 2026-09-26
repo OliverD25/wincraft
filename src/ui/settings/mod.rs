@@ -129,13 +129,8 @@ fn split_headings(source: &str) -> Vec<Block<'_>> {
     blocks
 }
 
+#[derive(Default)]
 pub struct Readme(egui_commonmark::CommonMarkCache);
-
-impl Default for Readme {
-    fn default() -> Self {
-        Self(egui_commonmark::CommonMarkCache::default())
-    }
-}
 
 impl Readme {
     /// egui_commonmark can only scale the body font for headings, never
