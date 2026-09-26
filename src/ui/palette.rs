@@ -88,6 +88,12 @@ impl Palette {
         }
     }
 
+    /// The palette was hidden or WinCraft is closing: picks not saved yet
+    /// are written now.
+    pub fn flush_usage(&mut self) {
+        self.router.flush_usage();
+    }
+
     /// The host sent a new list of commands.
     pub fn invalidate(&mut self) {
         self.searched = None;
@@ -196,6 +202,8 @@ impl Palette {
         let tokens = Tokens::get(&ctx);
         let mut outcome = Outcome::Stay;
         let mut run: Option<Action> = None;
+        // Set only by Enter or a click, which run the row; Tab never picks.
+        let mut picked: Option<String> = None;
 
         if interactive {
             let pressed = |key| ctx.input(|input| input.key_pressed(key));
@@ -235,6 +243,9 @@ impl Palette {
                     };
                     slot.as_ref().map(|choice| choice.action.clone())
                 });
+                if run.is_some() {
+                    picked = self.selected_item().and_then(|item| item.usage_key.clone());
+                }
             }
             let copy_all = key_modifiers(&ctx, egui::Key::C)
                 .is_some_and(|modifiers| modifiers.command && modifiers.shift);
@@ -407,6 +418,7 @@ impl Palette {
                             if clicked {
                                 self.selected = position;
                                 run = item.enter.as_ref().map(|choice| choice.action.clone());
+                                picked = run.as_ref().and(item.usage_key.clone());
                             }
                         }
                     });
@@ -422,6 +434,10 @@ impl Palette {
             _ => {}
         }
 
+        if let Some(key) = picked {
+            self.router.record_pick(&key, &snapshot.search);
+        }
+        self.router.save_usage_soon();
         if let Some(action) = run {
             outcome = match action {
                 Action::OpenPlugin(plugin) => Outcome::OpenPlugin(plugin),

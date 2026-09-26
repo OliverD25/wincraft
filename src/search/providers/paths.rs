@@ -6,7 +6,7 @@ use windows_sys::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIB
 use super::drives::Drives;
 
 use crate::search::{
-    Action, Choice, Completion, Context, IconRef, Query, ResultItem, SearchProvider,
+    usage, Action, Choice, Completion, Context, IconRef, Query, ResultItem, SearchProvider,
 };
 use crate::ui::fuzzy;
 
@@ -130,6 +130,7 @@ impl Paths {
                 title: folder_name(&dir),
                 subtitle: "This folder".to_string(),
                 icon: IconRef::Path(PathBuf::from(&dir)),
+                usage_key: Some(usage::path_key(&dir)),
                 enter: open(&dir),
                 shift_enter: reveal(&dir),
                 tab: Some(Completion {
@@ -161,6 +162,7 @@ impl Paths {
                 },
                 icon: IconRef::Path(PathBuf::from(&path)),
                 score,
+                usage_key: Some(usage::path_key(&path)),
                 enter: open(&path),
                 shift_enter: reveal(&path),
                 tab: Some(Completion {
@@ -229,6 +231,7 @@ impl Paths {
                     subtitle,
                     icon: IconRef::Path(PathBuf::from(&root)),
                     score,
+                    usage_key: Some(usage::path_key(&root)),
                     enter: open(&root),
                     tab: Some(Completion {
                         label: "Open folder".to_string(),

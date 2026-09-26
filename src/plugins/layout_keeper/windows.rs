@@ -10,8 +10,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SW_SHOWMAXIMIZED, WINDOWPLACEMENT, WPF_RESTORETOMAXIMIZED,
 };
 
-use super::appid;
 use super::identity::WindowIdentity;
+use crate::core::appid;
 use crate::core::windows_list;
 
 pub use crate::core::windows_list::{exe_path, window_text};

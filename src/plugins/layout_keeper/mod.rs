@@ -1,4 +1,3 @@
-mod appid;
 mod desktops;
 mod guard;
 mod identity;
@@ -27,7 +26,7 @@ use crate::core::traits::{
 use crate::core::ui_bridge::{
     ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeWindow,
 };
-use crate::core::{clock, host, instance, wide};
+use crate::core::{appid, clock, host, instance, wide};
 use desktops::{Desktop, DesktopId};
 use order::{Handle, OrderModel};
 use restore::{Restore, Step};

@@ -80,6 +80,10 @@ pub struct SearchConfig {
     /// terminal_history.json.
     #[serde(default = "enabled_by_default")]
     pub terminal_history: bool,
+    /// Whether rows picked before rank higher, and picks are recorded in
+    /// palette_usage.json.
+    #[serde(default = "enabled_by_default")]
+    pub rank_by_use: bool,
 }
 
 impl Default for SearchConfig {
@@ -90,6 +94,7 @@ impl Default for SearchConfig {
             terminal_shell: default_terminal_shell(),
             terminal_custom: String::new(),
             terminal_history: true,
+            rank_by_use: true,
         }
     }
 }

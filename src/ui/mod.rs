@@ -253,6 +253,7 @@ impl App {
         if !self.palette_visible {
             return;
         }
+        self.palette.flush_usage();
         self.palette_visible = false;
         self.closing = false;
         self.set_palette_visible(ctx, false);
@@ -373,6 +374,7 @@ impl eframe::App for App {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.arrange.hidden();
+        self.palette.flush_usage();
         if !self.quitting {
             self.to_host.send(HostRequest::Exit);
         }

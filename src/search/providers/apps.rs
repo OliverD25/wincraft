@@ -103,6 +103,7 @@ pub fn search(apps: &[App], text: &str, limit: usize) -> Vec<ResultItem> {
                 action: Action::Open(app.shortcut.clone()),
             }),
             tab: Some(Completion::quiet(&app.name)),
+            usage_key: Some(app.shortcut.to_string_lossy().to_lowercase()),
             ..Default::default()
         })
         .collect()

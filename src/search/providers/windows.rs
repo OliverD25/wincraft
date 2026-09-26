@@ -8,7 +8,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
 
 use super::explorer;
 use crate::core::desktop_manager::{self, DesktopManager};
-use crate::core::windows_list;
+use crate::core::{appid, windows_list};
 use crate::search::{
     self, Action, Choice, Completion, Context, IconRef, Query, Reply, ResultItem, SearchProvider,
 };
@@ -24,6 +24,10 @@ pub struct OpenWindow {
     pub other_desktop: bool,
     /// A File Explorer window, whose folder Tab can browse.
     pub explorer: bool,
+    /// Its taskbar group, as LayoutKeeper keys it: the AppUserModelID, or
+    /// the program's path lowercased. Picks are counted per app, not per
+    /// title, which changes with every tab.
+    pub group: String,
 }
 
 const EXPLORER_CLASS: &str = "CabinetWClass";
@@ -156,6 +160,7 @@ pub fn search(windows: &[OpenWindow], text: &str, limit: usize) -> Vec<ResultIte
                 exe: window.exe_path.clone(),
             },
             score,
+            usage_key: Some(window.group.clone()),
             enter: Some(Choice {
                 label: "Switch to".to_string(),
                 action: Action::Activate(window.hwnd),
@@ -196,8 +201,10 @@ fn enumerate() -> Vec<OpenWindow> {
             .entry(pid)
             .or_insert_with(|| PathBuf::from(windows_list::exe_path(pid)))
             .clone();
+        let group = appid::group_key(appid::read(hwnd).id.as_deref(), &exe_path.to_string_lossy());
         windows.push(OpenWindow {
             hwnd: hwnd as isize,
+            group,
             program: program_name(&exe_path),
             exe_path,
             other_desktop: windows_list::on_other_desktop(&record),
@@ -227,7 +234,27 @@ mod tests {
             exe_path,
             other_desktop: false,
             explorer: false,
+            group: format!(r"c:\programs\{exe}.exe"),
         }
+    }
+
+    #[test]
+    fn a_window_is_counted_by_its_app_not_its_title() {
+        let mut first = window("Inbox - Gmail", "chrome");
+        first.group = "Chrome.UserData.Profile3".to_string();
+        let mut second = window("Some other tab", "chrome");
+        second.group = "Chrome.UserData.Profile3".to_string();
+        let rows = search(&[first, second], "", 8);
+        assert_eq!(rows[0].usage_key, rows[1].usage_key);
+        assert_eq!(
+            rows[0].usage_key.as_deref(),
+            Some("Chrome.UserData.Profile3")
+        );
+        let plain = search(&[window("Notes", "notepad")], "", 8);
+        assert_eq!(
+            plain[0].usage_key.as_deref(),
+            Some(r"c:\programs\notepad.exe")
+        );
     }
 
     #[test]

@@ -8,6 +8,7 @@
 pub mod actions;
 pub mod icons;
 pub mod providers;
+pub mod usage;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -21,6 +22,7 @@ use crate::core::com::ComPtr;
 use crate::core::config::SearchConfig;
 use crate::core::ui_bridge::{CommandId, PaletteEntry, PluginInfo};
 use crate::ui::fuzzy;
+use usage::Usage;
 
 thread_local! {
     static COM_STARTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -205,6 +207,11 @@ pub struct ResultItem {
     /// A one-line monospace row, 24 px high, for command output.
     #[serde(default)]
     pub compact: bool,
+    /// Set by a provider whose rows should rank higher once picked: a key
+    /// that stays the same for the same thing, such as an app's shortcut
+    /// path. The router puts the provider's id in front of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_key: Option<String>,
 }
 
 /// What every provider may read besides the query.
@@ -334,6 +341,7 @@ pub struct Router {
     slots: Vec<Slot>,
     /// See `Context::folder`.
     folder: Option<String>,
+    usage: Usage,
 }
 
 /// What the palette draws for one query.
@@ -391,7 +399,34 @@ impl Router {
         Self {
             slots,
             folder: None,
+            usage: Usage::default(),
         }
+    }
+
+    /// Reads the picks saved in earlier sessions. Without it the router
+    /// ranks from this session's picks only and saves nothing.
+    pub fn load_usage(&mut self, path: PathBuf) {
+        self.usage = Usage::load(path);
+        log::info!("palette usage: {} rows picked before", self.usage.len());
+    }
+
+    /// A row was run with Enter; nothing is recorded while ranking by use
+    /// is off.
+    pub fn record_pick(&mut self, key: &str, search: &SearchConfig) {
+        if !search.rank_by_use {
+            return;
+        }
+        self.usage.record(key, usage::now());
+        self.usage.save_soon();
+    }
+
+    /// Saves recorded picks, at most once every 2 s.
+    pub fn save_usage_soon(&mut self) {
+        self.usage.save_soon();
+    }
+
+    pub fn flush_usage(&mut self) {
+        self.usage.flush();
     }
 
     /// Splits a known prefix off the start of what was typed, preferring the
@@ -511,6 +546,7 @@ impl Router {
             Some(index) if !(help && text.is_empty()) => index,
             _ => return self.help(text, context),
         };
+        let settings = context.search;
         let context = Context {
             folder: self.folder.as_deref(),
             ..*context
@@ -531,11 +567,33 @@ impl Router {
         if let Some(folder) = slot.provider.folder() {
             self.folder = Some(folder);
         }
+        let keep_order = needle.is_empty() || follows_end;
         Results {
-            items: rank(items, needle.is_empty() || follows_end),
+            items: self.rank_by_use(items, keep_order, settings),
             needle,
             follows_end,
             escape_label,
+        }
+    }
+
+    /// `rank`, with the usage boost added first when something is typed, or
+    /// the picked rows moved up within their group when nothing is.
+    fn rank_by_use(
+        &self,
+        mut items: Vec<ResultItem>,
+        keep_order: bool,
+        search: &SearchConfig,
+    ) -> Vec<ResultItem> {
+        if !search.rank_by_use {
+            return rank(items, keep_order);
+        }
+        let now = usage::now();
+        if keep_order {
+            self.usage.order_rows(&mut items, now);
+            items
+        } else {
+            self.usage.boost_rows(&mut items, now);
+            rank(items, false)
         }
     }
 
@@ -553,7 +611,7 @@ impl Router {
             items.extend(timed(slot.provider.as_mut(), &query, context));
         }
         Results {
-            items: rank(items, text.is_empty()),
+            items: self.rank_by_use(items, text.is_empty(), context.search),
             needle: text.to_string(),
             ..Default::default()
         }
@@ -611,7 +669,13 @@ impl Router {
 
 fn timed(provider: &mut dyn SearchProvider, query: &Query, context: &Context) -> Vec<ResultItem> {
     let started = Instant::now();
-    let found = provider.query(query, context);
+    let mut found = provider.query(query, context);
+    let id = provider.id();
+    for item in &mut found {
+        if let Some(key) = item.usage_key.take() {
+            item.usage_key = Some(format!("{id}:{key}"));
+        }
+    }
     log::debug!(
         "{} answered {:?} with {} rows in {:.2} ms",
         provider.id(),
@@ -689,6 +753,104 @@ mod tests {
 
     fn titles(items: &[ResultItem]) -> Vec<&str> {
         items.iter().map(|item| item.title.as_str()).collect()
+    }
+
+    fn keyed(title: &str, score: i32) -> ResultItem {
+        ResultItem {
+            usage_key: Some(format!("apps:{title}")),
+            ..item("Apps", title, score)
+        }
+    }
+
+    fn settings(rank_by_use: bool) -> SearchConfig {
+        SearchConfig {
+            rank_by_use,
+            ..SearchConfig::default()
+        }
+    }
+
+    #[test]
+    fn a_pick_is_recorded_and_lifts_its_row_while_ranking_by_use_is_on() {
+        let mut router = Router::new(Vec::new(), &BTreeMap::new());
+        router.record_pick("apps:Notepad", &settings(true));
+        let ranked = router.rank_by_use(
+            vec![keyed("Notion", 37), keyed("Notepad", 36)],
+            false,
+            &settings(true),
+        );
+        assert_eq!(titles(&ranked), ["Notepad", "Notion"]);
+        assert_eq!(ranked[0].score, 36 + usage::boost(1.0));
+    }
+
+    #[test]
+    fn with_ranking_by_use_off_nothing_is_recorded_or_boosted() {
+        let mut router = Router::new(Vec::new(), &BTreeMap::new());
+        router.record_pick("apps:Notepad", &settings(false));
+        assert_eq!(router.usage.len(), 0);
+        router.record_pick("apps:Notepad", &settings(true));
+        let ranked = router.rank_by_use(
+            vec![keyed("Notion", 37), keyed("Notepad", 36)],
+            false,
+            &settings(false),
+        );
+        assert_eq!(titles(&ranked), ["Notion", "Notepad"]);
+        assert_eq!(ranked[1].score, 36);
+        let empty_query = router.rank_by_use(
+            vec![keyed("Notion", 0), keyed("Notepad", 0)],
+            true,
+            &settings(false),
+        );
+        assert_eq!(titles(&empty_query), ["Notion", "Notepad"]);
+    }
+
+    #[test]
+    fn with_nothing_typed_the_picked_row_leads_its_group() {
+        let mut router = Router::new(Vec::new(), &BTreeMap::new());
+        router.record_pick("apps:Notepad", &settings(true));
+        let ranked = router.rank_by_use(
+            vec![keyed("Notion", 0), keyed("Notepad", 0)],
+            true,
+            &settings(true),
+        );
+        assert_eq!(titles(&ranked), ["Notepad", "Notion"]);
+    }
+
+    struct Keyed;
+
+    impl SearchProvider for Keyed {
+        fn id(&self) -> &'static str {
+            "keyed"
+        }
+        fn name(&self) -> &'static str {
+            "Keyed"
+        }
+        fn description(&self) -> &'static str {
+            "Rows with usage keys"
+        }
+        fn blended(&self) -> bool {
+            true
+        }
+        fn query(&mut self, _query: &Query, _context: &Context) -> Vec<ResultItem> {
+            vec![
+                ResultItem {
+                    usage_key: Some("one".to_string()),
+                    ..item("Keyed", "one", 5)
+                },
+                item("Keyed", "two", 5),
+            ]
+        }
+    }
+
+    #[test]
+    fn the_router_puts_the_providers_id_in_front_of_each_key() {
+        let mut router = Router::new(vec![(None, Box::new(Keyed))], &BTreeMap::new());
+        let results = router.search(None, "o", &test_context());
+        let keys: Vec<Option<&str>> = results
+            .items
+            .iter()
+            .map(|item| item.usage_key.as_deref())
+            .collect();
+        assert_eq!(keys, [Some("keyed:one"), None]);
     }
 
     /// Answers every query with one row naming itself and the text it got.

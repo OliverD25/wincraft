@@ -703,7 +703,9 @@ impl Host {
                 providers.push((Some(id.to_string()), provider));
             }
         }
-        Router::new(providers, &self.config.search.prefixes)
+        let mut router = Router::new(providers, &self.config.search.prefixes);
+        router.load_usage(config::data_dir().join("palette_usage.json"));
+        router
     }
 
     fn publish(&self) {
