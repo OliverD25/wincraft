@@ -303,8 +303,10 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   right) and `wide` / `from_wide_ptr` for UTF-16 strings.
 - **Clean up in `teardown`.** A plugin can be switched off and on again from
   the settings window, so `init` must work a second time.
-- **`cargo fmt`, `cargo test` and a warning-free `cargo build --release`.** CI
-  runs all three and builds with `-D warnings`, so a warning fails the build.
+- **`cargo fmt`, `cargo test`, `cargo clippy --all-targets` and a
+  warning-free `cargo build --release`.** CI runs `cargo fmt --check`, the
+  tests, clippy and the release build, with clippy and the build treating
+  warnings as errors, so a formatting slip, a lint or a warning fails CI.
   Do not reach for `#[allow]`; fix the cause.
 
 ## Testing next to your own WinCraft

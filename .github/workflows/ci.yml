@@ -26,6 +26,11 @@ jobs:
       - name: Test
         run: cargo test --locked
 
+      # Tests included, so a lint in test code fails too. rust-toolchain.toml
+      # lists the clippy component, so the pinned toolchain has it.
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
       # A warning here means the plugin index is stale or dead code crept in,
       # both of which are easier to fix now than after a release.
       - name: Build
