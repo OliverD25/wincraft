@@ -140,6 +140,17 @@ In the calculator `%` after a number is a percentage (`200 * 15%` is 30) and
 between two numbers is the remainder (`10 % 3` is 1). A comma works as the
 decimal mark.
 
+Results you pick often move up. Every time you run an app, a WinCraft
+command, a window or a folder or file with Enter (Tab does not count), it
+gains a point that halves every 14 days. The points only reorder results
+that match about equally well: a clearly better match stays ahead and a
+result named exactly what you typed stays first. With nothing typed, the
+results you picked lead their own group. The calculator, web search and
+terminal are not ranked this way. The counts are kept in
+`palette_usage.json` next to `config.json`; **Rank results by use** in
+Settings → General switches this off, and **Clear usage history** forgets
+them.
+
 The keys: ↑ ↓ move, Enter runs, Shift+Enter does the second action, Tab
 completes, Esc closes. The footer always shows what Enter, Shift+Enter,
 Ctrl+Enter and Tab do on the selected row.
@@ -179,6 +190,7 @@ Everything is under `%LOCALAPPDATA%\WinCraft`, which is
 
 ```
 config.json            the host's own settings
+palette_usage.json     how often each palette result was picked
 plugins\
   screen_dimmer.json   one file per plugin
   shortcut_detector.json
@@ -209,7 +221,8 @@ in the log.
     "web_url": "https://www.google.com/search?q={query}",
     "terminal_shell": "WSL bash",
     "terminal_custom": "",
-    "terminal_history": true
+    "terminal_history": true,
+    "rank_by_use": true
   }
 }
 ```
@@ -224,6 +237,7 @@ in the log.
 | `search.terminal_shell` | What `>` runs commands in: `WSL bash`, `PowerShell 7`, `Windows PowerShell`, `Command Prompt` or `Custom`. |
 | `search.terminal_custom` | For `Custom`: a command line with `{cmd}` where the command goes and optionally `{cwd}` for the folder, such as `C:\msys64\usr\bin\bash.exe -lc {cmd}`. Without `{cmd}` WSL bash is used. |
 | `search.terminal_history` | Whether commands run from the palette are remembered. |
+| `search.rank_by_use` | Whether results you pick often move up, and picks are counted in `palette_usage.json`. |
 
 The prefixes are read when WinCraft starts, so restart it after changing
 them. The other `search` keys are also on the General page of the settings

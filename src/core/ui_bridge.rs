@@ -150,6 +150,8 @@ pub enum UiCommand {
     ShowSettings(Page),
     /// Test instances only: a plugin's own page in the settings window.
     ShowPluginPage(String),
+    /// The palette forgets every pick it recorded.
+    ClearPaletteUsage,
     /// Test instances only: text put in the palette's box as if typed,
     /// prefix and all. Nothing runs.
     TypeInPalette(String),
@@ -195,6 +197,8 @@ pub enum HostRequest {
     /// The strip's own window, which only the host thread may bring forward
     /// right after the hotkey that opened it.
     FocusWindow(isize),
+    /// Settings' "Clear usage history": the palette forgets every pick.
+    ClearPaletteUsage,
     SetPluginEnabled {
         id: String,
         enabled: bool,

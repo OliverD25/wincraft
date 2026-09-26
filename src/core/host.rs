@@ -856,6 +856,7 @@ impl Host {
                 }
             }
             HostRequest::FocusWindow(hwnd) => bring_to_front(hwnd as HWND),
+            HostRequest::ClearPaletteUsage => self.to_ui.send(UiCommand::ClearPaletteUsage),
             HostRequest::SetPluginEnabled { id, enabled } => {
                 if let Some(index) = self.index_of(&id) {
                     if enabled {

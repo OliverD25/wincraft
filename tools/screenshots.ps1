@@ -20,6 +20,10 @@ came back.
 
 .EXAMPLE
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\screenshots.ps1 -DryRun
+
+.EXAMPLE
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\screenshots.ps1 -Query no -UsageFile seed.json -Only palette-query-1
+Only the palette with "no" typed, with palette usage taken from seed.json.
 #>
 [CmdletBinding()]
 param(
@@ -27,6 +31,12 @@ param(
     [string]$Exe,
     [string]$Out,
     [switch]$DryRun,
+    # Extra palette scenes, one per query: palette-query-1, -2 and so on.
+    [string[]]$Query = @(),
+    # A palette_usage.json to start the test instances with.
+    [string]$UsageFile,
+    # Run only the scenes with these names.
+    [string[]]$Only = @(),
     # Test switch: behave as if the user touched the PC after scene N.
     [int]$SimulateInputAfterScene = 0
 )
@@ -156,6 +166,16 @@ $scenes = @(
     @{ Name = 'strip';                  Args = @('--open-arrange=0');                      Window = 'strip';    Settle = 1200 },
     @{ Name = 'strip-peek';             Args = @('--open-arrange=0', '--peek-card=chip');  Window = 'peek';     Settle = 1500 }
 )
+$number = 0
+foreach ($text in $Query) {
+    $number++
+    $scenes += @{ Name = "palette-query-$number"; Args = @("--open-palette=$text"); Window = 'palette'; Settle = 1200 }
+}
+if ($Only.Count -gt 0) {
+    $unknown = @($Only | Where-Object { $name = $_; -not ($scenes | Where-Object { $_.Name -eq $name }) })
+    if ($unknown.Count -gt 0) { "unknown scene: $($unknown -join ', ')"; exit 1 }
+    $scenes = @($scenes | Where-Object { $Only -contains $_.Name })
+}
 $themes = @('dark', 'light')
 
 function Write-Plan {
@@ -181,6 +201,7 @@ $desktop = [Shot]::InputDesktop()
 if ($idle -lt $IdleSeconds) { $problems += ('the user was active {0:N0} s ago; the run needs {1} s of idle' -f $idle, $IdleSeconds) }
 if ($desktop -ne 'Default') { $problems += ('the input desktop is "{0}", not Default: locked or on a secure screen' -f $desktop) }
 if (-not (Test-Path -LiteralPath $Exe)) { $problems += "no build at $Exe" }
+if ($UsageFile -and -not (Test-Path -LiteralPath $UsageFile)) { $problems += "no usage file at $UsageFile" }
 $running = Get-Process wincraft -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $Exe }
 if ($running) { $problems += "a WinCraft from $Exe is already running (PID $($running.Id -join ', ')); the harness only runs an exe nobody else is running" }
 
@@ -190,6 +211,7 @@ if ($running) { $problems += "a WinCraft from $Exe is already running (PID $($ru
 "  idle:     {0:N0} s (needs {1})" -f $idle, $IdleSeconds
 "  desktop:  $desktop"
 "  instance: WINCRAFT_INSTANCE=$Instance"
+if ($UsageFile) { "  usage:    $UsageFile" }
 "  other WinCraft processes (never touched): $((Get-OtherWinCraft) -join '; ')"
 "  plan:"
 Write-Plan | ForEach-Object { "    $_" }
@@ -214,6 +236,9 @@ $utf8 = New-Object System.Text.UTF8Encoding($false)
     '{"start_with_windows": false, "theme": "dark", "palette_hotkey": "Win+Ctrl+Alt+Shift+F23"}', $utf8)
 foreach ($id in 'language_indicator', 'screen_dimmer', 'shortcut_detector') {
     [IO.File]::WriteAllText((Join-Path $plugins "$id.json"), '{"enabled": false}', $utf8)
+}
+if ($UsageFile) {
+    Copy-Item -LiteralPath $UsageFile -Destination (Join-Path $appdata 'WinCraft\palette_usage.json')
 }
 [IO.File]::WriteAllText((Join-Path $plugins 'layout_keeper.json'),
     '{"enabled": true, "settings": {"restore_on_start": false, "snapshot_interval_seconds": 600}}', $utf8)

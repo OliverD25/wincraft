@@ -212,6 +212,7 @@ impl App {
                     ctx.request_repaint();
                     log::info!("palette query set to \"{text}\"");
                 }
+                UiCommand::ClearPaletteUsage => self.palette.clear_usage(),
                 UiCommand::PeekCard(card) => {
                     self.arrange.peek_card(card);
                     ctx.request_repaint_of(arrange::viewport_id());

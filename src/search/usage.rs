@@ -138,6 +138,12 @@ impl Usage {
         self.dirty = true;
     }
 
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.dirty = true;
+        self.last_save = None;
+    }
+
     /// Adds each row's usage boost to its match score.
     pub fn boost_rows(&self, items: &mut [ResultItem], now: i64) {
         if self.entries.is_empty() {
@@ -523,6 +529,23 @@ mod tests {
         assert!(
             !path.exists(),
             "a newer version is kept aside, not overwritten"
+        );
+    }
+
+    #[test]
+    fn clearing_empties_the_store_and_the_file() {
+        let path = scratch("clear");
+        let mut usage = Usage::load(path.clone());
+        usage.record("apps:x", now());
+        usage.flush();
+        usage.clear();
+        assert_eq!(usage.len(), 0);
+        assert_eq!(usage.score("apps:x", now()), 0.0);
+        usage.flush();
+        assert_eq!(Usage::load(path.clone()).len(), 0);
+        assert!(
+            path.exists(),
+            "clearing writes an empty file, it does not delete it"
         );
     }
 

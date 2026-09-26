@@ -420,6 +420,13 @@ impl Router {
         self.usage.save_soon();
     }
 
+    /// Forgets every pick, in memory and in the file, at once.
+    pub fn clear_usage(&mut self) {
+        self.usage.clear();
+        self.usage.flush();
+        log::info!("palette usage cleared");
+    }
+
     /// Saves recorded picks, at most once every 2 s.
     pub fn save_usage_soon(&mut self) {
         self.usage.save_soon();
@@ -801,6 +808,20 @@ mod tests {
             &settings(false),
         );
         assert_eq!(titles(&empty_query), ["Notion", "Notepad"]);
+    }
+
+    #[test]
+    fn clearing_forgets_every_pick() {
+        let mut router = Router::new(Vec::new(), &BTreeMap::new());
+        router.record_pick("apps:Notepad", &settings(true));
+        router.clear_usage();
+        assert_eq!(router.usage.len(), 0);
+        let ranked = router.rank_by_use(
+            vec![keyed("Notion", 37), keyed("Notepad", 36)],
+            false,
+            &settings(true),
+        );
+        assert_eq!(titles(&ranked), ["Notion", "Notepad"]);
     }
 
     #[test]

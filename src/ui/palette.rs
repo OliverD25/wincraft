@@ -94,6 +94,11 @@ impl Palette {
         self.router.flush_usage();
     }
 
+    pub fn clear_usage(&mut self) {
+        self.router.clear_usage();
+        self.searched = None;
+    }
+
     /// The host sent a new list of commands.
     pub fn invalidate(&mut self) {
         self.searched = None;

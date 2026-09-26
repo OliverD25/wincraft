@@ -220,6 +220,12 @@ What to know:
 - **`blended()`** returns true to also answer searches typed without a prefix.
   Keep that for things people look for all the time, and limit yourself to
   `query.limit` rows so you do not bury the commands.
+- **Rows can rank higher once picked.** Give a row a `usage_key` that
+  stays the same for the same thing (a path, an id; never a title that
+  changes) and the palette counts Enter on it and moves it up next time.
+  The router adds your provider's id in front, so keys only need to be
+  unique within your provider. Leave it `None` for rows that are answers
+  rather than things, like a sum or a web search.
 - **Users can move or switch off your prefix** in config.json under
   `search.prefixes`, keyed by your provider's `id`. If your default prefix is
   already taken, your provider gets none and the log says so.
@@ -364,7 +370,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\screenshots.ps1
 anything. The pictures, `report.txt` and the test instance's scratch
 folder go to `target\shots\<date-time>\` (or `-Out`). `-Exe` picks another
 build; it refuses an exe that is already running. `-SimulateInputAfterScene
-N` acts as if you came back after scene N, to test the abort. Exit codes: 0
+N` acts as if you came back after scene N, to test the abort. `-Query no` adds a
+palette scene with that text typed, `-UsageFile <file>` starts the test
+instances with that `palette_usage.json`, and `-Only <scene>` runs just the
+scenes named. Exit codes: 0
 done, 1 error, 2 refused to start, 3 aborted.
 
 The palette pictures include the shadow margin around the panel, so they

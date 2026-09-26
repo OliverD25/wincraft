@@ -122,6 +122,7 @@ pub fn show(
 
             page::section_header(ui, "Palette search");
             search_rows(ui, &snapshot.search, to_host);
+            usage_rows(ui, &snapshot.search, &mut state.usage_cleared, to_host);
         });
 }
 
@@ -242,6 +243,61 @@ fn search_rows(ui: &mut egui::Ui, search: &SearchConfig, to_host: &Arc<HostChann
             }
         },
     );
+}
+
+/// How long "Cleared" shows after the button was clicked.
+const CLEARED_NOTE: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Ranking by use: the switch, and the button that forgets every pick.
+fn usage_rows(
+    ui: &mut egui::Ui,
+    search: &SearchConfig,
+    cleared: &mut Option<std::time::Instant>,
+    to_host: &Arc<HostChannel>,
+) {
+    let tokens = Tokens::get(ui.ctx());
+    settings_row(
+        ui,
+        "rank-by-use",
+        RowText::new("Rank results by use").desc(
+            "Apps, commands, windows and folders you pick often move up, on this PC only.",
+            tokens.text_secondary,
+        ),
+        false,
+        |ui| {
+            let mut on = search.rank_by_use;
+            if toggle::toggle(ui, &mut on).changed() {
+                let mut next = search.clone();
+                next.rank_by_use = on;
+                to_host.send(HostRequest::SetHostSetting(HostSetting::Search(next)));
+            }
+        },
+    );
+    let showing = cleared.is_some_and(|at| at.elapsed() < CLEARED_NOTE);
+    if !showing {
+        *cleared = None;
+    }
+    let desc = if showing {
+        "Cleared. Results are ranked by how well they match until you pick some again."
+    } else {
+        "Forgets which results you picked. They are kept in palette_usage.json."
+    };
+    settings_row(
+        ui,
+        "usage-history",
+        RowText::new("Usage history").desc(desc, tokens.text_secondary),
+        false,
+        |ui| {
+            if button::button(ui, "Clear usage history", Kind::Secondary).clicked() {
+                to_host.send(HostRequest::ClearPaletteUsage);
+                *cleared = Some(std::time::Instant::now());
+                ui.ctx().request_repaint_after(CLEARED_NOTE);
+            }
+        },
+    );
+    if showing {
+        ui.ctx().request_repaint_after(CLEARED_NOTE);
+    }
 }
 
 fn file_row(

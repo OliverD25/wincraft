@@ -217,6 +217,8 @@ pub struct SettingsState {
     pub readme: Readme,
     pub store: store::Store,
     pub update: about::Update,
+    /// When "Clear usage history" was last clicked, for its "Cleared" note.
+    pub usage_cleared: Option<std::time::Instant>,
 }
 
 impl SettingsState {
