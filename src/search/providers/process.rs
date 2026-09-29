@@ -6,7 +6,6 @@ use windows_sys::Win32::Foundation::{
     CloseHandle, SetHandleInformation, GENERIC_READ, HANDLE, HANDLE_FLAG_INHERIT,
     INVALID_HANDLE_VALUE,
 };
-use windows_sys::Win32::Globalization::{MultiByteToWideChar, CP_OEMCP};
 use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, ReadFile, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
@@ -24,7 +23,7 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use super::shell::Launch;
-use crate::core::wide;
+use crate::core::{decode_console, wide};
 
 /// The output kept for one command; older lines are dropped.
 pub const MAX_LINES: usize = 1000;
@@ -264,12 +263,12 @@ fn read_in_background(pipe: HANDLE, error: bool, run: Arc<Mutex<Run>>) {
                 let mut lines = Vec::new();
                 while let Some(end) = pending.iter().position(|byte| *byte == b'\n') {
                     let raw: Vec<u8> = pending.drain(..=end).collect();
-                    lines.push(clean(&decode(&raw[..raw.len() - 1])));
+                    lines.push(clean(&decode_console(&raw[..raw.len() - 1])));
                 }
                 push_all(&run, lines, error);
             }
             if !pending.is_empty() {
-                push_all(&run, vec![clean(&decode(&pending))], error);
+                push_all(&run, vec![clean(&decode_console(&pending))], error);
             }
             unsafe { CloseHandle(pipe) };
         });
@@ -287,39 +286,6 @@ fn push_all(run: &Arc<Mutex<Run>>, lines: Vec<String>, error: bool) {
             run.push(Line { text, error });
         }
     }
-}
-
-/// Bash and PowerShell 7 write UTF-8; cmd and Windows PowerShell write the
-/// console's OEM code page when their output goes to a pipe.
-fn decode(bytes: &[u8]) -> String {
-    if let Ok(text) = std::str::from_utf8(bytes) {
-        return text.to_string();
-    }
-    let needed = unsafe {
-        MultiByteToWideChar(
-            CP_OEMCP,
-            0,
-            bytes.as_ptr(),
-            bytes.len() as i32,
-            std::ptr::null_mut(),
-            0,
-        )
-    };
-    if needed <= 0 {
-        return String::from_utf8_lossy(bytes).into_owned();
-    }
-    let mut wide_text = vec![0u16; needed as usize];
-    unsafe {
-        MultiByteToWideChar(
-            CP_OEMCP,
-            0,
-            bytes.as_ptr(),
-            bytes.len() as i32,
-            wide_text.as_mut_ptr(),
-            needed,
-        )
-    };
-    String::from_utf16_lossy(&wide_text)
 }
 
 /// Removes colour and cursor codes, and keeps only what a progress bar drew
@@ -441,7 +407,7 @@ mod tests {
 
     #[test]
     fn utf8_passes_through_unchanged() {
-        assert_eq!(decode("привіт ✓".as_bytes()), "привіт ✓");
+        assert_eq!(decode_console("привіт ✓".as_bytes()), "привіт ✓");
     }
 
     fn wait_for_end(process: &Process) -> Run {

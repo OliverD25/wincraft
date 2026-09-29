@@ -21,6 +21,8 @@ pub mod windows_list;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 
+use windows_sys::Win32::Globalization::{MultiByteToWideChar, CP_OEMCP};
+
 pub fn wide(s: &str) -> Vec<u16> {
     OsStr::new(s)
         .encode_wide()
@@ -42,6 +44,39 @@ pub unsafe fn from_wide_ptr(text: *const u16) -> String {
         len += 1;
     }
     String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, len) })
+}
+
+/// Bash and PowerShell 7 write UTF-8; cmd and Windows PowerShell write the
+/// console's OEM code page when their output goes to a pipe.
+pub fn decode_console(bytes: &[u8]) -> String {
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        return text.to_string();
+    }
+    let needed = unsafe {
+        MultiByteToWideChar(
+            CP_OEMCP,
+            0,
+            bytes.as_ptr(),
+            bytes.len() as i32,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if needed <= 0 {
+        return String::from_utf8_lossy(bytes).into_owned();
+    }
+    let mut wide_text = vec![0u16; needed as usize];
+    unsafe {
+        MultiByteToWideChar(
+            CP_OEMCP,
+            0,
+            bytes.as_ptr(),
+            bytes.len() as i32,
+            wide_text.as_mut_ptr(),
+            needed,
+        )
+    };
+    String::from_utf16_lossy(&wide_text)
 }
 
 #[cfg(test)]

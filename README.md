@@ -229,7 +229,7 @@ in the log.
 
 | Key | Meaning |
 |---|---|
-| `start_with_windows` | Mirrors the "Start with Windows" switch and the registry Run value. |
+| `start_with_windows` | Mirrors the "Start with Windows" switch. It is a logon task in Task Scheduler; see below. |
 | `theme` | `system`, `light` or `dark`. |
 | `palette_hotkey` | What opens the command palette. |
 | `search.prefixes` | The prefix of each palette search source. Change one to move it, set it to `""` to switch that prefix off. A source left out keeps its built-in prefix. Use symbols: a letter as a prefix would catch every search that starts with it. |
@@ -242,6 +242,26 @@ in the log.
 The prefixes are read when WinCraft starts, so restart it after changing
 them. The other `search` keys are also on the General page of the settings
 window and apply at once.
+
+### Starting with Windows
+
+The "Start with Windows" switch creates a logon task named `WinCraft` in
+Task Scheduler, for your account only, with normal rights and a 5 second delay
+after you sign in. It needs no administrator rights. Every time WinCraft starts
+with the switch on, it checks the task in the background and makes it again if it
+is missing or points at another `wincraft.exe`, for example after you moved the
+folder. If Windows refuses to create the task, WinCraft writes the older
+`WinCraft` value in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` instead
+and says so in the log. When the task exists, that value is removed.
+
+To remove the task by hand, switch it off in Settings, or run this in any
+terminal:
+
+```
+schtasks /Delete /TN WinCraft /F
+```
+
+With `WINCRAFT_INSTANCE=<suffix>` set, the task is named `WinCraft.<suffix>`.
 
 ### plugins/&lt;id&gt;.json
 

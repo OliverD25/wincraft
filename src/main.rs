@@ -72,15 +72,9 @@ fn main() {
 
     let mut config = Config::load();
 
-    // The registry is the truth for autostart, so a value removed by hand or by
-    // another tool does not leave config.json claiming it is still on.
-    let in_registry = autostart::is_enabled();
-    if in_registry != config.start_with_windows {
-        if let Err(err) = autostart::set(config.start_with_windows) {
-            log::warn!("could not apply start_with_windows: {err}");
-            config.start_with_windows = in_registry;
-        }
-    }
+    // Windows, not config.json, starts WinCraft at sign-in, so a task that
+    // was removed by hand or points at a moved exe is repaired here.
+    autostart::sync_in_background(config.start_with_windows);
 
     let (scene, theme, notes) = scene_flags(&args, instance::is_test());
     for note in notes {

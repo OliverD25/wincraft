@@ -316,9 +316,12 @@ it is a separate instance:
 
 - **`WINCRAFT_INSTANCE=<suffix>`** adds `.<suffix>` to everything that tells
   one WinCraft from another: the single-instance mutex, the host window class
-  and the autostart value in the registry. With it set, a test instance
+  and the autostart logon task (`WinCraft.<suffix>`, and the Run value when a
+  task cannot be made). With it set, a test instance
   starts beside yours, `--quit` only reaches the instance with the same
-  suffix, and the autostart setting cannot touch yours. Unset, every name is
+  suffix, and the autostart setting cannot touch yours. If a test leaves a task
+  behind, `schtasks /Delete /TN WinCraft.<suffix> /F` removes it (for your own
+  WinCraft it is `schtasks /Delete /TN WinCraft /F`). Unset, every name is
   exactly as in a normal install. Only letters, digits, `-` and `_` count.
 - **Point `LOCALAPPDATA` at a scratch folder** so the test instance has its
   own config, log and plugin files. Write a `plugins\<id>.json` with

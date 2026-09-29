@@ -38,8 +38,10 @@ pub fn show(
             settings_row(
                 ui,
                 "autostart",
-                RowText::new("Start with Windows")
-                    .desc("Launch when you sign in.", tokens.text_secondary),
+                RowText::new("Start with Windows").desc(
+                    "Launch when you sign in, with a logon task in Task Scheduler.",
+                    tokens.text_secondary,
+                ),
                 false,
                 |ui| {
                     let mut on = snapshot.start_with_windows;
