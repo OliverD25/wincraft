@@ -73,6 +73,8 @@ pub struct ArrangeWindow {
     /// Which monitor the window is on ("Left", "Right"), the one it returns
     /// to when minimized; None on the primary monitor or with just one.
     pub monitor: Option<String>,
+    /// The label is a name the user gave the window with WindowNamer.
+    pub renamed: bool,
 }
 
 /// One taskbar group, windows in thumbnail order. Windows groups buttons by
@@ -118,6 +120,8 @@ pub struct ArrangeSnapshot {
     pub watched: Vec<String>,
     /// Whether resting the mouse on a card shows that window on its monitor.
     pub preview: bool,
+    /// WindowNamer is on, so the card menu offers Rename.
+    pub can_rename: bool,
 }
 
 /// What the strip asks the plugin to do.
@@ -140,13 +144,42 @@ pub enum ArrangeAction {
         hwnd: isize,
         name: Option<String>,
     },
+    /// Ask for a name for the window, in the palette.
+    AskName(isize),
 }
 
 impl ArrangeAction {
     /// The host sends these to WindowNamer instead of the strip's plugin.
     pub fn is_about_names(&self) -> bool {
-        matches!(self, ArrangeAction::Rename { .. })
+        matches!(
+            self,
+            ArrangeAction::Rename { .. } | ArrangeAction::AskName(_)
+        )
     }
+}
+
+/// A question the palette asks for a plugin: one line of text, handed back
+/// to the plugin's `on_prompt_answer` when the user presses Enter.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Prompt {
+    /// The plugin that gets the answer.
+    pub plugin: String,
+    /// The plugin's own number for the question.
+    pub id: u32,
+    /// What the answer is about, such as a window handle.
+    pub target: isize,
+    /// The chip before the box, such as "Rename"; also the Enter key's label.
+    pub chip: String,
+    pub placeholder: String,
+    /// Put in the box and selected, so typing replaces it.
+    pub text: String,
+    /// The row under the box says what Enter does with the text typed, such
+    /// as "Rename to" …
+    pub action: String,
+    /// … and with the box empty, or None when Enter then does nothing.
+    pub empty_action: Option<String>,
+    /// The row's second line.
+    pub subtitle: String,
 }
 
 /// Screen rectangle in physical pixels, as Win32 reports it.
@@ -160,6 +193,8 @@ pub struct MonitorRect {
 
 pub enum UiCommand {
     ShowPalette(MonitorRect),
+    /// The palette as a one-line box that answers a plugin's question.
+    ShowPrompt(Prompt, MonitorRect),
     ShowSettings(Page),
     /// Test instances only: a plugin's own page in the settings window.
     ShowPluginPage(String),
@@ -203,6 +238,13 @@ pub enum HostRequest {
     RunCommand(CommandId),
     /// A palette row's action that needs the host thread.
     RunAction(crate::search::Action),
+    /// The text typed in answer to a `Prompt`.
+    PromptAnswer {
+        plugin: String,
+        id: u32,
+        target: isize,
+        text: String,
+    },
     Arrange {
         plugin: String,
         action: ArrangeAction,

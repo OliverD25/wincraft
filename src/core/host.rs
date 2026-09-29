@@ -32,7 +32,7 @@ use crate::core::tray::{show_menu, MenuItem, Tray, WM_TRAY_CALLBACK};
 use crate::core::ui_bridge::{
     self, ActionKind, ArrangeAction, ArrangeGroup, ArrangeSnapshot, CommandId, FieldInfo,
     HostCommand, HostRequest, HostSetting, HotkeyInfo, MonitorRect, Page, PaletteEntry, PeekCard,
-    PluginInfo, SettingsTarget, UiChannel, UiCommand, UiSnapshot, WM_APP_UI,
+    PluginInfo, Prompt, SettingsTarget, UiChannel, UiCommand, UiSnapshot, WM_APP_UI,
 };
 use crate::core::{autostart, config, hotkeys, instance, taskbar, theme, wide};
 use crate::search::{self, Router, SearchProvider};
@@ -115,6 +115,8 @@ pub struct SceneFlags {
     /// A window to rename at start, and the name: how a live test renames
     /// a window of its own without any input.
     pub rename: Option<(isize, String)>,
+    /// A window to open the palette's rename box for.
+    pub ask_name: Option<isize>,
 }
 
 thread_local! {
@@ -126,6 +128,7 @@ thread_local! {
     static HOST_WINDOW: Cell<HWND> = const { Cell::new(std::ptr::null_mut()) };
     static NOTICES: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
     static ARRANGE_WANTED: Cell<bool> = const { Cell::new(false) };
+    static PROMPT: RefCell<Option<Prompt>> = const { RefCell::new(None) };
     static ARRANGE_STALE: Cell<bool> = const { Cell::new(false) };
 }
 
@@ -250,6 +253,9 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
                 },
             )
         });
+    }
+    if let Some(hwnd) = flags.scene.ask_name {
+        with_host(|host| host.arrange_action(NAMER_ID, &ArrangeAction::AskName(hwnd)));
     }
     match flags.scene.settings {
         Some(SettingsTarget::Page(page)) => {
@@ -790,6 +796,9 @@ impl Host {
             focus,
             watched: groups.watched,
             preview: groups.preview,
+            can_rename: self
+                .index_of(NAMER_ID)
+                .is_some_and(|index| self.slots[index].enabled),
         };
         self.to_ui.send(if open {
             UiCommand::ShowArrange(snapshot)
@@ -863,6 +872,17 @@ impl Host {
             HostRequest::RunCommand(id) => self.run_command(id),
             HostRequest::RunAction(search::Action::Command(id)) => self.run_command(id),
             HostRequest::RunAction(action) => search::actions::perform(&action, self.hwnd),
+            HostRequest::PromptAnswer {
+                plugin,
+                id,
+                target,
+                text,
+            } => match self.index_of(&plugin) {
+                Some(index) if self.slots[index].enabled => {
+                    self.slots[index].plugin.on_prompt_answer(id, target, &text)
+                }
+                _ => log::info!("{plugin} is off; the answer to its question was dropped"),
+            },
             HostRequest::Arrange { plugin, action } => {
                 let owner = if action.is_about_names() {
                     NAMER_ID
@@ -1055,6 +1075,14 @@ pub fn notify(title: &str, text: &str) {
             .borrow_mut()
             .push((title.to_string(), text.to_string()))
     });
+    plugin_changed();
+}
+
+/// Opens the palette as a one-line box that asks the user `prompt`; the
+/// answer comes back to the plugin it names, through `on_prompt_answer`.
+/// Safe to call from any plugin callback.
+pub fn ask(prompt: Prompt) {
+    PROMPT.with(|cell| *cell.borrow_mut() = Some(prompt));
     plugin_changed();
 }
 
@@ -1349,7 +1377,8 @@ unsafe extern "system" fn wnd_proc(
             let notices = NOTICES.with(|queue| std::mem::take(&mut *queue.borrow_mut()));
             let arrange = ARRANGE_WANTED.with(|cell| cell.replace(false));
             let stale = ARRANGE_STALE.with(|cell| cell.replace(false));
-            with_host(|host| {
+            let prompt = PROMPT.with(|cell| cell.borrow_mut().take());
+            let palette = with_host(|host| {
                 for (title, text) in &notices {
                     host.balloon_opens_detector = false;
                     host.tray.balloon(title, text);
@@ -1360,7 +1389,16 @@ unsafe extern "system" fn wnd_proc(
                     host.send_arrange(false);
                 }
                 host.publish();
-            });
+                prompt.map(|prompt| {
+                    host.to_ui
+                        .send(UiCommand::ShowPrompt(prompt, cursor_monitor()));
+                    host.palette_hwnd
+                })
+            })
+            .flatten();
+            if let Some(hwnd) = palette {
+                bring_to_front(hwnd);
+            }
             0
         }
         WM_APP_UI => {

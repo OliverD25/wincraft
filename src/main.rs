@@ -159,6 +159,7 @@ fn scene_flags(
                 | "--peek-card"
                 | "--theme"
                 | "--rename-window"
+                | "--ask-name"
         ) {
             continue;
         }
@@ -188,6 +189,10 @@ fn scene_flags(
             "--rename-window" => {
                 scene.rename = window_and_name(value);
                 scene.rename.is_some()
+            }
+            "--ask-name" => {
+                scene.ask_name = window_handle(value);
+                scene.ask_name.is_some()
             }
             _ => {
                 theme = theme_choice(value);
@@ -226,15 +231,24 @@ fn peek_card(value: &str) -> Option<PeekCard> {
     value.parse().ok().map(PeekCard::Index)
 }
 
-/// "<window handle>:<name>", the handle in decimal or 0x hex.
+/// A window handle in decimal or 0x hex; never 0.
+fn window_handle(value: &str) -> Option<isize> {
+    let value = value.trim();
+    let hwnd = match value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+    {
+        Some(hex) => isize::from_str_radix(hex, 16).ok()?,
+        None => value.parse().ok()?,
+    };
+    (hwnd != 0).then_some(hwnd)
+}
+
+/// "<window handle>:<name>".
 fn window_and_name(value: &str) -> Option<(isize, String)> {
     let (hwnd, name) = value.split_once(':')?;
-    let hwnd = hwnd.trim();
-    let hwnd = match hwnd.strip_prefix("0x").or_else(|| hwnd.strip_prefix("0X")) {
-        Some(hex) => isize::from_str_radix(hex, 16).ok()?,
-        None => hwnd.parse().ok()?,
-    };
-    (hwnd != 0 && !name.trim().is_empty()).then(|| (hwnd, name.to_string()))
+    let hwnd = window_handle(hwnd)?;
+    (!name.trim().is_empty()).then(|| (hwnd, name.to_string()))
 }
 
 fn theme_choice(value: &str) -> Option<ThemeChoice> {
@@ -322,11 +336,12 @@ mod tests {
             "--peek-card=chip",
             "--theme=light",
             "--rename-window=123:Work",
+            "--ask-name=123",
         ]);
         let (scene, theme, notes) = scene_flags(&list, false);
         assert_eq!(scene, SceneFlags::default());
         assert_eq!(theme, None);
-        assert_eq!(notes.len(), 6);
+        assert_eq!(notes.len(), 7);
         assert!(notes
             .iter()
             .all(|note| note.contains("only a test instance")));
@@ -441,10 +456,14 @@ mod tests {
         assert_eq!(window_and_name("1234: "), None);
         assert_eq!(window_and_name("0:Name"), None);
         assert_eq!(window_and_name("zz:Name"), None);
-        let list = args(&["wincraft.exe", "--rename-window=77:Test"]);
+        let list = args(&["wincraft.exe", "--rename-window=77:Test", "--ask-name=0x4D"]);
         let (scene, _, notes) = scene_flags(&list, true);
         assert!(notes.is_empty());
         assert_eq!(scene.rename, Some((77, "Test".to_string())));
+        assert_eq!(scene.ask_name, Some(77));
+        assert_eq!(window_handle(" 12 "), Some(12));
+        assert_eq!(window_handle("0"), None);
+        assert_eq!(window_handle(""), None);
     }
 
     #[test]

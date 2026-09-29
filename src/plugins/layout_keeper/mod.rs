@@ -1315,10 +1315,11 @@ impl WinCraftPlugin for LayoutKeeper {
                             .filter(|id| *id != DesktopId::ALL)
                             .map(|id| id.to_string())
                             .unwrap_or_default();
+                        let name = window_names::custom(hwnd);
                         ArrangeWindow {
                             hwnd,
-                            label: window_names::custom(hwnd)
-                                .unwrap_or_else(|| identity.label().to_string()),
+                            renamed: name.is_some(),
+                            label: name.unwrap_or_else(|| identity.label().to_string()),
                             desktop,
                             monitor: monitors::strip_label(identity.rect, &monitors),
                         }
@@ -1372,7 +1373,7 @@ impl WinCraftPlugin for LayoutKeeper {
             ArrangeAction::MoveToDesktop { .. } => "moving a window to another desktop",
             ArrangeAction::Close(_) => "closing a window",
             // The host sends names to WindowNamer; they never come here.
-            ArrangeAction::Rename { .. } => return,
+            ArrangeAction::Rename { .. } | ArrangeAction::AskName(_) => return,
         };
         if self.refuses(what) {
             return;
@@ -1428,7 +1429,7 @@ impl WinCraftPlugin for LayoutKeeper {
                 unsafe { PostMessageW(*hwnd as HWND, WM_CLOSE, 0, 0) };
                 self.arrange_stale = true;
             }
-            ArrangeAction::Rename { .. } => {}
+            ArrangeAction::Rename { .. } | ArrangeAction::AskName(_) => {}
         }
     }
 

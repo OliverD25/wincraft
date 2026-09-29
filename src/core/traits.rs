@@ -201,5 +201,11 @@ pub trait WinCraftPlugin {
         let _ = action;
     }
 
+    /// The answer to a question the plugin asked with `host::ask`: the
+    /// prompt's id and target, and the text typed, which may be empty.
+    fn on_prompt_answer(&mut self, prompt_id: u32, target: isize, text: &str) {
+        let _ = (prompt_id, target, text);
+    }
+
     fn teardown(&mut self) {}
 }

@@ -7,7 +7,7 @@ use egui::{
 };
 
 use crate::core::theme::{self, Tokens};
-use crate::core::ui_bridge::{HostChannel, HostRequest, UiSnapshot};
+use crate::core::ui_bridge::{HostChannel, HostRequest, Prompt, UiSnapshot};
 use crate::search::icons::IconCache;
 use crate::search::{
     Action, Choice, Context, Glyph, IconRef, Reply, ResultItem, Results, Router, Tone,
@@ -57,6 +57,12 @@ pub struct Palette {
     cursor_to_end: bool,
     /// Made on the first frame, because it needs the egui context.
     icons: Option<IconCache>,
+    /// A plugin's question, such as a window's new name. While it is set the
+    /// palette is a one-line text box that answers it, not a search.
+    prompt: Option<Prompt>,
+    /// The prompt's text was put in the box and is selected once, so typing
+    /// replaces it.
+    select_all: bool,
 }
 
 impl Palette {
@@ -72,10 +78,14 @@ impl Palette {
             follow_selection: false,
             cursor_to_end: false,
             icons: None,
+            prompt: None,
+            select_all: false,
         }
     }
 
     pub fn opened(&mut self) {
+        self.prompt = None;
+        self.select_all = false;
         self.query.clear();
         self.prefix = None;
         self.selected = 0;
@@ -86,6 +96,13 @@ impl Palette {
         if let Some(icons) = &mut self.icons {
             icons.forget_windows();
         }
+    }
+
+    /// Turns the freshly opened palette into a text box for `prompt`.
+    pub fn ask(&mut self, prompt: Prompt) {
+        self.query = prompt.text.clone();
+        self.select_all = true;
+        self.prompt = Some(prompt);
     }
 
     /// The palette was hidden or WinCraft is closing: picks not saved yet
@@ -202,6 +219,9 @@ impl Palette {
         appear: f32,
         interactive: bool,
     ) -> Outcome {
+        if self.prompt.is_some() {
+            return self.show_prompt(ui, to_host, appear, interactive);
+        }
         let ctx = ui.ctx().clone();
         self.refresh(snapshot, &ctx);
         let tokens = Tokens::get(&ctx);
@@ -269,31 +289,7 @@ impl Palette {
             }
         }
 
-        ui.multiply_opacity(appear);
-        let window = ui.max_rect();
-        let panel = Rect::from_min_size(
-            window.min + vec2(MARGIN, MARGIN + (1.0 - appear) * RISE),
-            vec2(PANEL_WIDTH, PANEL_HEIGHT),
-        );
-        let radius = CornerRadius::same(8);
-        let painter = ui.painter().clone();
-        painter.add(
-            Shadow {
-                offset: [0, 12],
-                blur: 32,
-                spread: 0,
-                color: tokens.palette_shadow,
-            }
-            .as_shape(panel, radius),
-        );
-        painter.rect(
-            panel,
-            radius,
-            tokens.elevated_bg,
-            theme::stroke(&ctx, 1.0, tokens.border),
-            StrokeKind::Inside,
-        );
-        let line = theme::stroke(&ctx, 1.0, tokens.border);
+        let (panel, painter, line) = paint_panel(ui, &tokens, appear);
 
         // Search bar: 56 high, 16 px sides, the search icon, the prefix chip
         // when a prefix is on, then the query.
@@ -482,12 +478,203 @@ impl Palette {
         }
         outcome
     }
+
+    /// The prompt: the plugin's chip, the text box, and one row saying what
+    /// Enter will do. Enter answers, Esc or a click elsewhere cancels.
+    fn show_prompt(
+        &mut self,
+        ui: &mut egui::Ui,
+        to_host: &Arc<HostChannel>,
+        appear: f32,
+        interactive: bool,
+    ) -> Outcome {
+        let Some(prompt) = self.prompt.clone() else {
+            return Outcome::Hide;
+        };
+        let ctx = ui.ctx().clone();
+        let tokens = Tokens::get(&ctx);
+        let mut outcome = Outcome::Stay;
+        let mut answer = false;
+        if interactive {
+            if ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
+                outcome = Outcome::Hide;
+            }
+            answer = key_modifiers(&ctx, egui::Key::Enter).is_some();
+        }
+
+        let (panel, painter, line) = paint_panel(ui, &tokens, appear);
+        let search = Rect::from_min_size(panel.min, vec2(PANEL_WIDTH, SEARCH_HEIGHT));
+        painter.hline(search.x_range(), search.bottom() - line.width / 2.0, line);
+        let icon = Rect::from_center_size(
+            pos2(search.left() + 16.0 + 8.0, search.center().y),
+            vec2(16.0, 16.0),
+        );
+        icons::paint(&painter, icon, Icon::ChevronRight, tokens.text_disabled);
+        let chip = prefix_chip(
+            &ctx,
+            &painter,
+            pos2(icon.right() + 12.0, search.center().y),
+            "",
+            &prompt.chip,
+            &tokens,
+        );
+        let field = Rect::from_min_max(
+            pos2(chip.right() + 10.0, search.top()),
+            pos2(search.right() - 16.0, search.bottom() - line.width),
+        );
+        let hint = egui::RichText::new(&prompt.placeholder)
+            .color(tokens.text_disabled)
+            .font(theme::regular(16.0));
+        let edit = egui::TextEdit::singleline(&mut self.query)
+            .id_salt("palette-prompt")
+            .hint_text(hint)
+            .font(theme::regular(16.0))
+            .text_color(tokens.text_primary)
+            .frame(egui::Frame::NONE)
+            .margin(egui::Margin::ZERO)
+            .vertical_align(Align::Center)
+            .lock_focus(true)
+            .desired_width(field.width());
+        let response = ui.put(field, edit);
+        if interactive && !response.has_focus() {
+            response.request_focus();
+        }
+        // Kept until the box has focus: the window takes a frame or two to
+        // get it, and a selection made before that is lost.
+        if self.select_all && response.has_focus() {
+            if let Some(mut state) = egui::TextEdit::load_state(&ctx, response.id) {
+                let end = egui::text::CCursor::new(self.query.chars().count());
+                state
+                    .cursor
+                    .set_char_range(Some(egui::text::CCursorRange::two(
+                        egui::text::CCursor::new(0),
+                        end,
+                    )));
+                state.store(&ctx, response.id);
+                self.select_all = false;
+            }
+        }
+
+        let typed = self.query.trim().to_string();
+        let can_answer = !typed.is_empty() || prompt.empty_action.is_some();
+        let item = ResultItem {
+            group: prompt.chip.clone(),
+            title: prompt_row_title(&prompt, &typed),
+            subtitle: prompt.subtitle.clone(),
+            icon: IconRef::Glyph(Glyph::Command),
+            // Only the label is used, for the footer; Enter is handled here.
+            enter: can_answer.then(|| Choice {
+                label: if typed.is_empty() {
+                    prompt.empty_action.clone().unwrap_or_default()
+                } else {
+                    prompt.chip.clone()
+                },
+                action: Action::SetPrefix(String::new()),
+            }),
+            ..Default::default()
+        };
+
+        let footer = Rect::from_min_max(
+            pos2(panel.left(), panel.bottom() - FOOTER_HEIGHT),
+            panel.max,
+        );
+        painter.hline(footer.x_range(), footer.top() + line.width / 2.0, line);
+        let hints = footer_keys(Some(&item), None, Some("Cancel"));
+        ui.scope_builder(
+            UiBuilder::new()
+                .max_rect(footer.shrink2(vec2(16.0, 0.0)))
+                .layout(Layout::left_to_right(Align::Center)),
+            |ui| footer_hints(ui, &tokens, &hints),
+        );
+
+        let list = Rect::from_min_max(
+            pos2(panel.left() + 8.0, search.bottom() + 4.0),
+            pos2(panel.right() - 8.0, footer.top() - 4.0),
+        );
+        let icons = self.icons.get_or_insert_with(|| IconCache::new(&ctx));
+        let clicked = ui
+            .scope_builder(
+                UiBuilder::new()
+                    .max_rect(list)
+                    .layout(Layout::top_down(Align::Min)),
+                |ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    ui.add_space(4.0);
+                    result_row(ui, &item, "", true, interactive, icons).0
+                },
+            )
+            .inner;
+        answer |= clicked;
+
+        match ctx.input(|input| input.viewport().focused) {
+            Some(true) => self.focused_once = true,
+            Some(false) if self.focused_once && interactive => outcome = Outcome::Hide,
+            _ => {}
+        }
+
+        if answer && can_answer {
+            to_host.send(HostRequest::PromptAnswer {
+                plugin: prompt.plugin.clone(),
+                id: prompt.id,
+                target: prompt.target,
+                text: typed,
+            });
+            outcome = Outcome::Hide;
+        }
+        outcome
+    }
+}
+
+/// The prompt's row: what Enter does with the text typed, or with none.
+fn prompt_row_title(prompt: &Prompt, typed: &str) -> String {
+    if !typed.is_empty() {
+        return format!("{} \u{201c}{typed}\u{201d}", prompt.action);
+    }
+    prompt
+        .empty_action
+        .clone()
+        .unwrap_or_else(|| "Type, then press Enter".to_string())
+}
+
+/// The panel with its shadow and border, rising as it fades in. Returns
+/// the panel's rectangle, a painter and the 1 px rule.
+fn paint_panel(
+    ui: &mut egui::Ui,
+    tokens: &Tokens,
+    appear: f32,
+) -> (Rect, egui::Painter, egui::Stroke) {
+    let ctx = ui.ctx().clone();
+    ui.multiply_opacity(appear);
+    let window = ui.max_rect();
+    let panel = Rect::from_min_size(
+        window.min + vec2(MARGIN, MARGIN + (1.0 - appear) * RISE),
+        vec2(PANEL_WIDTH, PANEL_HEIGHT),
+    );
+    let radius = CornerRadius::same(8);
+    let painter = ui.painter().clone();
+    painter.add(
+        Shadow {
+            offset: [0, 12],
+            blur: 32,
+            spread: 0,
+            color: tokens.palette_shadow,
+        }
+        .as_shape(panel, radius),
+    );
+    painter.rect(
+        panel,
+        radius,
+        tokens.elevated_bg,
+        theme::stroke(&ctx, 1.0, tokens.border),
+        StrokeKind::Inside,
+    );
+    (panel, painter, theme::stroke(&ctx, 1.0, tokens.border))
 }
 
 /// The active prefix and its provider's name, such as "< Windows": the
 /// prefix in accent mono, the name in secondary text, on the keycap chip's
 /// panel fill, 1 px border and radius 4. Returns the chip's rectangle so the
-/// query can start after it.
+/// query can start after it. A prompt's chip has a name and no prefix.
 fn prefix_chip(
     ctx: &egui::Context,
     painter: &egui::Painter,
@@ -503,7 +690,8 @@ fn prefix_chip(
         tokens.text_secondary,
     );
     let height = mark.size().y.max(label.size().y) + 6.0;
-    let width = 8.0 + mark.size().x + 6.0 + label.size().x + 8.0;
+    let gap = if prefix.is_empty() { 0.0 } else { 6.0 };
+    let width = 8.0 + mark.size().x + gap + label.size().x + 8.0;
     let rect = Rect::from_min_size(
         pos2(left_centre.x, left_centre.y - height / 2.0),
         vec2(width, height),
@@ -523,7 +711,7 @@ fn prefix_chip(
     );
     painter.galley(
         pos2(
-            rect.left() + 8.0 + mark_width + 6.0,
+            rect.left() + 8.0 + mark_width + gap,
             rect.center().y - label.size().y / 2.0,
         ),
         label,
@@ -862,4 +1050,52 @@ fn footer_hints(ui: &mut egui::Ui, tokens: &Tokens, keys: &[(&str, String)]) {
             ),
         );
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rename_prompt(renamed: bool) -> Prompt {
+        Prompt {
+            plugin: "window_namer".to_string(),
+            id: 1,
+            target: 42,
+            chip: "Rename".to_string(),
+            placeholder: "Name for \u{201c}Untitled - Notepad\u{201d}".to_string(),
+            text: String::new(),
+            action: "Rename to".to_string(),
+            empty_action: renamed.then(|| "Clear the name".to_string()),
+            subtitle: "notepad".to_string(),
+        }
+    }
+
+    #[test]
+    fn the_prompt_row_says_what_enter_will_do() {
+        let prompt = rename_prompt(true);
+        assert_eq!(
+            prompt_row_title(&prompt, "Work notes"),
+            "Rename to \u{201c}Work notes\u{201d}"
+        );
+        assert_eq!(prompt_row_title(&prompt, ""), "Clear the name");
+        assert_eq!(
+            prompt_row_title(&rename_prompt(false), ""),
+            "Type, then press Enter"
+        );
+    }
+
+    #[test]
+    fn a_prompt_fills_the_box_and_opening_the_palette_drops_it() {
+        let mut palette = Palette::new(Router::new(Vec::new(), &Default::default()));
+        let mut prompt = rename_prompt(true);
+        prompt.text = "Mail".to_string();
+        palette.opened();
+        palette.ask(prompt);
+        assert_eq!(palette.query, "Mail");
+        assert!(palette.select_all);
+        assert!(palette.prompt.is_some());
+        palette.opened();
+        assert!(palette.prompt.is_none());
+        assert!(palette.query.is_empty());
+    }
 }

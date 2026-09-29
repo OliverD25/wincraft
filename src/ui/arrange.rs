@@ -581,6 +581,7 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     let ctx = ui.ctx().clone();
     let ppp = ctx.pixels_per_point();
     let menu_open = egui::Popup::is_any_open(&ctx);
+    let can_rename = shared.snapshot.as_ref().is_some_and(|s| s.can_rename);
     let pointer = ctx.pointer_latest_pos();
     let mut actions: Vec<ArrangeAction> = Vec::new();
     let mut activate: Option<isize> = None;
@@ -698,9 +699,14 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
                                     }
                                 }
                                 response.context_menu(|ui| {
-                                    if let Some(action) =
-                                        card_menu(ui, window.hwnd, &window.desktop, &desktops)
-                                    {
+                                    let names = can_rename.then_some(window.renamed);
+                                    if let Some(action) = card_menu(
+                                        ui,
+                                        window.hwnd,
+                                        &window.desktop,
+                                        &desktops,
+                                        names,
+                                    ) {
                                         actions.push(action);
                                     }
                                 });
@@ -1039,19 +1045,34 @@ fn apply_locally(shared: &mut Shared, action: &ArrangeAction) {
                 window.label = name.clone();
             }
         }
-        ArrangeAction::Rename { name: None, .. } | ArrangeAction::Activate(_) => {}
+        ArrangeAction::Rename { name: None, .. }
+        | ArrangeAction::AskName(_)
+        | ArrangeAction::Activate(_) => {}
     }
 }
 
 /// The right-click menu. Closing a window is only offered here, never on a
-/// key, because it cannot be undone.
+/// key, because it cannot be undone. `renamed` is None when WindowNamer is
+/// off, else whether the window has a name.
 fn card_menu(
     ui: &mut Ui,
     hwnd: isize,
     current: &str,
     desktops: &[ArrangeDesktop],
+    renamed: Option<bool>,
 ) -> Option<ArrangeAction> {
     let mut chosen = None;
+    if let Some(renamed) = renamed {
+        if ui.button("Rename\u{2026}").clicked() {
+            chosen = Some(ArrangeAction::AskName(hwnd));
+            ui.close();
+        }
+        if renamed && ui.button("Clear name").clicked() {
+            chosen = Some(ArrangeAction::Rename { hwnd, name: None });
+            ui.close();
+        }
+        ui.separator();
+    }
     if ui.button("Close window").clicked() {
         chosen = Some(ArrangeAction::Close(hwnd));
         ui.close();
@@ -1265,6 +1286,7 @@ mod tests {
                     label: format!("w{i}"),
                     desktop: d.to_string(),
                     monitor: None,
+                    renamed: false,
                 })
                 .collect(),
         }

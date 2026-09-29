@@ -12,18 +12,20 @@ use windows_sys::Win32::Foundation::{
 use windows_sys::Win32::System::SystemInformation::GetTickCount64;
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 use windows_sys::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetWindowPlacement, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindow, KillTimer,
-    SendMessageTimeoutW, SetTimer, CHILDID_SELF, EVENT_OBJECT_NAMECHANGE, OBJID_WINDOW,
-    SMTO_ABORTIFHUNG, USER_TIMER_MINIMUM, WINDOWPLACEMENT, WINEVENT_OUTOFCONTEXT,
+    GetForegroundWindow, GetWindowPlacement, GetWindowRect, GetWindowThreadProcessId, IsIconic,
+    IsWindow, KillTimer, SendMessageTimeoutW, SetTimer, CHILDID_SELF, EVENT_OBJECT_NAMECHANGE,
+    OBJID_WINDOW, SMTO_ABORTIFHUNG, USER_TIMER_MINIMUM, WINDOWPLACEMENT, WINEVENT_OUTOFCONTEXT,
     WINEVENT_SKIPOWNPROCESS, WM_SETTEXT, WM_TIMER,
 };
 
 use crate::core::desktop_manager::{self, DesktopManager};
 use crate::core::traits::{
-    FieldKind, HostContext, PaletteCommand, PluginMetadata, SettingField, WinCraftPlugin,
+    FieldKind, HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata, SettingField,
+    WinCraftPlugin,
 };
-use crate::core::ui_bridge::ArrangeAction;
+use crate::core::ui_bridge::{ArrangeAction, Prompt};
 use crate::core::window_names::{self, Names};
 use crate::core::{appid, host, instance, wide, windows_list};
 use guard::{Guard, Verdict};
@@ -43,7 +45,13 @@ const SAVE_EVERY: u64 = 30;
 const SET_TIMEOUT_MS: u32 = 500;
 const MAX_NAME_CHARS: usize = 200;
 
+const ID: &str = "window_namer";
+const ACTION_RENAME_ACTIVE: u32 = 1;
 const COMMAND_CLEAR_ALL: u32 = 1;
+const PROMPT_RENAME: u32 = 1;
+/// Win+Alt+N was taken on the PC this was built on (ShortcutDetector said
+/// "Taken by another app"); E, for editing the title, was free.
+const VK_E: u32 = b'E' as u32;
 
 thread_local! {
     /// Windows whose title changed since the last look, noted by the event
@@ -174,6 +182,34 @@ fn group_of(hwnd: HWND, pid: u32) -> String {
 fn alive(hwnd: isize, pid: u32) -> bool {
     let exists = unsafe { IsWindow(hwnd as HWND) } != 0;
     exists && pid_of(hwnd as HWND) == pid
+}
+
+/// The window the user is working in. When that is one of WinCraft's own,
+/// as when the command runs from the palette, or no app window at all,
+/// the topmost app window of another program.
+fn active_window() -> Option<isize> {
+    let own = unsafe { GetCurrentProcessId() };
+    let front = unsafe { GetForegroundWindow() };
+    let usable = |hwnd: HWND| {
+        !hwnd.is_null()
+            && pid_of(hwnd) != own
+            && windows_list::is_app_window(&windows_list::read(hwnd, &|_| true))
+    };
+    if usable(front) {
+        return Some(front as isize);
+    }
+    windows_list::app_windows(&|_| false)
+        .into_iter()
+        .find(|hwnd| pid_of(*hwnd) != own)
+        .map(|hwnd| hwnd as isize)
+}
+
+/// "notepad" for C:\Windows\notepad.exe.
+fn program_of(pid: u32) -> String {
+    let path = windows_list::exe_path(pid);
+    let file = path.rsplit('\\').next().unwrap_or("");
+    let stem = file.rsplit_once('.').map_or(file, |(stem, _)| stem);
+    stem.to_lowercase()
 }
 
 fn unix_now() -> u64 {
@@ -366,6 +402,40 @@ impl WindowNamer {
         });
         self.save_now();
         self.changed();
+    }
+
+    /// Opens the palette's rename box for the window.
+    fn ask_name(&self, hwnd: isize) {
+        let target = hwnd as HWND;
+        if unsafe { IsWindow(target) } == 0 {
+            return;
+        }
+        let pid = pid_of(target);
+        if pid == unsafe { GetCurrentProcessId() } {
+            log::info!("WinCraft does not rename its own windows");
+            return;
+        }
+        let names = self.live.get(&hwnd).map(|live| live.names.clone());
+        let app_title = names
+            .as_ref()
+            .map(|names| names.app_title.clone())
+            .unwrap_or_else(|| windows_list::raw_window_text(target));
+        let program = program_of(pid);
+        host::ask(Prompt {
+            plugin: ID.to_string(),
+            id: PROMPT_RENAME,
+            target: hwnd,
+            chip: "Rename".to_string(),
+            placeholder: format!("Name for \u{201c}{app_title}\u{201d}"),
+            empty_action: names.as_ref().map(|_| "Clear the name".to_string()),
+            text: names.map(|names| names.custom).unwrap_or_default(),
+            action: "Rename to".to_string(),
+            subtitle: if program.is_empty() {
+                app_title
+            } else {
+                format!("{program} \u{b7} {app_title}")
+            },
+        });
     }
 
     /// Puts the name on the window and starts keeping it there.
@@ -717,7 +787,7 @@ fn plural(count: usize, one: &str, many: &str) -> String {
 impl WinCraftPlugin for WindowNamer {
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
-            id: "window_namer",
+            id: ID,
             name: "WindowNamer",
             description: "Give any window a name of your own. The taskbar, Alt+Tab and the title bar show it, and it comes back after a restart.",
             author: "community",
@@ -809,6 +879,34 @@ impl WinCraftPlugin for WindowNamer {
         true
     }
 
+    fn hotkey_actions(&self) -> Vec<HotkeyAction> {
+        vec![HotkeyAction {
+            id: ACTION_RENAME_ACTIVE,
+            name: "rename_active",
+            label: "Rename the active window",
+            default: Hotkey {
+                modifiers: MOD_NOREPEAT | MOD_WIN | MOD_ALT,
+                vk: VK_E,
+            },
+        }]
+    }
+
+    fn on_hotkey(&mut self, action_id: u32) {
+        if action_id != ACTION_RENAME_ACTIVE {
+            return;
+        }
+        match active_window() {
+            Some(hwnd) => self.ask_name(hwnd),
+            None => log::info!("no window to rename"),
+        }
+    }
+
+    fn on_prompt_answer(&mut self, prompt_id: u32, target: isize, text: &str) {
+        if prompt_id == PROMPT_RENAME {
+            self.rename(target, text);
+        }
+    }
+
     fn palette_commands(&self) -> Vec<PaletteCommand> {
         vec![PaletteCommand {
             id: COMMAND_CLEAR_ALL,
@@ -834,11 +932,14 @@ impl WinCraftPlugin for WindowNamer {
     }
 
     fn on_arrange_action(&mut self, action: &ArrangeAction) {
-        if let ArrangeAction::Rename { hwnd, name } = action {
-            match name {
-                Some(name) => self.rename(*hwnd, name),
-                None => self.clear(*hwnd),
-            }
+        match action {
+            ArrangeAction::Rename {
+                hwnd,
+                name: Some(name),
+            } => self.rename(*hwnd, name),
+            ArrangeAction::Rename { hwnd, name: None } => self.clear(*hwnd),
+            ArrangeAction::AskName(hwnd) => self.ask_name(*hwnd),
+            _ => {}
         }
     }
 
@@ -947,6 +1048,16 @@ mod tests {
         assert_eq!(
             off.status().as_deref(),
             Some("0 windows renamed now \u{b7} names are not kept after a restart")
+        );
+    }
+
+    #[test]
+    fn the_hotkey_is_a_win_alt_one_as_every_default_must_be() {
+        let actions = WindowNamer::new().hotkey_actions();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(
+            crate::core::hotkeys::format(actions[0].default),
+            "Win+Alt+E"
         );
     }
 

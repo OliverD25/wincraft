@@ -185,6 +185,15 @@ impl App {
                     self.set_palette_visible(ctx, true);
                     log::info!("palette shown");
                 }
+                UiCommand::ShowPrompt(prompt, monitor) => {
+                    self.palette.opened();
+                    self.palette.ask(prompt);
+                    self.palette_visible = true;
+                    self.closing = false;
+                    self.pending_position = Some(monitor);
+                    self.set_palette_visible(ctx, true);
+                    log::info!("palette shown with a question");
+                }
                 UiCommand::ShowSettings(page) => {
                     self.settings.open_at(page);
                     self.settings_open = true;
