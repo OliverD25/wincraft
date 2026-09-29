@@ -16,7 +16,7 @@ use windows_sys::Win32::UI::HiDpi::{
 use crate::core::config::{Config, ThemeChoice};
 use crate::core::host::SceneFlags;
 use crate::core::ui_bridge::{Page, PeekCard, SettingsTarget};
-use crate::core::{autostart, host, instance, logging, quit, wide};
+use crate::core::{autostart, config, host, instance, logging, package, quit, wide};
 
 const SINGLE_INSTANCE_MUTEX: &str = r"Local\WinCraft.SingleInstance";
 
@@ -72,6 +72,13 @@ fn main() {
 
     let mut config = Config::load();
 
+    if let Some(name) = package::current(&config::log_path()) {
+        let text = package::warning(&name);
+        log::warn!("{text}");
+        if !instance::is_test() {
+            host::notify("WinCraft", &text);
+        }
+    }
     if has_flag(&args, autostart::RESTARTED_FLAG) {
         log::info!("started again by Windows after an update closed it");
     }

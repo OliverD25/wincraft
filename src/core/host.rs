@@ -188,6 +188,8 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         peek_card: flags.scene.peek_card,
     };
     HOST_WINDOW.with(|cell| cell.set(hwnd));
+    // Notices queued before the window existed have nobody to post them.
+    plugin_changed();
     TASKBAR_CREATED
         .with(|cell| cell.set(unsafe { RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()) }));
 

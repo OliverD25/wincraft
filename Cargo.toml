@@ -49,6 +49,7 @@ features = [
     "Win32_System_IO",
     "Win32_Security_Authentication_Identity",
     "Win32_System_Recovery",
+    "Win32_Storage_Packaging_Appx",
 ]
 
 [build-dependencies]

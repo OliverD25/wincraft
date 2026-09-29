@@ -10,6 +10,7 @@ pub mod hotkeys;
 pub mod instance;
 pub mod logging;
 pub mod monitors;
+pub mod package;
 pub mod quit;
 pub mod taskbar;
 pub mod theme;
