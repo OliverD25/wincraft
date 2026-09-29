@@ -474,13 +474,7 @@ impl WindowNamer {
         let Some(live) = self.live.remove(&hwnd) else {
             return;
         };
-        if let Err(err) = set_text(hwnd as HWND, &live.names.app_title) {
-            log::warn!(
-                "could not put \"{}\" back: {}",
-                live.names.app_title,
-                err.message()
-            );
-        }
+        self.put_back(hwnd, &live.names);
         window_names::remove(hwnd);
         self.unwatch_if_unused(live.pid);
         self.saved.retain(|saved| saved.window != Some(hwnd));
@@ -506,13 +500,7 @@ impl WindowNamer {
     fn restore_all(&mut self) -> usize {
         let live = std::mem::take(&mut self.live);
         for (hwnd, entry) in &live {
-            if let Err(err) = set_text(*hwnd as HWND, &entry.names.app_title) {
-                log::warn!(
-                    "could not put \"{}\" back: {}",
-                    entry.names.app_title,
-                    err.message()
-                );
-            }
+            self.put_back(*hwnd, &entry.names);
             window_names::remove(*hwnd);
         }
         for hook in std::mem::take(&mut self.hooks).into_values() {
@@ -524,6 +512,24 @@ impl WindowNamer {
             }
         }
         live.len()
+    }
+
+    /// Gives the window its app's own title back, unless the app has set a
+    /// title since, in a pause or in a change not handled yet: that one is
+    /// newer than any title WinCraft remembers.
+    fn put_back(&self, hwnd: isize, names: &Names) {
+        let shown = windows_list::raw_window_text(hwnd as HWND);
+        if !took(&shown, &self.title_for(names)) {
+            log::debug!("\"{}\" already shows a title of its app's", names.custom);
+            return;
+        }
+        if let Err(err) = set_text(hwnd as HWND, &names.app_title) {
+            log::warn!(
+                "could not put \"{}\" back: {}",
+                names.app_title,
+                err.message()
+            );
+        }
     }
 
     fn watch(&mut self, pid: u32) {
