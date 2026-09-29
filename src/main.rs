@@ -6,6 +6,8 @@ mod search;
 mod store;
 mod ui;
 
+use std::io::Write;
+
 use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, HANDLE};
 use windows_sys::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
 use windows_sys::Win32::System::Threading::CreateMutexW;
@@ -50,7 +52,8 @@ fn main() {
     // Also before logging::init, for the same reason as the probe.
     if has_flag(&args, "--quit") {
         let outcome = quit::run(quit::TIMEOUT);
-        println!("{}", outcome.message());
+        // Nobody may be reading: a closed pipe must not turn into a panic.
+        let _ = writeln!(std::io::stdout(), "{}", outcome.message());
         std::process::exit(outcome.exit_code());
     }
 
