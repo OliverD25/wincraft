@@ -12,9 +12,12 @@ use std::os::windows::process::CommandExt;
 
 use windows_sys::Win32::Foundation::ERROR_SUCCESS;
 use windows_sys::Win32::Security::Authentication::Identity::{GetUserNameExW, NameSamCompatible};
+use windows_sys::Win32::System::Recovery::{
+    RegisterApplicationRestart, RESTART_NO_CRASH, RESTART_NO_HANG,
+};
 use windows_sys::Win32::System::Registry::{
-    RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY,
-    HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_SZ,
+    RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_READ,
+    KEY_WRITE, REG_SZ,
 };
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
@@ -23,6 +26,10 @@ use crate::core::{decode_console, instance, wide};
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const VALUE_NAME: &str = "WinCraft";
 const TASK_NAME: &str = "WinCraft";
+
+/// The command line Windows gives WinCraft when it starts it again after an
+/// update. The program's own name is not part of it.
+pub const RESTARTED_FLAG: &str = "--restarted";
 
 fn open(write: bool) -> Option<HKEY> {
     let access = if write {
@@ -46,25 +53,6 @@ fn open(write: bool) -> Option<HKEY> {
         log::warn!("cannot open the Run registry key (error {status})");
         None
     }
-}
-
-fn run_value_exists() -> bool {
-    let Some(key) = open(false) else {
-        return false;
-    };
-    let mut size: u32 = 0;
-    let status = unsafe {
-        RegQueryValueExW(
-            key,
-            wide(&instance::name(VALUE_NAME)).as_ptr(),
-            std::ptr::null(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            &mut size,
-        )
-    };
-    unsafe { RegCloseKey(key) };
-    status == ERROR_SUCCESS
 }
 
 fn write_run_value() -> Result<(), String> {
@@ -342,9 +330,9 @@ pub fn set(enabled: bool) -> Result<(), String> {
 }
 
 /// Makes what Windows will do at sign-in match `start_with_windows`, on its
-/// own thread because starting schtasks takes a moment. This repairs a task
-/// that was deleted, whose exe was moved, or that a version without tasks
-/// never had.
+/// own thread because starting schtasks takes a moment. With the switch on,
+/// this repairs a task that was deleted, whose exe was moved, or that a
+/// version without tasks never had.
 pub fn sync_in_background(wanted: bool) {
     let started = std::thread::Builder::new()
         .name("wincraft-autostart".to_string())
@@ -357,11 +345,14 @@ pub fn sync_in_background(wanted: bool) {
 fn sync(wanted: bool) {
     let name = task_name();
     if !wanted {
-        if task_exists(&name) || run_value_exists() {
-            match remove() {
-                Ok(()) => log::info!("removed what was left, start_with_windows is off"),
-                Err(err) => log::warn!("could not remove what was left: {err}"),
-            }
+        // Only the switch removes the task. A config.json that reads "off"
+        // by mistake, such as an old copy in the real profile next to the
+        // one a virtualized process wrote, must not silently end autostart.
+        if remove_run_value().unwrap_or(false) {
+            log::info!("removed the old Run key value, start_with_windows is off");
+        }
+        if task_exists(&name) {
+            log::warn!("the logon task exists but start_with_windows is off; the switch in Settings removes it");
         }
         return;
     }
@@ -392,6 +383,23 @@ fn sync(wanted: bool) {
         Ok(Installed::Task) => log::info!("logon task recreated ({why})"),
         Ok(Installed::RunKey) => log::info!("fell back to the Run key"),
         Err(err) => log::error!("could not set up start at sign-in: {err}"),
+    }
+}
+
+/// Asks Windows to start WinCraft again when an installer or Windows Update
+/// closes it, and after an update restart. Not after a crash or a hang, so a
+/// bug can never turn into a restart loop.
+pub fn register_restart() {
+    let hr = unsafe {
+        RegisterApplicationRestart(
+            wide(RESTARTED_FLAG).as_ptr(),
+            RESTART_NO_CRASH | RESTART_NO_HANG,
+        )
+    };
+    if hr < 0 {
+        log::warn!("RegisterApplicationRestart failed (0x{:08X})", hr as u32);
+    } else {
+        log::info!("registered with Windows to be started again after an update closes it");
     }
 }
 
@@ -520,5 +528,28 @@ mod tests {
             || false,
         );
         assert_eq!(result, Err("registry write failed".to_string()));
+    }
+
+    #[test]
+    fn windows_keeps_the_restart_registration_without_crash_and_hang_restarts() {
+        use windows_sys::Win32::System::Recovery::GetApplicationRestartSettings;
+        use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+        register_restart();
+        let mut line = [0u16; 64];
+        let mut size = line.len() as u32;
+        let mut flags = 0u32;
+        let hr = unsafe {
+            GetApplicationRestartSettings(
+                GetCurrentProcess(),
+                line.as_mut_ptr(),
+                &mut size,
+                &mut flags,
+            )
+        };
+        assert!(hr >= 0, "0x{:08X}", hr as u32);
+        let text = String::from_utf16_lossy(&line[..size as usize - 1]);
+        assert_eq!(text, RESTARTED_FLAG);
+        assert_eq!(flags, RESTART_NO_CRASH | RESTART_NO_HANG);
     }
 }

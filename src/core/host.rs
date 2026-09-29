@@ -18,10 +18,10 @@ use windows_sys::Win32::UI::Shell::{ShellExecuteW, NIN_BALLOONUSERCLICK};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetCursorPos, GetForegroundWindow,
     GetMessageW, GetWindowThreadProcessId, PostMessageW, PostQuitMessage, RegisterClassW,
-    RegisterWindowMessageW, SetForegroundWindow, TranslateMessage, MSG, SW_SHOWNORMAL, WM_APP,
-    WM_CONTEXTMENU, WM_DESTROY, WM_DISPLAYCHANGE, WM_ENDSESSION, WM_HOTKEY, WM_LBUTTONUP,
-    WM_POWERBROADCAST, WM_QUERYENDSESSION, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW,
-    WS_OVERLAPPED,
+    RegisterWindowMessageW, SetForegroundWindow, TranslateMessage, ENDSESSION_CLOSEAPP,
+    ENDSESSION_CRITICAL, ENDSESSION_LOGOFF, MSG, SW_SHOWNORMAL, WM_APP, WM_CONTEXTMENU, WM_DESTROY,
+    WM_DISPLAYCHANGE, WM_ENDSESSION, WM_HOTKEY, WM_LBUTTONUP, WM_POWERBROADCAST,
+    WM_QUERYENDSESSION, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
 };
 
 use serde_json::Value;
@@ -1218,6 +1218,27 @@ fn handle_menu_choice(choice: u32) {
     }
 }
 
+/// What the flags of `WM_QUERYENDSESSION` and `WM_ENDSESSION` say, for the
+/// log. An installer or Windows Update closes apps with `ENDSESSION_CLOSEAPP`
+/// while Windows keeps running; a real shutdown or restart sends no flags.
+fn end_session_words(lparam: LPARAM) -> String {
+    let flags = lparam as u32;
+    let mut words = Vec::new();
+    if flags & ENDSESSION_CLOSEAPP != 0 {
+        words.push("ENDSESSION_CLOSEAPP (an installer or update asks apps to close, Windows keeps running)");
+    }
+    if flags & ENDSESSION_CRITICAL != 0 {
+        words.push("ENDSESSION_CRITICAL (Windows ends the session now and does not wait for apps)");
+    }
+    if flags & ENDSESSION_LOGOFF != 0 {
+        words.push("ENDSESSION_LOGOFF (the user is signing out)");
+    }
+    if words.is_empty() {
+        words.push("no flags (shutdown or restart)");
+    }
+    words.join("; ")
+}
+
 fn is_colour_change(lparam: LPARAM) -> bool {
     if lparam == 0 {
         return false;
@@ -1345,6 +1366,14 @@ unsafe extern "system" fn wnd_proc(
         // open, so a plugin can record the session before it goes away.
         // Answering TRUE never holds up the shutdown.
         WM_QUERYENDSESSION | WM_ENDSESSION => {
+            let why = end_session_words(lparam);
+            if msg == WM_QUERYENDSESSION {
+                log::info!("Windows asks if the session can end: {why}");
+            } else if wparam != 0 {
+                log::info!("the session is ending: {why}");
+            } else {
+                log::info!("the session did not end after all: {why}");
+            }
             with_host(|host| {
                 for slot in host.slots.iter_mut().filter(|slot| slot.enabled) {
                     slot.plugin.on_windows_message(msg, wparam, lparam);
@@ -1361,5 +1390,50 @@ unsafe extern "system" fn wnd_proc(
             0
         }
         _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_flags_means_a_shutdown_or_restart() {
+        assert_eq!(end_session_words(0), "no flags (shutdown or restart)");
+    }
+
+    #[test]
+    fn closeapp_means_an_installer_or_update_is_closing_apps() {
+        let words = end_session_words(ENDSESSION_CLOSEAPP as LPARAM);
+        assert!(
+            words.starts_with("ENDSESSION_CLOSEAPP (an installer or update"),
+            "{words}"
+        );
+        assert!(!words.contains("shutdown"), "{words}");
+    }
+
+    #[test]
+    fn logoff_and_critical_are_told_apart_and_can_come_together() {
+        assert_eq!(
+            end_session_words(ENDSESSION_LOGOFF as LPARAM),
+            "ENDSESSION_LOGOFF (the user is signing out)"
+        );
+        let words = end_session_words((ENDSESSION_LOGOFF | ENDSESSION_CRITICAL) as LPARAM);
+        assert!(
+            words.contains("ENDSESSION_CRITICAL (Windows ends the session now"),
+            "{words}"
+        );
+        assert!(
+            words.ends_with("ENDSESSION_LOGOFF (the user is signing out)"),
+            "{words}"
+        );
+    }
+
+    #[test]
+    fn the_high_bit_reads_the_same_sign_extended_or_not() {
+        let plain = end_session_words(0x8000_0000_u32 as LPARAM);
+        let extended = end_session_words(0xFFFF_FFFF_8000_0000_u64 as LPARAM);
+        assert_eq!(plain, extended);
+        assert!(plain.contains("ENDSESSION_LOGOFF"));
     }
 }

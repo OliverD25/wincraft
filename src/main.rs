@@ -72,6 +72,13 @@ fn main() {
 
     let mut config = Config::load();
 
+    if has_flag(&args, autostart::RESTARTED_FLAG) {
+        log::info!("started again by Windows after an update closed it");
+    }
+    if !instance::is_test() {
+        autostart::register_restart();
+    }
+
     // Windows, not config.json, starts WinCraft at sign-in, so a task that
     // was removed by hand or points at a moved exe is repaired here.
     autostart::sync_in_background(config.start_with_windows);
