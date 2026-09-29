@@ -135,7 +135,8 @@ The About page lists the kinds the build you are running can draw.
 | `page_action` | When building your page. One of your hotkey actions, shown as a button under the status line. |
 | `palette_subtitle(kind, id)` | Each time the palette's list is rebuilt. A second line under one of your palette entries, such as the state the command would change; `kind` says whether `id` is a hotkey, tray or palette id, because those numbers can overlap. Return `None` for no subtitle, and call `host::plugin_changed()` when the answer changes. |
 | `window_groups` | When the Arrange strip opens (`host::open_arrange()`) and after every change made in it. Only for plugins that keep a window order. |
-| `on_arrange_action(action)` | When the user does something in the Arrange strip: activates a window, drags windows into a new order inside a taskbar group, moves a window to another desktop, or closes it. |
+| `on_arrange_action(action)` | When the user does something in the Arrange strip: activates a window, drags windows into a new order inside a taskbar group, moves a window to another desktop, or closes it. Rename and Clear name on a card go to WindowNamer instead, whichever plugin draws the strip. |
+| `on_prompt_answer(id, target, text)` | When the user answers a question the plugin asked with `host::ask`: see below. |
 | `on_windows_message` | On `WM_DISPLAYCHANGE`, `WM_SETTINGCHANGE`, `WM_POWERBROADCAST`, `WM_TIMER`, `WM_QUERYENDSESSION` and `WM_ENDSESSION`. The two session messages arrive while every program is still open; the host answers `WM_QUERYENDSESSION` with TRUE itself. |
 | `teardown` | When the plugin is switched off and at exit. Release every window and handle here. |
 
@@ -146,6 +147,26 @@ reached through the palette.
 
 `host::notify(title, text)` shows a tray balloon. It is safe to call from any
 callback: the balloon appears once the host's message loop comes round.
+
+`host::ask(prompt)` opens the palette as a one-line text box: a `Prompt`
+names your plugin, your own number for the question, what it is about (a
+`target`, such as a window handle), the chip before the box, the grey text in
+the empty box, the text to start with (selected, so typing replaces it) and
+what Enter does with some text and with none. When the user presses Enter,
+the text comes back through `on_prompt_answer`; Esc sends nothing.
+WindowNamer's rename box works this way. Like `notify`, it is safe to call
+from any callback.
+
+## Window titles
+
+WindowNamer can put a user's name on another app's window. Read titles
+through the two functions made for it, never with `GetWindowTextW`:
+
+- `windows_list::window_text(hwnd)` is the app's own title, also for a
+  renamed window. Use it for anything that identifies or matches windows:
+  saved state, rules, lookups.
+- `window_names::display_title(hwnd)` is what the user should read: the name
+  when there is one. Use it for labels.
 
 ## Adding a source of palette results
 
@@ -343,6 +364,12 @@ it is a separate instance:
   | `--open-arrange=<group>` | The Arrange strip on a group, by its place (`0` is the first) or its key. |
   | `--peek-card=<n>` | The strip with the hover peek on card `n` (from 0), or `chip` for the first card with a monitor chip. |
   | `--theme=light` or `dark` | That theme for this run. |
+  | `--ask-name=<hwnd>` | The palette's rename box for that window (WindowNamer). Nothing is renamed without Enter. |
+  | `--rename-window=<hwnd>:<name>` | Renames that window through WindowNamer at start, for a live test on a window the test owns. Never point it at a window you did not create. |
+
+  A test instance's WindowNamer renames only on request and puts saved
+  names back by title only, never on an app's only window, so a name saved
+  in a test cannot land on one of your own windows.
 
   Each scene is a fresh test instance, started with its flags and stopped
   with `--quit`, so no scene can leave state behind for the next.
@@ -356,7 +383,10 @@ it is a separate instance:
 `tools\screenshots.ps1` takes a PNG of every scene (the palette empty and
 with `/`, `=2+2*3`, `<` and `?`; settings General, Plugins, LayoutKeeper's
 page and About; the strip; the strip with a peek on a card with a monitor
-chip), in the dark and the light theme, from test instances only. It is
+chip; WindowNamer's rename box for the window that was in front; the strip
+with a renamed window, which is a minimized window the harness opens
+itself and closes at the end), in the dark and the light theme, from test
+instances only. It is
 built for a PC someone is using: it starts only after `-IdleSeconds` (180 by
 default) without keyboard or mouse input and only while the desktop is
 unlocked, it sends no input itself, and it checks the last input time before

@@ -164,7 +164,11 @@ $scenes = @(
     @{ Name = 'settings-layout-keeper'; Args = @('--open-settings=plugin:layout_keeper');  Window = 'settings' },
     @{ Name = 'settings-about';         Args = @('--open-settings=about');                 Window = 'settings' },
     @{ Name = 'strip';                  Args = @('--open-arrange=0');                      Window = 'strip';    Settle = 1200 },
-    @{ Name = 'strip-peek';             Args = @('--open-arrange=0', '--peek-card=chip');  Window = 'peek';     Settle = 1500 }
+    @{ Name = 'strip-peek';             Args = @('--open-arrange=0', '--peek-card=chip');  Window = 'peek';     Settle = 1500 },
+    # The rename box for the window that was in front; nothing is renamed.
+    @{ Name = 'palette-rename';         Args = @('--ask-name={front}');                    Window = 'palette' },
+    # A minimized window of the harness's own, renamed, in the strip.
+    @{ Name = 'strip-renamed';          Args = @('"--rename-window={helper}:Build server"', '--open-arrange={helper-group}'); Window = 'strip'; Settle = 1500; Helper = $true }
 )
 $number = 0
 foreach ($text in $Query) {
@@ -242,6 +246,10 @@ if ($UsageFile) {
 }
 [IO.File]::WriteAllText((Join-Path $plugins 'layout_keeper.json'),
     '{"enabled": true, "settings": {"restore_on_start": false, "snapshot_interval_seconds": 600}}', $utf8)
+# On for the rename scenes. Its hotkey moves to a combination nobody presses;
+# a test instance names only the window a scene asks for.
+[IO.File]::WriteAllText((Join-Path $plugins 'window_namer.json'),
+    '{"enabled": true, "hotkeys": {"rename_active": "Win+Ctrl+Alt+Shift+F22"}}', $utf8)
 
 $saved = @{ Instance = $env:WINCRAFT_INSTANCE; AppData = $env:LOCALAPPDATA }
 $env:WINCRAFT_INSTANCE = $Instance
@@ -273,6 +281,68 @@ function Test-StillAway([string]$when, [int]$sceneNumber) {
     if ($SimulateInputAfterScene -gt 0 -and $sceneNumber -ge $SimulateInputAfterScene -and $when -like 'after*') {
         throw [UserCameBack]::new("simulated input $when (-SimulateInputAfterScene $SimulateInputAfterScene)")
     }
+}
+
+# The helper window: a minimized window owned by a child process of the
+# harness, so a scene can rename a window that is not the user's. It never
+# takes the focus, and it closes when quit.txt appears.
+$helperScript = @'
+param([string]$Dir)
+Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @"
+public class QuietForm : System.Windows.Forms.Form {
+    protected override bool ShowWithoutActivation { get { return true; } }
+}
+"@
+$form = New-Object QuietForm
+$form.Text = 'build.log - Notepad'
+$form.WindowState = 'Minimized'
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 200
+$timer.Add_Tick({ if (Test-Path (Join-Path $Dir 'quit.txt')) { $form.Close() } })
+$form.Add_Shown({
+    [IO.File]::WriteAllText((Join-Path $Dir 'hwnd.txt'), $form.Handle.ToInt64().ToString())
+    $timer.Start()
+})
+[System.Windows.Forms.Application]::Run($form)
+'@
+$script:helper = $null
+
+function Start-Helper {
+    $dir = Join-Path $Out 'helper'
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $file = Join-Path $dir 'helper.ps1'
+    [IO.File]::WriteAllText($file, $helperScript, $utf8)
+    $process = Start-Process powershell.exe -PassThru -WindowStyle Hidden -ArgumentList @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$file`"", '-Dir', "`"$dir`"")
+    $hwndFile = Join-Path $dir 'hwnd.txt'
+    $deadline = (Get-Date).AddSeconds(15)
+    while (-not (Test-Path $hwndFile) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
+    if (-not (Test-Path $hwndFile)) { throw 'the helper window did not appear within 15 s' }
+    $script:helper = @{
+        Process = $process
+        Dir     = $dir
+        Hwnd    = [long]([IO.File]::ReadAllText($hwndFile))
+        Group   = $process.Path.ToLower()
+    }
+    $report.Add("helper window $($script:helper.Hwnd), PID $($process.Id)")
+}
+
+function Stop-Helper {
+    if (-not $script:helper) { return }
+    [IO.File]::WriteAllText((Join-Path $script:helper.Dir 'quit.txt'), 'quit', $utf8)
+    if (-not $script:helper.Process.WaitForExit(5000)) {
+        Stop-Process -Id $script:helper.Process.Id -Force -ErrorAction SilentlyContinue
+    }
+    $report.Add("helper window closed")
+    $script:helper = $null
+}
+
+function Expand-SceneArgument([string]$argument) {
+    $argument = $argument.Replace('{front}', [string]$foreground.ToInt64())
+    if ($script:helper) {
+        $argument = $argument.Replace('{helper}', [string]$script:helper.Hwnd).Replace('{helper-group}', $script:helper.Group)
+    }
+    $argument
 }
 
 function Stop-TestInstance {
@@ -308,7 +378,8 @@ try {
             $reached = "$n ($($scene.Name), $theme)"
             Test-StillAway "before scene $n" $n
             $began = Get-Date
-            $arguments = @("--theme=$theme") + $scene.Args
+            if ($scene.Helper -and -not $script:helper) { Start-Helper }
+            $arguments = @("--theme=$theme") + @($scene.Args | ForEach-Object { Expand-SceneArgument $_ })
             $script:current = Start-Process -FilePath $Exe -ArgumentList $arguments -PassThru
             $target = $null
             $deadline = (Get-Date).AddSeconds(10)
@@ -355,6 +426,7 @@ catch {
 }
 finally {
     if ($script:current) { [void](Stop-TestInstance) }
+    Stop-Helper
     $left = @(Get-Process wincraft -ErrorAction SilentlyContinue |
         Where-Object { $_.Path -eq $Exe -and $_.StartTime -ge $runStart })
     foreach ($process in $left) {

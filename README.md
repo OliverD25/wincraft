@@ -6,9 +6,10 @@ hotkeys, a command palette and a settings window. Features are written as
 **plugins** that plug into one Rust trait, so adding a feature never means
 touching the Win32 plumbing or writing any UI code.
 
-Version 0.9 ships four plugins: **ScreenDimmer**, **ShortcutDetector**,
-**LayoutKeeper** and **LanguageIndicator**, and a palette that also finds
-apps, open windows, folders, sums, web searches and terminal commands.
+Version 0.11 ships five plugins: **ScreenDimmer**, **ShortcutDetector**,
+**LayoutKeeper**, **LanguageIndicator** and **WindowNamer**, and a palette
+that also finds apps, open windows, folders, sums, web searches and terminal
+commands.
 
 ## What you get
 
@@ -111,6 +112,21 @@ never takes the focus and lets clicks through. It has no hotkeys; the palette
 command **Show current input language** shows it on demand.
 [Full README](src/plugins/language_indicator/README.md)
 
+### WindowNamer
+
+Gives any window a name of your own: three Chrome windows called "Mail",
+"Research" and "Bank" instead of three page titles. The taskbar thumbnail,
+Alt+Tab and the title bar show the name, and it stays when the app changes
+its title. Names are saved and put back on the same window after WinCraft or
+the app restarts. Rename from the hotkey, or with **Rename…** on a card in
+the Arrange strip; the palette command **Clear all names** takes every name
+away. LayoutKeeper keeps working with the app's own title, so a rename never
+makes it lose a window. [Full README](src/plugins/window_namer/README.md)
+
+| Hotkey | What it does |
+|---|---|
+| `Win+Alt+E` | Rename the active window: the palette opens with the current name selected; Enter sets the name, Enter on an empty box clears it |
+
 ### Host hotkeys
 
 | Hotkey | What it does |
@@ -130,7 +146,7 @@ a chip before the search box; Backspace in the empty box removes it.
 | Prefix | What it searches | Enter | Shift+Enter | Tab |
 |---|---|---|---|---|
 | none | Commands, apps and open windows | Run, open or switch to | | Put the title in the box; on a File Explorer window, browse its folder under `/` |
-| `<` | Open windows only, the ones Alt+Tab shows, by title or program | Switch to it, restoring it if minimized | | Put the title in the box; on a File Explorer window, browse its folder under `/` |
+| `<` | Open windows only, the ones Alt+Tab shows, by title or program; a window renamed with WindowNamer by its name or its app's own title | Switch to it, restoring it if minimized | | Put the title in the box; on a File Explorer window, browse its folder under `/` |
 | `/` | Drives, then one folder at a time: `/C:\Users\` | Open the file or folder | Show it in Explorer, selected | Go into the folder |
 | `=` | A sum: `+ - * / ^ %` and brackets; `×` and `÷` work too | Copy the answer | | Put the answer in the box |
 | `>` | A command for the terminal shell chosen in settings (WSL bash unless you change it), then your earlier commands | Run it here, with its output in the palette | | Put the earlier command in the box |
@@ -196,7 +212,9 @@ plugins\
   shortcut_detector.json
   layout_keeper.json
   language_indicator.json
+  window_namer.json
   layout_keeper.state.json   the saved window layout, written by LayoutKeeper
+  window_namer.names.json    the saved window names, written by WindowNamer
   layout_keeper.state.prev.json   the layout from before a browser crash or restart
 cache\                 the last plugin index fetched from GitHub
 wincraft.log           what the program did, emptied on every start
