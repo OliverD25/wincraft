@@ -387,6 +387,12 @@ impl WindowNamer {
             return;
         }
         log::info!("\"{}\" is now called \"{name}\"", target.app_title);
+        // A saved name of this app that found no window is what the user
+        // just gave by hand; kept, it would later compete with the new one
+        // and neither would be put back.
+        self.saved.retain(|saved| {
+            saved.window.is_some() || saved.rule.group != target.group || saved.rule.name != name
+        });
         let now = unix_now();
         self.saved.push(Saved {
             rule: Rule {
