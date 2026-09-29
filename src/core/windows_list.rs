@@ -16,7 +16,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     IsWindowVisible, GWL_EXSTYLE, GW_OWNER, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
 };
 
-use crate::core::wide;
+use crate::core::{wide, window_names};
 
 /// Explorer's desktop and taskbars: visible, titled, and never app windows.
 const SHELL_CLASSES: &[&str] = &[
@@ -120,7 +120,16 @@ pub fn exe_path(pid: u32) -> String {
     String::from_utf16_lossy(&buffer[..len as usize])
 }
 
+/// The window's title as the app set it. For a window WinCraft renamed that
+/// is not what the title bar shows but the app's own latest title, so
+/// anything keyed on titles keeps working; `window_names::display_title` is
+/// the one to show the user.
 pub fn window_text(hwnd: HWND) -> String {
+    window_names::app_title(hwnd as isize).unwrap_or_else(|| raw_window_text(hwnd))
+}
+
+/// Exactly what the title bar shows now, whoever put it there.
+pub fn raw_window_text(hwnd: HWND) -> String {
     let mut buffer = [0u16; 512];
     let len = unsafe { GetWindowTextW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
     String::from_utf16_lossy(&buffer[..len.max(0) as usize])

@@ -8,7 +8,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
 
 use super::explorer;
 use crate::core::desktop_manager::{self, DesktopManager};
-use crate::core::{appid, windows_list};
+use crate::core::{appid, window_names, windows_list};
 use crate::search::{
     self, Action, Choice, Completion, Context, IconRef, Query, Reply, ResultItem, SearchProvider,
 };
@@ -17,7 +17,10 @@ use crate::ui::fuzzy;
 #[derive(Clone, Debug, PartialEq)]
 pub struct OpenWindow {
     pub hwnd: isize,
+    /// What the title bar shows: the user's name for a renamed window.
     pub title: String,
+    /// The app's own title when the window has a name from WindowNamer.
+    pub app_title: Option<String>,
     pub exe_path: PathBuf,
     /// "chrome", without the folder and ".exe", for matching and display.
     pub program: String,
@@ -53,7 +56,7 @@ impl Windows {
             .windows
             .iter()
             .find(|window| window.hwnd == hwnd)
-            .map(|window| window.title.clone())
+            .map(|window| window.app_title.clone().unwrap_or(window.title.clone()))
             .unwrap_or_default();
         let started = Instant::now();
         let folder = explorer::folder_of(hwnd, &title);
@@ -140,7 +143,12 @@ pub fn search(windows: &[OpenWindow], text: &str, limit: usize) -> Vec<ResultIte
             if text.is_empty() {
                 return Some((0, window));
             }
-            fuzzy::score_command(text, &window.program, &window.title).map(|score| (score, window))
+            let by_name = fuzzy::score_command(text, &window.program, &window.title);
+            let by_app_title = window
+                .app_title
+                .as_deref()
+                .and_then(|title| fuzzy::score_command(text, &window.program, title));
+            by_name.max(by_app_title).map(|score| (score, window))
         })
         .collect();
     found.sort_by_key(|entry| std::cmp::Reverse(entry.0));
@@ -150,11 +158,7 @@ pub fn search(windows: &[OpenWindow], text: &str, limit: usize) -> Vec<ResultIte
         .map(|(score, window)| ResultItem {
             group: "Windows".to_string(),
             title: window.title.clone(),
-            subtitle: if window.other_desktop {
-                format!("{} \u{b7} on another desktop", window.program)
-            } else {
-                window.program.clone()
-            },
+            subtitle: subtitle(window),
             icon: IconRef::Window {
                 hwnd: window.hwnd,
                 exe: window.exe_path.clone(),
@@ -176,6 +180,19 @@ pub fn search(windows: &[OpenWindow], text: &str, limit: usize) -> Vec<ResultIte
             ..Default::default()
         })
         .collect()
+}
+
+/// The program, then the app's own title when the user renamed the window,
+/// so the window can still be recognised by what the app calls it.
+fn subtitle(window: &OpenWindow) -> String {
+    let mut parts = vec![window.program.clone()];
+    if let Some(title) = &window.app_title {
+        parts.push(title.clone());
+    }
+    if window.other_desktop {
+        parts.push("on another desktop".to_string());
+    }
+    parts.join(" \u{b7} ")
 }
 
 /// Top of the z-order first, leaving out WinCraft's own windows.
@@ -202,6 +219,7 @@ fn enumerate() -> Vec<OpenWindow> {
             .or_insert_with(|| PathBuf::from(windows_list::exe_path(pid)))
             .clone();
         let group = appid::group_key(appid::read(hwnd).id.as_deref(), &exe_path.to_string_lossy());
+        let name = window_names::custom(hwnd as isize);
         windows.push(OpenWindow {
             hwnd: hwnd as isize,
             group,
@@ -209,7 +227,8 @@ fn enumerate() -> Vec<OpenWindow> {
             exe_path,
             other_desktop: windows_list::on_other_desktop(&record),
             explorer: record.class == EXPLORER_CLASS,
-            title: record.title,
+            title: name.clone().unwrap_or_else(|| record.title.clone()),
+            app_title: name.map(|_| record.title),
         });
     }
     windows
@@ -230,6 +249,7 @@ mod tests {
         OpenWindow {
             hwnd: 1,
             title: title.to_string(),
+            app_title: None,
             program: program_name(&exe_path),
             exe_path,
             other_desktop: false,
@@ -276,6 +296,36 @@ mod tests {
         let all = search(&windows, "", 8);
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].title, "A");
+    }
+
+    #[test]
+    fn a_renamed_window_is_found_by_its_name_or_its_app_title() {
+        let mut renamed = window("Work notes", "notepad");
+        renamed.app_title = Some("todo.txt - Notepad".to_string());
+        let windows = [renamed, window("Inbox - Mail", "outlook")];
+        let by_name = search(&windows, "work", 8);
+        assert_eq!(by_name.len(), 1);
+        assert_eq!(by_name[0].title, "Work notes");
+        let by_app_title = search(&windows, "todo", 8);
+        assert_eq!(by_app_title.len(), 1);
+        assert_eq!(by_app_title[0].title, "Work notes");
+        assert_eq!(
+            by_app_title[0].subtitle,
+            "notepad \u{b7} todo.txt - Notepad"
+        );
+    }
+
+    #[test]
+    fn the_subtitle_adds_the_app_title_and_the_other_desktop() {
+        let mut far = window("Work notes", "notepad");
+        far.other_desktop = true;
+        assert_eq!(subtitle(&far), "notepad \u{b7} on another desktop");
+        far.app_title = Some("todo.txt - Notepad".to_string());
+        assert_eq!(
+            subtitle(&far),
+            "notepad \u{b7} todo.txt - Notepad \u{b7} on another desktop"
+        );
+        assert_eq!(subtitle(&window("Notes", "notepad")), "notepad");
     }
 
     #[test]

@@ -26,7 +26,7 @@ use crate::core::traits::{
 use crate::core::ui_bridge::{
     ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeWindow,
 };
-use crate::core::{appid, clock, host, instance, wide};
+use crate::core::{appid, clock, host, instance, wide, window_names};
 use desktops::{Desktop, DesktopId};
 use order::{Handle, OrderModel};
 use restore::{Restore, Step};
@@ -1314,7 +1314,8 @@ impl WinCraftPlugin for LayoutKeeper {
                             .unwrap_or_default();
                         ArrangeWindow {
                             hwnd,
-                            label: identity.label().to_string(),
+                            label: window_names::custom(hwnd)
+                                .unwrap_or_else(|| identity.label().to_string()),
                             desktop,
                             monitor: monitors::strip_label(identity.rect, &monitors),
                         }
@@ -1404,7 +1405,7 @@ impl WinCraftPlugin for LayoutKeeper {
                     );
                     return;
                 }
-                let label = windows::window_text(*hwnd as HWND);
+                let label = window_names::display_title(*hwnd as HWND);
                 self.move_to_desktop(*hwnd as HWND, target, &registry, &label);
                 let owner = self
                     .groups
