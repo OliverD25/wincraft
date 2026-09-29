@@ -28,6 +28,18 @@ pub struct Names {
 
 static NAMES: Mutex<BTreeMap<isize, Names>> = Mutex::new(BTreeMap::new());
 
+pub fn set(hwnd: isize, names: Names) {
+    if let Ok(mut map) = NAMES.lock() {
+        map.insert(hwnd, names);
+    }
+}
+
+pub fn remove(hwnd: isize) {
+    if let Ok(mut map) = NAMES.lock() {
+        map.remove(&hwnd);
+    }
+}
+
 pub fn get(hwnd: isize) -> Option<Names> {
     NAMES.lock().ok()?.get(&hwnd).cloned()
 }
@@ -53,14 +65,6 @@ mod tests {
 
     // The map is shared by every test in the process, so each test uses
     // handles of its own.
-
-    fn set(hwnd: isize, names: Names) {
-        NAMES.lock().unwrap().insert(hwnd, names);
-    }
-
-    fn remove(hwnd: isize) {
-        NAMES.lock().unwrap().remove(&hwnd);
-    }
 
     fn names(custom: &str, app_title: &str) -> Names {
         Names {

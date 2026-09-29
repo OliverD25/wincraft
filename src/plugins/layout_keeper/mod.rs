@@ -32,6 +32,9 @@ use order::{Handle, OrderModel};
 use restore::{Restore, Step};
 use state::{ProgramState, Programs, SavedWindow};
 
+/// WindowNamer tells a browser's page title from its product name the same way.
+pub use identity::PRODUCT_SUFFIXES;
+
 /// The host window is shared, so the timer id spells "LK" to stay clear of
 /// any other plugin's.
 const TIMER_ID: usize = 0x4C4B;
@@ -1368,6 +1371,8 @@ impl WinCraftPlugin for LayoutKeeper {
             ArrangeAction::Reorder { .. } => "reordering from the strip",
             ArrangeAction::MoveToDesktop { .. } => "moving a window to another desktop",
             ArrangeAction::Close(_) => "closing a window",
+            // The host sends names to WindowNamer; they never come here.
+            ArrangeAction::Rename { .. } => return,
         };
         if self.refuses(what) {
             return;
@@ -1423,6 +1428,7 @@ impl WinCraftPlugin for LayoutKeeper {
                 unsafe { PostMessageW(*hwnd as HWND, WM_CLOSE, 0, 0) };
                 self.arrange_stale = true;
             }
+            ArrangeAction::Rename { .. } => {}
         }
     }
 

@@ -1031,7 +1031,15 @@ fn apply_locally(shared: &mut Shared, action: &ArrangeAction) {
             });
         }
         ArrangeAction::Close(hwnd) => group.windows.retain(|window| window.hwnd != *hwnd),
-        ArrangeAction::Activate(_) => {}
+        ArrangeAction::Rename {
+            hwnd,
+            name: Some(name),
+        } => {
+            if let Some(window) = group.windows.iter_mut().find(|w| w.hwnd == *hwnd) {
+                window.label = name.clone();
+            }
+        }
+        ArrangeAction::Rename { name: None, .. } | ArrangeAction::Activate(_) => {}
     }
 }
 

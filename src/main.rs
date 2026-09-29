@@ -153,7 +153,12 @@ fn scene_flags(
         };
         if !matches!(
             flag,
-            "--open-palette" | "--open-settings" | "--open-arrange" | "--peek-card" | "--theme"
+            "--open-palette"
+                | "--open-settings"
+                | "--open-arrange"
+                | "--peek-card"
+                | "--theme"
+                | "--rename-window"
         ) {
             continue;
         }
@@ -179,6 +184,10 @@ fn scene_flags(
             "--peek-card" => {
                 scene.peek_card = peek_card(value);
                 scene.peek_card.is_some()
+            }
+            "--rename-window" => {
+                scene.rename = window_and_name(value);
+                scene.rename.is_some()
             }
             _ => {
                 theme = theme_choice(value);
@@ -215,6 +224,17 @@ fn peek_card(value: &str) -> Option<PeekCard> {
         return Some(PeekCard::Chip);
     }
     value.parse().ok().map(PeekCard::Index)
+}
+
+/// "<window handle>:<name>", the handle in decimal or 0x hex.
+fn window_and_name(value: &str) -> Option<(isize, String)> {
+    let (hwnd, name) = value.split_once(':')?;
+    let hwnd = hwnd.trim();
+    let hwnd = match hwnd.strip_prefix("0x").or_else(|| hwnd.strip_prefix("0X")) {
+        Some(hex) => isize::from_str_radix(hex, 16).ok()?,
+        None => hwnd.parse().ok()?,
+    };
+    (hwnd != 0 && !name.trim().is_empty()).then(|| (hwnd, name.to_string()))
 }
 
 fn theme_choice(value: &str) -> Option<ThemeChoice> {
@@ -301,11 +321,12 @@ mod tests {
             "--open-arrange=0",
             "--peek-card=chip",
             "--theme=light",
+            "--rename-window=123:Work",
         ]);
         let (scene, theme, notes) = scene_flags(&list, false);
         assert_eq!(scene, SceneFlags::default());
         assert_eq!(theme, None);
-        assert_eq!(notes.len(), 5);
+        assert_eq!(notes.len(), 6);
         assert!(notes
             .iter()
             .all(|note| note.contains("only a test instance")));
@@ -404,6 +425,26 @@ mod tests {
         assert_eq!(peek_card("CHIP"), Some(PeekCard::Chip));
         assert_eq!(peek_card("-1"), None);
         assert_eq!(peek_card(""), None);
+    }
+
+    #[test]
+    fn a_window_to_rename_is_a_handle_and_a_name() {
+        assert_eq!(
+            window_and_name("1234:Work notes"),
+            Some((1234, "Work notes".to_string()))
+        );
+        assert_eq!(
+            window_and_name("0x1A2B:Mail: inbox"),
+            Some((0x1A2B, "Mail: inbox".to_string()))
+        );
+        assert_eq!(window_and_name("1234"), None);
+        assert_eq!(window_and_name("1234: "), None);
+        assert_eq!(window_and_name("0:Name"), None);
+        assert_eq!(window_and_name("zz:Name"), None);
+        let list = args(&["wincraft.exe", "--rename-window=77:Test"]);
+        let (scene, _, notes) = scene_flags(&list, true);
+        assert!(notes.is_empty());
+        assert_eq!(scene.rename, Some((77, "Test".to_string())));
     }
 
     #[test]

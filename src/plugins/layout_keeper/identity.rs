@@ -16,7 +16,7 @@ pub struct WindowIdentity {
 /// user named through "Name window…" shows the bare name instead, and keeps
 /// it across tab changes and reboots, which makes it the best key there is.
 /// Edge writes a zero-width space inside its product name.
-const PRODUCT_SUFFIXES: &[&str] = &[
+pub const PRODUCT_SUFFIXES: &[&str] = &[
     " - Google Chrome",
     " - Microsoft Edge",
     " - Microsoft\u{200b} Edge",

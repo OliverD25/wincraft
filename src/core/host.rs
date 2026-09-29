@@ -48,6 +48,8 @@ const MENU_PLUGIN_ACTION_BASE: u32 = 1000;
 
 const DETECTOR_ID: &str = "shortcut_detector";
 const DETECTOR_OPEN_ACTION: u32 = 1;
+/// Window names go to this plugin, whichever plugin draws the strip.
+const NAMER_ID: &str = "window_namer";
 
 /// The palette belongs to the host, not to a plugin, so it takes the one id
 /// that plugin hotkeys never use.
@@ -110,6 +112,9 @@ pub struct SceneFlags {
     pub settings: Option<SettingsTarget>,
     pub arrange_focus: Option<String>,
     pub peek_card: Option<PeekCard>,
+    /// A window to rename at start, and the name: how a live test renames
+    /// a window of its own without any input.
+    pub rename: Option<(isize, String)>,
 }
 
 thread_local! {
@@ -234,6 +239,17 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
     if flags.open_arrange || flags.scene.arrange_focus.is_some() || flags.scene.peek_card.is_some()
     {
         open_arrange();
+    }
+    if let Some((hwnd, name)) = flags.scene.rename {
+        with_host(|host| {
+            host.arrange_action(
+                NAMER_ID,
+                &ArrangeAction::Rename {
+                    hwnd,
+                    name: Some(name),
+                },
+            )
+        });
     }
     match flags.scene.settings {
         Some(SettingsTarget::Page(page)) => {
@@ -848,11 +864,12 @@ impl Host {
             HostRequest::RunAction(search::Action::Command(id)) => self.run_command(id),
             HostRequest::RunAction(action) => search::actions::perform(&action, self.hwnd),
             HostRequest::Arrange { plugin, action } => {
-                if let Some(index) = self.index_of(&plugin) {
-                    if self.slots[index].enabled {
-                        self.slots[index].plugin.on_arrange_action(&action);
-                    }
-                }
+                let owner = if action.is_about_names() {
+                    NAMER_ID
+                } else {
+                    plugin.as_str()
+                };
+                self.arrange_action(owner, &action);
                 if !matches!(action, ArrangeAction::Activate(_)) {
                     self.send_arrange(false);
                 }
@@ -881,6 +898,15 @@ impl Host {
             HostRequest::SetHostSetting(setting) => self.set_host_setting(setting),
             HostRequest::OpenPath(path) => open_in_notepad(&path),
             HostRequest::Exit => self.shutdown(),
+        }
+    }
+
+    fn arrange_action(&mut self, plugin: &str, action: &ArrangeAction) {
+        match self.index_of(plugin) {
+            Some(index) if self.slots[index].enabled => {
+                self.slots[index].plugin.on_arrange_action(action)
+            }
+            _ => log::info!("{plugin} is off; the strip's request was dropped"),
         }
     }
 

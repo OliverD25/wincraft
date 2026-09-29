@@ -32,6 +32,14 @@
       "author": "community",
       "description": "Shows which input language you switched to, in the middle of the screen.",
       "readme": "src/plugins/language_indicator/README.md"
+    },
+    {
+      "id": "window_namer",
+      "name": "WindowNamer",
+      "version": "1.0.0",
+      "author": "community",
+      "description": "Give any window a name of your own. The taskbar, Alt+Tab and the title bar show it, and it comes back after a restart.",
+      "readme": "src/plugins/window_namer/README.md"
     }
   ]
 }

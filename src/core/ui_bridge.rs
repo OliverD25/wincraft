@@ -134,6 +134,19 @@ pub enum ArrangeAction {
         desktop: String,
     },
     Close(isize),
+    /// Give the window a name, or take its name away with None. Names
+    /// belong to WindowNamer, whichever plugin draws the strip.
+    Rename {
+        hwnd: isize,
+        name: Option<String>,
+    },
+}
+
+impl ArrangeAction {
+    /// The host sends these to WindowNamer instead of the strip's plugin.
+    pub fn is_about_names(&self) -> bool {
+        matches!(self, ArrangeAction::Rename { .. })
+    }
 }
 
 /// Screen rectangle in physical pixels, as Win32 reports it.
