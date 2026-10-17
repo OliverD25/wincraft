@@ -1,0 +1,6 @@
+#!/bin/sh
+# Blocks a push when the quick checks fail. Turn it on once per clone with
+#   git config core.hooksPath .githooks
+# Skip it for one push with: git push --no-verify
+root=$(git rev-parse --show-toplevel) || exit 1
+exec "$root/tools/check.sh" -Quick

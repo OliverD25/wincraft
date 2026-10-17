@@ -349,6 +349,17 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   Do not reach for `#[allow]`; fix the cause. CI runs on pull requests and by
   hand (Actions → CI → Run workflow), not on pushes to `main`: run the same
   four checks locally before you push. Releases build on `v*` tags.
+- **`tools\check.ps1` runs all of it.** `tools\check.ps1` (or `tools/check.sh`
+  from Git Bash or WSL) runs fmt, the tests, clippy, the release build with
+  warnings as errors in `targeterify`, and the line-coverage floor in
+  `tools\coverage-floor.txt` (needs `cargo install cargo-llvm-cov`), and stops
+  at the first failure. `-Quick` skips the release build and the coverage run.
+  `-Smoke` also starts every plugin in a test instance (see
+  `tools\smoke.ps1`). Raise the floor when coverage grows; never lower it to
+  make a change pass.
+- **A pre-push hook runs `check.ps1 -Quick`.** Turn it on once in each clone
+  with `git config core.hooksPath .githooks`. `git push --no-verify` skips it
+  for one push.
 
 ## Testing next to your own WinCraft
 
