@@ -176,6 +176,12 @@ $scenes = @(
     @{ Name = 'palette-bookmarks';      Args = @('"--open-palette=''"');                   Window = 'palette'; Settle = 1000; Bookmarks = $true },
     @{ Name = 'palette-bookmark-ask';   Args = @('"--ask-bookmark=D:\Windows_OneDrive\OneDrive\pswds_OneDrive"'); Window = 'palette' },
     @{ Name = 'settings-bookmarks';     Args = @('--open-settings=bookmarks');             Window = 'settings'; Settle = 1500; Bookmarks = $true },
+    # The empty Bookmarks page (no seed), and the two palette tips: the
+    # Ctrl+B hint over a folder row and the confirmation after a save. A test
+    # instance shows no tip unless --show-tip names it.
+    @{ Name = 'settings-bookmarks-empty'; Args = @('--open-settings=bookmarks');           Window = 'settings'; Settle = 1500 },
+    @{ Name = 'palette-tip-bookmark';   Args = @('--show-tip=bookmark-ctrl-b', '--open-palette=/C:\Windows\'); Window = 'palette'; Settle = 1500 },
+    @{ Name = 'palette-tip-saved';      Args = @('--show-tip=bookmark-saved', '--open-palette'); Window = 'palette'; Settle = 1000 },
     @{ Name = 'settings-about';         Args = @('--open-settings=about');                 Window = 'settings' },
     # The strip in the view Auto picks (By monitor with two monitors or
     # more), then in the Flat view.

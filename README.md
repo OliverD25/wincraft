@@ -270,6 +270,14 @@ of them.
 They are kept in `bookmarks.json`, a plain list of `phrase`, `target` and
 `created`.
 
+Until you have a bookmark, a small tip over the palette's footer says so when
+a folder or file row is selected: **Ctrl + B saves this folder as a bookmark.**
+It retires after three openings, when you click its cross, or when you save
+your first bookmark. After a save the palette stays open for four seconds (or
+until your next key) and says what to type to open it. The Bookmarks page
+explains the steps while it is empty. The **Show tips** switch on the General
+page turns every tip off, and **Show all tips again** brings them back.
+
 ### Terminal commands with `>`
 
 Typing after `>` never runs anything. Enter runs the command with no window
@@ -348,6 +356,10 @@ in the log.
     "check_daily": true,
     "last_check": 1792260953,
     "latest": "v0.16.0"
+  },
+  "tips": {
+    "show": true,
+    "state": { "bookmark-ctrl-b": { "shown": 2, "done": false } }
   }
 }
 ```
@@ -367,6 +379,8 @@ in the log.
 | `updates.check_daily` | Whether GitHub is asked once a day for a newer release. |
 | `updates.last_check` | When GitHub last answered, in seconds since 1970. WinCraft writes it. |
 | `updates.latest` | The newest release tag seen; the tray says once per new tag that it is there. WinCraft writes it. |
+| `tips.show` | Whether the small in-app tips show. It is the "Show tips" switch on the General page. |
+| `tips.state` | What each tip has done, by id: `shown` times and `done` once it was dismissed or its feature used. WinCraft writes it; "Show all tips again" on the General page empties it. |
 
 The prefixes are read when WinCraft starts, so restart it after changing
 them. The other `search` keys are also on the General page of the settings
