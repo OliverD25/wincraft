@@ -43,6 +43,9 @@ pub struct Entry {
 pub struct Program {
     pub name: String,
     pub exe: String,
+    /// The install folder the entry names, lower case, without a closing
+    /// backslash; empty when it names none.
+    pub install_dir: String,
 }
 
 /// Whether an entry is a program a person would start: not a hidden system
@@ -105,12 +108,18 @@ fn file_stem_lower(path: &str) -> String {
 }
 
 /// Files that are part of a program but not the program: uninstallers,
-/// installers, updaters, crash reporters, helper processes, the browser
-/// engine's helper.
+/// installers, updaters, patchers, crash reporters, helper processes, the
+/// browser engine's helper, feedback and guard stubs, the path setter some
+/// SDKs ship, Java's web launcher. Applies to the DisplayIcon's program as
+/// much as to files found in the folder.
+///
+/// No rule was found for "launcher" stubs: a launcher is the program itself
+/// for some (TikTok LIVE Studio Launcher) and a stub for others.
 pub fn excluded_name(path: &str) -> bool {
     let stem = file_stem_lower(path);
     [
-        "uninst", "setup", "install", "update", "patch", "crash", "helper",
+        "uninst", "setup", "install", "update", "patch", "crash", "helper", "feedback", "appguard",
+        "setpaths", "javaws",
     ]
     .iter()
     .any(|bad| stem.contains(bad))
@@ -118,6 +127,23 @@ pub fn excluded_name(path: &str) -> bool {
         || stem.contains("cef")
         || stem.contains("redist")
         || stem.contains("clicktorun")
+}
+
+/// Whether a file found under `root` is excluded by its name or by a folder
+/// between `root` and it: `Feedback\dump64a.exe` belongs to the feedback tool.
+fn excluded_path(root: &str, path: &str) -> bool {
+    if excluded_name(path) {
+        return true;
+    }
+    let relative = path
+        .get(root.trim_end_matches('\\').len()..)
+        .unwrap_or(path);
+    let mut parts: Vec<&str> = relative
+        .split('\\')
+        .filter(|part| !part.is_empty())
+        .collect();
+    parts.pop();
+    parts.into_iter().any(excluded_name)
 }
 
 /// A file inside a folder Windows keeps installer leftovers in.
@@ -141,6 +167,34 @@ pub trait Files {
     fn exes(&self, root: &str, depth: usize) -> Vec<Candidate>;
     /// (ProductName, FileDescription) from the version resource.
     fn version(&self, path: &str) -> (Option<String>, Option<String>);
+    /// The program runs in a console window, like a command-line tool, and
+    /// is not something to start from a search box.
+    fn console(&self, _path: &str) -> bool {
+        false
+    }
+}
+
+/// Whether a program's PE header says it is a console program: the
+/// Subsystem field of the optional header is 3.
+pub fn is_console_header(bytes: &[u8]) -> bool {
+    const SUBSYSTEM_OFFSET: usize = 24 + 68;
+    let word = |at: usize| {
+        bytes
+            .get(at..at + 2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+    };
+    let dword = |at: usize| {
+        bytes
+            .get(at..at + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    };
+    if word(0) != Some(0x5A4D) {
+        return false;
+    }
+    let Some(pe) = dword(0x3C).map(|at| at as usize) else {
+        return false;
+    };
+    dword(pe) == Some(0x0000_4550) && word(pe + SUBSYSTEM_OFFSET) == Some(3)
 }
 
 /// The words of a display name that can be told apart: letters and digits,
@@ -190,7 +244,12 @@ type Rank = (usize, bool, Reverse<usize>, Reverse<usize>);
 pub fn pick_exe(entry: &Entry, files: &dyn Files) -> Option<String> {
     let icon = icon_path(&entry.display_icon);
     let icon_is_exe = icon.to_lowercase().ends_with(".exe");
-    if icon_is_exe && !excluded_name(&icon) && !in_installer_cache(&icon) && files.exists(&icon) {
+    if icon_is_exe
+        && !excluded_name(&icon)
+        && !in_installer_cache(&icon)
+        && files.exists(&icon)
+        && !files.console(&icon)
+    {
         return Some(icon);
     }
 
@@ -220,7 +279,7 @@ pub fn pick_exe(entry: &Entry, files: &dyn Files) -> Option<String> {
     let mut candidates: Vec<Candidate> = files
         .exes(&root, depth)
         .into_iter()
-        .filter(|candidate| !excluded_name(&candidate.path))
+        .filter(|candidate| !excluded_path(&root, &candidate.path))
         .collect();
     if candidates.is_empty() {
         return None;
@@ -248,6 +307,9 @@ pub fn pick_exe(entry: &Entry, files: &dyn Files) -> Option<String> {
     let needed = display.len().div_ceil(2).max(1);
     let mut best: Option<(Rank, &Candidate)> = None;
     for candidate in candidates.iter().take(VERSION_READS) {
+        if files.console(&candidate.path) {
+            continue;
+        }
         let (product, description) = files.version(&candidate.path);
         let (found, extra) = fit(&display, product.as_deref(), description.as_deref());
         if found < needed {
@@ -269,10 +331,20 @@ pub fn pick_exe(entry: &Entry, files: &dyn Files) -> Option<String> {
     }
     // Nothing is described like the entry: a file named like it, else the
     // biggest.
-    candidates
+    let named = candidates
         .iter()
-        .find(|candidate| name_hit(&display, &candidate.path))
-        .or_else(|| candidates.iter().max_by_key(|candidate| candidate.size))
+        .find(|candidate| name_hit(&display, &candidate.path) && !files.console(&candidate.path));
+    if let Some(candidate) = named {
+        return Some(candidate.path.clone());
+    }
+    // Only the biggest few are looked at, so a folder of command-line tools
+    // costs a handful of reads.
+    let mut by_size: Vec<&Candidate> = candidates.iter().collect();
+    by_size.sort_by(|a, b| b.size.cmp(&a.size).then_with(|| a.path.cmp(&b.path)));
+    by_size
+        .into_iter()
+        .take(10)
+        .find(|candidate| !files.console(&candidate.path))
         .map(|candidate| candidate.path.clone())
 }
 
@@ -296,6 +368,15 @@ impl Files for Disk {
             version_info::string(path, "ProductName"),
             version_info::string(path, "FileDescription"),
         )
+    }
+
+    fn console(&self, path: &str) -> bool {
+        use std::io::Read;
+        let mut header = Vec::new();
+        std::fs::File::open(path)
+            .and_then(|file| file.take(4096).read_to_end(&mut header))
+            .is_ok()
+            && is_console_header(&header)
     }
 }
 
@@ -344,9 +425,15 @@ pub fn programs(skip: &dyn Fn(&str) -> bool) -> Vec<Program> {
                 continue;
             }
             if let Some(exe) = pick_exe(&entry, &Disk) {
+                let install_dir = expand_env(entry.install_location.trim())
+                    .trim()
+                    .trim_matches('"')
+                    .trim_end_matches('\\')
+                    .to_lowercase();
                 found.push(Program {
                     name: entry.name.trim().to_string(),
                     exe,
+                    install_dir,
                 });
             }
         }
@@ -787,5 +874,163 @@ mod tests {
             ["adobe", "lightroom", "classic", "x64"]
         );
         assert_eq!(words("7-Zip"), ["zip"]);
+    }
+
+    #[test]
+    fn a_file_in_a_folder_named_like_a_tool_is_that_tools_file() {
+        let disk = Fake::new(&[
+            (r"C:\Apps\Studio\Feedback\dump64a.exe", 900, None, None),
+            (r"C:\Apps\Studio\Updater\run.exe", 800, None, None),
+            (r"C:\Apps\Studio\studio.exe", 10, None, None),
+        ]);
+        let entry = entry("Studio", r"C:\Apps\Studio", "");
+        assert_eq!(
+            pick_exe(&entry, &disk).as_deref(),
+            Some(r"C:\Apps\Studio\studio.exe")
+        );
+        // The folder the search starts in is not judged by its own name.
+        let inside = Fake::new(&[(r"C:\Apps\Updates\tool.exe", 10, None, None)]);
+        let entry = entry_named("Tool", r"C:\Apps\Updates");
+        assert_eq!(
+            pick_exe(&entry, &inside).as_deref(),
+            Some(r"C:\Apps\Updates\tool.exe")
+        );
+    }
+
+    fn entry_named(name: &str, location: &str) -> Entry {
+        entry(name, location, "")
+    }
+
+    #[test]
+    fn stubs_and_setters_are_never_the_program() {
+        for name in [
+            "OneDrivePatcher.exe",
+            "feedback.exe",
+            "officeappguardwin32.exe",
+            "setpaths.exe",
+            "javaws.exe",
+            "vs_installer_setup.exe",
+        ] {
+            assert!(excluded_name(&format!(r"C:\Apps\{name}")), "{name}");
+        }
+        // The program itself is not caught by the new words.
+        for name in [
+            "OneDrive.exe",
+            "java.exe",
+            "Lightroom.exe",
+            "TikTok LIVE Studio Launcher.exe",
+        ] {
+            assert!(!excluded_name(&format!(r"C:\Apps\{name}")), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_display_icon_that_is_a_stub_falls_back_to_the_folder() {
+        let disk = Fake::new(&[
+            (r"C:\Apps\Java\bin\javaws.exe", 10, None, None),
+            (r"C:\Apps\Java\bin\java.exe", 5, None, None),
+        ]);
+        let entry = entry("Java", r"C:\Apps\Java", r"C:\Apps\Java\bin\javaws.exe");
+        assert_eq!(
+            pick_exe(&entry, &disk).as_deref(),
+            Some(r"C:\Apps\Java\bin\java.exe")
+        );
+        let feedback = Fake::new(&[(r"C:\Apps\VS\feedback.exe", 10, None, None)]);
+        let entry = entry_with_icon_only(r"C:\Apps\VS\feedback.exe");
+        assert_eq!(pick_exe(&entry, &feedback), None);
+    }
+
+    fn entry_with_icon_only(icon: &str) -> Entry {
+        entry("Visual Studio Installer", "", icon)
+    }
+
+    /// A tiny PE header with the given subsystem.
+    fn pe_header(subsystem: u16) -> Vec<u8> {
+        let mut bytes = vec![0u8; 0x100];
+        bytes[0] = b'M';
+        bytes[1] = b'Z';
+        bytes[0x3C] = 0x80;
+        bytes[0x80..0x84].copy_from_slice(b"PE\0\0");
+        let at = 0x80 + 24 + 68;
+        bytes[at..at + 2].copy_from_slice(&subsystem.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn the_pe_header_tells_a_console_program_from_a_window_program() {
+        assert!(is_console_header(&pe_header(3)));
+        assert!(!is_console_header(&pe_header(2)));
+        assert!(!is_console_header(b"not a program"));
+        assert!(!is_console_header(&[]));
+        // A header that stops short is not guessed at.
+        assert!(!is_console_header(&pe_header(3)[..0x90]));
+    }
+
+    struct WithConsoles {
+        inner: Fake,
+        consoles: Vec<&'static str>,
+    }
+
+    impl Files for WithConsoles {
+        fn exists(&self, path: &str) -> bool {
+            self.inner.exists(path)
+        }
+        fn exes(&self, root: &str, depth: usize) -> Vec<Candidate> {
+            self.inner.exes(root, depth)
+        }
+        fn version(&self, path: &str) -> (Option<String>, Option<String>) {
+            self.inner.version(path)
+        }
+        fn console(&self, path: &str) -> bool {
+            self.consoles.contains(&path)
+        }
+    }
+
+    #[test]
+    fn a_command_line_tool_is_not_the_program_to_start() {
+        let disk = WithConsoles {
+            inner: Fake::new(&[
+                (
+                    r"C:\Apps\Shell\shell.exe",
+                    100,
+                    Some("Shell"),
+                    Some("Shell"),
+                ),
+                (
+                    r"C:\Apps\Shell\shell-gui.exe",
+                    50,
+                    Some("Shell"),
+                    Some("Shell"),
+                ),
+                (r"C:\Apps\Shell\tool.exe", 900, None, None),
+            ]),
+            consoles: vec![r"C:\Apps\Shell\shell.exe", r"C:\Apps\Shell\tool.exe"],
+        };
+        // By description, the window program wins over the console one.
+        assert_eq!(
+            pick_exe(&entry("Shell", r"C:\Apps\Shell", ""), &disk).as_deref(),
+            Some(r"C:\Apps\Shell\shell-gui.exe")
+        );
+        // With no description, the biggest is not a console program either.
+        let plain = WithConsoles {
+            inner: Fake::new(&[
+                (r"C:\Apps\Gadget\a.exe", 10, None, None),
+                (r"C:\Apps\Gadget\b.exe", 900, None, None),
+            ]),
+            consoles: vec![r"C:\Apps\Gadget\b.exe"],
+        };
+        assert_eq!(
+            pick_exe(&entry("Gadget", r"C:\Apps\Gadget", ""), &plain).as_deref(),
+            Some(r"C:\Apps\Gadget\a.exe")
+        );
+        // Only console programs: nothing fits.
+        let only = WithConsoles {
+            inner: Fake::new(&[(r"C:\Apps\Cli\cli.exe", 10, None, None)]),
+            consoles: vec![r"C:\Apps\Cli\cli.exe"],
+        };
+        assert_eq!(pick_exe(&entry("Cli", r"C:\Apps\Cli", ""), &only), None);
+        // A DisplayIcon that is a console program is passed over as well.
+        let icon = entry("Cli", "", r"C:\Apps\Cli\cli.exe");
+        assert_eq!(pick_exe(&icon, &only), None);
     }
 }

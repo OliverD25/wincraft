@@ -73,6 +73,9 @@ pub struct App {
     pub exe: Option<String>,
     /// The app ID, lower case, when it has one.
     pub aumid: Option<String>,
+    /// For an installed program, the install folder its entry names, lower
+    /// case; empty when it names none.
+    pub install_dir: String,
 }
 
 /// Programs from the Start menu shortcuts of this user and of all users,
@@ -176,6 +179,7 @@ fn apps_folder_apps() -> Vec<App> {
                 usage_key: launch.to_string_lossy().to_lowercase(),
                 exe: item.exe(),
                 aumid: item.aumid(),
+                install_dir: String::new(),
                 name: item.name,
                 icon: launch.clone(),
                 target: launch,
@@ -195,6 +199,7 @@ fn installed_apps(skip: &dyn Fn(&str) -> bool) -> Vec<App> {
                 usage_key: program.exe.to_lowercase(),
                 exe: Some(program.exe.to_lowercase()),
                 aumid: None,
+                install_dir: program.install_dir,
                 subtitle: "Installed program".to_string(),
                 icon: exe.clone(),
                 target: exe,
@@ -206,7 +211,10 @@ fn installed_apps(skip: &dyn Fn(&str) -> bool) -> Vec<App> {
 
 /// Puts the sources together in priority order: Start menu shortcuts, then
 /// the app list, then installed programs. A later entry is left out when an
-/// earlier one has the same program, the same app ID or the same name.
+/// earlier one has the same program, the same app ID or the same name. An
+/// installed program is also left out when its program, or its install
+/// folder, is the folder of a program the Start menu or the app list already
+/// lists: the same product under another name (OneDrive, Office).
 pub fn merge(start: Vec<App>, folder: Vec<App>, installed: Vec<App>) -> Vec<App> {
     let mut seen = Seen::default();
     let mut all = start;
@@ -229,17 +237,46 @@ struct Seen {
     exes: HashSet<String>,
     ids: HashSet<String>,
     names: HashSet<String>,
+    /// The folders of the programs the Start menu and the app list list.
+    folders: HashSet<String>,
+}
+
+/// The folder of a lower-case program path.
+fn parent_dir(path: &str) -> Option<String> {
+    path.rsplit_once('\\')
+        .map(|(dir, _)| dir.to_string())
+        .filter(|dir| !dir.is_empty())
+}
+
+/// Whether the folder of a listed program holds `dir`: the same folder, or
+/// one inside it (a version folder). A folder near the top of a drive, such
+/// as `c:\program files`, holds many products and covers none of them.
+fn covers(listed: &str, dir: &str) -> bool {
+    dir == listed || (listed.matches('\\').count() >= 2 && dir.starts_with(&format!("{listed}\\")))
 }
 
 impl Seen {
     fn add(&mut self, app: &App) {
+        // Only the first two sources say which folders are covered.
+        if app.source != Source::Installed {
+            self.folders.extend(app.exe.as_deref().and_then(parent_dir));
+        }
         self.exes.extend(app.exe.clone());
         self.ids.extend(app.aumid.clone());
         self.names.insert(app.name.trim().to_lowercase());
     }
 
     fn has(&self, app: &App) -> bool {
-        app.exe.as_ref().is_some_and(|exe| self.exes.contains(exe))
+        let covered_folder = app.source == Source::Installed
+            && [
+                app.exe.as_deref().and_then(parent_dir),
+                Some(app.install_dir.clone()).filter(|dir| !dir.is_empty()),
+            ]
+            .into_iter()
+            .flatten()
+            .any(|dir| self.folders.iter().any(|listed| covers(listed, &dir)));
+        covered_folder
+            || app.exe.as_ref().is_some_and(|exe| self.exes.contains(exe))
             || app.aumid.as_ref().is_some_and(|id| self.ids.contains(id))
             || self.names.contains(&app.name.trim().to_lowercase())
     }
@@ -421,6 +458,7 @@ fn app_from(root: &Path, path: &Path) -> Option<App> {
         source: Source::StartMenu,
         exe: None,
         aumid: None,
+        install_dir: String::new(),
     })
 }
 
@@ -439,6 +477,7 @@ mod tests {
             source,
             exe: exe.map(str::to_string),
             aumid: aumid.map(str::to_string),
+            install_dir: String::new(),
         }
     }
 
@@ -618,5 +657,113 @@ mod tests {
             enter.action,
             Action::Open(PathBuf::from(r"shell:AppsFolder\Claude!App"))
         );
+    }
+
+    #[test]
+    fn an_installed_program_in_the_folder_of_a_listed_one_is_the_same_product() {
+        let start = vec![
+            app(
+                "Word",
+                Source::StartMenu,
+                Some(r"c:\office\root\winword.exe"),
+                None,
+            ),
+            app(
+                "OneDrive",
+                Source::StartMenu,
+                Some(r"c:\onedrive\onedrive.exe"),
+                None,
+            ),
+        ];
+        let folder = vec![app(
+            "Installer",
+            Source::AppsFolder,
+            Some(r"c:\vs\installer\vs_installer.exe"),
+            None,
+        )];
+        // Another file of the same folder, under another name.
+        let office = app(
+            "Microsoft Office Home and Student 2021",
+            Source::Installed,
+            Some(r"c:\office\root\officeclicktorun.exe"),
+            None,
+        );
+        // Its own exe is elsewhere, but its install folder is covered.
+        let mut onedrive = app(
+            "Microsoft OneDrive",
+            Source::Installed,
+            Some(r"c:\onedrive\26.1\other.exe"),
+            None,
+        );
+        onedrive.install_dir = r"c:\onedrive".to_string();
+        let mut vs = app(
+            "Microsoft Visual Studio Installer",
+            Source::Installed,
+            Some(r"c:\vs\installer\feedback_like.exe"),
+            None,
+        );
+        vs.install_dir = r"c:\vs\installer".to_string();
+        // Nothing else covers this folder, so it stays.
+        let mut lightroom = app(
+            "Adobe Lightroom Classic",
+            Source::Installed,
+            Some(r"d:\adobe\lightroom classic\lightroom.exe"),
+            None,
+        );
+        lightroom.install_dir = r"d:\adobe".to_string();
+
+        let merged = merge(start, folder, vec![office, onedrive, vs, lightroom]);
+        let names: Vec<&str> = merged.iter().map(|app| app.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["Adobe Lightroom Classic", "Installer", "OneDrive", "Word"]
+        );
+    }
+
+    #[test]
+    fn a_version_folder_inside_a_listed_programs_folder_is_covered() {
+        let start = vec![app(
+            "OneDrive",
+            Source::StartMenu,
+            Some(r"c:\program files\microsoft onedrive\onedrive.exe"),
+            None,
+        )];
+        let launcher = app(
+            "Microsoft OneDrive",
+            Source::Installed,
+            Some(r"c:\program files\microsoft onedrive\26.1\launcher.exe"),
+            None,
+        );
+        assert_eq!(merge(start, Vec::new(), vec![launcher]).len(), 1);
+        // A folder at the top of a drive holds many products and covers none.
+        let top = vec![app(
+            "Tool",
+            Source::StartMenu,
+            Some(r"c:\program files	ool.exe"),
+            None,
+        )];
+        let other = app(
+            "Other",
+            Source::Installed,
+            Some(r"c:\program files\other\other.exe"),
+            None,
+        );
+        assert_eq!(merge(top, Vec::new(), vec![other]).len(), 2);
+    }
+
+    #[test]
+    fn two_installed_programs_do_not_cover_each_other() {
+        let a = app("Suite A", Source::Installed, Some(r"c:\suite\a.exe"), None);
+        let b = app("Suite B", Source::Installed, Some(r"c:\suite\b.exe"), None);
+        assert_eq!(merge(Vec::new(), Vec::new(), vec![a, b]).len(), 2);
+    }
+
+    #[test]
+    fn a_folder_helps_only_installed_programs() {
+        // Two Start menu shortcuts into one folder are both kept, and so is
+        // an app-list entry beside a Start menu program.
+        let start = vec![app("A", Source::StartMenu, Some(r"c:\x\a.exe"), None)];
+        let folder = vec![app("B", Source::AppsFolder, Some(r"c:\x\b.exe"), None)];
+        assert_eq!(merge(start, folder, Vec::new()).len(), 2);
     }
 }
