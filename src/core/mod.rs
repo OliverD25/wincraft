@@ -15,6 +15,7 @@ pub mod logging;
 pub mod monitors;
 pub mod package;
 pub mod quit;
+pub mod sha256;
 pub mod taskbar;
 pub mod theme;
 pub mod traits;

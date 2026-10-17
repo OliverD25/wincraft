@@ -18,7 +18,9 @@ use windows_sys::Win32::UI::HiDpi::{
 use crate::core::config::{Config, ThemeChoice};
 use crate::core::host::SceneFlags;
 use crate::core::ui_bridge::{Page, PeekCard, SettingsTarget};
-use crate::core::{autostart, config, host, install, instance, logging, package, quit, wide};
+use crate::core::{
+    autostart, config, host, install, instance, logging, package, quit, update, wide,
+};
 
 const SINGLE_INSTANCE_MUTEX: &str = r"Local\WinCraft.SingleInstance";
 
@@ -120,7 +122,13 @@ fn main() {
     // exe is ever launched in a way that ignores the embedded manifest.
     unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
 
-    logging::init();
+    let updated_from = arg_after(&args, update::UPDATED_FROM);
+    let update_failed = arg_after(&args, update::UPDATE_FAILED);
+    if updated_from.is_some() || update_failed.is_some() {
+        logging::init_appending();
+    } else {
+        logging::init();
+    }
 
     // The exe has no console, so without this a panic disappears completely:
     // the tray icon just vanishes and the log ends mid-sentence.
@@ -149,14 +157,18 @@ fn main() {
     autostart::sync_in_background(config.start_with_windows);
 
     let (mut scene, theme, mut notes) = scene_flags(&args, instance::is_test());
-    if has_flag(&args, "--show-restore-panel") {
-        if instance::is_test() {
-            scene.restore_panel = true;
+    for flag in ["--show-restore-panel", "--update-now"] {
+        if !has_flag(&args, flag) {
+            continue;
+        }
+        if !instance::is_test() {
+            notes.push(format!(
+                "{flag} ignored: only a test instance (WINCRAFT_INSTANCE) takes it"
+            ));
+        } else if flag == "--update-now" {
+            scene.update_now = true;
         } else {
-            notes.push(
-                "--show-restore-panel ignored: only a test instance (WINCRAFT_INSTANCE) takes it"
-                    .to_string(),
-            );
+            scene.restore_panel = true;
         }
     }
     for note in notes {
@@ -171,6 +183,8 @@ fn main() {
         open_palette: has_flag(&args, "--open-palette"),
         open_arrange: has_flag(&args, "--open-arrange"),
         open_settings: has_flag(&args, "--open-settings"),
+        updated_from,
+        update_failed,
         scene,
     };
     // Plugins talk to shell COM objects from the host thread, and those are
@@ -187,7 +201,12 @@ fn main() {
         unsafe { CoUninitialize() };
     }
 
+    // The new version needs the mutex free before it starts.
+    let handover = update::take_handover();
     unsafe { CloseHandle(mutex) };
+    if let Some(plan) = handover {
+        std::process::exit(update::run_handover(&plan));
+    }
 }
 
 /// Flags are matched whole: the program's own path never counts.

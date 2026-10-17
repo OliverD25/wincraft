@@ -9,8 +9,10 @@ use windows_sys::Win32::System::SystemInformation::GetLocalTime;
 
 use crate::core::config;
 
+/// Outside the logger, so the file can be opened again in append mode.
+static FILE: Mutex<Option<File>> = Mutex::new(None);
+
 struct FileLogger {
-    file: Mutex<Option<File>>,
     level: Level,
 }
 
@@ -31,7 +33,7 @@ impl log::Log for FileLogger {
             target,
             record.args()
         );
-        if let Ok(mut guard) = self.file.lock() {
+        if let Ok(mut guard) = FILE.lock() {
             if let Some(file) = guard.as_mut() {
                 let _ = file.write_all(line.as_bytes());
                 let _ = file.flush();
@@ -40,7 +42,7 @@ impl log::Log for FileLogger {
     }
 
     fn flush(&self) {
-        if let Ok(mut guard) = self.file.lock() {
+        if let Ok(mut guard) = FILE.lock() {
             if let Some(file) = guard.as_mut() {
                 let _ = file.flush();
             }
@@ -58,27 +60,51 @@ fn now() -> String {
 }
 
 pub fn init() {
-    init_to(&config::log_path());
+    start(&config::log_path(), false);
+}
+
+/// For a WinCraft started by an update, or started again after one failed:
+/// the version before it still writes wincraft.log, so the file is added to
+/// and never emptied.
+pub fn init_appending() {
+    start(&config::log_path(), true);
 }
 
 /// Logs to `path`, emptied first. `--install` writes its own file, because
 /// the WinCraft it starts empties wincraft.log a moment later.
 pub fn init_to(path: &Path) {
+    start(path, false);
+}
+
+/// The old version that waits for its update keeps writing while the new
+/// one writes too. Both must add at the end, or each overwrites the other.
+pub fn reopen_appending() {
+    if let Some(file) = open(&config::log_path(), true) {
+        if let Ok(mut guard) = FILE.lock() {
+            *guard = Some(file);
+        }
+    }
+}
+
+fn open(path: &Path, append: bool) -> Option<File> {
+    fs::create_dir_all(path.parent()?).ok()?;
+    if append {
+        File::options().append(true).create(true).open(path).ok()
+    } else {
+        File::create(path).ok()
+    }
+}
+
+fn start(path: &Path, append: bool) {
     let debug = std::env::var("WINCRAFT_DEBUG")
         .map(|v| v == "1")
         .unwrap_or(false);
     let level = if debug { Level::Debug } else { Level::Info };
 
-    let file = path
-        .parent()
-        .and_then(|dir| fs::create_dir_all(dir).ok())
-        .and_then(|()| File::create(path).ok());
-
-    let logger = FileLogger {
-        file: Mutex::new(file),
-        level,
-    };
-    if log::set_boxed_logger(Box::new(logger)).is_ok() {
+    if let Ok(mut guard) = FILE.lock() {
+        *guard = open(path, append);
+    }
+    if log::set_boxed_logger(Box::new(FileLogger { level })).is_ok() {
         log::set_max_level(level.to_level_filter());
     }
 }

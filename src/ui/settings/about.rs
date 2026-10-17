@@ -91,9 +91,14 @@ pub fn show(
                     }
                 },
             );
-            if let Some(release) = &update.available {
-                new_release(ui, release, &mut state.update);
-                ui.spacing_mut().item_spacing.y = 0.0;
+            if let Some(failed) = &update.failed {
+                settings_row(
+                    ui,
+                    "update-failed",
+                    RowText::new("Last update").desc(failed, tokens.warning),
+                    false,
+                    |_| {},
+                );
             }
 
             settings_row(
@@ -107,6 +112,11 @@ pub fn show(
                 false,
                 |_| {},
             );
+
+            if let Some(release) = &update.available {
+                new_release(ui, release, update, &mut state.update, to_host);
+                ui.spacing_mut().item_spacing.y = 0.0;
+            }
 
             page::section_header(ui, "Hotkeys");
             ui.spacing_mut().item_spacing.y = 0.0;
@@ -203,27 +213,80 @@ fn update_status(ui: &mut egui::Ui, update: &UpdateView) {
         UpdateStatus::Offline => {
             text::secondary(ui, "Could not check \u{2014} offline", tokens.warning);
         }
+        UpdateStatus::Downloading(Some(percent)) => {
+            text::secondary(
+                ui,
+                &format!("Downloading\u{2026} {percent}%"),
+                tokens.text_secondary,
+            );
+        }
+        UpdateStatus::Downloading(None) => {
+            text::secondary(ui, "Downloading\u{2026}", tokens.text_secondary);
+        }
+        UpdateStatus::Installing => {
+            text::secondary(
+                ui,
+                "Installing \u{2014} WinCraft restarts",
+                tokens.text_secondary,
+            );
+        }
+        UpdateStatus::Error(_) => {
+            text::secondary(ui, "Update failed", tokens.warning);
+        }
     }
 }
 
-/// The newer version: its name, a link to its page and its release notes.
-fn new_release(ui: &mut egui::Ui, release: &NewRelease, update: &mut Update) {
+/// Whether Update now has something to do: not while a download or the
+/// restart is under way.
+fn can_update(update: &UpdateView) -> bool {
+    update.blocked.is_none()
+        && !matches!(
+            update.status,
+            UpdateStatus::Downloading(_) | UpdateStatus::Installing
+        )
+}
+
+/// The newer version: its name, Update now, a link to its page and its
+/// release notes. A copy that cannot update itself says why instead of
+/// offering the button.
+fn new_release(
+    ui: &mut egui::Ui,
+    release: &NewRelease,
+    view: &UpdateView,
+    update: &mut Update,
+    to_host: &Arc<HostChannel>,
+) {
     let tokens = Tokens::get(ui.ctx());
     let version = release.tag.trim_start_matches(['v', 'V']);
     page::section_header(ui, &format!("WinCraft {version} is available"));
     ui.spacing_mut().item_spacing.y = 0.0;
+    let (desc, colour) = match &view.blocked {
+        Some(reason) => (reason.as_str(), tokens.warning),
+        None => (
+            "Downloads the new version, checks it and restarts WinCraft. \
+             If it does not start properly, this version comes back.",
+            tokens.text_secondary,
+        ),
+    };
     settings_row(
         ui,
         "new-release",
-        RowText::new(&release.tag).desc("Published on GitHub", tokens.text_secondary),
+        RowText::new(&release.tag).desc(desc, colour),
         false,
         |ui| {
             if button::button(ui, "Release page", Kind::Secondary).clicked() {
                 ui.ctx()
                     .open_url(egui::OpenUrl::new_tab(release.page.clone()));
             }
+            if can_update(view) && button::button(ui, "Update now", Kind::Primary).clicked() {
+                to_host.send(HostRequest::UpdateNow);
+            }
         },
     );
+    if let UpdateStatus::Error(err) = &view.status {
+        ui.add_space(8.0);
+        text::secondary(ui, err, tokens.warning);
+    }
     if !release.notes.trim().is_empty() {
         ui.add_space(12.0);
         ui.spacing_mut().item_spacing.y = 8.0;

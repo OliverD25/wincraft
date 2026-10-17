@@ -37,10 +37,10 @@ use crate::core::ui_bridge::{
     PeekCard, PluginInfo, Prompt, SettingsTarget, UiChannel, UiCommand, UiSnapshot, UpdateStatus,
     UpdateView, WM_APP_UI,
 };
-use crate::core::update::{self, Checked};
-use crate::core::{autostart, config, hotkeys, instance, taskbar, theme, wide};
+use crate::core::update::{self, Checked, Handover};
+use crate::core::{autostart, config, hotkeys, install, instance, taskbar, theme, wide};
 use crate::search::{self, Router, SearchProvider};
-use crate::store::github::Release;
+use crate::store::github::{self, Release};
 use crate::ui;
 
 /// The host window's class, which `--quit` looks for; see instance::name.
@@ -81,6 +81,9 @@ const WM_APP_UPDATE: u32 = WM_APP + 22;
 const UPDATE_TIMER: usize = 0x5743_0002;
 const FIRST_CHECK_MS: u32 = 2 * 60 * 1000;
 const CHECK_TIMER_MS: u32 = 60 * 60 * 1000;
+/// A version an update started tells the old one it is healthy when this
+/// fires.
+const HEALTHY_TIMER: usize = 0x5743_0003;
 
 struct RegisteredHotkey {
     action_id: u32,
@@ -127,6 +130,9 @@ enum BalloonClick {
 
 enum UpdateEvent {
     Checked(Result<Checked, String>),
+    /// Percent downloaded, when the server said how much there is.
+    Progress(Option<u8>),
+    Downloaded(Result<std::path::PathBuf, String>),
 }
 
 struct Updates {
@@ -136,6 +142,16 @@ struct Updates {
     manual: bool,
     status: UpdateStatus,
     newer: Option<Release>,
+    /// Downloading or swapping; a second Update now waits for it.
+    busy: bool,
+    /// Why this copy cannot update itself, worked out once at start.
+    blocked: Option<String>,
+    /// What went wrong with the update a rollback came back from.
+    failed: Option<String>,
+    /// The version that started this one and waits to hear it is healthy.
+    healthy_pending: Option<String>,
+    /// A test scene's `--update-now`: update as soon as the check finds one.
+    auto_update: bool,
     tx: Sender<UpdateEvent>,
     rx: Receiver<UpdateEvent>,
 }
@@ -148,6 +164,11 @@ impl Default for Updates {
             manual: false,
             status: UpdateStatus::Idle,
             newer: None,
+            busy: false,
+            blocked: None,
+            failed: None,
+            healthy_pending: None,
+            auto_update: false,
             tx,
             rx,
         }
@@ -160,6 +181,10 @@ pub struct StartupFlags {
     pub open_palette: bool,
     pub open_arrange: bool,
     pub open_settings: bool,
+    /// `--updated-from <version>`: an update started this process.
+    pub updated_from: Option<String>,
+    /// `--update-failed <version>`: a rollback from that version started it.
+    pub update_failed: Option<String>,
     /// The rest are for test instances only; main.rs leaves them empty
     /// otherwise.
     pub scene: SceneFlags,
@@ -181,6 +206,8 @@ pub struct SceneFlags {
     pub restore_panel: bool,
     /// A folder, file or address to open the palette's bookmark box for.
     pub ask_bookmark: Option<String>,
+    /// Check for updates at once and install what the check finds.
+    pub update_now: bool,
 }
 
 static DEMO_RESTORE_PANEL: AtomicBool = AtomicBool::new(false);
@@ -308,6 +335,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
     if update::automatic_checks_allowed() {
         unsafe { SetTimer(hwnd, UPDATE_TIMER, FIRST_CHECK_MS, None) };
     }
+    host.start_updates(&flags);
 
     HOST.with(|cell| *cell.borrow_mut() = Some(host));
 
@@ -684,11 +712,163 @@ impl Host {
                 notes: release.notes.clone(),
                 page: release.page.clone(),
             }),
+            blocked: self.updates.blocked.clone(),
+            failed: self.updates.failed.clone(),
         }
+    }
+
+    /// What this start means for updates: whether this copy may update
+    /// itself, whether an update started it, whether a rollback did.
+    fn start_updates(&mut self, flags: &StartupFlags) {
+        let exe = std::env::current_exe().unwrap_or_default();
+        self.updates.blocked = update::blocked(&exe, update::current_package().as_deref());
+        if let Some(reason) = &self.updates.blocked {
+            log::info!("updates: {reason}");
+        }
+        if let Some(from) = &flags.updated_from {
+            log::info!(
+                "started by the update from {from}; it hears that this version is healthy in {} seconds",
+                update::HEALTHY_AFTER.as_secs()
+            );
+            self.updates.healthy_pending = Some(from.clone());
+            unsafe {
+                SetTimer(
+                    self.hwnd,
+                    HEALTHY_TIMER,
+                    update::HEALTHY_AFTER.as_millis() as u32,
+                    None,
+                )
+            };
+        } else if self.updates.blocked.is_none() {
+            update::remove_leftovers_soon(install::dir());
+        }
+        if let Some(to) = &flags.update_failed {
+            let text = format!("Update to {to} failed, kept {}", env!("CARGO_PKG_VERSION"));
+            log::warn!("{text}; the log above says why");
+            self.updates.failed = Some(text.clone());
+            self.update_notice(&text);
+        }
+        if flags.scene.update_now {
+            self.updates.auto_update = true;
+            self.check_for_updates(true);
+        }
+    }
+
+    /// The version that started this one waits for this; a clean quit
+    /// before the timer counts too, since nothing crashed.
+    fn report_healthy(&mut self, quitting: bool) {
+        unsafe { KillTimer(self.hwnd, HEALTHY_TIMER) };
+        let Some(from) = self.updates.healthy_pending.take() else {
+            return;
+        };
+        if update::report_healthy() {
+            log::info!("told {from} that this version is healthy");
+        } else {
+            log::info!("no WinCraft {from} was waiting to hear that this version is healthy");
+        }
+        if quitting {
+            return;
+        }
+        self.update_notice(&format!(
+            "WinCraft updated from {from} to {}",
+            env!("CARGO_PKG_VERSION")
+        ));
+        if self.updates.blocked.is_none() {
+            update::remove_leftovers_soon(install::dir());
+        }
+    }
+
+    /// Downloads on its own thread; the swap and the restart follow in
+    /// `downloaded`.
+    fn update_now(&mut self) {
+        if self.updates.busy {
+            return;
+        }
+        if let Some(reason) = self.updates.blocked.clone() {
+            self.update_notice(&reason);
+            return;
+        }
+        let Some(release) = self.updates.newer.clone() else {
+            self.updates.auto_update = true;
+            self.check_for_updates(true);
+            return;
+        };
+        log::info!("downloading {}", release.tag);
+        self.updates.busy = true;
+        self.updates.status = UpdateStatus::Downloading(None);
+        self.publish();
+        let tx = self.updates.tx.clone();
+        let hwnd = self.hwnd as isize;
+        let dir = install::dir();
+        let local_fake = github::releases_override().is_some();
+        let started = std::thread::Builder::new()
+            .name("wincraft-update-download".to_string())
+            .spawn(move || {
+                let post = |event: UpdateEvent| {
+                    if tx.send(event).is_ok() {
+                        unsafe { PostMessageW(hwnd as HWND, WM_APP_UPDATE, 0, 0) };
+                    }
+                };
+                let mut shown = None;
+                let mut progress = |done: u64, total: Option<u64>| {
+                    let percent = total
+                        .filter(|total| *total > 0)
+                        .map(|total| (done.saturating_mul(100) / total).min(100) as u8);
+                    if shown != Some(percent) {
+                        shown = Some(percent);
+                        post(UpdateEvent::Progress(percent));
+                    }
+                };
+                let result =
+                    update::download(&release, &dir, &update::Web, local_fake, &mut progress);
+                post(UpdateEvent::Downloaded(result));
+            });
+        if let Err(err) = started {
+            log::warn!("could not start the download: {err}");
+            self.updates.busy = false;
+            self.updates.status =
+                UpdateStatus::Error(format!("Could not start the download: {err}"));
+        }
+    }
+
+    fn downloaded(&mut self, result: Result<std::path::PathBuf, String>) {
+        let tag = self
+            .updates
+            .newer
+            .as_ref()
+            .map(|release| release.tag.clone())
+            .unwrap_or_default();
+        if let Err(err) = result {
+            log::warn!("the update to {tag} was not installed: {err}");
+            self.updates.busy = false;
+            self.updates.status = UpdateStatus::Error(err);
+            return;
+        }
+        log::info!("{tag} is downloaded and matches its checksum");
+        self.updates.status = UpdateStatus::Installing;
+        self.publish();
+        let dir = install::dir();
+        if let Err(err) = update::swap_in(&dir, &mut update::Disk) {
+            log::error!("could not put {tag} in place: {err}");
+            self.updates.busy = false;
+            self.updates.status =
+                UpdateStatus::Error(format!("Could not put the new version in place: {err}"));
+            return;
+        }
+        log::info!("{tag} is in place; WinCraft closes and starts it");
+        update::hand_over_at_exit(Handover {
+            dir,
+            from: env!("CARGO_PKG_VERSION").to_string(),
+            to: tag,
+        });
+        self.shutdown();
     }
 
     /// On its own thread: GitHub can take seconds to answer, or never.
     fn check_for_updates(&mut self, manual: bool) {
+        if self.updates.busy {
+            return;
+        }
         if manual {
             self.updates.manual = true;
             self.updates.status = UpdateStatus::Checking;
@@ -738,6 +918,12 @@ impl Host {
         while let Ok(event) = self.updates.rx.try_recv() {
             match event {
                 UpdateEvent::Checked(result) => self.checked(result),
+                UpdateEvent::Progress(percent) => {
+                    if self.updates.busy {
+                        self.updates.status = UpdateStatus::Downloading(percent);
+                    }
+                }
+                UpdateEvent::Downloaded(result) => self.downloaded(result),
             }
         }
         self.publish();
@@ -746,6 +932,7 @@ impl Host {
     fn checked(&mut self, result: Result<Checked, String>) {
         self.updates.checking = false;
         let manual = std::mem::take(&mut self.updates.manual);
+        let auto_update = std::mem::take(&mut self.updates.auto_update);
         let checked = match result {
             Ok(checked) => checked,
             Err(err) => {
@@ -780,6 +967,9 @@ impl Host {
                     self.config.updates.latest = release.tag.clone();
                 }
                 self.updates.newer = Some(release);
+                if auto_update {
+                    self.update_now();
+                }
             }
         }
         self.save_config();
@@ -1126,6 +1316,7 @@ impl Host {
             HostRequest::ResetPlugin(id) => self.reset_plugin(&id),
             HostRequest::SetHostSetting(setting) => self.set_host_setting(setting),
             HostRequest::CheckForUpdates => self.check_for_updates(true),
+            HostRequest::UpdateNow => self.update_now(),
             HostRequest::OpenPath(path) => open_in_notepad(&path),
             HostRequest::Exit => self.shutdown(),
         }
@@ -1270,6 +1461,7 @@ impl Host {
     /// the next start would come up with every plugin switched off.
     fn shutdown(&mut self) {
         log::info!("WinCraft is shutting down");
+        self.report_healthy(true);
         self.to_ui.send(UiCommand::Quit);
         for index in 0..self.slots.len() {
             if self.stop_slot(index) {
@@ -1578,7 +1770,10 @@ fn handle_menu_choice(choice: u32) {
             with_host(|host| host.to_ui.send(UiCommand::ShowSettings(Page::General)));
         }
         MENU_UPDATE => {
-            with_host(|host| host.to_ui.send(UiCommand::ShowSettings(Page::About)));
+            with_host(|host| {
+                host.to_ui.send(UiCommand::ShowSettings(Page::About));
+                host.update_now();
+            });
         }
         MENU_QUIT => {
             with_host(|host| host.shutdown());
@@ -1747,6 +1942,10 @@ unsafe extern "system" fn wnd_proc(
         }
         WM_TIMER if wparam == UPDATE_TIMER => {
             with_host_or_later(hwnd, msg, wparam, lparam, |host| host.daily_check());
+            0
+        }
+        WM_TIMER if wparam == HEALTHY_TIMER => {
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| host.report_healthy(false));
             0
         }
         WM_TIMER if wparam == RETRY_TIMER => {

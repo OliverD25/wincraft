@@ -450,6 +450,8 @@ pub enum HostRequest {
     SetHostSetting(HostSetting),
     /// About's "Check for updates".
     CheckForUpdates,
+    /// About's "Update now" for the newer release the host knows of.
+    UpdateNow,
     OpenPath(PathBuf),
     Exit,
 }
@@ -527,6 +529,10 @@ pub struct UpdateView {
     pub status: UpdateStatus,
     /// A release newer than the running version.
     pub available: Option<NewRelease>,
+    /// Why Update now cannot run in this copy; None when it can.
+    pub blocked: Option<String>,
+    /// "Update to 0.17.0 failed, kept 0.16.0", after a rollback.
+    pub failed: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -546,6 +552,11 @@ pub enum UpdateStatus {
     UpToDate,
     NoRelease,
     Offline,
+    /// Percent, when the server said how much there is.
+    Downloading(Option<u8>),
+    /// Swapping the files and restarting.
+    Installing,
+    Error(String),
 }
 
 /// Host → UI. The egui context arrives once the UI thread is up; until then

@@ -93,6 +93,15 @@ fn dir_from(local: Option<OsString>, test_dir: Option<OsString>, test: bool) -> 
         .join("WinCraft")
 }
 
+pub fn exe() -> PathBuf {
+    dir().join(EXE_NAME)
+}
+
+/// Whether `exe` is the installed copy, the only one the updater replaces.
+pub fn is_installed_copy(exe: &Path) -> bool {
+    same_path(exe, &self::exe())
+}
+
 /// Windows paths compare without case, and `current_exe` may carry the
 /// `\\?\` prefix or forward slashes from whoever started the program.
 pub fn same_path(a: &Path, b: &Path) -> bool {
