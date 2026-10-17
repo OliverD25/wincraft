@@ -329,7 +329,7 @@ impl Notice {
         let scale = dpi_x.max(96) as f32 / 96.0;
         let tokens = theme::Tokens::for_choice(theme::current());
         let Some(image) = render(content, scale, &tokens) else {
-            log::warn!("could not draw the restore notice");
+            log::warn!(target: "layout_keeper", "could not draw the restore notice");
             return;
         };
         let margin = (MARGIN * scale).round() as i32;
@@ -339,7 +339,7 @@ impl Notice {
             y: work.bottom - image.height - margin,
         };
         if !self.window.present(&image, at) {
-            log::warn!("could not show the restore notice");
+            log::warn!(target: "layout_keeper", "could not show the restore notice");
             return;
         }
         self.window.show();

@@ -219,6 +219,8 @@ pub struct SettingsState {
     /// them, and when the page last asked for them.
     pub layout: Option<LayoutSnapshot>,
     pub layout_asked: Option<std::time::Instant>,
+    /// The Layout page's "Recent activity" list.
+    pub log: layout::LogView,
 }
 
 impl SettingsState {
@@ -480,7 +482,7 @@ impl Settings {
                 .show(ui, |ui| match state.page {
                     Page::General => general::show(ui, snapshot, state, to_host),
                     Page::Plugins => plugins::show(ui, snapshot, state, to_host),
-                    Page::Layout => layout::show(ui, state, to_host),
+                    Page::Layout => layout::show(ui, snapshot, state, to_host),
                     Page::Store => store::show(ui, snapshot, state, to_host),
                     Page::About => about::show(ui, snapshot, state),
                 });

@@ -80,7 +80,11 @@ thumbnails in its taskbar group and which window is in front, and puts all
 three back after a reboot. It works for any app (Chrome, Claude, Telegram,
 anything with a window); the **Never touch** setting leaves chosen apps
 alone. Windows pinned to all desktops and windows Windows places on no
-desktop are never moved between desktops.
+desktop are never moved between desktops. While it puts windows back after a
+reboot, a small panel asks you to wait. The **Layout** page in the settings
+window lists every saved window with its desktop, which you can change, and
+shows LayoutKeeper's recent activity. Windows of one app that share a title
+are marked, because a restore cannot tell them apart.
 [Full README](src/plugins/layout_keeper/README.md)
 
 | Hotkey | What it does |

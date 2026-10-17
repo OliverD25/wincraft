@@ -163,7 +163,9 @@ $scenes = @(
     @{ Name = 'settings-plugins';       Args = @('--open-settings=plugins');               Window = 'settings' },
     @{ Name = 'settings-layout-keeper'; Args = @('--open-settings=plugin:layout_keeper');  Window = 'settings' },
     # The Layout page over a made-up saved layout (see Write-LayoutSeed).
-    @{ Name = 'settings-layout';        Args = @('--open-settings=layout');                Window = 'settings'; Settle = 2500; Seed = $true; Helper = $true },
+    @{ Name = 'settings-layout';        Args = @('--open-settings=layout');                Window = 'settings'; Settle = 2500; Seed = 'full'; Helper = $true },
+    # The same page with few windows, so Recent activity shows under them.
+    @{ Name = 'settings-layout-log';    Args = @('--open-settings=layout');                Window = 'settings'; Settle = 2500; Seed = 'small'; Helper = $true },
     @{ Name = 'settings-about';         Args = @('--open-settings=about');                 Window = 'settings' },
     @{ Name = 'strip';                  Args = @('--open-arrange=0');                      Window = 'strip';    Settle = 1200 },
     @{ Name = 'strip-peek';             Args = @('--open-arrange=0', '--peek-card=chip');  Window = 'peek';     Settle = 1500 },
@@ -374,7 +376,7 @@ function Get-DesktopIds {
 # them, except the harness's own helper window (a PowerShell form titled
 # "build.log - Notepad"), which shows as open. Desktop ids are this PC's
 # own, and one is a desktop that does not exist.
-function Write-LayoutSeed {
+function Write-LayoutSeed([string]$size) {
     $ids = @(Get-DesktopIds)
     $one = if ($ids.Count -gt 0) { $ids[0] } else { '{00000000-0000-0000-0000-000000000001}' }
     $two = if ($ids.Count -gt 1) { $ids[1] } else { $one }
@@ -401,6 +403,9 @@ function Write-LayoutSeed {
         'powershell.exe' = @{ windows = @(
             (Win 'build.log - Notepad' $helperGroup $one 0 '2026-10-17'),
             (Win 'build.log - Notepad' $helperGroup $two 1 '2026-10-17')) }
+    }
+    if ($size -eq 'small') {
+        foreach ($exe in 'browser.exe', 'editor.exe') { $programs.Remove($exe) }
     }
     $file = [ordered]@{ version = 3; saved = (Get-Date -Format 'yyyy-MM-ddTHH:mm:sszzz'); reason = 'timer'; programs = $programs }
     $json = $file | ConvertTo-Json -Depth 8
@@ -442,7 +447,7 @@ try {
             Test-StillAway "before scene $n" $n
             $began = Get-Date
             if ($scene.Helper -and -not $script:helper) { Start-Helper }
-            if ($scene.Seed) { Write-LayoutSeed }
+            if ($scene.Seed) { Write-LayoutSeed $scene.Seed }
             $arguments = @("--theme=$theme") + @($scene.Args | ForEach-Object { Expand-SceneArgument $_ })
             $script:current = Start-Process -FilePath $Exe -ArgumentList $arguments -PassThru
             $target = $null

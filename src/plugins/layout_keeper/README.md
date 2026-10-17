@@ -156,6 +156,15 @@ The header has **Restore now** (the same as `Win+Alt+L`), **Save now** (the
 same as `Win+Alt+J`) and the time of the last save. The list refreshes every
 two seconds while the page is open.
 
+### Recent activity
+
+Under the list, **Recent activity** shows the last 200 lines LayoutKeeper
+wrote to `wincraft.log`, newest first. The filter box keeps the lines that
+contain its text. The list reads the log again every few seconds while the
+page is open, on a thread of its own, so the page never waits for the disk.
+**Refresh** reads it now, and **Open log file** opens the whole log in
+Notepad.
+
 ## Windows with the same title
 
 A restore tells the windows of an app apart by their titles. When two or more

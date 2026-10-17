@@ -9,6 +9,7 @@ pub mod host;
 pub mod hotkeys;
 pub mod instance;
 pub mod layered;
+pub mod log_tail;
 pub mod logging;
 pub mod monitors;
 pub mod package;
