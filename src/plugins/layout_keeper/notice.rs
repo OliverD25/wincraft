@@ -416,10 +416,11 @@ fn ellipsize(text: &str, max: i32, measure: &dyn Fn(&str) -> i32) -> String {
 fn app_icon(side: i32) -> Option<icons::Pixels> {
     // The exe's first icon resource, the one the tray's colour icon is.
     let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
+    let resource: u32 = 1;
     let icon = unsafe {
         LoadImageW(
             hinstance,
-            1usize as *const u16,
+            resource as usize as *const u16,
             IMAGE_ICON,
             side,
             side,
