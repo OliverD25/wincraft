@@ -15,14 +15,16 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{
-    ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeSnapshot, HostChannel, HostRequest,
-    PeekCard,
+    ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeSnapshot, ArrangeView, HostChannel,
+    HostRequest, PeekCard,
 };
 use crate::ui::dwm_thumbs::{self, Placement, Thumbnail};
 use crate::ui::peek::{self, Hover, Peek, Step};
 use crate::ui::settings;
 use crate::ui::widgets::empty_state::empty_state;
 use crate::ui::widgets::{choice, focus, text};
+
+mod by_monitor;
 
 /// Unique, so the strip's window can be found among the UI thread's windows.
 const TITLE: &str = "WinCraft Arrange";
@@ -46,8 +48,11 @@ const ROW_GAP: f32 = 12.0;
 const EMPTY_PANEL: Vec2 = Vec2::new(520.0, 150.0);
 /// The note under the rows when more than one desktop is shown.
 const FOOTER: f32 = 28.0;
-/// The group switcher above the rows, when there is more than one group.
+/// The toolbar above the rows: the group list and the view switch.
 const SWITCHER: f32 = 44.0;
+/// The group list, the gap after it and the view switch.
+const TOOLBAR_CONTROLS: f32 = 372.0;
+const VIEWS: [&str; 2] = ["By monitor", "Flat"];
 /// Rows that fit exactly can round to a pixel too tall and grow a scroll bar.
 const SLACK: f32 = 4.0;
 /// Space left between the strip and the taskbar.
@@ -199,6 +204,8 @@ struct Shared {
     /// Last frame's layout, for finding where a dragged card would land.
     row_rects: Vec<Rect>,
     card_rects: Vec<Vec<Rect>>,
+    /// The same for the By monitor view.
+    zones: Vec<by_monitor::Zone>,
     to_host: Arc<HostChannel>,
     closed: bool,
     window: isize,
@@ -223,18 +230,33 @@ impl Shared {
         snapshot.groups.iter().find(|group| &group.key == key)
     }
 
+    /// The view on screen: the one picked last, or for Auto the one that
+    /// fits the number of monitors.
+    fn view(&self) -> ArrangeView {
+        self.snapshot
+            .as_ref()
+            .map_or(ArrangeView::Flat, |snapshot| {
+                let connected = snapshot.monitors.iter().filter(|m| m.connected).count();
+                snapshot.view.resolve(connected)
+            })
+    }
+
     fn panel(&self) -> Vec2 {
         let limit = self
             .monitor
             .map(|monitor| monitor.limit())
             .unwrap_or(vec2(1600.0, 900.0));
         match (self.group(), &self.snapshot) {
+            (Some(group), Some(snapshot)) if self.view() == ArrangeView::ByMonitor => {
+                by_monitor::panel_for(group, snapshot, limit)
+            }
             (Some(group), Some(snapshot)) => {
                 let mut size = panel_size(&rows(group, &snapshot.desktops), limit);
-                if snapshot.groups.len() > 1 {
-                    size.y = (size.y + SWITCHER).min(limit.y);
-                    size.x = size.x.max(2.0 * PADDING + 240.0).min(limit.x);
-                }
+                size.y = (size.y + SWITCHER).min(limit.y);
+                size.x = size
+                    .x
+                    .max(2.0 * PADDING + TOOLBAR_CONTROLS + SLACK)
+                    .min(limit.x);
                 size
             }
             _ => EMPTY_PANEL.min(limit),
@@ -259,6 +281,7 @@ impl Arrange {
                 drag: None,
                 row_rects: Vec::new(),
                 card_rects: Vec::new(),
+                zones: Vec::new(),
                 to_host,
                 closed: false,
                 window: 0,
@@ -519,19 +542,52 @@ struct Pending {
     dest: Rect,
     clip: Rect,
     opacity: u8,
+    /// Fill `dest`, cropping the window, instead of fitting it whole.
+    cover: bool,
+}
+
+/// What a view's body did this frame, for the parts both views share.
+struct Frame {
+    pending: Vec<Pending>,
+    /// Every card in its order on screen, with whether it has a monitor chip.
+    cards: Vec<(isize, bool)>,
+    hovered: Option<isize>,
+    actions: Vec<ArrangeAction>,
+    activate: Option<isize>,
+    /// Where the cards are; the peek ends when the pointer leaves it.
+    area: Rect,
+    /// The dragged card when it follows the pointer above the others.
+    floating: Option<Rect>,
+    dragged: Option<isize>,
+}
+
+impl Default for Frame {
+    fn default() -> Self {
+        Self {
+            pending: Vec::new(),
+            cards: Vec::new(),
+            hovered: None,
+            actions: Vec::new(),
+            activate: None,
+            area: Rect::NOTHING,
+            floating: None,
+            dragged: None,
+        }
+    }
 }
 
 fn strip(ui: &mut Ui, shared: &mut Shared) {
     let tokens = Tokens::get(ui.ctx());
     let panel = ui.max_rect();
-    ui.painter().rect_filled(panel, 0, tokens.elevated_bg);
+    let view = shared.view();
+    let background = match view {
+        ArrangeView::ByMonitor => tokens.window_bg,
+        _ => tokens.elevated_bg,
+    };
+    ui.painter().rect_filled(panel, 0, background);
 
     let content = panel.shrink(PADDING);
-    let Some((group, desktops)) = shared
-        .group()
-        .cloned()
-        .zip(shared.snapshot.as_ref().map(|s| s.desktops.clone()))
-    else {
+    let (Some(group), Some(snapshot)) = (shared.group().cloned(), shared.snapshot.clone()) else {
         let watched = shared
             .snapshot
             .as_ref()
@@ -548,45 +604,187 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
         shared.hide_peek();
         return;
     };
-    let plugin = shared
-        .snapshot
-        .as_ref()
-        .map(|s| s.plugin.clone())
-        .unwrap_or_default();
 
-    let mut content = content;
-    if let Some(snapshot) = shared.snapshot.clone().filter(|s| s.groups.len() > 1) {
-        let labels: Vec<&str> = snapshot.groups.iter().map(|g| g.label.as_str()).collect();
-        let current = snapshot.groups.iter().position(|g| g.key == group.key);
-        let area = Rect::from_min_size(content.min, vec2(content.width(), SWITCHER));
-        let chosen = ui
-            .scope_builder(UiBuilder::new().max_rect(area), |ui| {
-                choice::dropdown(ui, "arrange-group", &labels, current)
-            })
-            .inner;
-        if let Some(index) = chosen.filter(|index| Some(*index) != current) {
-            shared.key = Some(snapshot.groups[index].key.clone());
-            shared.cursor = None;
-            shared.drag = None;
-            shared.hide_peek();
-            ui.ctx().request_repaint();
+    let bar = match view {
+        ArrangeView::ByMonitor => by_monitor::toolbar_rect(panel),
+        _ => Rect::from_min_size(content.min, vec2(content.width(), SWITCHER)),
+    };
+    let (chosen_group, chosen_view) = toolbar(ui, bar, &snapshot, &group, view);
+    if let Some(index) = chosen_group {
+        shared.key = Some(snapshot.groups[index].key.clone());
+        shared.cursor = None;
+        shared.drag = None;
+        shared.hide_peek();
+        ui.ctx().request_repaint();
+    }
+    if let Some(chosen) = chosen_view {
+        if let Some(snapshot) = shared.snapshot.as_mut() {
+            snapshot.view = chosen;
         }
-        content.min.y += SWITCHER;
+        shared.to_host.send(HostRequest::SetSetting {
+            plugin: snapshot.plugin.clone(),
+            key: "arrange_view".to_string(),
+            value: serde_json::Value::String(chosen.setting().to_string()),
+        });
+        shared.drag = None;
+        shared.hide_peek();
+        ui.ctx().request_repaint();
     }
 
-    let rows = rows(&group, &desktops);
     shared
         .thumbs
         .retain(|hwnd, _| group.windows.iter().any(|window| window.hwnd == *hwnd));
     let ctx = ui.ctx().clone();
     let ppp = ctx.pixels_per_point();
     let menu_open = egui::Popup::is_any_open(&ctx);
+    let mut frame = match view {
+        ArrangeView::ByMonitor => by_monitor::body(ui, shared, &group, &snapshot, panel, menu_open),
+        _ => {
+            let mut rows_area = content;
+            rows_area.min.y += SWITCHER;
+            flat(ui, shared, &group, &snapshot.desktops, rows_area, menu_open)
+        }
+    };
+
+    let in_rows = ctx
+        .input(|i| i.pointer.hover_pos())
+        .is_some_and(|at| frame.area.contains(at));
+    // Asked again rather than reusing the flags from the top of the frame,
+    // so a menu or drag that started on this frame hides the peek at once.
+    let blocked = !snapshot.preview
+        || egui::Popup::is_any_open(&ctx)
+        || shared.drag.is_some()
+        || shared.window == 0;
+    let forced = shared
+        .forced_peek
+        .and_then(|card| forced_card(&frame.cards, card));
+    match forced {
+        Some(hwnd) if !blocked && frame.hovered.is_none() => {
+            shared.peek.show(hwnd, shared.window as HWND)
+        }
+        _ => match shared
+            .hover
+            .step(Instant::now(), frame.hovered, in_rows, blocked)
+        {
+            Step::Show(hwnd) => shared.peek.show(hwnd, shared.window as HWND),
+            Step::Hide => shared.peek.hide(),
+            Step::Wait(after) => ctx.request_repaint_after(after),
+        },
+    }
+    if shared.peek.is_shown() {
+        // Looks again now and then, so a window that closes takes its
+        // peek with it even when nothing else repaints the strip.
+        ctx.request_repaint_after(peek::REST);
+    }
+
+    place_pictures(shared, &frame.pending, frame.floating, frame.dragged, ppp);
+
+    let actions = std::mem::take(&mut frame.actions);
+    for action in &actions {
+        apply_locally(shared, action);
+    }
+    for action in actions {
+        shared.to_host.send(HostRequest::Arrange {
+            plugin: snapshot.plugin.clone(),
+            action,
+        });
+    }
+    if let Some(hwnd) = frame.activate {
+        shared.hide_peek();
+        shared.to_host.send(HostRequest::Arrange {
+            plugin: snapshot.plugin.clone(),
+            action: ArrangeAction::Activate(hwnd),
+        });
+        shared.closed = true;
+    }
+}
+
+/// The group list, the view switch and, where there is room, how many
+/// monitors, desktops and windows there are. Returns the group and the view
+/// picked on this frame.
+fn toolbar(
+    ui: &mut Ui,
+    area: Rect,
+    snapshot: &ArrangeSnapshot,
+    group: &ArrangeGroup,
+    view: ArrangeView,
+) -> (Option<usize>, Option<ArrangeView>) {
+    let tokens = Tokens::get(ui.ctx());
+    let labels: Vec<&str> = snapshot.groups.iter().map(|g| g.label.as_str()).collect();
+    let current = snapshot.groups.iter().position(|g| g.key == group.key);
+    let shown = match view {
+        ArrangeView::ByMonitor => 0,
+        _ => 1,
+    };
+    let (picked, switched, right) = ui
+        .scope_builder(UiBuilder::new().max_rect(area), |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = vec2(12.0, 0.0);
+                let picked = choice::dropdown(ui, "arrange-group", &labels, current)
+                    .filter(|index| Some(*index) != current);
+                let switched = choice::segmented(ui, &VIEWS, Some(shown)).map(|index| {
+                    if index == 0 {
+                        ArrangeView::ByMonitor
+                    } else {
+                        ArrangeView::Flat
+                    }
+                });
+                (picked, switched, ui.min_rect().right())
+            })
+            .inner
+        })
+        .inner;
+    let connected = snapshot.monitors.iter().filter(|m| m.connected).count();
+    let line = summary(connected, snapshot.desktops.len(), group.windows.len());
+    let galley = ui
+        .painter()
+        .layout_no_wrap(line, theme::regular(13.0), tokens.text_secondary);
+    if right + 24.0 + galley.size().x <= area.right() {
+        ui.painter().galley(
+            pos2(
+                area.right() - galley.size().x,
+                area.top() + (32.0 - galley.size().y) / 2.0,
+            ),
+            galley,
+            tokens.text_secondary,
+        );
+    }
+    (picked, switched)
+}
+
+/// "3 monitors · 6 desktops · 27 windows". Without the desktop list there
+/// is still the one desktop.
+fn summary(monitors: usize, desktops: usize, windows: usize) -> String {
+    let count = |n: usize, one: &str| {
+        if n == 1 {
+            format!("1 {one}")
+        } else {
+            format!("{n} {one}s")
+        }
+    };
+    [
+        count(monitors.max(1), "monitor"),
+        count(desktops.max(1), "desktop"),
+        count(windows, "window"),
+    ]
+    .join(" \u{b7} ")
+}
+
+/// The view as before 0.13: one wrapping row of cards per desktop.
+fn flat(
+    ui: &mut Ui,
+    shared: &mut Shared,
+    group: &ArrangeGroup,
+    desktops: &[ArrangeDesktop],
+    content: Rect,
+    menu_open: bool,
+) -> Frame {
+    let tokens = Tokens::get(ui.ctx());
+    let rows = rows(group, desktops);
+    let ctx = ui.ctx().clone();
     let can_rename = shared.snapshot.as_ref().is_some_and(|s| s.can_rename);
     let pointer = ctx.pointer_latest_pos();
-    let mut actions: Vec<ArrangeAction> = Vec::new();
-    let mut activate: Option<isize> = None;
-    let mut hovered: Option<isize> = None;
-    let mut cards: Vec<(isize, bool)> = Vec::new();
+    let mut frame = Frame::default();
 
     let flat: Vec<usize> = rows.iter().flat_map(|row| row.members.clone()).collect();
     if shared
@@ -613,7 +811,9 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     if let Some(member) = dragged {
         if !ctx.input(|i| i.pointer.primary_down()) {
             if let Some(target) = target {
-                actions.extend(drop_actions(&group, &rows, member, target));
+                frame
+                    .actions
+                    .extend(drop_actions(group, &rows, member, target));
             }
             shared.drag = None;
         }
@@ -625,11 +825,11 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
         target.filter(|_| dragging),
     );
 
-    let mut pending: Vec<Pending> = Vec::new();
     let mut row_rects: Vec<Rect> = Vec::new();
     let mut card_rects: Vec<Vec<Rect>> = Vec::new();
     let footer = if rows.len() > 1 { FOOTER } else { 0.0 };
     let rows_area = Rect::from_min_max(content.min, pos2(content.max.x, content.max.y - footer));
+    frame.area = rows_area;
 
     ui.scope_builder(UiBuilder::new().max_rect(rows_area), |ui| {
         egui::ScrollArea::vertical()
@@ -660,7 +860,7 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
                                     continue;
                                 };
                                 let window = &group.windows[member];
-                                let desktop_name = desktop_name(&desktops, &window.desktop);
+                                let desktop_name = desktop_name(desktops, &window.desktop);
                                 let has_picture = !menu_open
                                     && thumbnail(shared, window.hwnd)
                                         .is_some_and(|thumb| thumb.source_size().is_some());
@@ -675,23 +875,24 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
                                     is_cursor,
                                 );
                                 if rename {
-                                    actions.push(ArrangeAction::AskName(window.hwnd));
+                                    frame.actions.push(ArrangeAction::AskName(window.hwnd));
                                 }
                                 cards_here.push(response.rect);
-                                cards.push((window.hwnd, window.monitor.is_some()));
+                                frame.cards.push((window.hwnd, window.monitor.is_some()));
                                 if response.hovered() {
-                                    hovered = Some(window.hwnd);
+                                    frame.hovered = Some(window.hwnd);
                                 }
                                 if has_picture {
-                                    pending.push(Pending {
+                                    frame.pending.push(Pending {
                                         hwnd: window.hwnd,
                                         dest: picture,
                                         clip: ui.clip_rect(),
                                         opacity: 255,
+                                        cover: false,
                                     });
                                 }
                                 if response.clicked() {
-                                    activate = Some(window.hwnd);
+                                    frame.activate = Some(window.hwnd);
                                 }
                                 if response.drag_started() {
                                     if let Some(at) = response.interact_pointer_pos() {
@@ -704,14 +905,10 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
                                 }
                                 response.context_menu(|ui| {
                                     let names = can_rename.then_some(window.renamed);
-                                    if let Some(action) = card_menu(
-                                        ui,
-                                        window.hwnd,
-                                        &window.desktop,
-                                        &desktops,
-                                        names,
-                                    ) {
-                                        actions.push(action);
+                                    if let Some(action) =
+                                        card_menu(ui, window.hwnd, &window.desktop, desktops, names)
+                                    {
+                                        frame.actions.push(action);
                                     }
                                 });
                             }
@@ -728,35 +925,7 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     shared.row_rects = row_rects;
     shared.card_rects = card_rects;
 
-    let preview = shared.snapshot.as_ref().is_some_and(|s| s.preview);
-    let in_rows = ctx
-        .input(|i| i.pointer.hover_pos())
-        .is_some_and(|at| rows_area.contains(at));
-    // Asked again rather than reusing the flags from the top of the frame,
-    // so a menu or drag that started on this frame hides the peek at once.
-    let blocked =
-        !preview || egui::Popup::is_any_open(&ctx) || shared.drag.is_some() || shared.window == 0;
-    let forced = shared
-        .forced_peek
-        .and_then(|card| forced_card(&cards, card));
-    match forced {
-        Some(hwnd) if !blocked && hovered.is_none() => {
-            shared.peek.show(hwnd, shared.window as HWND)
-        }
-        _ => match shared.hover.step(Instant::now(), hovered, in_rows, blocked) {
-            Step::Show(hwnd) => shared.peek.show(hwnd, shared.window as HWND),
-            Step::Hide => shared.peek.hide(),
-            Step::Wait(after) => ctx.request_repaint_after(after),
-        },
-    }
-    if shared.peek.is_shown() {
-        // Looks again now and then, so a window that closes takes its
-        // peek with it even when nothing else repaints the strip.
-        ctx.request_repaint_after(peek::REST);
-    }
-
     // The dragged card rides above everything, following the pointer.
-    let mut floating: Option<Rect> = None;
     if let (Some(drag), Some(member), Some(pointer)) = (shared.drag.as_ref(), dragged, pointer) {
         let rect = Rect::from_min_size(pointer - drag.grab, CARD);
         let window = &group.windows[member];
@@ -777,24 +946,18 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
             StrokeKind::Inside,
         );
         if !menu_open {
-            pending.push(Pending {
+            frame.pending.push(Pending {
                 hwnd: window.hwnd,
                 dest: area.shrink(1.0),
                 clip: Rect::EVERYTHING,
                 opacity: 204,
+                cover: false,
             });
         }
-        floating = Some(rect);
+        frame.floating = Some(rect);
         ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
     }
-
-    place_pictures(
-        shared,
-        &pending,
-        floating,
-        dragged.map(|m| group.windows[m].hwnd),
-        ppp,
-    );
+    frame.dragged = dragged.map(|m| group.windows[m].hwnd);
 
     if footer > 0.0 {
         let job = text::job(
@@ -812,34 +975,12 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     }
 
     if !menu_open && !dragging {
-        keyboard(
-            &ctx,
-            shared,
-            &group,
-            &rows,
-            &flat,
-            &mut actions,
-            &mut activate,
-        );
+        let Frame {
+            actions, activate, ..
+        } = &mut frame;
+        keyboard(&ctx, shared, group, &rows, &flat, actions, activate);
     }
-
-    for action in &actions {
-        apply_locally(shared, action);
-    }
-    for action in actions {
-        shared.to_host.send(HostRequest::Arrange {
-            plugin: plugin.clone(),
-            action,
-        });
-    }
-    if let Some(hwnd) = activate {
-        shared.hide_peek();
-        shared.to_host.send(HostRequest::Arrange {
-            plugin,
-            action: ArrangeAction::Activate(hwnd),
-        });
-        shared.closed = true;
-    }
+    frame
 }
 
 /// The card a test scene asked to peek at, from the cards in their order on
@@ -912,12 +1053,14 @@ fn place_pictures(
         }
         let frame = dwm_thumbs::visible_frame(item.hwnd as HWND)
             .unwrap_or(Rect::from_min_size(pos2(0.0, 0.0), size));
-        let dest = Rect::from_center_size(
-            item.dest.center(),
-            dwm_thumbs::fit(frame.size(), item.dest.size()),
-        );
+        let (dest, source) = if item.cover {
+            (item.dest, dwm_thumbs::cover(frame, item.dest.size()))
+        } else {
+            let fitted = dwm_thumbs::fit(frame.size(), item.dest.size());
+            (Rect::from_center_size(item.dest.center(), fitted), frame)
+        };
         let placement =
-            dwm_thumbs::crop(dest, item.clip, frame).map(|(shown, cropped)| Placement {
+            dwm_thumbs::crop(dest, item.clip, source).map(|(shown, cropped)| Placement {
                 dest: dwm_thumbs::physical(shown, pixels_per_point),
                 source: dwm_thumbs::physical(cropped, 1.0),
                 opacity: item.opacity,
@@ -1135,7 +1278,7 @@ fn card(
     );
     let picture = area.shrink(1.0);
     if !has_picture {
-        name_card(ui, picture, label, desktop);
+        name_card(ui.painter(), picture, label, desktop);
     }
     let mut rename = false;
     if let Some(can_rename) = same_title {
@@ -1276,9 +1419,8 @@ fn placeholder(ui: &mut Ui, text_line: &str) {
 
 /// Stands in for a picture DWM cannot give, and for all pictures while a menu
 /// is open, since DWM would draw them over it.
-fn name_card(ui: &Ui, area: Rect, label: &str, desktop: &str) {
-    let tokens = Tokens::get(ui.ctx());
-    let painter = ui.painter();
+fn name_card(painter: &egui::Painter, area: Rect, label: &str, desktop: &str) {
+    let tokens = Tokens::get(painter.ctx());
     let mut job = text::job(label, theme::semibold(15.0), tokens.text_primary, None);
     job.wrap = TextWrapping {
         max_width: area.width() - 16.0,
@@ -1343,11 +1485,26 @@ mod tests {
                     label: format!("w{i}"),
                     desktop: d.to_string(),
                     monitor: None,
+                    on_monitor: None,
+                    saved_monitor: None,
                     renamed: false,
                     same_title: false,
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn the_toolbar_counts_monitors_desktops_and_windows() {
+        assert_eq!(
+            summary(3, 6, 27),
+            "3 monitors \u{b7} 6 desktops \u{b7} 27 windows"
+        );
+        // Without the desktop list there is still the one desktop.
+        assert_eq!(
+            summary(1, 0, 1),
+            "1 monitor \u{b7} 1 desktop \u{b7} 1 window"
+        );
     }
 
     #[test]

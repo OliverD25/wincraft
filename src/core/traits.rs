@@ -1,7 +1,8 @@
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 
 use crate::core::ui_bridge::{
-    ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, LayoutAction, LayoutSnapshot,
+    ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeMonitor, ArrangeView,
+    LayoutAction, LayoutSnapshot,
 };
 use crate::search::SearchProvider;
 
@@ -98,6 +99,8 @@ pub struct WindowGroups {
     pub watched: Vec<String>,
     /// Whether resting the mouse on a card shows that window on its monitor.
     pub preview: bool,
+    pub monitors: Vec<ArrangeMonitor>,
+    pub view: ArrangeView,
 }
 
 pub struct HostContext<'a> {

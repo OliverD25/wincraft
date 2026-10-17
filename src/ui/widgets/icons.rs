@@ -13,6 +13,7 @@ pub enum Icon {
     Calculator,
     Globe,
     Terminal,
+    Monitor,
 }
 
 struct Path {
@@ -141,6 +142,19 @@ fn paths(icon: Icon) -> Vec<Path> {
         Icon::Terminal => vec![
             Path::start(4.0, 17.0).line(10.0, 11.0).line(4.0, 5.0),
             Path::start(12.0, 19.0).line(20.0, 19.0),
+        ],
+        Icon::Monitor => vec![
+            Path::start(4.0, 4.0)
+                .line(20.0, 4.0)
+                .corner(22.0, 4.0, 22.0, 6.0)
+                .line(22.0, 15.0)
+                .corner(22.0, 17.0, 20.0, 17.0)
+                .line(4.0, 17.0)
+                .corner(2.0, 17.0, 2.0, 15.0)
+                .line(2.0, 6.0)
+                .corner(2.0, 4.0, 4.0, 4.0),
+            Path::start(8.0, 21.0).line(16.0, 21.0),
+            Path::start(12.0, 17.0).line(12.0, 21.0),
         ],
         Icon::Globe => vec![
             Path::arc(pos2(12.0, 12.0), 10.0, 0.0, 360.0),

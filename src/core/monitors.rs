@@ -1,8 +1,8 @@
-/// Each monitor's place word by where its left edge is: "Left", "Middle",
+/// Each monitor's place word by where its left edge is: "Left", "Centre",
 /// "Right" for three, "Left" and "Right" for two, "Monitor N" counted from
 /// the left past three, and nothing for a single monitor.
 pub fn position_names(lefts: &[i32]) -> Vec<Option<String>> {
-    const NAMES: [&[&str]; 4] = [&[], &[], &["Left", "Right"], &["Left", "Middle", "Right"]];
+    const NAMES: [&[&str]; 4] = [&[], &[], &["Left", "Right"], &["Left", "Centre", "Right"]];
     let mut order: Vec<usize> = (0..lefts.len()).collect();
     order.sort_by_key(|index| lefts[*index]);
     let mut result = vec![None; lefts.len()];
@@ -36,15 +36,15 @@ mod tests {
     }
 
     #[test]
-    fn three_monitors_with_the_primary_in_the_middle() {
+    fn three_monitors_with_the_primary_in_the_centre() {
         // The primary monitor is at 0, whatever order Windows lists them in.
         assert_eq!(
             position_names(&[0, -1920, 3840]),
-            words(&["Middle", "Left", "Right"])
+            words(&["Centre", "Left", "Right"])
         );
         assert_eq!(
             position_names(&[1920, -1920, 0]),
-            words(&["Right", "Left", "Middle"])
+            words(&["Right", "Left", "Centre"])
         );
     }
 

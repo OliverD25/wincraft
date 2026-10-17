@@ -26,8 +26,8 @@ use crate::core::traits::{
     TrayAction, WinCraftPlugin, WindowGroups,
 };
 use crate::core::ui_bridge::{
-    ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeWindow, LayoutAction,
-    LayoutApp, LayoutEntry, LayoutRef, LayoutSnapshot,
+    ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeView, ArrangeWindow,
+    LayoutAction, LayoutApp, LayoutEntry, LayoutRef, LayoutSnapshot,
 };
 use crate::core::{appid, clock, host, instance, wide, window_names};
 use desktops::{Desktop, DesktopId};
@@ -117,6 +117,8 @@ pub struct LayoutKeeper {
     restore_on_start: bool,
     front_order: bool,
     preview_on_hover: bool,
+    /// The strip's view, as the user last picked it there.
+    arrange_view: ArrangeView,
     ticks: u64,
     started_once: bool,
     reader: Option<desktops::Reader>,
@@ -175,6 +177,7 @@ impl Default for LayoutKeeper {
             restore_on_start: true,
             front_order: true,
             preview_on_hover: true,
+            arrange_view: ArrangeView::Auto,
             ticks: 0,
             started_once: false,
             reader: None,
@@ -239,6 +242,7 @@ impl LayoutKeeper {
         self.restore_on_start = flag(settings, "restore_on_start");
         self.front_order = flag(settings, "restore_front_order");
         self.preview_on_hover = flag(settings, "preview_on_hover");
+        self.arrange_view = ArrangeView::from_setting(&text("arrange_view", "auto"));
         self.show_progress = flag(settings, "show_restore_progress");
         if !self.show_progress {
             self.hide_notice();
@@ -1452,6 +1456,7 @@ impl WinCraftPlugin for LayoutKeeper {
             "restore_front_order": true,
             "show_restore_progress": true,
             "preview_on_hover": true,
+            "arrange_view": ArrangeView::Auto.setting(),
         })
     }
 
@@ -1704,10 +1709,35 @@ impl WinCraftPlugin for LayoutKeeper {
     }
 
     fn window_groups(&mut self) -> Option<WindowGroups> {
-        self.refresh();
+        let live = self.refresh();
         let registry = desktops::list();
         let current = desktops::current();
         let monitors = monitors::list();
+        let connected = monitors::saved_names(&monitors);
+        let mut disconnected: Vec<state::SavedMonitor> = Vec::new();
+        let mut saved_monitor: BTreeMap<isize, usize> = BTreeMap::new();
+        for (exe, program) in self.writer.last().into_iter().flatten() {
+            let open = Self::open_matches(exe, program, &live);
+            for (window, hwnd) in program.windows.iter().zip(open) {
+                let (Some(saved), Some(hwnd)) = (&window.monitor, hwnd) else {
+                    continue;
+                };
+                let place = match monitors::find(saved, &connected) {
+                    Some(index) => index,
+                    None => {
+                        let known = disconnected
+                            .iter()
+                            .position(|m| m.device == saved.device && m.name == saved.name);
+                        connected.len()
+                            + known.unwrap_or_else(|| {
+                                disconnected.push(saved.clone());
+                                disconnected.len() - 1
+                            })
+                    }
+                };
+                saved_monitor.insert(hwnd, place);
+            }
+        }
         let mut groups: Vec<ArrangeGroup> = self
             .groups
             .iter()
@@ -1729,6 +1759,8 @@ impl WinCraftPlugin for LayoutKeeper {
                             label: name.unwrap_or_else(|| identity.label().to_string()),
                             desktop,
                             monitor: monitors::strip_label(identity.rect, &monitors),
+                            on_monitor: monitors::index_of(identity.rect, &monitors),
+                            saved_monitor: saved_monitor.get(&hwnd).copied(),
                             same_title: false,
                         }
                     })
@@ -1777,6 +1809,8 @@ impl WinCraftPlugin for LayoutKeeper {
             focus,
             watched: vec![self.watch.to_string()],
             preview: self.preview_on_hover,
+            monitors: monitors::for_strip(&monitors, &disconnected),
+            view: self.arrange_view,
         })
     }
 

@@ -76,11 +76,75 @@ pub struct ArrangeWindow {
     /// Which monitor the window is on ("Left", "Right"), the one it returns
     /// to when minimized; None on the primary monitor or with just one.
     pub monitor: Option<String>,
+    /// The monitor the window is on now (for a minimized window, the one it
+    /// returns to), as a place in the snapshot's `monitors`.
+    pub on_monitor: Option<usize>,
+    /// The monitor of the window in the last saved layout, as a place in
+    /// `monitors`; None when the window has not been saved yet.
+    pub saved_monitor: Option<usize>,
     /// The label is a name the user gave the window with WindowNamer.
     pub renamed: bool,
     /// Another window of the app has the same label, so a restore cannot
     /// tell them apart.
     pub same_title: bool,
+}
+
+/// A monitor for the strip's columns: every connected one in the order
+/// Windows lists them, then the disconnected ones that still have saved
+/// windows.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArrangeMonitor {
+    /// The GDI device name, such as "\\.\DISPLAY1": a move names the
+    /// target monitor by it.
+    pub device: String,
+    /// The column's name: its place ("Left", "Centre", "Right").
+    pub label: String,
+    /// The name the monitor gives itself, such as "DELL U2720Q"; can be empty.
+    pub name: String,
+    /// The whole screen in physical pixels; all zero when disconnected.
+    pub rect: [i32; 4],
+    /// The screen without the taskbar, the same way.
+    pub work: [i32; 4],
+    pub primary: bool,
+    pub connected: bool,
+}
+
+/// How the strip groups a desktop's windows: one column per monitor, or one
+/// wrapping row as before 0.13. Auto is By monitor with two or more
+/// monitors connected.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ArrangeView {
+    #[default]
+    Auto,
+    ByMonitor,
+    Flat,
+}
+
+impl ArrangeView {
+    pub fn from_setting(value: &str) -> Self {
+        match value {
+            "monitor" => Self::ByMonitor,
+            "flat" => Self::Flat,
+            _ => Self::Auto,
+        }
+    }
+
+    pub fn setting(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::ByMonitor => "monitor",
+            Self::Flat => "flat",
+        }
+    }
+
+    /// The view to draw with `connected` monitors: never Auto.
+    pub fn resolve(self, connected: usize) -> Self {
+        match self {
+            Self::Auto if connected >= 2 => Self::ByMonitor,
+            Self::Auto => Self::Flat,
+            view => view,
+        }
+    }
 }
 
 /// One taskbar group, windows in thumbnail order. Windows groups buttons by
@@ -128,6 +192,9 @@ pub struct ArrangeSnapshot {
     pub preview: bool,
     /// WindowNamer is on, so the card menu offers Rename.
     pub can_rename: bool,
+    pub monitors: Vec<ArrangeMonitor>,
+    /// The view the user picked last, kept in the plugin's settings.
+    pub view: ArrangeView,
 }
 
 /// What the strip asks the plugin to do.
@@ -502,6 +569,19 @@ mod tests {
             label: key.to_string(),
             windows: Vec::new(),
         }
+    }
+
+    #[test]
+    fn auto_is_by_monitor_with_two_monitors_or_more() {
+        assert_eq!(ArrangeView::Auto.resolve(1), ArrangeView::Flat);
+        assert_eq!(ArrangeView::Auto.resolve(0), ArrangeView::Flat);
+        assert_eq!(ArrangeView::Auto.resolve(2), ArrangeView::ByMonitor);
+        assert_eq!(ArrangeView::Flat.resolve(3), ArrangeView::Flat);
+        assert_eq!(ArrangeView::ByMonitor.resolve(1), ArrangeView::ByMonitor);
+        for view in [ArrangeView::Auto, ArrangeView::ByMonitor, ArrangeView::Flat] {
+            assert_eq!(ArrangeView::from_setting(view.setting()), view);
+        }
+        assert_eq!(ArrangeView::from_setting("sideways"), ArrangeView::Auto);
     }
 
     #[test]

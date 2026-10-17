@@ -815,6 +815,8 @@ impl Host {
             can_rename: self
                 .index_of(NAMER_ID)
                 .is_some_and(|index| self.slots[index].enabled),
+            monitors: groups.monitors,
+            view: groups.view,
         };
         self.to_ui.send(if open {
             UiCommand::ShowArrange(snapshot)

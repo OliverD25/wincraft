@@ -326,7 +326,7 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
 - **Use the shared Win32 helpers in `src/core/`** instead of writing another
   copy: `com` (the owned COM pointer), `windows_list` (the Alt+Tab window
   filter, window text, a process's program path), `desktop_manager` (which
-  virtual desktop a window is on), `clipboard`, `monitors` (left, middle,
+  virtual desktop a window is on), `clipboard`, `monitors` (left, centre,
   right) and `wide` / `from_wide_ptr` for UTF-16 strings.
 - **Clean up in `teardown`.** A plugin can be switched off and on again from
   the settings window, so `init` must work a second time.
