@@ -15,6 +15,8 @@ use crate::ui::widgets::{keycap, text, toggle};
 #[derive(Default)]
 pub struct Update {
     notes: Readme,
+    /// The notes of the installed version.
+    installed: Readme,
 }
 
 pub fn show(
@@ -115,6 +117,13 @@ pub fn show(
 
             if let Some(release) = &update.available {
                 new_release(ui, release, update, &mut state.update, to_host);
+                ui.spacing_mut().item_spacing.y = 0.0;
+            }
+
+            if let Some(notes) = &update.installed_notes {
+                page::section_header(ui, &format!("What's new in {}", snapshot.version));
+                ui.spacing_mut().item_spacing.y = 8.0;
+                state.update.installed.boxed(ui, notes);
                 ui.spacing_mut().item_spacing.y = 0.0;
             }
 

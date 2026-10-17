@@ -4,6 +4,7 @@ use crate::core::instance;
 
 const RAW_BASE: &str = "https://raw.githubusercontent.com/OliverD25/wincraft/main";
 const RELEASES_LATEST: &str = "https://api.github.com/repos/OliverD25/wincraft/releases/latest";
+const RELEASES_BY_TAG: &str = "https://api.github.com/repos/OliverD25/wincraft/releases/tags/";
 const TIMEOUT: Duration = Duration::from_secs(5);
 /// Points a test instance's update check at a local fake of the releases
 /// API. Ignored without `WINCRAFT_INSTANCE`.
@@ -78,6 +79,17 @@ pub struct Asset {
 /// first one is published, which is a different fact from being offline.
 pub fn latest_release() -> Result<Option<Release>, String> {
     let url = releases_override().unwrap_or_else(|| RELEASES_LATEST.to_string());
+    match get(&url) {
+        Ok(body) => parse_release(&body).map(Some),
+        Err(err) if err.contains("404") => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
+/// One release by its tag, such as `v0.16.2`; None when there is no such
+/// release.
+pub fn release_by_tag(tag: &str) -> Result<Option<Release>, String> {
+    let url = releases_override().unwrap_or_else(|| format!("{RELEASES_BY_TAG}{tag}"));
     match get(&url) {
         Ok(body) => parse_release(&body).map(Some),
         Err(err) if err.contains("404") => Ok(None),

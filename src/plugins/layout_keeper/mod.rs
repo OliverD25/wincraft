@@ -2,7 +2,8 @@ mod desktops;
 mod guard;
 mod identity;
 mod monitors;
-mod notice;
+// The look of the panel is shared with the host's update notice.
+pub(crate) mod notice;
 mod order;
 mod restore;
 mod state;

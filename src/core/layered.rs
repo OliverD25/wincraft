@@ -8,6 +8,7 @@
 //! on black into a mask first and its grey level used as coverage when the
 //! panel and the tinted text are mixed.
 
+use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
 use std::sync::OnceLock;
 
 use egui::Color32;
@@ -21,11 +22,11 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, SetWindowPos, ShowWindow,
-    UpdateLayeredWindow, HTTRANSPARENT, HWND_TOPMOST, MA_NOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, ULW_ALPHA, WM_MOUSEACTIVATE,
-    WM_NCHITTEST, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_EX_TRANSPARENT, WS_POPUP,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, LoadCursorW, PostMessageW, RegisterClassW,
+    SetWindowPos, ShowWindow, UpdateLayeredWindow, HTTRANSPARENT, HWND_TOPMOST, IDC_HAND,
+    MA_NOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE,
+    SW_SHOWNOACTIVATE, ULW_ALPHA, WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_NCHITTEST, WNDCLASSW,
+    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 
 use crate::core::{theme, wide};
@@ -43,12 +44,32 @@ impl Layered {
     /// `class_name` is registered once per process; a second call with the
     /// same name reuses the class.
     pub fn create(class_name: &str) -> Result<Self, String> {
+        Self::build(class_name, panel_proc, WS_EX_TRANSPARENT, false)
+    }
+
+    /// Like `create`, but the panel takes clicks: a click posts `message` to
+    /// `target`. Only one clickable panel can exist at a time.
+    pub fn create_clickable(class_name: &str, target: HWND, message: u32) -> Result<Self, String> {
+        CLICK_TARGET.store(target as isize, Ordering::Relaxed);
+        CLICK_MESSAGE.store(message, Ordering::Relaxed);
+        Self::build(class_name, click_proc, 0, true)
+    }
+
+    fn build(
+        class_name: &str,
+        proc: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT,
+        pass_clicks_through: u32,
+        hand: bool,
+    ) -> Result<Self, String> {
         let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
         let name = wide(class_name);
         let mut class: WNDCLASSW = unsafe { std::mem::zeroed() };
-        class.lpfnWndProc = Some(panel_proc);
+        class.lpfnWndProc = Some(proc);
         class.hInstance = hinstance;
         class.lpszClassName = name.as_ptr();
+        if hand {
+            class.hCursor = unsafe { LoadCursorW(std::ptr::null_mut(), IDC_HAND) };
+        }
         // Fails harmlessly with "class already exists" after the plugin was
         // switched off and on.
         unsafe { RegisterClassW(&class) };
@@ -58,7 +79,7 @@ impl Layered {
                 // NoActivate and ToolWindow keep it out of the focus chain,
                 // the taskbar and Alt+Tab.
                 WS_EX_LAYERED
-                    | WS_EX_TRANSPARENT
+                    | pass_clicks_through
                     | WS_EX_TOPMOST
                     | WS_EX_TOOLWINDOW
                     | WS_EX_NOACTIVATE,
@@ -384,6 +405,29 @@ unsafe extern "system" fn panel_proc(
     match msg {
         WM_NCHITTEST => HTTRANSPARENT as LRESULT,
         WM_MOUSEACTIVATE => MA_NOACTIVATE as LRESULT,
+        _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+    }
+}
+
+/// Where a click on the clickable panel is reported, and with which message.
+static CLICK_TARGET: AtomicIsize = AtomicIsize::new(0);
+static CLICK_MESSAGE: AtomicU32 = AtomicU32::new(0);
+
+unsafe extern "system" fn click_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    match msg {
+        WM_MOUSEACTIVATE => MA_NOACTIVATE as LRESULT,
+        WM_LBUTTONUP => {
+            let target = CLICK_TARGET.load(Ordering::Relaxed) as HWND;
+            if !target.is_null() {
+                unsafe { PostMessageW(target, CLICK_MESSAGE.load(Ordering::Relaxed), 0, 0) };
+            }
+            0
+        }
         _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
     }
 }

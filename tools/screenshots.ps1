@@ -187,6 +187,8 @@ $scenes = @(
     # A minimized window of the harness's own, renamed, in the strip.
     # The please-wait panel with sample progress; nothing is restored.
     @{ Name = 'restore-panel';          Args = @('--show-restore-panel');                  Window = 'panel';    Settle = 800 },
+    # The notice shown once after an update; nothing is updated.
+    @{ Name = 'update-notice';          Args = @('--show-update-notice');                  Window = 'update-notice'; Settle = 800 },
     # Two windows of the harness's own with the same title: the strip flags both.
     @{ Name = 'strip-same-title';       Args = @('--open-arrange={helper-group}');         Window = 'strip';    Settle = 1500; Helper = $true },
     @{ Name = 'strip-renamed';          Args = @('"--rename-window={helper}:Build server"', '--open-arrange={helper-group}'); Window = 'strip'; Settle = 1500; Helper = $true }
@@ -466,6 +468,7 @@ function Find-Target([System.Diagnostics.Process]$process, [string]$kind) {
                          Sort-Object { $_.Width * $_.Height } -Descending | Select-Object -First 1 }
         'strip'    { $windows | Where-Object { $_.Title -eq 'WinCraft Arrange' } | Select-Object -First 1 }
         'panel'    { $windows | Where-Object { $_.Class -eq 'WinCraftRestoreNotice' } | Select-Object -First 1 }
+        'update-notice' { $windows | Where-Object { $_.Class -eq 'WinCraftUpdateNotice' } | Select-Object -First 1 }
         'peek'     { $windows | Where-Object { $_.Class -eq 'WinCraftPeek' } |
                          Sort-Object { $_.Width * $_.Height } -Descending | Select-Object -First 1 }
     }

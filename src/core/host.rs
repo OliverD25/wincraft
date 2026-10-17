@@ -38,7 +38,10 @@ use crate::core::ui_bridge::{
     UpdateView, WM_APP_UI,
 };
 use crate::core::update::{self, Checked, Handover};
-use crate::core::{autostart, config, hotkeys, install, instance, taskbar, theme, wide};
+use crate::core::update_notice::{self, UpdateNotice};
+use crate::core::{
+    autostart, config, hotkeys, install, instance, release_notes, taskbar, theme, wide,
+};
 use crate::search::{self, Router, SearchProvider};
 use crate::store::github::{self, Release};
 use crate::ui;
@@ -84,6 +87,9 @@ const CHECK_TIMER_MS: u32 = 60 * 60 * 1000;
 /// A version an update started tells the old one it is healthy when this
 /// fires.
 const HEALTHY_TIMER: usize = 0x5743_0003;
+/// Fades the "Updated to" notice, and the message its click posts.
+const NOTICE_TIMER: usize = 0x5743_0004;
+const WM_APP_NOTICE_CLICK: u32 = WM_APP + 23;
 
 struct RegisteredHotkey {
     action_id: u32,
@@ -116,6 +122,8 @@ struct Host {
     arrange_focus: Option<String>,
     peek_card: Option<PeekCard>,
     updates: Updates,
+    /// The "Updated to" panel while it is on screen.
+    update_notice: Option<UpdateNotice>,
 }
 
 /// What clicking the last balloon opens: a "hotkey is taken" balloon opens
@@ -133,6 +141,8 @@ enum UpdateEvent {
     /// Percent downloaded, when the server said how much there is.
     Progress(Option<u8>),
     Downloaded(Result<std::path::PathBuf, String>),
+    /// The release notes of the installed version, fetched after an update.
+    InstalledNotes(String),
 }
 
 struct Updates {
@@ -152,6 +162,8 @@ struct Updates {
     healthy_pending: Option<String>,
     /// A test scene's `--update-now`: update as soon as the check finds one.
     auto_update: bool,
+    /// What About shows under "What's new": the notes of this version.
+    installed_notes: Option<String>,
     tx: Sender<UpdateEvent>,
     rx: Receiver<UpdateEvent>,
 }
@@ -169,6 +181,7 @@ impl Default for Updates {
             failed: None,
             healthy_pending: None,
             auto_update: false,
+            installed_notes: None,
             tx,
             rx,
         }
@@ -211,6 +224,8 @@ pub struct SceneFlags {
     pub ask_bookmark: Option<String>,
     /// Check for updates at once and install what the check finds.
     pub update_now: bool,
+    /// Show the "Updated to" notice, as after an update.
+    pub update_notice: bool,
 }
 
 static DEMO_RESTORE_PANEL: AtomicBool = AtomicBool::new(false);
@@ -314,6 +329,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         arrange_focus: flags.scene.arrange_focus.clone(),
         peek_card: flags.scene.peek_card,
         updates: Updates::default(),
+        update_notice: None,
     };
     HOST_WINDOW.with(|cell| cell.set(hwnd));
     // Notices queued before the window existed have nobody to post them.
@@ -729,6 +745,7 @@ impl Host {
             }),
             blocked: self.updates.blocked.clone(),
             failed: self.updates.failed.clone(),
+            installed_notes: self.updates.installed_notes.clone(),
         }
     }
 
@@ -746,6 +763,10 @@ impl Host {
                 update::HEALTHY_AFTER.as_secs()
             );
             self.updates.healthy_pending = Some(from.clone());
+            if !instance::is_test() {
+                self.show_updated_notice();
+            }
+            self.fetch_installed_notes();
             unsafe {
                 SetTimer(
                     self.hwnd,
@@ -762,6 +783,9 @@ impl Host {
             log::warn!("{text}; the log above says why");
             self.updates.failed = Some(text.clone());
             self.update_notice(&text);
+        }
+        if flags.scene.update_notice {
+            self.show_updated_notice();
         }
         if flags.scene.update_now {
             self.updates.auto_update = true;
@@ -784,10 +808,6 @@ impl Host {
         if quitting {
             return;
         }
-        self.update_notice(&format!(
-            "WinCraft updated from {from} to {}",
-            env!("CARGO_PKG_VERSION")
-        ));
         if self.updates.blocked.is_none() {
             update::remove_leftovers_soon(install::dir());
         }
@@ -860,6 +880,9 @@ impl Host {
             return;
         }
         log::info!("{tag} is downloaded and matches its checksum");
+        if let Some(release) = &self.updates.newer {
+            release_notes::store(&release.tag, &release.notes);
+        }
         self.updates.status = UpdateStatus::Installing;
         self.publish();
         let dir = install::dir();
@@ -919,6 +942,67 @@ impl Host {
         }
     }
 
+    /// The panel that says the update worked. A click opens About.
+    fn show_updated_notice(&mut self) {
+        let version = env!("CARGO_PKG_VERSION");
+        log::info!("update notice: Updated to {version}");
+        self.close_update_notice();
+        match UpdateNotice::show(version, self.hwnd, WM_APP_NOTICE_CLICK) {
+            Ok(notice) => {
+                self.update_notice = Some(notice);
+                unsafe { SetTimer(self.hwnd, NOTICE_TIMER, update_notice::TICK_MS, None) };
+            }
+            Err(err) => log::warn!("could not show the update notice: {err}"),
+        }
+    }
+
+    fn notice_tick(&mut self) {
+        let showing = self.update_notice.as_mut().is_some_and(UpdateNotice::tick);
+        if !showing {
+            self.close_update_notice();
+        }
+    }
+
+    fn close_update_notice(&mut self) {
+        unsafe { KillTimer(self.hwnd, NOTICE_TIMER) };
+        if let Some(mut notice) = self.update_notice.take() {
+            notice.close();
+        }
+    }
+
+    /// The notes of the version that just started, for About: from the file
+    /// the update kept, else from GitHub on a thread of its own.
+    fn fetch_installed_notes(&mut self) {
+        let version = env!("CARGO_PKG_VERSION");
+        self.updates.installed_notes = release_notes::load(version);
+        if self.updates.installed_notes.is_some() || !update::automatic_checks_allowed() {
+            return;
+        }
+        let tx = self.updates.tx.clone();
+        let hwnd = self.hwnd as isize;
+        let started = std::thread::Builder::new()
+            .name("wincraft-release-notes".to_string())
+            .spawn(
+                move || match github::release_by_tag(&format!("v{version}")) {
+                    Ok(Some(release)) => {
+                        release_notes::store(&release.tag, &release.notes);
+                        if !release.notes.trim().is_empty()
+                            && tx.send(UpdateEvent::InstalledNotes(release.notes)).is_ok()
+                        {
+                            unsafe { PostMessageW(hwnd as HWND, WM_APP_UPDATE, 0, 0) };
+                        }
+                    }
+                    Ok(None) => log::info!("no release notes are published for v{version}"),
+                    Err(err) => {
+                        log::info!("the release notes of v{version} could not be fetched: {err}")
+                    }
+                },
+            );
+        if let Err(err) = started {
+            log::warn!("could not start the release notes fetch: {err}");
+        }
+    }
+
     /// A balloon that opens About when clicked. A test instance only logs
     /// it: a fake release must never put a notice on the user's screen.
     fn update_notice(&mut self, text: &str) {
@@ -939,6 +1023,7 @@ impl Host {
                     }
                 }
                 UpdateEvent::Downloaded(result) => self.downloaded(result),
+                UpdateEvent::InstalledNotes(notes) => self.updates.installed_notes = Some(notes),
             }
         }
         self.publish();
@@ -969,6 +1054,8 @@ impl Host {
                 log::info!("update check: {tag} is the newest release, nothing to update");
                 self.updates.status = UpdateStatus::UpToDate;
                 self.updates.newer = None;
+                // The check keeps the notes when the newest release is this one.
+                self.updates.installed_notes = release_notes::load(env!("CARGO_PKG_VERSION"));
                 self.config.updates.latest = tag;
             }
             Checked::Newer(release) => {
@@ -1957,6 +2044,17 @@ unsafe extern "system" fn wnd_proc(
         }
         WM_TIMER if wparam == UPDATE_TIMER => {
             with_host_or_later(hwnd, msg, wparam, lparam, |host| host.daily_check());
+            0
+        }
+        WM_TIMER if wparam == NOTICE_TIMER => {
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| host.notice_tick());
+            0
+        }
+        WM_APP_NOTICE_CLICK => {
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| {
+                host.close_update_notice();
+                host.to_ui.send(UiCommand::ShowSettings(Page::About));
+            });
             0
         }
         WM_TIMER if wparam == HEALTHY_TIMER => {

@@ -347,6 +347,18 @@ impl Notice {
         })
     }
 
+    /// A panel in the same look that takes clicks: a click posts `message`
+    /// to `target`.
+    pub fn create_clickable(
+        class_name: &str,
+        target: windows_sys::Win32::Foundation::HWND,
+        message: u32,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            window: Layered::create_clickable(class_name, target, message)?,
+        })
+    }
+
     pub fn show(&mut self, content: &Content) {
         // The primary monitor's work area, so the panel sits above the
         // taskbar wherever it is.

@@ -157,7 +157,11 @@ fn main() {
     autostart::sync_in_background(config.start_with_windows);
 
     let (mut scene, theme, mut notes) = scene_flags(&args, instance::is_test());
-    for flag in ["--show-restore-panel", "--update-now"] {
+    for flag in [
+        "--show-restore-panel",
+        "--update-now",
+        "--show-update-notice",
+    ] {
         if !has_flag(&args, flag) {
             continue;
         }
@@ -167,6 +171,8 @@ fn main() {
             ));
         } else if flag == "--update-now" {
             scene.update_now = true;
+        } else if flag == "--show-update-notice" {
+            scene.update_notice = true;
         } else {
             scene.restore_panel = true;
         }

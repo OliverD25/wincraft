@@ -533,6 +533,9 @@ pub struct UpdateView {
     pub blocked: Option<String>,
     /// "Update to 0.17.0 failed, kept 0.16.0", after a rollback.
     pub failed: Option<String>,
+    /// The release notes of the installed version, Markdown, when they are
+    /// known: About shows them under "What's new".
+    pub installed_notes: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

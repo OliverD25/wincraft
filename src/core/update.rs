@@ -24,7 +24,7 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use crate::core::install::{self, EXE_NAME};
-use crate::core::{config, instance, logging, package, sha256, wide};
+use crate::core::{config, instance, logging, package, release_notes, sha256, wide};
 use crate::store::github::{self, Release};
 
 pub const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
@@ -89,7 +89,20 @@ pub fn classify(release: Option<Release>, current: &str) -> Checked {
 
 /// Asks GitHub; slow, so never on the host or UI thread.
 pub fn check(current: &str) -> Result<Checked, String> {
-    github::latest_release().map(|release| classify(release, current))
+    github::latest_release().map(|release| {
+        if let Some(release) = &release {
+            keep_notes_if_installed(release, current);
+        }
+        classify(release, current)
+    })
+}
+
+/// A release that is the running version has the notes About shows under
+/// "What's new"; they are kept for the next time it is opened.
+pub fn keep_notes_if_installed(release: &Release, current: &str) {
+    if release.tag.trim_start_matches(['v', 'V']) == current {
+        release_notes::store(&release.tag, &release.notes);
+    }
 }
 
 /// Why Update now cannot run in this copy, or None when it can. Only the
