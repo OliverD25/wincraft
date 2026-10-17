@@ -1560,10 +1560,9 @@ impl PluginSet {
         let Some(index) = self.index_of(plugin_id) else {
             return false;
         };
-        let was_enabled = self.slots[index].enabled;
-        if was_enabled {
-            self.disable(index);
-        }
+        // Stop without saving: `disable` would write the old in-memory
+        // settings back over the file just deleted.
+        let was_enabled = self.stop(index);
         self.configs.remove(plugin_id);
         self.load_config(index);
         if was_enabled {
@@ -2976,6 +2975,64 @@ mod tests {
         assert!(set.reset("fake_a"));
         assert!(set.slots[0].enabled && data.saved("fake_a").enabled);
         assert_eq!(read(&log)[0], "teardown fake_a");
+    }
+
+    #[test]
+    fn a_reset_gives_a_running_plugin_its_defaults_in_memory_on_disk_and_on_the_keyboard() {
+        let data = Scratch::new("reset-defaults");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let mut set = plugin_set(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        set.enable(0);
+        set.set_setting("fake_a", "level", serde_json::json!(5));
+        set.set_hotkey("fake_a", "go", "Win+Alt+F6");
+        assert_eq!(keyboard.held(), ["Win+Alt+F6"]);
+        read(&log);
+
+        assert!(set.reset("fake_a"));
+
+        assert_eq!(
+            read(&log),
+            ["teardown fake_a", "init fake_a level 1"],
+            "the plugin starts again from the defaults, not from level 5"
+        );
+        assert_eq!(set.settings_of("fake_a")["level"], 1);
+        assert_eq!(set.config("fake_a").unwrap().hotkeys["go"], "Win+Alt+F1");
+        let saved = data.saved("fake_a");
+        assert!(saved.enabled);
+        assert_eq!(saved.settings["level"], 1);
+        assert_eq!(saved.hotkeys["go"], "Win+Alt+F1");
+        assert_eq!(keyboard.held(), ["Win+Alt+F1"]);
+        assert_eq!(
+            set.registered(),
+            [("Fake A".to_string(), "Go".to_string(), keys("Win+Alt+F1"))]
+        );
+    }
+
+    #[test]
+    fn a_reset_of_a_plugin_that_is_off_leaves_it_off_with_defaults_on_disk() {
+        let data = Scratch::new("reset-off-defaults");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let mut set = plugin_set(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        set.enable(0);
+        set.set_setting("fake_a", "level", serde_json::json!(5));
+        set.disable(0);
+        read(&log);
+
+        assert!(set.reset("fake_a"));
+
+        assert!(read(&log).is_empty(), "it is not started or stopped");
+        assert!(!set.slots[0].enabled);
+        assert!(keyboard.held().is_empty());
+        assert_eq!(set.settings_of("fake_a")["level"], 1);
+        assert_eq!(data.saved("fake_a").settings["level"], 1);
     }
 
     #[test]
