@@ -665,14 +665,18 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
                                     && thumbnail(shared, window.hwnd)
                                         .is_some_and(|thumb| thumb.source_size().is_some());
                                 let is_cursor = shared.cursor == Some(window.hwnd);
-                                let (response, picture) = card(
+                                let (response, picture, rename) = card(
                                     ui,
                                     &window.label,
                                     desktop_name,
                                     window.monitor.as_deref(),
+                                    window.same_title.then_some(can_rename),
                                     has_picture,
                                     is_cursor,
                                 );
+                                if rename {
+                                    actions.push(ArrangeAction::AskName(window.hwnd));
+                                }
                                 cards_here.push(response.rect);
                                 cards.push((window.hwnd, window.monitor.is_some()));
                                 if response.hovered() {
@@ -1091,18 +1095,25 @@ fn card_menu(
     chosen
 }
 
-/// One window: the monitor chip when it is not on the primary monitor, its
-/// picture area (the live picture is put on top of it later) and its name
-/// underneath. Without a picture the area shows the name and desktop
-/// instead. Returns the card's response and the picture area.
+/// The text of the "Same title" chip's tooltip.
+const SAME_TITLE_HINT: &str = "Restores cannot tell these windows apart. Give one a name.";
+
+/// One window: the monitor chip when it is not on the primary monitor, an
+/// amber "Same title" chip at the right of that line when another window of
+/// the app has the same title (`same_title` says whether WindowNamer is on,
+/// so the chip can offer to rename), its picture area (the live picture is
+/// put on top of it later) and its name underneath. Without a picture the
+/// area shows the name and desktop instead. Returns the card's response, the
+/// picture area, and whether the chip was clicked to rename.
 fn card(
     ui: &mut Ui,
     label: &str,
     desktop: &str,
     monitor: Option<&str>,
+    same_title: Option<bool>,
     has_picture: bool,
     is_cursor: bool,
-) -> (Response, Rect) {
+) -> (Response, Rect, bool) {
     let tokens = Tokens::get(ui.ctx());
     let (rect, response) = ui.allocate_exact_size(CARD, Sense::click_and_drag());
     let lit = response.hovered() || is_cursor;
@@ -1126,6 +1137,21 @@ fn card(
     if !has_picture {
         name_card(ui, picture, label, desktop);
     }
+    let mut rename = false;
+    if let Some(can_rename) = same_title {
+        let chip = same_title_chip(ui.painter(), rect);
+        let mut chip_response = ui
+            .interact(chip, response.id.with("same-title"), Sense::click())
+            .on_hover_text(if can_rename {
+                format!("{SAME_TITLE_HINT} Click to rename.")
+            } else {
+                SAME_TITLE_HINT.to_string()
+            });
+        if can_rename {
+            chip_response = chip_response.on_hover_cursor(egui::CursorIcon::PointingHand);
+        }
+        rename = can_rename && chip_response.clicked();
+    }
 
     let mut job = text::job(label, theme::regular(12.0), tokens.text_primary, None);
     job.wrap = TextWrapping {
@@ -1140,7 +1166,38 @@ fn card(
         galley,
         tokens.text_primary,
     );
-    (response.on_hover_cursor(egui::CursorIcon::Grab), picture)
+    (
+        response.on_hover_cursor(egui::CursorIcon::Grab),
+        picture,
+        rename,
+    )
+}
+
+/// The amber "Same title" chip, right-aligned in the card's label line;
+/// returns its rectangle.
+fn same_title_chip(painter: &egui::Painter, card: Rect) -> Rect {
+    let tokens = Tokens::get(painter.ctx());
+    let galley = painter.layout_no_wrap(
+        "Same title".to_string(),
+        theme::regular(12.0),
+        tokens.warning,
+    );
+    let chip = Rect::from_min_size(
+        pos2(
+            card.right() - CARD_INSET - galley.size().x - 12.0,
+            card.top() + CARD_INSET,
+        ),
+        vec2(galley.size().x + 12.0, LABEL_LINE),
+    );
+    painter.rect(
+        chip,
+        4,
+        tokens.panel_bg,
+        theme::stroke(painter.ctx(), 1.0, tokens.warning),
+        StrokeKind::Inside,
+    );
+    painter.galley(chip.center() - galley.size() / 2.0, galley, tokens.warning);
+    chip
 }
 
 /// Where a card's picture goes, below its label line.
@@ -1287,6 +1344,7 @@ mod tests {
                     desktop: d.to_string(),
                     monitor: None,
                     renamed: false,
+                    same_title: false,
                 })
                 .collect(),
         }

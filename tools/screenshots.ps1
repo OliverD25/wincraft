@@ -172,6 +172,8 @@ $scenes = @(
     # A minimized window of the harness's own, renamed, in the strip.
     # The please-wait panel with sample progress; nothing is restored.
     @{ Name = 'restore-panel';          Args = @('--show-restore-panel');                  Window = 'panel';    Settle = 800 },
+    # Two windows of the harness's own with the same title: the strip flags both.
+    @{ Name = 'strip-same-title';       Args = @('--open-arrange={helper-group}');         Window = 'strip';    Settle = 1500; Helper = $true },
     @{ Name = 'strip-renamed';          Args = @('"--rename-window={helper}:Build server"', '--open-arrange={helper-group}'); Window = 'strip'; Settle = 1500; Helper = $true }
 )
 $number = 0
@@ -287,9 +289,10 @@ function Test-StillAway([string]$when, [int]$sceneNumber) {
     }
 }
 
-# The helper window: a minimized window owned by a child process of the
-# harness, so a scene can rename a window that is not the user's. It never
-# takes the focus, and it closes when quit.txt appears.
+# The helper windows: two minimized windows with the same title, owned by a
+# child process of the harness, so a scene can rename a window that is not
+# the user's and show the same-title chip. They never take the focus, and
+# close when quit.txt appears.
 $helperScript = @'
 param([string]$Dir)
 Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @"
@@ -300,10 +303,14 @@ public class QuietForm : System.Windows.Forms.Form {
 $form = New-Object QuietForm
 $form.Text = 'build.log - Notepad'
 $form.WindowState = 'Minimized'
+$twin = New-Object QuietForm
+$twin.Text = 'build.log - Notepad'
+$twin.WindowState = 'Minimized'
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 200
 $timer.Add_Tick({ if (Test-Path (Join-Path $Dir 'quit.txt')) { $form.Close() } })
 $form.Add_Shown({
+    $twin.Show()
     [IO.File]::WriteAllText((Join-Path $Dir 'hwnd.txt'), $form.Handle.ToInt64().ToString())
     $timer.Start()
 })
@@ -391,7 +398,9 @@ function Write-LayoutSeed {
         'editor.exe'     = @{ windows = @(
             (Win 'main.rs - Editor' 'Editor' $one 0 '2026-10-12'),
             (Win 'notes.md - Editor' 'Editor' $two 1 $null)) }
-        'powershell.exe' = @{ windows = @((Win 'build.log - Notepad' $helperGroup $one 0 '2026-10-17')) }
+        'powershell.exe' = @{ windows = @(
+            (Win 'build.log - Notepad' $helperGroup $one 0 '2026-10-17'),
+            (Win 'build.log - Notepad' $helperGroup $two 1 '2026-10-17')) }
     }
     $file = [ordered]@{ version = 3; saved = (Get-Date -Format 'yyyy-MM-ddTHH:mm:sszzz'); reason = 'timer'; programs = $programs }
     $json = $file | ConvertTo-Json -Depth 8

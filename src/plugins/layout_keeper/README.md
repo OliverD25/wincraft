@@ -156,6 +156,21 @@ The header has **Restore now** (the same as `Win+Alt+L`), **Save now** (the
 same as `Win+Alt+J`) and the time of the last save. The list refreshes every
 two seconds while the page is open.
 
+## Windows with the same title
+
+A restore tells the windows of an app apart by their titles. When two or more
+windows of one app have the same title (capitals and the spaces around do not
+count, and a name given with WindowNamer is the title), they cannot be told
+apart. Both the Arrange strip and the Layout page mark them with an amber
+**Same title** chip. Its tooltip says "Restores cannot tell these windows
+apart. Give one a name." On a strip card, clicking the chip opens WindowNamer's
+rename box for that window. On the Layout page an open window has a
+**Rename...** button next to the chip. Windows of different apps with the
+same title are not marked.
+
+The log notes which windows share a title the first time it happens and
+whenever the set changes, never at every save.
+
 ## Naming windows
 
 Chrome can give a window a name: right-click the tab strip and choose

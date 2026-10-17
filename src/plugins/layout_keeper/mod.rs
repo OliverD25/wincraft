@@ -147,6 +147,9 @@ pub struct LayoutKeeper {
     fading_since: Option<u64>,
     /// The tooltip last handed to the host.
     tray_tip: Option<String>,
+    /// The titles shared by windows of one app at the last save, to log
+    /// only when the set changes.
+    shared_titles: BTreeMap<(String, String), usize>,
     /// Groups to rebuild again on the next tick, after a desktop move that
     /// Windows only reports a moment later.
     reapply: Vec<String>,
@@ -191,6 +194,7 @@ impl Default for LayoutKeeper {
             notice_ctl: notice::Controller::default(),
             fading_since: None,
             tray_tip: None,
+            shared_titles: BTreeMap::new(),
             reapply: Vec::new(),
             arrange_stale: false,
             guard: guard::Guard::default(),
@@ -501,6 +505,48 @@ impl LayoutKeeper {
         }
     }
 
+    /// Logs which windows of one app share a title, only when that set
+    /// changes: a restore cannot tell such windows apart.
+    fn note_shared_titles(&mut self, live: &[windows::LiveWindow]) {
+        let mut by_group: BTreeMap<&str, Vec<(String, String)>> = BTreeMap::new();
+        for window in live {
+            let title = window_names::custom(window.hwnd as isize)
+                .unwrap_or_else(|| window.identity.label().to_string());
+            by_group
+                .entry(window.group.as_str())
+                .or_default()
+                .push((identity::title_key(&title), title));
+        }
+        let mut shared: BTreeMap<(String, String), usize> = BTreeMap::new();
+        let mut shown: BTreeMap<(String, String), String> = BTreeMap::new();
+        for (group, titles) in &by_group {
+            let names: Vec<&str> = titles.iter().map(|(_, title)| title.as_str()).collect();
+            for ((key, title), same) in titles.iter().zip(identity::same_titles(&names)) {
+                if same {
+                    let id = (group.to_string(), key.clone());
+                    *shared.entry(id.clone()).or_default() += 1;
+                    shown.entry(id).or_insert_with(|| title.clone());
+                }
+            }
+        }
+        if shared == self.shared_titles {
+            return;
+        }
+        if shared.is_empty() {
+            log::info!("no windows of one app share a title any more");
+        } else {
+            let list: Vec<String> = shared
+                .iter()
+                .map(|(id, count)| format!("{} x{count} in {}", shown[id], self.label_of(&id.0)))
+                .collect();
+            log::info!(
+                "windows of one app share a title, so a restore cannot tell them apart; give one a name: {}",
+                list.join(" | ")
+            );
+        }
+        self.shared_titles = shared;
+    }
+
     /// A fresh look at the windows, written to the state file. A timer save
     /// keeps the saved windows of any group the guard holds, and the first
     /// write that puts a held group's new windows in the file copies the old
@@ -509,6 +555,7 @@ impl LayoutKeeper {
     fn write_layout(&mut self, reason: &str, force: bool) -> Result<(bool, usize), String> {
         let timer = reason == "timer";
         let live = self.refresh();
+        self.note_shared_titles(&live);
         self.watch_bursts(&live);
         let mut merged = state::merge(
             self.writer.last(),
@@ -1681,9 +1728,16 @@ impl WinCraftPlugin for LayoutKeeper {
                             label: name.unwrap_or_else(|| identity.label().to_string()),
                             desktop,
                             monitor: monitors::strip_label(identity.rect, &monitors),
+                            same_title: false,
                         }
                     })
                     .collect();
+                let mut windows = windows;
+                let titles: Vec<&str> = windows.iter().map(|w| w.label.as_str()).collect();
+                let same = identity::same_titles(&titles);
+                for (window, same) in windows.iter_mut().zip(same) {
+                    window.same_title = same;
+                }
                 (!windows.is_empty()).then(|| ArrangeGroup {
                     key: key.clone(),
                     label: self.label_of(key),
@@ -1847,11 +1901,19 @@ impl WinCraftPlugin for LayoutKeeper {
                         } else {
                             None
                         },
+                        same_title: false,
                     });
                 }
             }
         }
         let mut apps: Vec<LayoutApp> = apps.into_values().collect();
+        for app in &mut apps {
+            let titles: Vec<&str> = app.windows.iter().map(|w| w.title.as_str()).collect();
+            let same = identity::same_titles(&titles);
+            for (window, same) in app.windows.iter_mut().zip(same) {
+                window.same_title = same;
+            }
+        }
         apps.sort_by(|a, b| {
             b.windows
                 .len()
@@ -2503,6 +2565,89 @@ mod tests {
             keeper.saved_label("charmap.exe", r"c:\windows\charmap.exe"),
             "Charmap"
         );
+    }
+
+    fn live_window(hwnd: isize, title: &str, group: &str) -> windows::LiveWindow {
+        windows::LiveWindow {
+            hwnd: hwnd as HWND,
+            identity: identity::WindowIdentity::new("app.exe", title, [0, 0, 1, 1], false)
+                .in_group(group),
+            group: group.to_string(),
+            app_name: None,
+            exe_path: r"c:\app.exe".to_string(),
+        }
+    }
+
+    #[test]
+    fn saved_windows_share_a_title_only_inside_one_app() {
+        let mut programs = Programs::new();
+        let windows = |titles: &[&str], group: &str| ProgramState {
+            windows: titles
+                .iter()
+                .map(|title| saved_window(title, group, DESKTOP_A, None))
+                .collect(),
+        };
+        programs.insert(
+            "browser.exe".to_string(),
+            windows(&["Inbox", "inbox ", "Docs"], "Browser"),
+        );
+        // The same word in another app is not a clash.
+        programs.insert("chat.exe".to_string(), windows(&["Inbox"], "Chat"));
+        let (mut keeper, _) = keeper_with(programs, "same-title");
+        let snapshot = keeper.layout_snapshot().unwrap();
+        let flags = |label: &str| -> Vec<(String, bool)> {
+            snapshot
+                .apps
+                .iter()
+                .find(|app| app.label == label)
+                .unwrap()
+                .windows
+                .iter()
+                .map(|window| (window.title.clone(), window.same_title))
+                .collect()
+        };
+        assert_eq!(
+            flags("Browser"),
+            [
+                ("Inbox".to_string(), true),
+                ("inbox ".to_string(), true),
+                ("Docs".to_string(), false)
+            ]
+        );
+        assert_eq!(flags("Chat"), [("Inbox".to_string(), false)]);
+    }
+
+    #[test]
+    fn shared_titles_are_noted_when_the_set_changes_and_not_before() {
+        let (mut keeper, _) = keeper_with(Programs::new(), "noted");
+        let pair = [
+            live_window(1, "New Tab", "Browser"),
+            live_window(2, "new tab", "Browser"),
+            live_window(3, "New Tab", "Other"),
+        ];
+        keeper.note_shared_titles(&pair);
+        let key = ("Browser".to_string(), "new tab".to_string());
+        assert_eq!(keeper.shared_titles.len(), 1);
+        assert_eq!(keeper.shared_titles[&key], 2);
+
+        // The same windows again change nothing; a third one changes the count.
+        keeper.note_shared_titles(&pair);
+        assert_eq!(keeper.shared_titles[&key], 2);
+        let three = [
+            live_window(1, "New Tab", "Browser"),
+            live_window(2, "new tab", "Browser"),
+            live_window(4, "New tab", "Browser"),
+        ];
+        keeper.note_shared_titles(&three);
+        assert_eq!(keeper.shared_titles[&key], 3);
+
+        // Giving one a different name ends it.
+        let named = [
+            live_window(1, "New Tab", "Browser"),
+            live_window(2, "Work", "Browser"),
+        ];
+        keeper.note_shared_titles(&named);
+        assert!(keeper.shared_titles.is_empty());
     }
 
     #[test]

@@ -78,6 +78,9 @@ pub struct ArrangeWindow {
     pub monitor: Option<String>,
     /// The label is a name the user gave the window with WindowNamer.
     pub renamed: bool,
+    /// Another window of the app has the same label, so a restore cannot
+    /// tell them apart.
+    pub same_title: bool,
 }
 
 /// One taskbar group, windows in thumbnail order. Windows groups buttons by
@@ -187,6 +190,8 @@ pub struct LayoutEntry {
     pub hwnd: Option<isize>,
     /// The day the window was last seen open, when it is closed.
     pub closed_since: Option<String>,
+    /// Another saved window of the app has the same title.
+    pub same_title: bool,
 }
 
 /// The saved windows of one taskbar group.

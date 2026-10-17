@@ -58,6 +58,23 @@ impl WindowIdentity {
     }
 }
 
+/// What two titles are compared by: case and the spaces around do not count.
+pub fn title_key(title: &str) -> String {
+    title.trim().to_lowercase()
+}
+
+/// For each of one app's window titles, whether another window of that app
+/// has the same title. Titles are the names a person sees, so a WindowNamer
+/// name stands for the window. A restore cannot tell such windows apart.
+/// Empty titles are never flagged; windows of different apps are not
+/// compared, because the caller gives one app's titles at a time.
+pub fn same_titles(titles: &[&str]) -> Vec<bool> {
+    let keys: Vec<String> = titles.iter().map(|title| title_key(title)).collect();
+    keys.iter()
+        .map(|key| !key.is_empty() && keys.iter().filter(|other| *other == key).count() > 1)
+        .collect()
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Matching {
     /// (saved index, live index)
@@ -244,5 +261,33 @@ mod tests {
         let saved = vec![chrome("Notes", FULL, true)];
         let live = vec![WindowIdentity::new("msedge.exe", "Notes", FULL, true)];
         assert!(match_windows(&saved, &live).pairs.is_empty());
+    }
+
+    #[test]
+    fn windows_that_share_a_title_are_flagged_whatever_the_case() {
+        assert_eq!(
+            same_titles(&["Inbox", "inbox ", "Docs", "INBOX"]),
+            [true, true, false, true]
+        );
+        assert_eq!(same_titles(&["A", "B"]), [false, false]);
+        assert!(same_titles(&[]).is_empty());
+    }
+
+    #[test]
+    fn empty_titles_are_never_flagged() {
+        assert_eq!(same_titles(&["", "  ", ""]), [false, false, false]);
+    }
+
+    #[test]
+    fn a_name_given_by_hand_ends_the_clash() {
+        // Two browser windows with the same page title; one is named.
+        assert_eq!(
+            same_titles(&["New Tab - Google Chrome", "Work"]),
+            [false, false]
+        );
+        assert_eq!(
+            same_titles(&["New Tab - Google Chrome", "New Tab - Google Chrome"]),
+            [true, true]
+        );
     }
 }
