@@ -1565,6 +1565,9 @@ impl PluginSet {
         let was_enabled = self.stop(index);
         self.configs.remove(plugin_id);
         self.load_config(index);
+        // The defaults say enabled; a plugin that was off must stay off.
+        self.config_mut(plugin_id).enabled = was_enabled;
+        self.save(plugin_id);
         if was_enabled {
             self.enable(index);
         }
@@ -3033,6 +3036,10 @@ mod tests {
         assert!(keyboard.held().is_empty());
         assert_eq!(set.settings_of("fake_a")["level"], 1);
         assert_eq!(data.saved("fake_a").settings["level"], 1);
+        assert!(
+            !data.saved("fake_a").enabled,
+            "it stays off after the next start"
+        );
     }
 
     #[test]
