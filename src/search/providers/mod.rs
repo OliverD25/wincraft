@@ -4,7 +4,9 @@ mod calc;
 mod commands;
 mod danger;
 mod drives;
+mod everything_ipc;
 mod explorer;
+mod files;
 mod installed;
 mod paths;
 mod process;
@@ -22,6 +24,7 @@ pub fn built_in() -> Vec<Box<dyn SearchProvider>> {
         Box::new(apps::Apps::new()),
         Box::new(windows::Windows::default()),
         Box::new(paths::Paths::default()),
+        Box::new(files::Files::new()),
         Box::new(calc::Calculator),
         Box::new(terminal::Terminal::new()),
         Box::new(web::Web),
