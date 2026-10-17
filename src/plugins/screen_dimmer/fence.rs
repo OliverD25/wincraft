@@ -91,10 +91,24 @@ pub fn clip(zones: &Zones) -> Option<Rect> {
 #[derive(Default)]
 pub struct Fence {
     clipped: Option<Rect>,
+    /// A fence that never touches the cursor, for tests that run the plugin
+    /// on the developer's own desktop.
+    inert: bool,
 }
 
 impl Fence {
+    #[cfg(test)]
+    pub fn inert() -> Self {
+        Self {
+            clipped: None,
+            inert: true,
+        }
+    }
+
     pub fn apply(&mut self, zones: &Zones) {
+        if self.inert {
+            return;
+        }
         if zones.blocked.is_empty() {
             self.release();
             return;

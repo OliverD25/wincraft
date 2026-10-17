@@ -3,6 +3,8 @@ mod ddc_test;
 mod fence;
 mod machine;
 mod overlay;
+#[cfg(test)]
+mod recovery_test;
 mod saved;
 mod screens;
 
@@ -50,6 +52,9 @@ const NUDGE_TIMER: usize = 0x5344_0002;
 /// each takes up to 100 ms, and all monitors are asked at once.
 const RELEASE_WAIT: Duration = Duration::from_millis(1500);
 
+/// Makes the opener for one monitor's worker, from its id and handle.
+type OpenerFor = Box<dyn Fn(&str, isize) -> Opener>;
+
 #[derive(Default)]
 pub struct ScreenDimmer {
     host_hwnd: Option<HWND>,
@@ -69,6 +74,8 @@ pub struct ScreenDimmer {
     fence: fence::Fence,
     idle_alpha: u8,
     hover_alpha: u8,
+    /// Put fake monitors behind the workers; None opens the real ones.
+    opener: Option<OpenerFor>,
 }
 
 impl ScreenDimmer {
@@ -325,9 +332,13 @@ impl ScreenDimmer {
                 unsafe { PostMessageW(host as HWND, WM_TIMER, NUDGE_TIMER, 0) };
             }
         });
-        let open: Opener = Box::new(move |stop| {
-            Physical::open(handle, stop).map(|monitor| Box::new(monitor) as Box<dyn ddc::Monitor>)
-        });
+        let open: Opener = match &self.opener {
+            Some(make) => make(id, handle),
+            None => Box::new(move |stop| {
+                Physical::open(handle, stop)
+                    .map(|monitor| Box::new(monitor) as Box<dyn ddc::Monitor>)
+            }),
+        };
         Worker::spawn(id, open, reports.clone(), nudge)
     }
 
