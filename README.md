@@ -47,6 +47,38 @@ to unpack — it is a single file that writes its settings to
 Once a release is published, you can instead download `wincraft.exe` from the
 [Releases page](https://github.com/OliverD25/wincraft/releases) and run it.
 
+### Installing, once
+
+Run this once, from a normal terminal (not one started from another app,
+such as Claude Desktop, whose file redirection would hide the copy):
+
+```
+wincraft.exe --install
+```
+
+It copies the exe to `%LOCALAPPDATA%\Programs\WinCraft\wincraft.exe`, closes
+the WinCraft that is running, adds WinCraft to the Start menu, points the
+"Start with Windows" logon task at the new copy and starts it. Your settings
+stay where they are. It prints each step and keeps them in
+`%LOCALAPPDATA%\WinCraft\install.log`. It is safe to run again.
+`wincraft.exe --uninstall` removes the shortcut and the logon task and leaves
+the program and your settings.
+
+### Updates
+
+WinCraft asks GitHub once a day whether a newer release exists, and About's
+"Check for updates" asks at once. A newer one shows a tray notification once,
+an "Update to …" item in the tray menu, and its release notes on the About
+page. Nothing changes until you click **Update now**.
+
+Update now downloads `wincraft.exe` and `SHA256SUMS.txt` from the release,
+checks the checksum, puts the new exe in place and restarts WinCraft. If the
+new version does not run for 30 seconds without crashing, WinCraft ends it,
+puts the old exe back, starts the old version again and says "Update to …
+failed, kept …". Only the installed copy updates itself: a WinCraft run from
+anywhere else says to run `--install` first. "Check for updates daily" on the
+About page switches the daily check off.
+
 ## Plugins
 
 ### ScreenDimmer
@@ -285,7 +317,8 @@ plugins\
   window_namer.names.json    the saved window names, written by WindowNamer
   layout_keeper.state.prev.json   the layout from before a browser crash or restart
 cache\                 the last plugin index fetched from GitHub
-wincraft.log           what the program did, emptied on every start
+wincraft.log           what the program did, emptied on every start but an update's
+install.log            what the last --install or --uninstall did
 ```
 
 Splitting the files this way means resetting one plugin deletes one file, and a
@@ -310,6 +343,11 @@ in the log.
     "terminal_history": true,
     "rank_by_use": true,
     "everything": true
+  },
+  "updates": {
+    "check_daily": true,
+    "last_check": 1792260953,
+    "latest": "v0.16.0"
   }
 }
 ```
@@ -326,6 +364,9 @@ in the log.
 | `search.terminal_history` | Whether commands run from the palette are remembered. |
 | `search.rank_by_use` | Whether results you pick often move up, and picks are counted in `palette_usage.json`. |
 | `search.everything` | Whether files and folders are searched with Everything, in the blended list and after `.`. |
+| `updates.check_daily` | Whether GitHub is asked once a day for a newer release. |
+| `updates.last_check` | When GitHub last answered, in seconds since 1970. WinCraft writes it. |
+| `updates.latest` | The newest release tag seen; the tray says once per new tag that it is there. WinCraft writes it. |
 
 The prefixes are read when WinCraft starts, so restart it after changing
 them. The other `search` keys are also on the General page of the settings
@@ -393,6 +434,10 @@ WinCraft keeps running, shows a tray notification and marks the hotkey
 | `--open-detector` | Opens the ShortcutDetector window at startup. |
 | `--quit` | Asks the running WinCraft to shut down cleanly, as the tray's Quit does, and waits up to 10 s. Exit code 0: it closed; 1: none was running; 2: still running. |
 | `--restarted` | Windows adds this itself when it starts WinCraft again after an update closed it. The log says so. |
+| `--install` | Copies this exe to `%LOCALAPPDATA%\Programs\WinCraft`, adds the Start menu shortcut, points the logon task at it and starts it; see [Installing, once](#installing-once). Exit code 0: done; 1: failed; 2: refused inside another app's package. |
+| `--uninstall` | Closes WinCraft and removes the shortcut and the logon task. The program and the settings stay. |
+| `--updated-from <version>` | WinCraft's own update adds this when it starts the new version. |
+| `--update-failed <version>` | Added when an update was rolled back and the old version starts again. |
 | `--write-plugin-index` | Regenerates `plugins.json`. For contributors. |
 
 Set `WINCRAFT_DEBUG=1` for a more detailed log.

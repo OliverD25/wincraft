@@ -385,6 +385,7 @@ it is a separate instance:
   | `--ask-name=<hwnd>` | The palette's rename box for that window (WindowNamer). Nothing is renamed without Enter. |
   | `--show-restore-panel` | LayoutKeeper's please-wait panel with sample progress, and nothing else. A flag without a value. |
   | `--ddc-test=<what>` | ScreenDimmer's DDC/CI check on real monitors, printed step by step, then exit; no tray icon, no plugins. `list` only reads each monitor's power mode and brightness. `left`, `centre` or `right` turns that monitor off the way Auto does, keeps it so for 10 s and brings it back; `wake-left` and so on only wakes it. Run it only with the person at the PC: it really turns a screen off. |
+  | `--update-now` | Checks for an update at once and installs what it finds, as if Update now were clicked. With `WINCRAFT_RELEASES_URL` pointing at a fake releases API on this PC and `WINCRAFT_INSTALL_DIR` (or a scratch `LOCALAPPDATA`) giving the test instance an install folder of its own, the whole update and its rollback run without the internet. A flag without a value. |
   | `--rename-window=<hwnd>:<name>` | Renames that window through WindowNamer at start, for a live test on a window the test owns. Never point it at a window you did not create. |
 
   A test instance's WindowNamer renames only on request and puts saved
@@ -393,6 +394,17 @@ it is a separate instance:
 
   Each scene is a fresh test instance, started with its flags and stopped
   with `--quit`, so no scene can leave state behind for the next.
+- **Installs and updates in a test instance** never reach yours.
+  `--install` gives the shortcut the suffix too (`WinCraft.<suffix>.lnk`) and
+  starts the copy directly, not through the logon task, which would start it
+  without the test environment. `WINCRAFT_INSTALL_DIR` moves a test
+  instance's install folder, and `WINCRAFT_RELEASES_URL` points its update
+  check at a fake of `releases/latest`; a test instance may download from
+  `http://127.0.0.1:` only then. Without that fake a test instance never
+  checks on its own, and it only logs the update balloons. `--install` and
+  `--uninstall` refuse inside another app's package, so from a shell started
+  by Claude Desktop use a scratch `LOCALAPPDATA` under
+  `%LOCALAPPDATA%\Temp`, which is not redirected.
 - **`wincraft.exe --quit`** asks the running instance to shut down the way
   the tray's Quit does and waits up to 10 seconds. It prints one line and
   exits with 0 when WinCraft closed, 1 when none was running and 2 when it was

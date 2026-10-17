@@ -29,6 +29,8 @@ jobs:
           "$hash  wincraft.exe" | Set-Content SHA256SUMS.txt -Encoding ascii
           Get-Content SHA256SUMS.txt
 
+      # The in-app updater downloads these two files by name
+      # (src/core/update.rs), so renaming either breaks every update.
       - uses: softprops/action-gh-release@v2
         with:
           files: |
