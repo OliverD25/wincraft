@@ -1149,7 +1149,8 @@ impl LayoutKeeper {
             let label = |group: &str| self.label_of(group);
             // Once the run is over the tooltip goes back to the plain name,
             // however many apps never opened.
-            let showing = self.restore.is_running() || self.notice_ctl.is_visible();
+            let showing =
+                self.show_progress && (self.restore.is_running() || self.notice_ctl.is_visible());
             (
                 showing
                     .then(|| notice::tooltip(&progress, &label))
@@ -2648,6 +2649,16 @@ mod tests {
         ];
         keeper.note_shared_titles(&named);
         assert!(keeper.shared_titles.is_empty());
+    }
+
+    #[test]
+    fn the_progress_panel_follows_its_setting() {
+        let mut keeper = LayoutKeeper::default();
+        assert!(keeper.show_progress);
+        keeper.apply_settings(&serde_json::json!({ "show_restore_progress": false }));
+        assert!(!keeper.show_progress);
+        keeper.apply_settings(&LayoutKeeper::default().default_settings());
+        assert!(keeper.show_progress);
     }
 
     #[test]
