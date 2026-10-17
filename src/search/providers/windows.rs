@@ -35,6 +35,7 @@ pub struct OpenWindow {
 
 const EXPLORER_CLASS: &str = "CabinetWClass";
 const BROWSE: &str = "browse";
+const BOOKMARK: &str = "bookmark";
 
 /// The windows Alt+Tab would show, on every virtual desktop, read once when
 /// the palette opens.
@@ -48,7 +49,10 @@ pub struct Windows {
 
 impl Windows {
     fn folder(&mut self, command: &str) -> Option<String> {
-        let hwnd: isize = command.strip_prefix(BROWSE)?.trim().parse().ok()?;
+        let rest = command
+            .strip_prefix(BROWSE)
+            .or_else(|| command.strip_prefix(BOOKMARK))?;
+        let hwnd: isize = rest.trim().parse().ok()?;
         if let Some(known) = self.folders.get(&hwnd) {
             return known.clone();
         }
@@ -111,9 +115,12 @@ impl SearchProvider for Windows {
     }
 
     /// Tab on an Explorer window: browse its folder under the paths prefix,
-    /// without bringing the window forward.
+    /// without bringing the window forward. Ctrl+B bookmarks that folder.
     fn act(&mut self, command: &str, _context: &Context) -> Reply {
         match self.folder(command) {
+            Some(folder) if command.starts_with(BOOKMARK) => {
+                Reply::Ask(super::bookmarks::ask_for(&folder))
+            }
             Some(folder) => Reply::Switch {
                 provider: "paths",
                 text: if folder.ends_with('\\') {
@@ -177,6 +184,13 @@ pub fn search(windows: &[OpenWindow], text: &str, limit: usize) -> Vec<ResultIte
                     command: format!("{BROWSE} {}", window.hwnd),
                 },
             }),
+            bookmark: window.explorer.then(|| Choice {
+                label: "Bookmark".to_string(),
+                action: Action::Provider {
+                    provider: "windows".to_string(),
+                    command: format!("{BOOKMARK} {}", window.hwnd),
+                },
+            }),
             ..Default::default()
         })
         .collect()
@@ -193,6 +207,16 @@ fn subtitle(window: &OpenWindow) -> String {
         parts.push("on another desktop".to_string());
     }
     parts.join(" \u{b7} ")
+}
+
+/// The folder of the window that was in front before the palette opened, when
+/// that is a File Explorer window with a real folder.
+pub fn active_explorer_folder() -> Option<String> {
+    let front = enumerate().into_iter().next()?;
+    if !front.explorer {
+        return None;
+    }
+    explorer::folder_of(front.hwnd, &front.title)
 }
 
 /// Top of the z-order first, leaving out WinCraft's own windows.
@@ -332,5 +356,28 @@ mod tests {
     fn the_program_name_drops_the_folder_and_extension() {
         assert_eq!(program_name(Path::new(r"C:\X\Chrome.EXE")), "chrome");
         assert_eq!(program_name(Path::new("")), "");
+    }
+
+    #[test]
+    fn only_an_explorer_window_can_be_bookmarked() {
+        let mut folder = window("Docs", "explorer");
+        folder.hwnd = 77;
+        folder.explorer = true;
+        let rows = search(&[folder, window("Notes", "notepad")], "o", 10);
+        let bookmarkable: Vec<&str> = rows
+            .iter()
+            .filter(|row| row.bookmark.is_some())
+            .map(|row| row.title.as_str())
+            .collect();
+        assert_eq!(bookmarkable, ["Docs"]);
+        assert_eq!(
+            rows.iter()
+                .find_map(|row| row.bookmark.as_ref())
+                .map(|c| &c.action),
+            Some(&Action::Provider {
+                provider: "windows".to_string(),
+                command: "bookmark 77".to_string(),
+            })
+        );
     }
 }

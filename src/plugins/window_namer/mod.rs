@@ -441,6 +441,7 @@ impl WindowNamer {
             } else {
                 format!("{program} \u{b7} {app_title}")
             },
+            ..Default::default()
         });
     }
 

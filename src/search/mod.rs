@@ -6,6 +6,7 @@
 //! palette changing.
 
 pub mod actions;
+pub mod bookmarks;
 pub mod icons;
 pub mod providers;
 pub mod usage;
@@ -103,6 +104,28 @@ pub enum Reply {
         text: String,
     },
     Hide,
+    /// Turns the palette into a one-line box that asks this.
+    Ask(Ask),
+}
+
+/// A question a provider puts to the person, which the palette shows as a
+/// one-line box. The answer comes back to the provider's `answered`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Ask {
+    /// The provider that gets the answer.
+    pub provider: &'static str,
+    /// The chip before the box, such as "Bookmark"; also the Enter key's label.
+    pub chip: String,
+    pub placeholder: String,
+    /// Put in the box and selected, so typing replaces it.
+    pub text: String,
+    /// The row under the box says what Enter does with the text typed, such
+    /// as "Save bookmark as" …
+    pub action: String,
+    /// … and its second line.
+    pub subtitle: String,
+    /// What the provider needs to know when the answer arrives.
+    pub payload: String,
 }
 
 /// The title's colour.
@@ -204,6 +227,12 @@ pub struct ResultItem {
     pub tab_action: Option<Choice>,
     #[serde(default)]
     pub tone: Tone,
+    /// Ctrl+B: bookmark what this row opens.
+    #[serde(default)]
+    pub bookmark: Option<Choice>,
+    /// Ctrl+Delete: forget this row, such as a bookmark.
+    #[serde(default)]
+    pub delete: Option<Choice>,
     /// A one-line monospace row, 24 px high, for command output.
     #[serde(default)]
     pub compact: bool,
@@ -286,6 +315,13 @@ pub trait SearchProvider: Send {
     fn act(&mut self, command: &str, context: &Context) -> Reply {
         let _ = (command, context);
         Reply::Stay
+    }
+
+    /// The answer to a question this provider asked with `Reply::Ask`. Returns
+    /// another question when it needs more, such as a second Enter to confirm.
+    fn answered(&mut self, payload: &str, text: &str, context: &Context) -> Option<Ask> {
+        let _ = (payload, text, context);
+        None
     }
 
     /// Whether an `Action::Provider` on the selected row can do anything,
@@ -494,6 +530,24 @@ impl Router {
             Some(slot) => slot.provider.act(command, &context),
             None => Reply::Stay,
         }
+    }
+
+    /// Hands an answer to the provider that asked.
+    pub fn answered(
+        &mut self,
+        provider: &str,
+        payload: &str,
+        text: &str,
+        context: &Context,
+    ) -> Option<Ask> {
+        let context = Context {
+            folder: self.folder.as_deref(),
+            ..*context
+        };
+        self.slots
+            .iter_mut()
+            .find(|slot| slot.provider.id() == provider)
+            .and_then(|slot| slot.provider.answered(payload, text, &context))
     }
 
     pub fn available(&mut self, provider: &str, command: &str) -> bool {

@@ -588,6 +588,7 @@ fn row(ranked: Ranked, group: &str) -> ResultItem {
             },
         }),
         tab: hit.folder.then(|| Completion::quiet(&hit.name)),
+        bookmark: super::bookmarks::choice(&path, &hit.name),
         ..Default::default()
     }
 }
@@ -1245,6 +1246,28 @@ mod tests {
                 )
             }),
             "the pswds folder is in the rows"
+        );
+    }
+
+    #[test]
+    fn a_found_folder_can_be_bookmarked_with_ctrl_b() {
+        let folder = hit("pswds_OneDrive", r"D:\Windows_OneDrive\OneDrive", true, 1);
+        let item = row(
+            Ranked {
+                score: 1,
+                hit: &folder,
+            },
+            "Folders",
+        );
+        assert_eq!(
+            item.bookmark.map(|c| c.action),
+            Some(Action::Provider {
+                provider: "bookmarks".to_string(),
+                command: format!(
+                    "new\t{}\tpswds_OneDrive",
+                    r"D:\Windows_OneDrive\OneDrive\pswds_OneDrive"
+                ),
+            })
         );
     }
 }

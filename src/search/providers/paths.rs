@@ -137,6 +137,7 @@ impl Paths {
                     label: "Complete".to_string(),
                     text: dir.clone(),
                 }),
+                bookmark: bookmark(&dir),
                 ..Default::default()
             });
         }
@@ -173,6 +174,7 @@ impl Paths {
                     },
                     text: completion(&dir, &entry.name, entry.is_dir),
                 }),
+                bookmark: bookmark(&path),
                 ..Default::default()
             }
         }));
@@ -208,6 +210,11 @@ fn open(path: &str) -> Option<Choice> {
     })
 }
 
+/// Ctrl+B on a folder or file row.
+fn bookmark(path: &str) -> Option<Choice> {
+    super::bookmarks::choice(path, &folder_name(path))
+}
+
 fn reveal(path: &str) -> Option<Choice> {
     Some(Choice {
         label: "Show in folder".to_string(),
@@ -237,6 +244,7 @@ impl Paths {
                         label: "Open folder".to_string(),
                         text: root.clone(),
                     }),
+                    bookmark: bookmark(&root),
                     ..Default::default()
                 })
             })
@@ -390,5 +398,27 @@ mod tests {
         assert_eq!(size_text(512), "512 bytes");
         assert_eq!(size_text(2048), "2.0 KB");
         assert_eq!(size_text(50 * 1024 * 1024), "50 MB");
+    }
+
+    #[test]
+    fn folders_files_and_drives_can_be_bookmarked_with_ctrl_b() {
+        let command = |choice: Option<Choice>| match choice.map(|c| c.action) {
+            Some(Action::Provider { provider, command }) => (provider, command),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            command(bookmark(r"D:\Docs\pswds_OneDrive")),
+            (
+                "bookmarks".to_string(),
+                format!("new\t{}\tpswds_OneDrive", r"D:\Docs\pswds_OneDrive")
+            )
+        );
+        assert_eq!(
+            command(bookmark(r"D:\Docs\")),
+            (
+                "bookmarks".to_string(),
+                format!("new\t{}\tDocs", r"D:\Docs\")
+            )
+        );
     }
 }

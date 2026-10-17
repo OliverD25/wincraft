@@ -10,7 +10,7 @@ use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{HostChannel, HostRequest, Prompt, UiSnapshot};
 use crate::search::icons::IconCache;
 use crate::search::{
-    Action, Choice, Context, Glyph, IconRef, Reply, ResultItem, Results, Router, Tone,
+    Action, Ask, Choice, Context, Glyph, IconRef, Reply, ResultItem, Results, Router, Tone,
 };
 use crate::ui::fuzzy;
 use crate::ui::widgets::icons::{self, Icon};
@@ -34,6 +34,9 @@ const ICON_SIZE: f32 = 16.0;
 const TITLE_LINE: f32 = 20.0;
 const SUBTITLE_LINE: f32 = 16.0;
 const RISE: f32 = 4.0;
+/// A question from a search provider names its prompt `search:<provider>`; it
+/// is answered here, not by a plugin on the host thread.
+const SEARCH_PROMPT: &str = "search:";
 
 pub enum Outcome {
     Stay,
@@ -103,6 +106,20 @@ impl Palette {
         self.query = prompt.text.clone();
         self.select_all = true;
         self.prompt = Some(prompt);
+    }
+
+    /// A search provider's question, such as the phrase for a bookmark.
+    fn ask_for(&mut self, ask: Ask) {
+        self.ask(Prompt {
+            plugin: format!("{SEARCH_PROMPT}{}", ask.provider),
+            chip: ask.chip,
+            placeholder: ask.placeholder,
+            text: ask.text,
+            action: ask.action,
+            subtitle: ask.subtitle,
+            payload: ask.payload,
+            ..Default::default()
+        });
     }
 
     /// The palette was hidden or WinCraft is closing: picks not saved yet
@@ -220,7 +237,7 @@ impl Palette {
         interactive: bool,
     ) -> Outcome {
         if self.prompt.is_some() {
-            return self.show_prompt(ui, to_host, appear, interactive);
+            return self.show_prompt(ui, snapshot, to_host, appear, interactive);
         }
         let ctx = ui.ctx().clone();
         self.refresh(snapshot, &ctx);
@@ -235,6 +252,13 @@ impl Palette {
             // Any key but Enter cancels a pending "press Enter again".
             let other_key = ctx.input(|input| {
                 input.events.iter().any(|event| match event {
+                    // Ctrl+Delete is a "press again" itself, like Enter.
+                    egui::Event::Key {
+                        key: egui::Key::Delete,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    } if modifiers.command => false,
                     egui::Event::Key { key, pressed, .. } => *pressed && *key != egui::Key::Enter,
                     egui::Event::Text(_) => true,
                     _ => false,
@@ -270,6 +294,24 @@ impl Palette {
                 });
                 if run.is_some() {
                     picked = self.selected_item().and_then(|item| item.usage_key.clone());
+                }
+            }
+            // Ctrl+B and Ctrl+Delete act on the row; the key is taken here so
+            // the text box does not also act on it.
+            for (key, deletes) in [(egui::Key::B, false), (egui::Key::Delete, true)] {
+                let chord = key_modifiers(&ctx, key).is_some_and(|modifiers| {
+                    modifiers.command && !modifiers.shift && !modifiers.alt
+                });
+                let choice = self.selected_item().and_then(|item| {
+                    if deletes {
+                        item.delete.clone()
+                    } else {
+                        item.bookmark.clone()
+                    }
+                });
+                if let (true, Some(choice)) = (chord, choice) {
+                    ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, key));
+                    run = run.or(Some(choice.action));
                 }
             }
             let copy_all = key_modifiers(&ctx, egui::Key::C)
@@ -440,43 +482,57 @@ impl Palette {
         }
         self.router.save_usage_soon();
         if let Some(action) = run {
-            outcome = match action {
-                Action::OpenPlugin(plugin) => Outcome::OpenPlugin(plugin),
-                Action::SetPrefix(prefix) => {
-                    self.set_prefix(Some(prefix).filter(|prefix| !prefix.is_empty()));
-                    Outcome::Stay
-                }
-                Action::Provider { provider, command } => {
-                    match self.router.act(&provider, &command, &context(snapshot)) {
-                        Reply::Stay => {
-                            self.searched = None;
-                            Outcome::Stay
-                        }
-                        Reply::ClearQuery => {
-                            self.set_query(String::new());
-                            Outcome::Stay
-                        }
-                        Reply::Switch { provider, text } => {
-                            if let Some(prefix) = self.router.prefix_of(provider) {
-                                self.prefix = Some(prefix);
-                                self.set_query(text);
-                            }
-                            Outcome::Stay
-                        }
-                        Reply::Hide => Outcome::Hide,
-                    }
-                }
-                Action::Command(id) => {
-                    to_host.send(HostRequest::RunCommand(id));
-                    Outcome::Hide
-                }
-                other => {
-                    to_host.send(HostRequest::RunAction(other));
-                    Outcome::Hide
-                }
-            };
+            outcome = self.perform(action, snapshot, to_host);
         }
         outcome
+    }
+
+    /// What choosing a row, or pressing one of its keys, does.
+    fn perform(
+        &mut self,
+        action: Action,
+        snapshot: &UiSnapshot,
+        to_host: &Arc<HostChannel>,
+    ) -> Outcome {
+        match action {
+            Action::OpenPlugin(plugin) => Outcome::OpenPlugin(plugin),
+            Action::SetPrefix(prefix) => {
+                self.set_prefix(Some(prefix).filter(|prefix| !prefix.is_empty()));
+                Outcome::Stay
+            }
+            Action::Provider { provider, command } => {
+                match self.router.act(&provider, &command, &context(snapshot)) {
+                    Reply::Stay => {
+                        self.searched = None;
+                        Outcome::Stay
+                    }
+                    Reply::ClearQuery => {
+                        self.set_query(String::new());
+                        Outcome::Stay
+                    }
+                    Reply::Switch { provider, text } => {
+                        if let Some(prefix) = self.router.prefix_of(provider) {
+                            self.prefix = Some(prefix);
+                            self.set_query(text);
+                        }
+                        Outcome::Stay
+                    }
+                    Reply::Ask(ask) => {
+                        self.ask_for(ask);
+                        Outcome::Stay
+                    }
+                    Reply::Hide => Outcome::Hide,
+                }
+            }
+            Action::Command(id) => {
+                to_host.send(HostRequest::RunCommand(id));
+                Outcome::Hide
+            }
+            other => {
+                to_host.send(HostRequest::RunAction(other));
+                Outcome::Hide
+            }
+        }
     }
 
     /// The prompt: the plugin's chip, the text box, and one row saying what
@@ -484,6 +540,7 @@ impl Palette {
     fn show_prompt(
         &mut self,
         ui: &mut egui::Ui,
+        snapshot: &UiSnapshot,
         to_host: &Arc<HostChannel>,
         appear: f32,
         interactive: bool,
@@ -613,15 +670,43 @@ impl Palette {
         }
 
         if answer && can_answer {
-            to_host.send(HostRequest::PromptAnswer {
-                plugin: prompt.plugin.clone(),
-                id: prompt.id,
-                target: prompt.target,
-                text: typed,
-            });
-            outcome = Outcome::Hide;
+            outcome = self.answer_prompt(&prompt, typed, snapshot, to_host);
         }
         outcome
+    }
+
+    /// Enter in the prompt: a plugin's question goes to the host; a search
+    /// provider's is answered here, and it may answer with another question.
+    fn answer_prompt(
+        &mut self,
+        prompt: &Prompt,
+        typed: String,
+        snapshot: &UiSnapshot,
+        to_host: &Arc<HostChannel>,
+    ) -> Outcome {
+        match prompt.plugin.strip_prefix(SEARCH_PROMPT) {
+            Some(provider) => {
+                match self
+                    .router
+                    .answered(provider, &prompt.payload, &typed, &context(snapshot))
+                {
+                    Some(ask) => {
+                        self.ask_for(ask);
+                        Outcome::Stay
+                    }
+                    None => Outcome::Hide,
+                }
+            }
+            None => {
+                to_host.send(HostRequest::PromptAnswer {
+                    plugin: prompt.plugin.clone(),
+                    id: prompt.id,
+                    target: prompt.target,
+                    text: typed,
+                });
+                Outcome::Hide
+            }
+        }
     }
 }
 
@@ -770,14 +855,46 @@ fn footer_keys(
         } else if let Some(completion) = item.tab.as_ref().filter(|tab| !tab.label.is_empty()) {
             keys.push(("Tab", completion.label.clone()));
         }
+        if let Some(choice) = &item.bookmark {
+            keys.push(("Ctrl+B", choice.label.clone()));
+        }
+        if let Some(choice) = &item.delete {
+            keys.push(("Ctrl+Del", choice.label.clone()));
+        }
+    }
+    let escape = escape.unwrap_or("Close").to_string();
+    // Rows that can be bookmarked or removed carry two more keys than the
+    // footer has room for; the least needed ones are left out of the footer
+    // (they still work).
+    if item.is_some_and(|item| item.bookmark.is_some() || item.delete.is_some()) {
+        for droppable in ["Ctrl+\u{21B5}", "Shift+\u{21B5}"] {
+            if footer_width(&keys) + hint_width("Esc", &escape) <= FOOTER_ROOM {
+                break;
+            }
+            keys.retain(|(key, _)| *key != droppable);
+        }
     }
     // With three row actions at the 12 px chip size the footer would run into
     // the wordmark, and the arrow keys need no reminder.
     if keys.len() < 3 {
         keys.push(("\u{2191}\u{2193}", "Move".to_string()));
     }
-    keys.push(("Esc", escape.unwrap_or("Close").to_string()));
+    keys.push(("Esc", escape));
     keys
+}
+
+/// What the key hints may take of the footer: the panel less its side
+/// padding and the wordmark at the right.
+const FOOTER_ROOM: f32 = 540.0;
+
+/// A close guess at the width of one hint: the keycap, the gap, the label
+/// and the space before the next hint.
+fn hint_width(key: &str, label: &str) -> f32 {
+    (key.chars().count() as f32 * 7.0 + 14.0) + 6.0 + label.chars().count() as f32 * 6.2 + 16.0
+}
+
+fn footer_width(keys: &[(&str, String)]) -> f32 {
+    keys.iter().map(|(key, label)| hint_width(key, label)).sum()
 }
 
 /// Group header inside the list: 24 high, 12 px regular, padding 8 12 2.
@@ -1067,6 +1184,7 @@ mod tests {
             action: "Rename to".to_string(),
             empty_action: renamed.then(|| "Clear the name".to_string()),
             subtitle: "notepad".to_string(),
+            ..Default::default()
         }
     }
 
@@ -1097,5 +1215,258 @@ mod tests {
         palette.opened();
         assert!(palette.prompt.is_none());
         assert!(palette.query.is_empty());
+    }
+
+    fn row_with_keys(group: &str) -> ResultItem {
+        let choice = |label: &str| {
+            Some(Choice {
+                label: label.to_string(),
+                action: Action::SetPrefix(String::new()),
+            })
+        };
+        ResultItem {
+            group: group.to_string(),
+            enter: choice("Open"),
+            shift_enter: choice("Show in folder"),
+            ctrl_enter: choice("Copy path"),
+            bookmark: choice("Bookmark"),
+            ..Default::default()
+        }
+    }
+
+    fn key_names(keys: &[(&str, String)]) -> Vec<String> {
+        keys.iter().map(|(key, _)| key.to_string()).collect()
+    }
+
+    #[test]
+    fn a_row_that_can_be_bookmarked_advertises_ctrl_b() {
+        let keys = footer_keys(Some(&row_with_keys("Files")), None, None);
+        assert!(keys.contains(&("Ctrl+B", "Bookmark".to_string())));
+        assert_eq!(keys.last(), Some(&("Esc", "Close".to_string())));
+        // A row without the slot shows no such key.
+        let plain = ResultItem {
+            enter: Some(Choice {
+                label: "Open".to_string(),
+                action: Action::SetPrefix(String::new()),
+            }),
+            ..Default::default()
+        };
+        assert!(!key_names(&footer_keys(Some(&plain), None, None)).contains(&"Ctrl+B".to_string()));
+    }
+
+    #[test]
+    fn the_footer_leaves_out_the_least_needed_keys_instead_of_overflowing() {
+        let mut folder = row_with_keys("Folders");
+        folder.delete = folder.bookmark.clone().map(|mut choice| {
+            choice.label = "Remove".to_string();
+            choice
+        });
+        let keys = footer_keys(Some(&folder), Some("Browse".to_string()), None);
+        let width: f32 = footer_width(&keys);
+        assert!(width <= FOOTER_ROOM, "{width} for {:?}", key_names(&keys));
+        // What the person most needs stays: open, browse, bookmark, remove.
+        let names = key_names(&keys);
+        for wanted in ["\u{21B5}", "Tab", "Ctrl+B", "Ctrl+Del", "Esc"] {
+            assert!(names.contains(&wanted.to_string()), "{wanted} in {names:?}");
+        }
+        assert!(!names.contains(&"Ctrl+\u{21B5}".to_string()), "{names:?}");
+    }
+
+    #[test]
+    fn rows_without_the_new_keys_keep_their_footer_as_it_was() {
+        let choice = |label: &str| {
+            Some(Choice {
+                label: label.to_string(),
+                action: Action::SetPrefix(String::new()),
+            })
+        };
+        let item = ResultItem {
+            enter: choice("Open"),
+            shift_enter: choice("Show in folder"),
+            ctrl_enter: choice("Copy path"),
+            ..Default::default()
+        };
+        let names = key_names(&footer_keys(Some(&item), Some("Browse".to_string()), None));
+        assert_eq!(
+            names,
+            ["\u{21B5}", "Shift+\u{21B5}", "Ctrl+\u{21B5}", "Tab", "Esc"]
+        );
+    }
+
+    fn bookmark_palette(store: &crate::search::bookmarks::Shared) -> Palette {
+        use crate::search::providers::bookmarks::Bookmarks;
+        Palette::new(Router::new(
+            vec![(None, Box::new(Bookmarks::with_store(store.clone())))],
+            &Default::default(),
+        ))
+    }
+
+    fn new_store() -> crate::search::bookmarks::Shared {
+        Arc::new(std::sync::Mutex::new(
+            crate::search::bookmarks::Store::in_memory(),
+        ))
+    }
+
+    fn ctrl_b(target: &str, name: &str) -> Action {
+        crate::search::providers::bookmarks::choice(target, name)
+            .unwrap()
+            .action
+    }
+
+    #[test]
+    fn ctrl_b_turns_the_palette_into_a_phrase_box_prefilled_with_the_name() {
+        let store = new_store();
+        let mut palette = bookmark_palette(&store);
+        let bridge = crate::core::ui_bridge::create();
+        let snapshot = UiSnapshot::default();
+        palette.opened();
+        let outcome = palette.perform(
+            ctrl_b(r"D:\Docs\pswds_OneDrive", "pswds_OneDrive"),
+            &snapshot,
+            &bridge.to_host,
+        );
+        assert!(matches!(outcome, Outcome::Stay));
+        let prompt = palette.prompt.clone().expect("a question is asked");
+        assert_eq!(prompt.plugin, "search:bookmarks");
+        assert_eq!(prompt.chip, "Bookmark");
+        assert_eq!(prompt.subtitle, r"D:\Docs\pswds_OneDrive");
+        assert_eq!(palette.query, "pswds_onedrive");
+        assert!(palette.select_all, "typing replaces the suggestion");
+        assert_eq!(
+            prompt_row_title(&prompt, "pswds"),
+            "Save bookmark as \u{201c}pswds\u{201d}"
+        );
+    }
+
+    #[test]
+    fn enter_in_that_box_saves_the_bookmark_here_without_the_host() {
+        let store = new_store();
+        let mut palette = bookmark_palette(&store);
+        let bridge = crate::core::ui_bridge::create();
+        let snapshot = UiSnapshot::default();
+        palette.opened();
+        palette.perform(ctrl_b(r"D:\Docs\a", "a"), &snapshot, &bridge.to_host);
+        let prompt = palette.prompt.clone().unwrap();
+        let outcome =
+            palette.answer_prompt(&prompt, "pswds".to_string(), &snapshot, &bridge.to_host);
+        assert!(matches!(outcome, Outcome::Hide));
+        assert_eq!(
+            store.lock().unwrap().find("pswds").unwrap().target,
+            r"D:\Docs\a"
+        );
+        assert!(
+            bridge.host_rx.try_recv().is_err(),
+            "nothing was sent to the host"
+        );
+    }
+
+    #[test]
+    fn a_taken_phrase_asks_again_and_the_second_enter_replaces_it() {
+        let store = new_store();
+        store.lock().unwrap().set("pswds", r"D:\old", 1);
+        let mut palette = bookmark_palette(&store);
+        let bridge = crate::core::ui_bridge::create();
+        let snapshot = UiSnapshot::default();
+        palette.opened();
+        palette.perform(ctrl_b(r"D:\new", "new"), &snapshot, &bridge.to_host);
+        let first = palette.prompt.clone().unwrap();
+        let outcome =
+            palette.answer_prompt(&first, "pswds".to_string(), &snapshot, &bridge.to_host);
+        assert!(matches!(outcome, Outcome::Stay), "still in the box");
+        let second = palette.prompt.clone().unwrap();
+        assert_eq!(second.action, "Replace bookmark");
+        assert_eq!(palette.query, "pswds");
+        assert_eq!(
+            store.lock().unwrap().find("pswds").unwrap().target,
+            r"D:\old"
+        );
+        let outcome =
+            palette.answer_prompt(&second, "pswds".to_string(), &snapshot, &bridge.to_host);
+        assert!(matches!(outcome, Outcome::Hide));
+        assert_eq!(
+            store.lock().unwrap().find("pswds").unwrap().target,
+            r"D:\new"
+        );
+    }
+
+    fn ctrl_key(key: egui::Key) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers {
+                ctrl: true,
+                command: true,
+                ..Default::default()
+            },
+        }
+    }
+
+    #[test]
+    fn ctrl_delete_pressed_twice_removes_the_selected_bookmark() {
+        let store = new_store();
+        store.lock().unwrap().set("pswds", r"D:\x", 1);
+        let mut palette = bookmark_palette(&store);
+        let bridge = crate::core::ui_bridge::create();
+        let snapshot = UiSnapshot::default();
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx, crate::core::config::ThemeChoice::Dark);
+        palette.opened();
+        palette.type_in("'");
+        let frame = |palette: &mut Palette, events: Vec<egui::Event>| {
+            let input = egui::RawInput {
+                events,
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| {
+                palette.show(ui, &snapshot, &bridge.to_host, 1.0, true);
+            });
+            output.textures_delta.clear();
+        };
+        // The first frames install the fonts and fill the list.
+        frame(&mut palette, Vec::new());
+        frame(&mut palette, Vec::new());
+        let titles = |palette: &Palette| -> Vec<String> {
+            palette
+                .results
+                .items
+                .iter()
+                .map(|item| item.title.clone())
+                .collect()
+        };
+        assert_eq!(titles(&palette), ["pswds", "Add bookmark\u{2026}"]);
+        // The first press only asks for another; the row says so.
+        frame(&mut palette, vec![ctrl_key(egui::Key::Delete)]);
+        frame(&mut palette, Vec::new());
+        assert_eq!(palette.results.items[0].tone, Tone::Warning);
+        assert_eq!(store.lock().unwrap().items().len(), 1);
+        // The second press removes it. Ctrl+Delete itself must not count as
+        // "another key", which would cancel the first press.
+        frame(&mut palette, vec![ctrl_key(egui::Key::Delete)]);
+        frame(&mut palette, Vec::new());
+        assert!(store.lock().unwrap().items().is_empty());
+        assert_eq!(
+            titles(&palette),
+            ["No bookmarks yet", "Add bookmark\u{2026}"]
+        );
+    }
+
+    #[test]
+    fn a_plugins_answer_still_goes_to_the_host() {
+        let mut palette = Palette::new(Router::new(Vec::new(), &Default::default()));
+        let bridge = crate::core::ui_bridge::create();
+        let outcome = palette.answer_prompt(
+            &rename_prompt(true),
+            "Work".to_string(),
+            &UiSnapshot::default(),
+            &bridge.to_host,
+        );
+        assert!(matches!(outcome, Outcome::Hide));
+        assert!(matches!(
+            bridge.host_rx.try_recv(),
+            Ok(HostRequest::PromptAnswer { id: 1, .. })
+        ));
     }
 }

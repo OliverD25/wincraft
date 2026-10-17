@@ -1,5 +1,6 @@
 mod apps;
 mod apps_folder;
+pub mod bookmarks;
 mod calc;
 mod commands;
 mod danger;
@@ -23,6 +24,7 @@ pub fn built_in() -> Vec<Box<dyn SearchProvider>> {
         Box::new(commands::Commands),
         Box::new(apps::Apps::new()),
         Box::new(windows::Windows::default()),
+        Box::new(bookmarks::Bookmarks::new()),
         Box::new(paths::Paths::default()),
         Box::new(files::Files::new()),
         Box::new(calc::Calculator),

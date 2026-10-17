@@ -304,9 +304,10 @@ pub enum LayoutAction {
 
 /// A question the palette asks for a plugin: one line of text, handed back
 /// to the plugin's `on_prompt_answer` when the user presses Enter.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Prompt {
-    /// The plugin that gets the answer.
+    /// The plugin that gets the answer. A search provider's question names
+    /// it as `search:<provider id>` and is answered in the palette itself.
     pub plugin: String,
     /// The plugin's own number for the question.
     pub id: u32,
@@ -324,6 +325,8 @@ pub struct Prompt {
     pub empty_action: Option<String>,
     /// The row's second line.
     pub subtitle: String,
+    /// What a search provider needs back with the answer; unused by plugins.
+    pub payload: String,
 }
 
 /// Screen rectangle in physical pixels, as Win32 reports it.
