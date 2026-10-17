@@ -232,6 +232,22 @@ fn search_rows(ui: &mut egui::Ui, search: &SearchConfig, to_host: &Arc<HostChann
 
     settings_row(
         ui,
+        "everything",
+        RowText::new("Search files with Everything").desc(
+            "Finds files and folders on every disk while you type, and after the . prefix. Needs Everything (voidtools) to be running.",
+            tokens.text_secondary,
+        ),
+        false,
+        |ui| {
+            let mut on = search.everything;
+            if toggle::toggle(ui, &mut on).changed() {
+                send(&|next| next.everything = on);
+            }
+        },
+    );
+
+    settings_row(
+        ui,
         "terminal-history",
         RowText::new("Remember terminal history").desc(
             "Keeps the last 100 commands run from the palette in terminal_history.json, on this PC only.",

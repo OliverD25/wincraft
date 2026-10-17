@@ -26,7 +26,8 @@ use super::everything_ipc::{
 };
 use crate::core::wide;
 use crate::search::{
-    usage, Action, Choice, Completion, Context, IconRef, Query, Reply, ResultItem, SearchProvider,
+    usage, Action, Choice, Completion, Context, Glyph, IconRef, Query, Reply, ResultItem,
+    SearchProvider, Tone,
 };
 
 /// Shorter searches would list most of the disk.
@@ -36,6 +37,8 @@ const MIN_CHARS: usize = 2;
 const CANDIDATES: u32 = 300;
 /// Rows in the blended list, folders first.
 const BLENDED_ROWS: usize = 6;
+/// Rows after the `.` prefix, where the list scrolls.
+const PREFIXED_ROWS: usize = 50;
 /// Of those, kept for files when there are any, so folders cannot fill all.
 const BLENDED_FILE_ROWS: usize = 2;
 /// A search starts this long after the last keystroke.
@@ -63,6 +66,33 @@ pub enum Status {
     Loading,
     NotAnswering,
     Refused,
+    /// "Search files with Everything" is off in the settings.
+    TurnedOff,
+}
+
+impl Status {
+    fn title(self) -> &'static str {
+        match self {
+            Status::NotRunning => "File search needs Everything (voidtools). It is not running.",
+            Status::TooOld => "File search needs Everything 1.4 or newer.",
+            Status::Alpha15 => "Everything 1.5 alpha is running. WinCraft cannot talk to it yet.",
+            Status::Loading => "Everything is still reading its index.",
+            Status::NotAnswering => "Everything did not answer in time.",
+            Status::Refused => "Everything refused the search.",
+            Status::TurnedOff => "File search is turned off.",
+        }
+    }
+
+    fn subtitle(self) -> &'static str {
+        match self {
+            Status::NotRunning => "Start Everything, then type again",
+            Status::TooOld => "Update Everything from voidtools.net",
+            Status::Alpha15 => "Everything 1.4 works",
+            Status::Loading => "Type again in a moment",
+            Status::NotAnswering | Status::Refused => "Type again, or restart Everything",
+            Status::TurnedOff => "Turn on Search files with Everything in Settings, General",
+        }
+    }
 }
 
 /// What the worker thread sends back to the palette side.
@@ -399,6 +429,13 @@ impl Client {
             .filter(|(shown, _)| shown == text)
             .map(|(_, answer)| answer)
     }
+
+    fn failure(&self, text: &str) -> Option<Status> {
+        self.failed
+            .as_ref()
+            .filter(|(failed, _)| failed == text)
+            .map(|(_, status)| *status)
+    }
 }
 
 fn refusal(error: ParseError) -> Status {
@@ -471,6 +508,7 @@ fn ranked<'a>(text: &str, hits: impl Iterator<Item = &'a Hit>) -> Vec<Ranked<'a>
     list.sort_by(|a, b| {
         b.score
             .cmp(&a.score)
+            .then_with(|| b.hit.folder.cmp(&a.hit.folder))
             .then_with(|| b.hit.modified.cmp(&a.hit.modified))
             .then_with(|| a.hit.name.cmp(&b.hit.name))
     });
@@ -494,6 +532,26 @@ fn blended<'a>(text: &str, answer: &'a Answer, rows: usize) -> (Vec<Ranked<'a>>,
         }
     }
     (folders, files)
+}
+
+/// The `.` list: everything in one group, best match first, folders ahead of
+/// files that match as well.
+fn prefixed_list<'a>(text: &str, answer: &'a Answer, rows: usize) -> Vec<Ranked<'a>> {
+    let mut list = ranked(text, answer.hits.iter());
+    list.truncate(rows);
+    list
+}
+
+/// The one row that says why there is nothing to list.
+fn hint(status: Status) -> ResultItem {
+    ResultItem {
+        group: "Files".to_string(),
+        title: status.title().to_string(),
+        subtitle: status.subtitle().to_string(),
+        icon: IconRef::Glyph(Glyph::Search),
+        tone: Tone::Warning,
+        ..Default::default()
+    }
 }
 
 fn row(ranked: Ranked, group: &str) -> ResultItem {
@@ -571,6 +629,10 @@ impl SearchProvider for Files {
         "Find files and folders on every disk with Everything (voidtools)"
     }
 
+    fn default_prefix(&self) -> Option<&'static str> {
+        Some(".")
+    }
+
     fn blended(&self) -> bool {
         true
     }
@@ -603,27 +665,72 @@ impl SearchProvider for Files {
         }
     }
 
-    fn query(&mut self, query: &Query, _context: &Context) -> Vec<ResultItem> {
-        let text = query.text.trim();
-        if text.chars().count() < MIN_CHARS || presence().is_some() {
-            return Vec::new();
-        }
-        if let Next::Send(id) = self.client.ask(text, Instant::now()) {
-            if let Ok(mut job) = JOB.lock() {
-                *job = Some(Job {
-                    id,
-                    text: text.to_string(),
-                });
+    fn query(&mut self, query: &Query, context: &Context) -> Vec<ResultItem> {
+        let missing = if context.search.everything {
+            presence()
+        } else {
+            Some(Status::TurnedOff)
+        };
+        let (rows, job) = self.rows(query, missing, Instant::now());
+        if let Some(job) = job {
+            if let Ok(mut slot) = JOB.lock() {
+                *slot = Some(job);
             }
             wake_worker();
         }
-        let Some(answer) = self.client.answer(text) else {
-            return Vec::new();
-        };
-        let (folders, files) = blended(text, answer, BLENDED_ROWS.min(query.limit));
-        let mut rows: Vec<ResultItem> = folders.into_iter().map(|r| row(r, "Folders")).collect();
-        rows.extend(files.into_iter().map(|r| row(r, "Files")));
         rows
+    }
+}
+
+impl Files {
+    /// The rows for a query, and the search to send when it is a new one.
+    /// `missing` is why Everything cannot be asked, if it cannot. After the
+    /// `.` prefix that is said in a row; in the blended list it is silent.
+    fn rows(
+        &mut self,
+        query: &Query,
+        missing: Option<Status>,
+        now: Instant,
+    ) -> (Vec<ResultItem>, Option<Job>) {
+        let prefixed = query.prefix.is_some();
+        let hint_for = |status| {
+            if prefixed {
+                vec![hint(status)]
+            } else {
+                Vec::new()
+            }
+        };
+        if let Some(status) = missing {
+            return (hint_for(status), None);
+        }
+        let text = query.text.trim();
+        if text.chars().count() < MIN_CHARS {
+            return (Vec::new(), None);
+        }
+        let job = match self.client.ask(text, now) {
+            Next::Send(id) => Some(Job {
+                id,
+                text: text.to_string(),
+            }),
+            Next::Show | Next::Wait => None,
+        };
+        let Some(answer) = self.client.answer(text) else {
+            let rows = self.client.failure(text).map_or_else(Vec::new, hint_for);
+            return (rows, job);
+        };
+        let rows = if prefixed {
+            let list = prefixed_list(text, answer, PREFIXED_ROWS.min(query.limit));
+            list.into_iter()
+                .map(|r| row(r, "Files and folders"))
+                .collect()
+        } else {
+            let (folders, files) = blended(text, answer, BLENDED_ROWS.min(query.limit));
+            let mut rows: Vec<ResultItem> =
+                folders.into_iter().map(|r| row(r, "Folders")).collect();
+            rows.extend(files.into_iter().map(|r| row(r, "Files")));
+            rows
+        };
+        (rows, job)
     }
 }
 
@@ -982,6 +1089,125 @@ mod tests {
         };
         assert!(files.query(&query, &test_context()).is_empty());
         assert!(!files.waiting());
+    }
+
+    fn query_for(text: &str, prefixed: bool) -> Query {
+        Query {
+            text: text.to_string(),
+            prefix: prefixed.then(|| ".".to_string()),
+            limit: if prefixed { 500 } else { 8 },
+        }
+    }
+
+    /// A provider that has been answered for `text`, as after the reply came.
+    fn answered(text: &str, hits: Vec<Hit>) -> Files {
+        let mut files = Files::new();
+        let now = Instant::now();
+        let Next::Send(id) = files.client.ask(text, now) else {
+            panic!()
+        };
+        files
+            .client
+            .receive(Incoming::Reply(id, encode(&answer(hits))));
+        files
+    }
+
+    #[test]
+    fn the_dot_prefix_lists_folders_and_files_in_one_group_up_to_fifty() {
+        let mut hits: Vec<Hit> = (0..70)
+            .map(|n| hit(&format!("proj{n:02}.txt"), r"D:\a", false, n))
+            .collect();
+        hits.push(hit("proj", r"D:\a", true, 1));
+        let mut files = answered("proj", hits);
+        let (rows, job) = files.rows(&query_for("proj", true), None, Instant::now());
+        assert!(job.is_none(), "the answer is in hand");
+        assert_eq!(rows.len(), 50);
+        assert!(rows.iter().all(|item| item.group == "Files and folders"));
+        assert_eq!(rows[0].title, "proj", "the exact folder name leads");
+        // Without the prefix the list is the short one.
+        let (rows, _) = files.rows(&query_for("proj", false), None, Instant::now());
+        assert_eq!(rows.len(), 6);
+    }
+
+    #[test]
+    fn a_folder_leads_a_file_that_matches_as_well() {
+        let files = [
+            hit("notes.txt", r"D:\a", false, 99),
+            hit("notes.txt", r"D:\b", true, 1),
+        ];
+        let list = ranked("notes", files.iter());
+        assert!(list[0].hit.folder);
+    }
+
+    #[test]
+    fn after_the_dot_the_reason_is_a_row_and_in_the_blended_list_it_is_silent() {
+        let mut files = Files::new();
+        let now = Instant::now();
+        for status in [Status::NotRunning, Status::Alpha15, Status::TurnedOff] {
+            let (rows, job) = files.rows(&query_for("pswds", true), Some(status), now);
+            assert!(
+                job.is_none(),
+                "nothing is sent to an Everything that is not there"
+            );
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].title, status.title());
+            assert_eq!(rows[0].tone, Tone::Warning);
+            assert!(rows[0].enter.is_none());
+            let (rows, job) = files.rows(&query_for("pswds", false), Some(status), now);
+            assert!(rows.is_empty() && job.is_none());
+        }
+        // The hint is there at once after the prefix, before anything is typed.
+        let (rows, _) = files.rows(&query_for("", true), Some(Status::NotRunning), now);
+        assert_eq!(
+            rows[0].title,
+            "File search needs Everything (voidtools). It is not running."
+        );
+        assert_eq!(rows[0].group, "Files");
+    }
+
+    #[test]
+    fn a_failed_search_is_told_after_the_dot_only() {
+        let mut files = Files::new();
+        let now = Instant::now();
+        let (_, job) = files.rows(&query_for("pswds", true), None, now);
+        let job = job.expect("a new search is sent");
+        files
+            .client
+            .receive(Incoming::Failed(job.id, Status::Loading));
+        let (rows, job) = files.rows(&query_for("pswds", true), None, now);
+        assert!(job.is_none(), "the same text is not sent again");
+        assert_eq!(rows[0].title, "Everything is still reading its index.");
+        let (rows, _) = files.rows(&query_for("pswds", false), None, now);
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn a_new_text_gives_a_job_and_nothing_before_the_reply() {
+        let mut files = Files::new();
+        let (rows, job) = files.rows(&query_for("pswds", false), None, Instant::now());
+        assert!(rows.is_empty());
+        let job = job.expect("sent");
+        assert_eq!(job.text, "pswds");
+        assert!(files.waiting());
+        // One letter is too short to ask about.
+        let (rows, job) = files.rows(&query_for("p", true), None, Instant::now());
+        assert!(rows.is_empty() && job.is_none());
+    }
+
+    #[test]
+    fn the_dot_is_the_prefix_of_the_file_search() {
+        use crate::search::Router;
+        use std::collections::BTreeMap;
+        let router = Router::new(vec![(None, Box::new(Files::new()))], &BTreeMap::new());
+        assert_eq!(router.split(".pswds"), Some((".".to_string(), "pswds")));
+        assert_eq!(router.split("pswds"), None);
+        // The settings file can move it or switch it off.
+        let moved: BTreeMap<String, String> = [("files".to_string(), "ff".to_string())]
+            .into_iter()
+            .collect();
+        let router = Router::new(vec![(None, Box::new(Files::new()))], &moved);
+        assert_eq!(router.split("ffpswds"), Some(("ff".to_string(), "pswds")));
+        assert_eq!(router.split(".pswds"), None);
     }
 
     /// Asks the Everything that runs on this PC. Read-only: it searches and

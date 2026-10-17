@@ -84,6 +84,10 @@ pub struct SearchConfig {
     /// palette_usage.json.
     #[serde(default = "enabled_by_default")]
     pub rank_by_use: bool,
+    /// Whether files and folders are searched with Everything, in the blended
+    /// list and after the `.` prefix.
+    #[serde(default = "enabled_by_default")]
+    pub everything: bool,
 }
 
 impl Default for SearchConfig {
@@ -95,6 +99,7 @@ impl Default for SearchConfig {
             terminal_custom: String::new(),
             terminal_history: true,
             rank_by_use: true,
+            everything: true,
         }
     }
 }
@@ -104,6 +109,7 @@ fn default_prefixes() -> BTreeMap<String, String> {
     [
         ("windows", "<"),
         ("paths", "/"),
+        ("files", "."),
         ("calc", "="),
         ("terminal", ">"),
         ("web", "?"),
@@ -533,6 +539,21 @@ mod tests {
         assert_eq!(config.search.prefixes.len(), 1);
         assert_eq!(config.search.prefixes["web"], "g ");
         assert_eq!(config.search.web_url, default_web_url());
+    }
+
+    #[test]
+    fn file_search_is_on_with_the_dot_prefix_until_the_file_says_otherwise() {
+        let config = SearchConfig::default();
+        assert!(config.everything);
+        assert_eq!(config.prefixes["files"], ".");
+        let (config, _) =
+            Config::parse(r#"{"search":{"web_url":"https://x/?q={query}"}}"#).unwrap();
+        assert!(
+            config.search.everything,
+            "an older file keeps file search on"
+        );
+        let (config, _) = Config::parse(r#"{"search":{"everything":false}}"#).unwrap();
+        assert!(!config.search.everything);
     }
 
     #[test]
