@@ -1,4 +1,7 @@
+mod ddc;
+mod ddc_test;
 mod overlay;
+mod screens;
 
 use windows_sys::Win32::Foundation::{LPARAM, WPARAM};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
@@ -232,6 +235,11 @@ impl WinCraftPlugin for ScreenDimmer {
     fn teardown(&mut self) {
         self.destroy_overlays();
     }
+}
+
+/// `--ddc-test=<value>` in a test instance; see `ddc_test`.
+pub fn run_ddc_test(value: &str) -> i32 {
+    ddc_test::run(value)
 }
 
 fn win_alt(vk: u32) -> Hotkey {

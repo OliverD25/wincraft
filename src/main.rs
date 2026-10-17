@@ -57,6 +57,27 @@ fn main() {
         std::process::exit(outcome.exit_code());
     }
 
+    // A supervised check of DDC/CI on real monitors, which turns one of them
+    // off for a moment. A normal WinCraft must never take it from a stray
+    // command line.
+    if let Some(value) = args
+        .iter()
+        .skip(1)
+        .find_map(|arg| arg.strip_prefix("--ddc-test="))
+    {
+        let code = if instance::is_test() {
+            unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+            plugins::screen_dimmer::run_ddc_test(value)
+        } else {
+            let _ = writeln!(
+                std::io::stdout(),
+                "--ddc-test= ignored: only a test instance (WINCRAFT_INSTANCE) takes it"
+            );
+            2
+        };
+        std::process::exit(code);
+    }
+
     let Some(mutex) = claim_single_instance() else {
         return;
     };

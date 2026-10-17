@@ -1,3 +1,11 @@
+use windows_sys::Win32::Devices::Display::{
+    DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes, QueryDisplayConfig,
+    DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
+    DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_PATH_INFO, DISPLAYCONFIG_SOURCE_DEVICE_NAME,
+    DISPLAYCONFIG_TARGET_DEVICE_NAME, QDC_ONLY_ACTIVE_PATHS,
+};
+use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+
 /// Each monitor's place word by where its left edge is: "Left", "Centre",
 /// "Right" for three, "Left" and "Right" for two, "Monitor N" counted from
 /// the left past three, and nothing for a single monitor.
@@ -13,6 +21,71 @@ pub fn position_names(lefts: &[i32]) -> Vec<Option<String>> {
         };
     }
     result
+}
+
+/// GDI device name to friendly name, for every active display path. The
+/// friendly name comes from the monitor's EDID and can be empty, as on
+/// many laptop panels.
+pub fn friendly_names() -> Vec<(String, String)> {
+    let (mut path_count, mut mode_count) = (0u32, 0u32);
+    if unsafe {
+        GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &mut path_count, &mut mode_count)
+    } != ERROR_SUCCESS
+    {
+        return Vec::new();
+    }
+    let mut paths: Vec<DISPLAYCONFIG_PATH_INFO> =
+        vec![unsafe { std::mem::zeroed() }; path_count as usize];
+    let mut modes: Vec<DISPLAYCONFIG_MODE_INFO> =
+        vec![unsafe { std::mem::zeroed() }; mode_count as usize];
+    let status = unsafe {
+        QueryDisplayConfig(
+            QDC_ONLY_ACTIVE_PATHS,
+            &mut path_count,
+            paths.as_mut_ptr(),
+            &mut mode_count,
+            modes.as_mut_ptr(),
+            std::ptr::null_mut(),
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Vec::new();
+    }
+    paths.truncate(path_count as usize);
+    paths
+        .iter()
+        .filter_map(|path| {
+            let mut source: DISPLAYCONFIG_SOURCE_DEVICE_NAME = unsafe { std::mem::zeroed() };
+            source.header.r#type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+            source.header.size = std::mem::size_of::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>() as u32;
+            source.header.adapterId = path.sourceInfo.adapterId;
+            source.header.id = path.sourceInfo.id;
+            if unsafe { DisplayConfigGetDeviceInfo(&mut source.header) } != 0 {
+                return None;
+            }
+            let mut target: DISPLAYCONFIG_TARGET_DEVICE_NAME = unsafe { std::mem::zeroed() };
+            target.header.r#type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
+            target.header.size = std::mem::size_of::<DISPLAYCONFIG_TARGET_DEVICE_NAME>() as u32;
+            target.header.adapterId = path.targetInfo.adapterId;
+            target.header.id = path.targetInfo.id;
+            if unsafe { DisplayConfigGetDeviceInfo(&mut target.header) } != 0 {
+                return None;
+            }
+            Some((
+                from_wide(&source.viewGdiDeviceName),
+                from_wide(&target.monitorFriendlyDeviceName),
+            ))
+        })
+        .collect()
+}
+
+/// A fixed-size UTF-16 field of a Win32 struct, up to its first NUL.
+pub fn from_wide(buffer: &[u16]) -> String {
+    let len = buffer
+        .iter()
+        .position(|unit| *unit == 0)
+        .unwrap_or(buffer.len());
+    String::from_utf16_lossy(&buffer[..len])
 }
 
 #[cfg(test)]
@@ -54,5 +127,14 @@ mod tests {
             position_names(&[3840, 0, -1920, 1920]),
             words(&["Monitor 4", "Monitor 2", "Monitor 1", "Monitor 3"])
         );
+    }
+
+    #[test]
+    fn a_device_name_ends_at_its_nul() {
+        let mut buffer = [0u16; 32];
+        for (slot, unit) in buffer.iter_mut().zip(r"\\.\DISPLAY1".encode_utf16()) {
+            *slot = unit;
+        }
+        assert_eq!(from_wide(&buffer), r"\\.\DISPLAY1");
     }
 }
