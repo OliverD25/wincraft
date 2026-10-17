@@ -196,7 +196,13 @@ pub fn data_dir() -> PathBuf {
 }
 
 pub fn config_path() -> PathBuf {
-    data_dir().join("config.json")
+    config_in(&data_dir())
+}
+
+/// The loaders and savers below take the data folder, so a test can point
+/// them at a scratch one without changing LOCALAPPDATA under the other tests.
+fn config_in(data: &Path) -> PathBuf {
+    data.join("config.json")
 }
 
 pub fn log_path() -> PathBuf {
@@ -208,7 +214,11 @@ pub fn plugins_dir() -> PathBuf {
 }
 
 pub fn plugin_path(id: &str) -> PathBuf {
-    plugins_dir().join(format!("{id}.json"))
+    plugin_in(&data_dir(), id)
+}
+
+fn plugin_in(data: &Path, id: &str) -> PathBuf {
+    data.join("plugins").join(format!("{id}.json"))
 }
 
 pub fn cache_dir() -> PathBuf {
@@ -279,7 +289,11 @@ pub fn write_atomic(path: &Path, text: &str) -> Result<(), String> {
 
 impl Config {
     pub fn load() -> Self {
-        let path = config_path();
+        Self::load_in(&data_dir())
+    }
+
+    fn load_in(data: &Path) -> Self {
+        let path = config_in(data);
         let Ok(text) = fs::read_to_string(&path) else {
             log::info!("no config at {}, using defaults", path.display());
             return Self::default();
@@ -297,19 +311,19 @@ impl Config {
 
         if !legacy.is_empty() {
             for (id, plugin) in legacy {
-                let target = plugin_path(&id);
+                let target = plugin_in(data, &id);
                 if target.exists() {
                     log::info!("{id} already has {}, leaving it alone", target.display());
                     continue;
                 }
-                match plugin.save(&id) {
+                match plugin.save_in(data, &id) {
                     Ok(()) => log::info!("migrated {id} settings to {}", target.display()),
                     Err(err) => log::error!("could not migrate {id}: {err}"),
                 }
             }
             // Saving now rewrites config.json without the "modules" key, because
             // Config has no field for it.
-            if let Err(err) = config.save() {
+            if let Err(err) = config.save_in(data) {
                 log::error!("could not rewrite config.json after migration: {err}");
             }
         }
@@ -327,9 +341,13 @@ impl Config {
     }
 
     pub fn save(&self) -> Result<(), String> {
+        self.save_in(&data_dir())
+    }
+
+    fn save_in(&self, data: &Path) -> Result<(), String> {
         let text = serde_json::to_string_pretty(self)
             .map_err(|e| format!("cannot serialise config: {e}"))?;
-        save_readable(&config_path(), &text)
+        save_readable(&config_in(data), &text)
     }
 }
 
@@ -363,7 +381,11 @@ pub fn take_legacy_plugins(raw: &mut Value) -> Vec<(String, PluginConfig)> {
 
 impl PluginConfig {
     pub fn load(id: &str) -> Self {
-        let path = plugin_path(id);
+        Self::load_in(&data_dir(), id)
+    }
+
+    fn load_in(data: &Path, id: &str) -> Self {
+        let path = plugin_in(data, id);
         let Ok(text) = fs::read_to_string(&path) else {
             return Self::default();
         };
@@ -381,13 +403,21 @@ impl PluginConfig {
     }
 
     pub fn save(&self, id: &str) -> Result<(), String> {
+        self.save_in(&data_dir(), id)
+    }
+
+    fn save_in(&self, data: &Path, id: &str) -> Result<(), String> {
         let text = serde_json::to_string_pretty(self)
             .map_err(|e| format!("cannot serialise the settings for {id}: {e}"))?;
-        save_readable(&plugin_path(id), &text)
+        save_readable(&plugin_in(data, id), &text)
     }
 
     pub fn reset(id: &str) -> Result<(), String> {
-        let path = plugin_path(id);
+        Self::reset_in(&data_dir(), id)
+    }
+
+    fn reset_in(data: &Path, id: &str) -> Result<(), String> {
+        let path = plugin_in(data, id);
         match fs::remove_file(&path) {
             Ok(()) => Ok(()),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -618,6 +648,196 @@ mod tests {
         save_readable(&other, "{}").unwrap();
         assert_eq!(fs::read_to_string(&other).unwrap(), "{}");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A data folder of its own under the temp folder, removed afterwards.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir =
+                std::env::temp_dir().join(format!("wincraft-config-{}-{name}", std::process::id()));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(dir.join("plugins")).unwrap();
+            Scratch(dir)
+        }
+
+        fn config(&self) -> PathBuf {
+            config_in(&self.0)
+        }
+
+        fn plugin(&self, id: &str) -> PathBuf {
+            plugin_in(&self.0, id)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn with_no_files_everything_is_the_default_and_nothing_is_written() {
+        let data = Scratch::new("missing");
+        let config = Config::load_in(&data.0);
+        assert_eq!(config.theme, ThemeChoice::System);
+        assert_eq!(config.palette_hotkey, DEFAULT_PALETTE_HOTKEY);
+        let plugin = PluginConfig::load_in(&data.0, "screen_dimmer");
+        assert!(plugin.enabled && plugin.hotkeys.is_empty());
+        assert!(!data.config().exists());
+        assert!(!data.plugin("screen_dimmer").exists());
+    }
+
+    #[test]
+    fn files_that_start_with_a_byte_order_mark_are_read() {
+        let data = Scratch::new("bom");
+        fs::write(data.config(), "\u{feff}{\"theme\":\"dark\"}").unwrap();
+        fs::write(
+            data.plugin("window_namer"),
+            "\u{feff}{\"enabled\":false,\"hotkeys\":{\"a\":\"Win+Alt+Z\"}}",
+        )
+        .unwrap();
+        assert_eq!(Config::load_in(&data.0).theme, ThemeChoice::Dark);
+        let plugin = PluginConfig::load_in(&data.0, "window_namer");
+        assert!(!plugin.enabled);
+        assert_eq!(plugin.hotkeys["a"], "Win+Alt+Z");
+    }
+
+    #[test]
+    fn a_corrupt_config_gives_defaults_and_is_never_overwritten() {
+        let data = Scratch::new("corrupt-config");
+        fs::write(data.config(), "{ \"theme\": \"dark\", oops").unwrap();
+        let config = Config::load_in(&data.0);
+        assert_eq!(config.theme, ThemeChoice::System);
+        assert!(config.save_in(&data.0).is_err(), "saving is refused");
+        assert_eq!(
+            fs::read_to_string(data.config()).unwrap(),
+            "{ \"theme\": \"dark\", oops"
+        );
+    }
+
+    #[test]
+    fn a_corrupt_plugin_file_gives_defaults_and_is_never_overwritten() {
+        let data = Scratch::new("corrupt-plugin");
+        fs::write(data.plugin("layout_keeper"), "[1, 2").unwrap();
+        let plugin = PluginConfig::load_in(&data.0, "layout_keeper");
+        assert!(plugin.enabled);
+        assert!(plugin.save_in(&data.0, "layout_keeper").is_err());
+        assert_eq!(
+            fs::read_to_string(data.plugin("layout_keeper")).unwrap(),
+            "[1, 2"
+        );
+        // Another plugin's file is not affected.
+        assert!(plugin.save_in(&data.0, "window_namer").is_ok());
+    }
+
+    #[test]
+    fn a_field_of_the_wrong_type_in_the_file_also_counts_as_unreadable() {
+        let data = Scratch::new("wrong-type");
+        fs::write(data.plugin("screen_dimmer"), "{\"enabled\": \"yes\"}").unwrap();
+        assert!(PluginConfig::load_in(&data.0, "screen_dimmer").enabled);
+        assert!(PluginConfig::default()
+            .save_in(&data.0, "screen_dimmer")
+            .is_err());
+    }
+
+    #[test]
+    fn unknown_keys_inside_a_plugins_settings_survive_a_save() {
+        let data = Scratch::new("unknown-settings");
+        fs::write(
+            data.plugin("screen_dimmer"),
+            r#"{"enabled":true,"settings":{"idle_opacity":0.5,"from_a_newer_version":{"x":[1,2]}}}"#,
+        )
+        .unwrap();
+        let plugin = PluginConfig::load_in(&data.0, "screen_dimmer");
+        plugin.save_in(&data.0, "screen_dimmer").unwrap();
+        let again = PluginConfig::load_in(&data.0, "screen_dimmer");
+        assert_eq!(again.settings["idle_opacity"], 0.5);
+        assert_eq!(again.settings["from_a_newer_version"]["x"][1], 2);
+    }
+
+    #[test]
+    fn unknown_top_level_keys_are_ignored_on_reading_and_dropped_on_saving() {
+        let data = Scratch::new("unknown-top");
+        fs::write(
+            data.config(),
+            r#"{"theme":"light","from_a_newer_version":true}"#,
+        )
+        .unwrap();
+        let config = Config::load_in(&data.0);
+        assert_eq!(config.theme, ThemeChoice::Light);
+        config.save_in(&data.0).unwrap();
+        let text = fs::read_to_string(data.config()).unwrap();
+        assert!(text.contains("\"light\"") && !text.contains("from_a_newer_version"));
+    }
+
+    #[test]
+    fn reset_deletes_only_that_plugins_file_and_a_missing_file_is_fine() {
+        let data = Scratch::new("reset");
+        fs::write(data.plugin("a"), "{}").unwrap();
+        fs::write(data.plugin("b"), "{}").unwrap();
+        PluginConfig::reset_in(&data.0, "a").unwrap();
+        assert!(!data.plugin("a").exists() && data.plugin("b").exists());
+        PluginConfig::reset_in(&data.0, "a").unwrap();
+        assert_eq!(PluginConfig::load_in(&data.0, "a").settings, empty_object());
+    }
+
+    #[test]
+    fn an_old_config_is_split_into_plugin_files_once() {
+        let data = Scratch::new("migrate");
+        fs::write(data.config(), V02_CONFIG).unwrap();
+        let config = Config::load_in(&data.0);
+        assert!(config.start_with_windows);
+
+        let dimmer = PluginConfig::load_in(&data.0, "screen_dimmer");
+        assert!(dimmer.enabled);
+        assert_eq!(dimmer.settings["hover_opacity"], 0.4);
+        assert!(!PluginConfig::load_in(&data.0, "shortcut_detector").enabled);
+        let rewritten = fs::read_to_string(data.config()).unwrap();
+        assert!(!rewritten.contains("modules"), "{rewritten}");
+        assert!(
+            rewritten.contains("\"start_with_windows\": true"),
+            "{rewritten}"
+        );
+
+        // A second start finds nothing to migrate and changes nothing.
+        let files = |data: &Scratch| {
+            ["screen_dimmer", "shortcut_detector"]
+                .map(|id| fs::read_to_string(data.plugin(id)).unwrap())
+        };
+        let before = files(&data);
+        Config::load_in(&data.0);
+        assert_eq!(files(&data), before);
+        assert_eq!(fs::read_to_string(data.config()).unwrap(), rewritten);
+    }
+
+    #[test]
+    fn migration_never_replaces_a_plugin_file_that_already_exists() {
+        let data = Scratch::new("migrate-existing");
+        fs::write(data.config(), V02_CONFIG).unwrap();
+        fs::write(
+            data.plugin("screen_dimmer"),
+            r#"{"settings":{"hover_opacity":0.9}}"#,
+        )
+        .unwrap();
+        Config::load_in(&data.0);
+        let dimmer = PluginConfig::load_in(&data.0, "screen_dimmer");
+        assert_eq!(dimmer.settings["hover_opacity"], 0.9);
+        assert!(data.plugin("shortcut_detector").exists());
+    }
+
+    #[test]
+    fn an_old_plugin_entry_that_cannot_be_read_does_not_stop_the_others_migrating() {
+        let data = Scratch::new("migrate-partial");
+        fs::write(
+            data.config(),
+            r#"{"modules":{"bad":{"enabled":"maybe"},"good":{"enabled":false}}}"#,
+        )
+        .unwrap();
+        Config::load_in(&data.0);
+        assert!(!data.plugin("bad").exists());
+        assert!(!PluginConfig::load_in(&data.0, "good").enabled);
     }
 
     #[test]
