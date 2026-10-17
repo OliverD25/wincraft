@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::core::config::{SearchConfig, ThemeChoice};
 use crate::core::hotkeys;
 use crate::core::theme::{self, Tokens};
+use crate::core::tips::TipsConfig;
 use crate::core::ui_bridge::{HostChannel, HostRequest, HostSetting, UiSnapshot};
 use crate::search::providers::shell::{self, Shell, SHELL_NAMES};
 use crate::search::providers::web;
@@ -115,6 +116,8 @@ pub fn show(
                     None => {}
                 }
             }
+
+            tips_rows(ui, &snapshot.tips, &mut state.tips_reset, to_host);
 
             file_row(
                 ui,
@@ -321,6 +324,63 @@ fn usage_rows(
     }
 }
 
+/// How long "Done" shows after the button was clicked.
+const RESET_NOTE: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// The switch for the small tips, and the button that starts them over.
+fn tips_rows(
+    ui: &mut egui::Ui,
+    tips: &TipsConfig,
+    reset: &mut Option<std::time::Instant>,
+    to_host: &Arc<HostChannel>,
+) {
+    let tokens = Tokens::get(ui.ctx());
+    settings_row(
+        ui,
+        "show-tips",
+        RowText::new("Show tips").desc(
+            "Short hints in the palette and on empty pages that explain a feature. Each one retires after a few shows.",
+            tokens.text_secondary,
+        ),
+        false,
+        |ui| {
+            let mut on = tips.show;
+            if toggle::toggle(ui, &mut on).changed() {
+                let mut next = tips.clone();
+                next.show = on;
+                to_host.send(HostRequest::SetHostSetting(HostSetting::Tips(next)));
+            }
+        },
+    );
+    let showing = reset.is_some_and(|at| at.elapsed() < RESET_NOTE);
+    if !showing {
+        *reset = None;
+    }
+    let desc = if showing {
+        "Done. Every tip will show again, if tips are on."
+    } else {
+        "Brings back tips you dismissed or have already seen."
+    };
+    settings_row(
+        ui,
+        "show-tips-again",
+        RowText::new("Tips seen").desc(desc, tokens.text_secondary),
+        false,
+        |ui| {
+            if button::button(ui, "Show all tips again", Kind::Secondary).clicked() {
+                let mut next = tips.clone();
+                next.reset();
+                to_host.send(HostRequest::SetHostSetting(HostSetting::Tips(next)));
+                *reset = Some(std::time::Instant::now());
+                ui.ctx().request_repaint_after(RESET_NOTE);
+            }
+        },
+    );
+    if showing {
+        ui.ctx().request_repaint_after(RESET_NOTE);
+    }
+}
+
 fn file_row(
     ui: &mut egui::Ui,
     id: &str,
@@ -343,4 +403,41 @@ fn file_row(
             to_host.send(HostRequest::OpenPath(path.to_path_buf()));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::ThemeChoice;
+
+    /// Draws the tips rows a few frames, with the note showing or not.
+    fn draw(tips: &TipsConfig, reset: &mut Option<std::time::Instant>) {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx, ThemeChoice::Dark);
+        let bridge = crate::core::ui_bridge::create();
+        for _ in 0..3 {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                tips_rows(ui, tips, reset, &bridge.to_host);
+            });
+            output.textures_delta.clear();
+        }
+        assert!(bridge.host_rx.try_recv().is_err(), "drawing sends nothing");
+    }
+
+    #[test]
+    fn the_tips_rows_draw_with_tips_on_and_off_and_after_the_reset_button() {
+        draw(&TipsConfig::default(), &mut None);
+        let off = TipsConfig {
+            show: false,
+            ..TipsConfig::default()
+        };
+        draw(&off, &mut None);
+        let mut reset = Some(std::time::Instant::now());
+        draw(&TipsConfig::default(), &mut reset);
+        assert!(reset.is_some(), "the note stays for its three seconds");
+        let mut old = Some(std::time::Instant::now() - RESET_NOTE);
+        draw(&TipsConfig::default(), &mut old);
+        assert!(old.is_none(), "the note is gone after them");
+    }
 }

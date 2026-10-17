@@ -20,6 +20,7 @@ pub mod session;
 pub mod sha256;
 pub mod taskbar;
 pub mod theme;
+pub mod tips;
 pub mod traits;
 pub mod tray;
 pub mod ui_bridge;

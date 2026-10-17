@@ -9,6 +9,7 @@ use windows_sys::Win32::Storage::FileSystem::{
     MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
 };
 
+use crate::core::tips::TipsConfig;
 use crate::core::wide;
 
 pub const DEFAULT_PALETTE_HOTKEY: &str = "Win+Alt+P";
@@ -46,6 +47,8 @@ pub struct Config {
     pub search: SearchConfig,
     #[serde(default)]
     pub updates: UpdateConfig,
+    #[serde(default)]
+    pub tips: TipsConfig,
 }
 
 impl Default for Config {
@@ -56,6 +59,7 @@ impl Default for Config {
             palette_hotkey: DEFAULT_PALETTE_HOTKEY.to_string(),
             search: SearchConfig::default(),
             updates: UpdateConfig::default(),
+            tips: TipsConfig::default(),
         }
     }
 }
@@ -770,6 +774,24 @@ mod tests {
         config.save_in(&data.0).unwrap();
         let text = fs::read_to_string(data.config()).unwrap();
         assert!(text.contains("\"light\"") && !text.contains("from_a_newer_version"));
+    }
+
+    #[test]
+    fn what_the_tips_did_survives_a_save_with_unknown_tip_ids_kept() {
+        let data = Scratch::new("tips");
+        assert!(Config::load_in(&data.0).tips.show, "tips are on by default");
+        fs::write(
+            data.config(),
+            r#"{"tips":{"show":false,"state":{"bookmark-ctrl-b":{"shown":2},"from-a-newer-version":{"shown":1,"done":true}}}}"#,
+        )
+        .unwrap();
+        let config = Config::load_in(&data.0);
+        assert!(!config.tips.show);
+        config.save_in(&data.0).unwrap();
+        let again = Config::load_in(&data.0);
+        assert_eq!(again.tips, config.tips);
+        assert_eq!(again.tips.state["bookmark-ctrl-b"].shown, 2);
+        assert!(again.tips.state["from-a-newer-version"].done);
     }
 
     #[test]

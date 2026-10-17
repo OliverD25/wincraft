@@ -19,7 +19,7 @@ use crate::core::config::{Config, ThemeChoice};
 use crate::core::host::SceneFlags;
 use crate::core::ui_bridge::{Page, PeekCard, SettingsTarget};
 use crate::core::{
-    autostart, config, host, install, instance, logging, package, quit, update, wide,
+    autostart, config, host, install, instance, logging, package, quit, tips, update, wide,
 };
 
 const SINGLE_INSTANCE_MUTEX: &str = r"Local\WinCraft.SingleInstance";
@@ -177,6 +177,9 @@ fn main() {
             scene.restore_panel = true;
         }
     }
+    let (tip, tip_note) = scene_tip(&args, instance::is_test());
+    tips::set_scene_tip(tip);
+    notes.extend(tip_note);
     for note in notes {
         log::info!("{note}");
     }
@@ -300,6 +303,28 @@ fn scene_flags(
         }
     }
     (scene, theme, notes)
+}
+
+/// `--show-tip=<id>`: the one tip a test instance shows (a test instance
+/// shows none otherwise). Returns the id, and a note for the log when the
+/// flag was ignored or empty.
+fn scene_tip(args: &[String], test_instance: bool) -> (Option<String>, Option<String>) {
+    let Some(value) = args
+        .iter()
+        .skip(1)
+        .find_map(|arg| arg.strip_prefix("--show-tip="))
+    else {
+        return (None, None);
+    };
+    if !test_instance {
+        let note = "--show-tip= ignored: only a test instance (WINCRAFT_INSTANCE) takes it";
+        return (None, Some(note.to_string()));
+    }
+    let id = value.trim();
+    if id.is_empty() {
+        return (None, Some("--show-tip= needs a tip id".to_string()));
+    }
+    (Some(id.to_string()), None)
 }
 
 /// "general", "plugins", "layout", "bookmarks", "store", "about", or "plugin:<id>".
@@ -584,6 +609,22 @@ mod tests {
         assert_eq!(window_handle(" 12 "), Some(12));
         assert_eq!(window_handle("0"), None);
         assert_eq!(window_handle(""), None);
+    }
+
+    #[test]
+    fn a_test_instance_takes_the_tip_a_scene_names_and_a_normal_one_ignores_it() {
+        let list = args(&["wincraft.exe", "--show-tip=bookmark-ctrl-b"]);
+        assert_eq!(
+            scene_tip(&list, true),
+            (Some("bookmark-ctrl-b".to_string()), None)
+        );
+        let (tip, note) = scene_tip(&list, false);
+        assert_eq!(tip, None);
+        assert!(note.unwrap().contains("only a test instance"));
+        assert_eq!(scene_tip(&args(&["wincraft.exe"]), true), (None, None));
+        let (tip, note) = scene_tip(&args(&["wincraft.exe", "--show-tip= "]), true);
+        assert_eq!(tip, None);
+        assert!(note.unwrap().contains("needs a tip id"));
     }
 
     #[test]

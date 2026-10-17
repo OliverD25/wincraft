@@ -146,6 +146,10 @@ impl Store {
         &self.items
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
     /// By phrase, in the order the phrases sort in.
     pub fn sorted(&self) -> Vec<Bookmark> {
         let mut items = self.items.clone();

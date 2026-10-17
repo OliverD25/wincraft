@@ -14,6 +14,9 @@ pub enum Icon {
     Globe,
     Terminal,
     Monitor,
+    Lightbulb,
+    Close,
+    Check,
 }
 
 struct Path {
@@ -60,6 +63,13 @@ impl Path {
             })
             .collect();
         Self { points }
+    }
+
+    /// Continues with the points of another path, as when an arc closes a
+    /// bulb's outline.
+    fn then(mut self, other: Path) -> Self {
+        self.points.extend(other.points);
+        self
     }
 
     fn ellipse(centre: Pos2, radius_x: f32, radius_y: f32) -> Self {
@@ -156,6 +166,22 @@ fn paths(icon: Icon) -> Vec<Path> {
             Path::start(8.0, 21.0).line(16.0, 21.0),
             Path::start(12.0, 17.0).line(12.0, 21.0),
         ],
+        // Lucide's lightbulb: the glass outline, then the two base strokes.
+        Icon::Lightbulb => vec![
+            Path::start(15.0, 14.0)
+                .corner(15.4, 12.6, 16.5, 11.5)
+                .corner(17.9, 10.2, 18.0, 8.0)
+                .then(Path::arc(pos2(12.0, 8.0), 6.0, 0.0, -180.0))
+                .corner(6.1, 10.2, 7.5, 11.5)
+                .corner(8.6, 12.6, 9.0, 14.0),
+            Path::start(9.0, 18.0).line(15.0, 18.0),
+            Path::start(10.0, 22.0).line(14.0, 22.0),
+        ],
+        Icon::Close => vec![
+            Path::start(18.0, 6.0).line(6.0, 18.0),
+            Path::start(6.0, 6.0).line(18.0, 18.0),
+        ],
+        Icon::Check => vec![Path::start(20.0, 6.0).line(9.0, 17.0).line(4.0, 12.0)],
         Icon::Globe => vec![
             Path::arc(pos2(12.0, 12.0), 10.0, 0.0, 360.0),
             Path::ellipse(pos2(12.0, 12.0), 4.5, 10.0),

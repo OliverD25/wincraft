@@ -737,6 +737,7 @@ impl Host {
             commands: self.palette_entries(&plugins),
             plugins,
             search: self.config.search.clone(),
+            tips: self.config.tips.clone(),
             update: self.update_view(),
         }
     }
@@ -1527,6 +1528,7 @@ impl Host {
                 Err(err) => log::error!("could not change autostart: {err}"),
             },
             HostSetting::Search(search) => self.config.search = search,
+            HostSetting::Tips(tips) => self.config.tips = tips,
             HostSetting::CheckUpdatesDaily(on) => {
                 self.config.updates.check_daily = on;
                 log::info!("check for updates daily: {on}");

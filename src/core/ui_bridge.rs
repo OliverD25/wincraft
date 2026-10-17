@@ -8,6 +8,7 @@ use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APP};
 
 use crate::core::config::{SearchConfig, ThemeChoice};
+use crate::core::tips::TipsConfig;
 use crate::core::traits::FieldKind;
 
 /// Posted to the host window when the UI thread has queued a request. The host
@@ -64,6 +65,8 @@ pub enum HostSetting {
     /// The palette search settings, sent whole after one of them changed.
     Search(SearchConfig),
     CheckUpdatesDaily(bool),
+    /// The tips' switch and what each tip has done, sent whole.
+    Tips(TipsConfig),
 }
 
 /// One window in the Arrange strip.
@@ -522,6 +525,7 @@ pub struct UiSnapshot {
     pub plugins: Vec<PluginInfo>,
     pub commands: Vec<PaletteEntry>,
     pub search: SearchConfig,
+    pub tips: TipsConfig,
     pub update: UpdateView,
 }
 

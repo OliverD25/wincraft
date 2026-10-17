@@ -14,7 +14,7 @@ use crate::search::{
 };
 use crate::ui::fuzzy;
 
-const PROVIDER: &str = "bookmarks";
+pub const PROVIDER: &str = "bookmarks";
 const GROUP: &str = "Bookmarks";
 /// How long a "press again to remove" stays armed.
 const CONFIRM_FOR: Duration = Duration::from_secs(5);
@@ -40,6 +40,20 @@ pub fn choice(target: &str, name: &str) -> Option<Choice> {
             command: format!("{NEW}\t{target}\t{name}"),
         },
     })
+}
+
+/// The file or folder a row's Ctrl+B would bookmark; None for an address and
+/// for any other kind of action.
+pub fn path_of(choice: &Choice) -> Option<&str> {
+    let Action::Provider { provider, command } = &choice.action else {
+        return None;
+    };
+    if provider != PROVIDER {
+        return None;
+    }
+    let target = command.strip_prefix(NEW)?.strip_prefix('\t')?;
+    let target = target.split('\t').next()?;
+    (bookmarks::kind(target) == Kind::Path && !target.trim().is_empty()).then_some(target)
 }
 
 /// The question for the phrase of a place, for rows of other providers that
@@ -289,7 +303,7 @@ impl SearchProvider for Bookmarks {
     }
 
     fn description(&self) -> &'static str {
-        "Your own short phrases for folders, files and web addresses; Ctrl+B adds one"
+        "Type a saved short name; Ctrl+B on a folder saves one"
     }
 
     fn default_prefix(&self) -> Option<&'static str> {
@@ -771,5 +785,34 @@ mod tests {
     #[test]
     fn the_prefix_is_the_apostrophe() {
         assert_eq!(provider().default_prefix(), Some("'"));
+    }
+
+    #[test]
+    fn a_ctrl_b_choice_names_its_place_unless_it_is_an_address_or_not_ours() {
+        let folder = choice(r"D:\Docs\pswds", "pswds").unwrap();
+        assert_eq!(path_of(&folder), Some(r"D:\Docs\pswds"));
+        let address = choice("https://example.com/a", "a").unwrap();
+        assert_eq!(path_of(&address), None);
+        let other = Choice {
+            label: "Open".to_string(),
+            action: Action::Open(PathBuf::from(r"D:\x")),
+        };
+        assert_eq!(path_of(&other), None);
+        let foreign = Choice {
+            label: "Run".to_string(),
+            action: Action::Provider {
+                provider: "terminal".to_string(),
+                command: "new\tD:\\x\tx".to_string(),
+            },
+        };
+        assert_eq!(path_of(&foreign), None);
+        let empty = choice("  ", "x").unwrap();
+        assert_eq!(path_of(&empty), None);
+    }
+
+    #[test]
+    fn the_help_line_says_what_to_type_and_what_ctrl_b_does() {
+        let line = provider().description();
+        assert!(line.contains("saved short name") && line.contains("Ctrl+B"));
     }
 }
