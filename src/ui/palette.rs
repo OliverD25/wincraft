@@ -1,4 +1,6 @@
+use std::path::Path;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use egui::text::LayoutJob;
 use egui::{
@@ -7,13 +9,19 @@ use egui::{
 };
 
 use crate::core::theme::{self, Tokens};
-use crate::core::ui_bridge::{HostChannel, HostRequest, Prompt, UiSnapshot, SEARCH_PROMPT};
+use crate::core::tips::{self, Place, TipsConfig};
+use crate::core::ui_bridge::{
+    HostChannel, HostRequest, HostSetting, Prompt, UiSnapshot, SEARCH_PROMPT,
+};
+use crate::search::bookmarks as bookmark_store;
 use crate::search::icons::IconCache;
+use crate::search::providers::bookmarks as bookmark_rows;
 use crate::search::{
     Action, Ask, Choice, Context, Glyph, IconRef, Reply, ResultItem, Results, Router, Tone,
 };
 use crate::ui::fuzzy;
 use crate::ui::widgets::icons::{self, Icon};
+use crate::ui::widgets::tip::{self, STRIP_HEIGHT};
 use crate::ui::widgets::{keycap, row, text};
 
 /// The panel the user sees.
@@ -34,6 +42,9 @@ const ICON_SIZE: f32 = 16.0;
 const TITLE_LINE: f32 = 20.0;
 const SUBTITLE_LINE: f32 = 16.0;
 const RISE: f32 = 4.0;
+/// How long the palette stays open after a bookmark was saved, so the
+/// confirmation can be read.
+const SAVED_FOR: Duration = Duration::from_secs(4);
 
 pub enum Outcome {
     Stay,
@@ -63,6 +74,41 @@ pub struct Palette {
     /// The prompt's text was put in the box and is selected once, so typing
     /// replaces it.
     select_all: bool,
+    /// The host's tip settings and state, refreshed from each snapshot and
+    /// sent back whole after this palette changes them.
+    tips: TipsConfig,
+    tips_synced: bool,
+    /// This opening already counted as one show of the folder tip.
+    tip_counted: bool,
+    /// A bookmark was just saved here: shown as a confirmation.
+    saved: Option<Saved>,
+    /// Made when first needed, so a palette that never looks at bookmarks
+    /// never reads the file.
+    bookmarks: Option<bookmark_store::Shared>,
+    /// Whether the place the selected row opens is a folder, looked up once.
+    place: Option<(String, Place)>,
+}
+
+/// The line over the footer.
+enum Strip {
+    Hint(Place),
+    Saved(String),
+}
+
+struct Saved {
+    phrase: String,
+    /// When the palette closes by itself; None keeps it open, as a test
+    /// scene needs.
+    until: Option<Instant>,
+}
+
+/// A test scene started with `--show-tip=bookmark-saved` opens on the
+/// confirmation, since a screenshot sends no Enter to save one.
+fn scene_saved(scene: Option<&str>) -> Option<Saved> {
+    (scene == Some(tips::BOOKMARK_SAVED.id)).then(|| Saved {
+        phrase: "pswds".to_string(),
+        until: None,
+    })
 }
 
 impl Palette {
@@ -80,12 +126,20 @@ impl Palette {
             icons: None,
             prompt: None,
             select_all: false,
+            tips: TipsConfig::default(),
+            tips_synced: false,
+            tip_counted: false,
+            saved: None,
+            bookmarks: None,
+            place: None,
         }
     }
 
     pub fn opened(&mut self) {
         self.prompt = None;
         self.select_all = false;
+        self.tip_counted = false;
+        self.saved = scene_saved(tips::scene_tip().as_deref());
         self.query.clear();
         self.prefix = None;
         self.selected = 0;
@@ -123,6 +177,123 @@ impl Palette {
 
     /// The host sent a new list of commands.
     pub fn invalidate(&mut self) {
+        self.searched = None;
+        self.tips_synced = false;
+    }
+
+    fn sync_tips(&mut self, snapshot: &UiSnapshot) {
+        if !std::mem::replace(&mut self.tips_synced, true) {
+            self.tips = snapshot.tips.clone();
+        }
+    }
+
+    fn send_tips(&self, to_host: &Arc<HostChannel>) {
+        to_host.send(HostRequest::SetHostSetting(HostSetting::Tips(
+            self.tips.clone(),
+        )));
+    }
+
+    fn no_bookmarks(&mut self) -> bool {
+        self.bookmarks
+            .get_or_insert_with(bookmark_store::shared)
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_empty()
+    }
+
+    /// Whether the selected row opens a folder or a file that Ctrl+B can
+    /// bookmark. A web address gets no tip.
+    fn selected_place(&mut self) -> Option<Place> {
+        let target = self
+            .selected_item()?
+            .bookmark
+            .as_ref()
+            .and_then(bookmark_rows::path_of)?
+            .to_string();
+        if let Some((known, place)) = &self.place {
+            if *known == target {
+                return Some(*place);
+            }
+        }
+        let place = if Path::new(&target).is_dir() {
+            Place::Folder
+        } else {
+            Place::File
+        };
+        self.place = Some((target, place));
+        Some(place)
+    }
+
+    /// What goes over the footer now: the confirmation after a save, or the
+    /// Ctrl+B tip on a folder or file row while there are no bookmarks. The
+    /// first frame the tip is drawn in counts as this opening's one show.
+    fn current_strip(&mut self, to_host: &Arc<HostChannel>) -> Option<Strip> {
+        if let Some(saved) = &self.saved {
+            return Some(Strip::Saved(saved.phrase.clone()));
+        }
+        let tip = &tips::BOOKMARK_CTRL_B;
+        if !self.tips.wanted(tip, self.tip_counted) {
+            return None;
+        }
+        let place = self.selected_place()?;
+        if !self.no_bookmarks() {
+            return None;
+        }
+        if !std::mem::replace(&mut self.tip_counted, true) {
+            self.tips.record_show(tip);
+            self.send_tips(to_host);
+        }
+        Some(Strip::Hint(place))
+    }
+
+    /// A search provider's question is over. A bookmark that was saved keeps
+    /// the palette open for a few seconds with a confirmation, and counts as
+    /// the use of the feature the folder tip teaches.
+    fn after_answer(&mut self, provider: &str, typed: &str, to_host: &Arc<HostChannel>) -> Outcome {
+        let Some(phrase) = self.saved_phrase(provider, typed) else {
+            return Outcome::Hide;
+        };
+        let mut changed = self.tips.finish(&tips::BOOKMARK_CTRL_B);
+        let confirm = self.tips.wanted(&tips::BOOKMARK_SAVED, false);
+        if confirm {
+            self.tips.record_show(&tips::BOOKMARK_SAVED);
+            changed = true;
+        }
+        if changed {
+            self.send_tips(to_host);
+        }
+        if !confirm {
+            return Outcome::Hide;
+        }
+        self.leave_prompt();
+        self.saved = Some(Saved {
+            phrase,
+            until: Some(Instant::now() + SAVED_FOR),
+        });
+        Outcome::Stay
+    }
+
+    /// The phrase as saved, when the answer just given saved a bookmark.
+    fn saved_phrase(&mut self, provider: &str, typed: &str) -> Option<String> {
+        if provider != bookmark_rows::PROVIDER {
+            return None;
+        }
+        self.bookmarks
+            .get_or_insert_with(bookmark_store::shared)
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .find(typed)
+            .map(|bookmark| bookmark.phrase.clone())
+    }
+
+    /// Back to the plain palette with an empty box, as when it was opened.
+    fn leave_prompt(&mut self) {
+        self.prompt = None;
+        self.select_all = false;
+        self.query.clear();
+        self.prefix = None;
+        self.selected = 0;
+        self.follow_selection = true;
         self.searched = None;
     }
 
@@ -229,6 +400,7 @@ impl Palette {
         }
         let ctx = ui.ctx().clone();
         self.refresh(snapshot, &ctx);
+        self.sync_tips(snapshot);
         let tokens = Tokens::get(&ctx);
         let mut outcome = Outcome::Stay;
         let mut run: Option<Action> = None;
@@ -237,6 +409,20 @@ impl Palette {
 
         if interactive {
             let pressed = |key| ctx.input(|input| input.key_pressed(key));
+            // The confirmation goes at the first key, so typing starts on a
+            // clean palette.
+            if self.saved.is_some()
+                && ctx.input(|input| {
+                    input.events.iter().any(|event| {
+                        matches!(
+                            event,
+                            egui::Event::Key { pressed: true, .. } | egui::Event::Text(_)
+                        )
+                    })
+                })
+            {
+                self.saved = None;
+            }
             // Any key but Enter cancels a pending "press Enter again".
             let other_key = ctx.input(|input| {
                 input.events.iter().any(|event| match event {
@@ -319,6 +505,7 @@ impl Palette {
             }
         }
 
+        let strip = self.current_strip(to_host);
         let (panel, painter, line) = paint_panel(ui, &tokens, appear);
 
         // Search bar: 56 high, 16 px sides, the search icon, the prefix chip
@@ -407,10 +594,37 @@ impl Palette {
             |ui| footer_hints(ui, &tokens, &hints),
         );
 
-        // The list scrolls inside the panel; the window never changes size.
+        // The tip takes the bottom of the list area; the window never changes
+        // size and the list scrolls in what is left.
+        let mut list_bottom = footer.top() - 4.0;
+        if let Some(strip) = &strip {
+            let rect = Rect::from_min_max(
+                pos2(panel.left() + 8.0, list_bottom - STRIP_HEIGHT),
+                pos2(panel.right() - 8.0, list_bottom),
+            );
+            list_bottom = rect.top() - 4.0;
+            let (line, icon, colour, dismissable) = match strip {
+                Strip::Hint(place) => (
+                    tips::bookmark_hint(*place),
+                    Icon::Lightbulb,
+                    tokens.text_secondary,
+                    true,
+                ),
+                Strip::Saved(phrase) => (
+                    tips::bookmark_saved(phrase),
+                    Icon::Check,
+                    tokens.success,
+                    false,
+                ),
+            };
+            let dismissed = tip::strip(ui, rect, icon, colour, &line, dismissable);
+            if dismissed && interactive && self.tips.finish(&tips::BOOKMARK_CTRL_B) {
+                self.send_tips(to_host);
+            }
+        }
         let list = Rect::from_min_max(
             pos2(panel.left() + 8.0, search.bottom() + 4.0),
-            pos2(panel.right() - 8.0, footer.top() - 4.0),
+            pos2(panel.right() - 8.0, list_bottom),
         );
         let waiting = self.prefix.is_some() && self.query.trim().is_empty();
         ui.scope_builder(
@@ -455,6 +669,15 @@ impl Palette {
                     });
             },
         );
+
+        if let Some(until) = self.saved.as_ref().and_then(|saved| saved.until) {
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                outcome = Outcome::Hide;
+            } else {
+                ctx.request_repaint_after(left);
+            }
+        }
 
         // Focus arrives a frame or two after the window is shown, so hiding on
         // "not focused" before it has ever been focused would close the palette
@@ -672,6 +895,7 @@ impl Palette {
         snapshot: &UiSnapshot,
         to_host: &Arc<HostChannel>,
     ) -> Outcome {
+        self.sync_tips(snapshot);
         match prompt.plugin.strip_prefix(SEARCH_PROMPT) {
             Some(provider) => {
                 match self
@@ -682,7 +906,7 @@ impl Palette {
                         self.ask_for(ask);
                         Outcome::Stay
                     }
-                    None => Outcome::Hide,
+                    None => self.after_answer(provider, &typed, to_host),
                 }
             }
             None => {
@@ -1279,10 +1503,12 @@ mod tests {
 
     fn bookmark_palette(store: &crate::search::bookmarks::Shared) -> Palette {
         use crate::search::providers::bookmarks::Bookmarks;
-        Palette::new(Router::new(
+        let mut palette = Palette::new(Router::new(
             vec![(None, Box::new(Bookmarks::with_store(store.clone())))],
             &Default::default(),
-        ))
+        ));
+        palette.bookmarks = Some(store.clone());
+        palette
     }
 
     fn new_store() -> crate::search::bookmarks::Shared {
@@ -1333,15 +1559,412 @@ mod tests {
         let prompt = palette.prompt.clone().unwrap();
         let outcome =
             palette.answer_prompt(&prompt, "pswds".to_string(), &snapshot, &bridge.to_host);
-        assert!(matches!(outcome, Outcome::Hide));
+        assert!(
+            matches!(outcome, Outcome::Stay),
+            "the palette stays for the confirmation"
+        );
         assert_eq!(
             store.lock().unwrap().find("pswds").unwrap().target,
             r"D:\Docs\a"
         );
-        assert!(
-            bridge.host_rx.try_recv().is_err(),
-            "nothing was sent to the host"
+        // The answer itself never goes to the host; only the tips' state does.
+        while let Ok(request) = bridge.host_rx.try_recv() {
+            assert!(
+                matches!(request, HostRequest::SetHostSetting(HostSetting::Tips(_))),
+                "only the tips' state is sent"
+            );
+        }
+    }
+
+    fn saved_phrase_of(palette: &Palette) -> Option<&str> {
+        palette.saved.as_ref().map(|saved| saved.phrase.as_str())
+    }
+
+    #[test]
+    fn saving_shows_the_confirmation_and_counts_as_using_the_ctrl_b_tip() {
+        let store = new_store();
+        let mut palette = bookmark_palette(&store);
+        let bridge = crate::core::ui_bridge::create();
+        let snapshot = UiSnapshot::default();
+        palette.opened();
+        palette.perform(ctrl_b(r"D:\Docs\a", "a"), &snapshot, &bridge.to_host);
+        let prompt = palette.prompt.clone().unwrap();
+        palette.answer_prompt(&prompt, "  Pswds ".to_string(), &snapshot, &bridge.to_host);
+        assert_eq!(saved_phrase_of(&palette), Some("Pswds"));
+        assert!(palette.prompt.is_none(), "back in the plain palette");
+        assert!(palette.query.is_empty());
+        let until = palette.saved.as_ref().and_then(|saved| saved.until);
+        assert!(until.is_some_and(|at| at > Instant::now()), "closes later");
+        assert!(palette.tips.state[tips::BOOKMARK_CTRL_B.id].done);
+        assert_eq!(palette.tips.state[tips::BOOKMARK_SAVED.id].shown, 1);
+        let mut sent = None;
+        while let Ok(HostRequest::SetHostSetting(HostSetting::Tips(tips))) =
+            bridge.host_rx.try_recv()
+        {
+            sent = Some(tips);
+        }
+        assert_eq!(sent.as_ref(), Some(&palette.tips), "the host keeps it");
+    }
+
+    #[test]
+    fn with_tips_off_saving_closes_the_palette_as_before() {
+        let store = new_store();
+        let mut palette = bookmark_palette(&store);
+        let bridge = crate::core::ui_bridge::create();
+        let mut snapshot = UiSnapshot::default();
+        snapshot.tips.show = false;
+        palette.opened();
+        palette.perform(ctrl_b(r"D:\Docs\a", "a"), &snapshot, &bridge.to_host);
+        let prompt = palette.prompt.clone().unwrap();
+        let outcome =
+            palette.answer_prompt(&prompt, "pswds".to_string(), &snapshot, &bridge.to_host);
+        assert!(matches!(outcome, Outcome::Hide));
+        assert!(palette.saved.is_none());
+        assert!(store.lock().unwrap().find("pswds").is_some(), "still saved");
+    }
+
+    #[test]
+    fn the_confirmation_retires_after_three_saves() {
+        let store = new_store();
+        let mut palette = bookmark_palette(&store);
+        let bridge = crate::core::ui_bridge::create();
+        let snapshot = UiSnapshot::default();
+        for number in 1..=4 {
+            palette.opened();
+            palette.perform(ctrl_b(r"D:\Docs\a", "a"), &snapshot, &bridge.to_host);
+            let prompt = palette.prompt.clone().unwrap();
+            let phrase = format!("phrase{number}");
+            let outcome = palette.answer_prompt(&prompt, phrase, &snapshot, &bridge.to_host);
+            let stays = matches!(outcome, Outcome::Stay);
+            assert_eq!(stays, number <= 3, "save {number}");
+        }
+    }
+
+    #[test]
+    fn a_failed_save_is_not_confirmed() {
+        let store = new_store();
+        let mut palette = bookmark_palette(&store);
+        let bridge = crate::core::ui_bridge::create();
+        let snapshot = UiSnapshot::default();
+        palette.opened();
+        let prompt = Prompt {
+            plugin: format!("{SEARCH_PROMPT}bookmarks"),
+            payload: "target\t".to_string(),
+            ..Default::default()
+        };
+        let outcome = palette.answer_prompt(&prompt, String::new(), &snapshot, &bridge.to_host);
+        assert!(matches!(outcome, Outcome::Hide));
+        assert!(palette.saved.is_none());
+    }
+
+    /// The width and height of the window the palette is drawn in.
+    fn window() -> egui::Rect {
+        Rect::from_min_size(pos2(0.0, 0.0), vec2(WIDTH, HEIGHT))
+    }
+
+    /// One frame of the palette in a window of its size.
+    fn frame(
+        palette: &mut Palette,
+        ctx: &egui::Context,
+        snapshot: &UiSnapshot,
+        bridge: &crate::core::ui_bridge::Bridge,
+        events: Vec<egui::Event>,
+    ) -> Outcome {
+        let input = egui::RawInput {
+            screen_rect: Some(window()),
+            events,
+            ..Default::default()
+        };
+        let mut outcome = Outcome::Stay;
+        let mut output = ctx.run_ui(input, |ui| {
+            outcome = palette.show(ui, snapshot, &bridge.to_host, 1.0, true);
+        });
+        output.textures_delta.clear();
+        outcome
+    }
+
+    fn drawing_context() -> egui::Context {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx, crate::core::config::ThemeChoice::Dark);
+        ctx
+    }
+
+    #[test]
+    fn the_confirmation_closes_the_palette_after_four_seconds_and_goes_at_the_first_key() {
+        let store = new_store();
+        let mut palette = bookmark_palette(&store);
+        let bridge = crate::core::ui_bridge::create();
+        let snapshot = UiSnapshot::default();
+        let ctx = drawing_context();
+        palette.opened();
+        palette.saved = Some(Saved {
+            phrase: "pswds".to_string(),
+            until: Some(Instant::now() + SAVED_FOR),
+        });
+        frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+        assert!(matches!(
+            frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new()),
+            Outcome::Stay
+        ));
+        assert!(palette.saved.is_some(), "still showing");
+        // Typing clears it and the palette stays open for the typing.
+        let outcome = frame(
+            &mut palette,
+            &ctx,
+            &snapshot,
+            &bridge,
+            vec![egui::Event::Text("d".to_string())],
         );
+        assert!(matches!(outcome, Outcome::Stay));
+        assert!(palette.saved.is_none());
+
+        palette.saved = Some(Saved {
+            phrase: "pswds".to_string(),
+            until: Some(Instant::now() - Duration::from_millis(1)),
+        });
+        assert!(matches!(
+            frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new()),
+            Outcome::Hide
+        ));
+    }
+
+    #[test]
+    fn a_scene_can_open_on_the_confirmation_and_it_never_times_out() {
+        let saved = scene_saved(Some("bookmark-saved")).unwrap();
+        assert_eq!(saved.phrase, "pswds");
+        assert!(saved.until.is_none());
+        assert!(scene_saved(Some("bookmark-ctrl-b")).is_none());
+        assert!(scene_saved(None).is_none());
+    }
+
+    /// A provider whose rows each open one place, so Ctrl+B applies.
+    struct Places(Vec<String>);
+
+    impl crate::search::SearchProvider for Places {
+        fn id(&self) -> &'static str {
+            "places"
+        }
+        fn name(&self) -> &'static str {
+            "Places"
+        }
+        fn description(&self) -> &'static str {
+            "test rows"
+        }
+        fn blended(&self) -> bool {
+            true
+        }
+        fn query(&mut self, _query: &crate::search::Query, _context: &Context) -> Vec<ResultItem> {
+            self.0
+                .iter()
+                .map(|target| ResultItem {
+                    group: "Places".to_string(),
+                    title: target.clone(),
+                    bookmark: crate::search::providers::bookmarks::choice(target, "name"),
+                    enter: Some(Choice {
+                        label: "Open".to_string(),
+                        action: Action::Open(target.into()),
+                    }),
+                    ..Default::default()
+                })
+                .collect()
+        }
+    }
+
+    /// A folder of the test's own under the temp folder, so tests running at
+    /// the same time do not remove each other's.
+    fn scratch_folder(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("wincraft-tips-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A palette over one test row per target, typed into so the rows show,
+    /// with the bookmarks in `store`.
+    fn places_palette(targets: &[&str], store: &crate::search::bookmarks::Shared) -> Palette {
+        let rows = Places(targets.iter().map(|target| target.to_string()).collect());
+        let mut palette = Palette::new(Router::new(
+            vec![(None, Box::new(rows))],
+            &Default::default(),
+        ));
+        palette.bookmarks = Some(store.clone());
+        palette.opened();
+        palette.type_in("x");
+        palette
+    }
+
+    /// What one more frame of the palette puts over the footer.
+    fn hint(palette: &mut Palette, bridge: &crate::core::ui_bridge::Bridge) -> Option<Place> {
+        let snapshot = UiSnapshot::default();
+        frame(palette, &drawing_context(), &snapshot, bridge, Vec::new());
+        match palette.current_strip(&bridge.to_host) {
+            Some(Strip::Hint(place)) => Some(place),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_folder_row_gets_the_tip_and_a_file_row_gets_the_file_wording() {
+        let folder = scratch_folder("kinds");
+        let file = folder.join("note.txt");
+        std::fs::write(&file, "x").unwrap();
+        let folder_text = folder.display().to_string();
+        let file_text = file.display().to_string();
+        let bridge = crate::core::ui_bridge::create();
+        let ctx = drawing_context();
+        let snapshot = UiSnapshot::default();
+
+        let mut palette = places_palette(&[&folder_text, &file_text], &new_store());
+        frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+        assert_eq!(hint(&mut palette, &bridge), Some(Place::Folder));
+        palette.selected = 1;
+        assert_eq!(hint(&mut palette, &bridge), Some(Place::File));
+        std::fs::remove_dir_all(&folder).ok();
+    }
+
+    #[test]
+    fn rows_that_cannot_be_bookmarked_as_a_place_get_no_tip() {
+        let bridge = crate::core::ui_bridge::create();
+        let ctx = drawing_context();
+        let snapshot = UiSnapshot::default();
+        let mut palette = places_palette(&["https://example.com"], &new_store());
+        frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+        assert_eq!(hint(&mut palette, &bridge), None, "an address");
+
+        let mut none = Palette::new(Router::new(Vec::new(), &Default::default()));
+        none.bookmarks = Some(new_store());
+        none.opened();
+        frame(&mut none, &ctx, &snapshot, &bridge, Vec::new());
+        assert_eq!(hint(&mut none, &bridge), None, "no row at all");
+    }
+
+    #[test]
+    fn once_a_bookmark_exists_the_tip_does_not_come_back() {
+        let folder = scratch_folder("exists").display().to_string();
+        let bridge = crate::core::ui_bridge::create();
+        let store = new_store();
+        let mut palette = places_palette(&[&folder], &store);
+        assert_eq!(hint(&mut palette, &bridge), Some(Place::Folder));
+        store.lock().unwrap().set("any", r"D:\any", 1);
+        palette.opened();
+        palette.type_in("x");
+        assert_eq!(hint(&mut palette, &bridge), None);
+        std::fs::remove_dir_all(&folder).ok();
+    }
+
+    #[test]
+    fn the_tip_counts_one_show_per_opening_not_per_frame_and_retires_after_three() {
+        let folder = scratch_folder("count").display().to_string();
+        let bridge = crate::core::ui_bridge::create();
+        let ctx = drawing_context();
+        let snapshot = UiSnapshot::default();
+        let mut palette = places_palette(&[&folder], &new_store());
+        let shown = |palette: &Palette| {
+            palette
+                .tips
+                .state
+                .get(tips::BOOKMARK_CTRL_B.id)
+                .map_or(0, |state| state.shown)
+        };
+        for opening in 1..=3u32 {
+            palette.opened();
+            palette.type_in("x");
+            for _ in 0..5 {
+                frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+                assert_eq!(hint(&mut palette, &bridge), Some(Place::Folder));
+            }
+            assert_eq!(shown(&palette), opening, "opening {opening}");
+        }
+        palette.opened();
+        palette.type_in("x");
+        frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+        assert_eq!(hint(&mut palette, &bridge), None, "the fourth opening");
+        assert_eq!(shown(&palette), 3);
+        std::fs::remove_dir_all(&folder).ok();
+    }
+
+    #[test]
+    fn every_counted_show_is_sent_to_the_host_once() {
+        let folder = scratch_folder("sent").display().to_string();
+        let bridge = crate::core::ui_bridge::create();
+        let ctx = drawing_context();
+        let snapshot = UiSnapshot::default();
+        let mut palette = places_palette(&[&folder], &new_store());
+        for _ in 0..4 {
+            frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+        }
+        let mut sent = 0;
+        while let Ok(HostRequest::SetHostSetting(HostSetting::Tips(tips))) =
+            bridge.host_rx.try_recv()
+        {
+            assert_eq!(tips.state[tips::BOOKMARK_CTRL_B.id].shown, 1);
+            sent += 1;
+        }
+        assert_eq!(sent, 1);
+    }
+
+    #[test]
+    fn the_cross_retires_the_tip_for_good_and_the_switch_hides_it() {
+        let folder = scratch_folder("cross").display().to_string();
+        let bridge = crate::core::ui_bridge::create();
+        let ctx = drawing_context();
+        let snapshot = UiSnapshot::default();
+        let mut palette = places_palette(&[&folder], &new_store());
+        frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+        // The strip is the last 32 px of the list area, and the cross sits
+        // 8 px in from its right edge.
+        let cross = pos2(
+            MARGIN + PANEL_WIDTH - 8.0 - 8.0 - 12.0,
+            MARGIN + PANEL_HEIGHT - FOOTER_HEIGHT - 4.0 - STRIP_HEIGHT / 2.0,
+        );
+        let press = |pressed| egui::Event::PointerButton {
+            pos: cross,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        frame(
+            &mut palette,
+            &ctx,
+            &snapshot,
+            &bridge,
+            vec![egui::Event::PointerMoved(cross)],
+        );
+        frame(&mut palette, &ctx, &snapshot, &bridge, vec![press(true)]);
+        frame(&mut palette, &ctx, &snapshot, &bridge, vec![press(false)]);
+        assert!(palette.tips.state[tips::BOOKMARK_CTRL_B.id].done);
+        assert_eq!(hint(&mut palette, &bridge), None, "gone in this opening");
+        palette.opened();
+        palette.type_in("x");
+        assert_eq!(hint(&mut palette, &bridge), None, "and in the next");
+
+        let mut off = places_palette(&[&folder], &new_store());
+        let mut snapshot = UiSnapshot::default();
+        snapshot.tips.show = false;
+        frame(&mut off, &ctx, &snapshot, &bridge, Vec::new());
+        assert_eq!(hint(&mut off, &bridge), None);
+        std::fs::remove_dir_all(&folder).ok();
+    }
+
+    #[test]
+    fn a_new_snapshot_brings_in_what_the_settings_page_changed() {
+        let folder = scratch_folder("snapshot").display().to_string();
+        let bridge = crate::core::ui_bridge::create();
+        let ctx = drawing_context();
+        let mut snapshot = UiSnapshot::default();
+        let mut palette = places_palette(&[&folder], &new_store());
+        frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+        assert!(palette.tips.show);
+        snapshot.tips.show = false;
+        frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+        assert!(
+            palette.tips.show,
+            "the snapshot is read once, until a new one"
+        );
+        palette.invalidate();
+        frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+        assert!(!palette.tips.show);
+        std::fs::remove_dir_all(&folder).ok();
     }
 
     #[test]
@@ -1366,7 +1989,8 @@ mod tests {
         );
         let outcome =
             palette.answer_prompt(&second, "pswds".to_string(), &snapshot, &bridge.to_host);
-        assert!(matches!(outcome, Outcome::Hide));
+        assert!(matches!(outcome, Outcome::Stay), "the confirmation shows");
+        assert_eq!(saved_phrase_of(&palette), Some("pswds"));
         assert_eq!(
             store.lock().unwrap().find("pswds").unwrap().target,
             r"D:\new"

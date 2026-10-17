@@ -396,6 +396,7 @@ it is a separate instance:
   | `--peek-card=<n>` | The strip with the hover peek on card `n` (from 0), or `chip` for the first card of a window that is not on the primary monitor. |
   | `--theme=light` or `dark` | That theme for this run. |
   | `--ask-name=<hwnd>` | The palette's rename box for that window (WindowNamer). Nothing is renamed without Enter. |
+  | `--show-tip=<id>` | Lets that in-app tip show. A test instance shows no tip otherwise, so no other scene carries one. `bookmark-ctrl-b` is the hint over a folder or file row (pair it with a query that selects one, such as `--open-palette=/C:\Windows\`); `bookmark-saved` opens the palette on the confirmation that follows saving a bookmark, with no Enter needed. |
   | `--show-restore-panel` | LayoutKeeper's please-wait panel with sample progress, and nothing else. A flag without a value. |
   | `--ddc-test=<what>` | ScreenDimmer's DDC/CI check on real monitors, printed step by step, then exit; no tray icon, no plugins. `list` only reads each monitor's power mode and brightness. `left`, `centre` or `right` turns that monitor off the way Auto does, keeps it so for 10 s and brings it back; `wake-left` and so on only wakes it. Run it only with the person at the PC: it really turns a screen off. |
   | `--update-now` | Checks for an update at once and installs what it finds, as if Update now were clicked. With `WINCRAFT_RELEASES_URL` pointing at a fake releases API on this PC and `WINCRAFT_INSTALL_DIR` (or a scratch `LOCALAPPDATA`) giving the test instance an install folder of its own, the whole update and its rollback run without the internet. A flag without a value. |
@@ -427,7 +428,7 @@ it is a separate instance:
 
 `tools\screenshots.ps1` takes a PNG of every scene (the palette empty and
 with `/`, `=2+2*3`, `<` and `?`; settings General, Plugins, LayoutKeeper's
-page and About; the strip in the view Auto picks and in the Flat view; the
+page and About; the empty Bookmarks page and the palette's two bookmark tips; the strip in the view Auto picks and in the Flat view; the
 strip with a peek on a card of a window off the primary monitor; WindowNamer's rename box for the window that was in front; the strip
 with a renamed window, which is a minimized window the harness opens
 itself and closes at the end), in the dark and the light theme, from test

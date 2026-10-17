@@ -12,4 +12,5 @@ pub mod keycap;
 pub mod row;
 pub mod slider;
 pub mod text;
+pub mod tip;
 pub mod toggle;

@@ -7,16 +7,18 @@ use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::core::config::DEFAULT_PALETTE_HOTKEY;
 use crate::core::theme::Tokens;
-use crate::core::ui_bridge::{HostChannel, HostRequest};
+use crate::core::tips;
+use crate::core::ui_bridge::{HostChannel, HostRequest, UiSnapshot};
 use crate::search::bookmarks::{self, Bookmark, EditError, Kind, Shared, Store};
 use crate::search::Action;
 use crate::ui::settings::{self as page, SettingsState};
 use crate::ui::widgets::button::{self, Kind as ButtonKind};
-use crate::ui::widgets::empty_state::empty_state;
+use crate::ui::widgets::empty_state::empty_state_steps;
 use crate::ui::widgets::input::{self, Face};
 use crate::ui::widgets::row::{settings_row, RowText};
-use crate::ui::widgets::text;
+use crate::ui::widgets::{keycap, text};
 
 /// How often the places are looked for again while the page is open.
 const RECHECK: Duration = Duration::from_secs(5);
@@ -42,6 +44,9 @@ pub struct BookmarksView {
     add_target: String,
     editing: Option<Editing>,
     note: Option<Note>,
+    /// The empty state's "Add bookmark…" was clicked: the phrase box takes the
+    /// focus when it is drawn next.
+    focus_add: bool,
     /// Whether each place (by lowercase target) was found on disk. Looked up
     /// on a thread of its own: a share that does not answer can take seconds.
     found: HashMap<String, bool>,
@@ -152,14 +157,31 @@ fn open_action(target: &str) -> Action {
     }
 }
 
-pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, to_host: &Arc<HostChannel>) {
-    show_with(ui, &bookmarks::shared(), &mut state.bookmarks, to_host);
+pub fn show(
+    ui: &mut egui::Ui,
+    snapshot: &UiSnapshot,
+    state: &mut SettingsState,
+    to_host: &Arc<HostChannel>,
+) {
+    let hotkey = if snapshot.palette_hotkey.is_empty() {
+        DEFAULT_PALETTE_HOTKEY
+    } else {
+        &snapshot.palette_hotkey
+    };
+    show_with(
+        ui,
+        &bookmarks::shared(),
+        &mut state.bookmarks,
+        hotkey,
+        to_host,
+    );
 }
 
 fn show_with(
     ui: &mut egui::Ui,
     shared: &Shared,
     view: &mut BookmarksView,
+    palette_hotkey: &str,
     to_host: &Arc<HostChannel>,
 ) {
     let items = shared
@@ -190,11 +212,15 @@ fn show_with(
             page::section_header(ui, &format!("Your bookmarks \u{b7} {count} {noun}"));
             ui.spacing_mut().item_spacing.y = 0.0;
             if items.is_empty() {
-                empty_state(
+                empty_state_steps(
                     ui,
                     "No bookmarks yet",
-                    "Add one above, or press Ctrl+B on a folder in the palette.",
+                    &tips::bookmark_steps(&keycap::spaced(palette_hotkey)),
                 );
+                ui.add_space(12.0);
+                if button::button(ui, "Add bookmark\u{2026}", ButtonKind::Secondary).clicked() {
+                    view.focus_add = true;
+                }
                 return;
             }
             for item in &items {
@@ -239,7 +265,13 @@ fn show_with(
 }
 
 /// One labelled box of a form.
-fn field(ui: &mut egui::Ui, caption: &str, id: &str, value: &mut String, face: Face) {
+fn field(
+    ui: &mut egui::Ui,
+    caption: &str,
+    id: &str,
+    value: &mut String,
+    face: Face,
+) -> egui::Response {
     let tokens = Tokens::get(ui.ctx());
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
@@ -254,8 +286,9 @@ fn field(ui: &mut egui::Ui, caption: &str, id: &str, value: &mut String, face: F
             },
         );
         let width = (ui.available_width() - 8.0).clamp(160.0, 440.0);
-        input::text(ui, id, value, face, width);
-    });
+        input::text(ui, id, value, face, width)
+    })
+    .inner
 }
 
 fn note_line(ui: &mut egui::Ui, note: &Option<Note>) {
@@ -272,13 +305,16 @@ fn note_line(ui: &mut egui::Ui, note: &Option<Note>) {
 }
 
 fn add_form(ui: &mut egui::Ui, shared: &Shared, view: &mut BookmarksView) {
-    field(
+    let phrase = field(
         ui,
         "Phrase",
         "bookmark-add-phrase",
         &mut view.add_phrase,
         Face::Text,
     );
+    if std::mem::take(&mut view.focus_add) {
+        phrase.request_focus();
+    }
     field(
         ui,
         "Place",
@@ -464,10 +500,21 @@ mod tests {
         let bridge = crate::core::ui_bridge::create();
         for _ in 0..frames {
             let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-                show_with(ui, shared, view, &bridge.to_host);
+                show_with(ui, shared, view, "Win+Alt+P", &bridge.to_host);
             });
             output.textures_delta.clear();
         }
+    }
+
+    #[test]
+    fn add_bookmark_on_the_empty_page_hands_the_focus_to_the_phrase_box() {
+        let empty = shared_with(&[]);
+        let mut view = BookmarksView {
+            focus_add: true,
+            ..Default::default()
+        };
+        draw(&empty, &mut view, 3);
+        assert!(!view.focus_add, "the request is used once");
     }
 
     #[test]

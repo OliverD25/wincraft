@@ -1,11 +1,28 @@
 use egui::{Shape, Ui};
 
 use crate::core::theme::{self, Tokens};
-use crate::ui::widgets::text;
+use crate::core::tips::Part;
+use crate::ui::widgets::{text, tip};
 
 /// A dashed box with a 15 px semibold title and one 12 px line. Dashed rather
 /// than solid so it never reads as a row that failed to load its controls.
 pub fn empty_state(ui: &mut Ui, title: &str, line: &str) {
+    let tokens = Tokens::get(ui.ctx());
+    framed(ui, title, |ui| {
+        text::caption(ui, line, tokens.text_secondary);
+    });
+}
+
+/// The same box with one line per step, each with its keys as chips.
+pub fn empty_state_steps(ui: &mut Ui, title: &str, steps: &[Vec<Part>]) {
+    framed(ui, title, |ui| {
+        for step in steps {
+            ui.horizontal(|ui| tip::parts(ui, step, 12.0));
+        }
+    });
+}
+
+fn framed(ui: &mut Ui, title: &str, body: impl FnOnce(&mut Ui)) {
     let tokens = Tokens::get(ui.ctx());
     let response = egui::Frame::NONE
         .inner_margin(egui::Margin::same(20))
@@ -16,7 +33,7 @@ pub fn empty_state(ui: &mut Ui, title: &str, line: &str) {
                 ui,
                 text::job(title, theme::semibold(15.0), tokens.text_primary, None),
             );
-            text::caption(ui, line, tokens.text_secondary);
+            body(ui);
         })
         .response;
 
