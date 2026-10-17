@@ -899,8 +899,9 @@ fn group_header(ui: &mut egui::Ui, name: &str) {
     ui.add_space(2.0);
 }
 
-/// A label with the matched letters underlined in the accent colour; the
-/// semibold weight is kept for headings, so the match is not shown in bold.
+/// A label with only the main run of the match in the accent colour, as the
+/// design handout asks; the semibold weight is kept for headings, so the
+/// match is not shown in bold.
 fn label_job(
     label: &str,
     query: &str,
@@ -908,14 +909,9 @@ fn label_job(
     colour: Color32,
     tokens: &Tokens,
 ) -> LayoutJob {
-    let matched = if query.is_empty() {
-        Vec::new()
-    } else {
-        fuzzy::positions(query, label).unwrap_or_default()
-    };
+    let matched = fuzzy::main_run(query, label).unwrap_or(0..0);
     let plain = text::format(font.clone(), colour, Some(TITLE_LINE));
-    let mut hit = text::format(font, tokens.accent, Some(TITLE_LINE));
-    hit.underline = egui::Stroke::new(1.0, tokens.accent);
+    let hit = text::format(font, tokens.accent, Some(TITLE_LINE));
     let mut job = LayoutJob::default();
     for (index, character) in label.chars().enumerate() {
         let format = if matched.contains(&index) {

@@ -89,6 +89,40 @@ pub fn positions(query: &str, text: &str) -> Option<Vec<usize>> {
     Some(found)
 }
 
+/// The one stretch of `text` the palette highlights: the whole query where it
+/// appears unbroken, else the first run of matched letters that sit next to
+/// each other. Scattered single letters are noise, so a run must be at least
+/// three letters, or the whole query when the query is shorter than that.
+pub fn main_run(query: &str, text: &str) -> Option<std::ops::Range<usize>> {
+    let needle: Vec<char> = query
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .flat_map(char::to_lowercase)
+        .collect();
+    let lower: Vec<char> = text.chars().flat_map(char::to_lowercase).collect();
+    if needle.is_empty() || lower.len() != text.chars().count() {
+        return None;
+    }
+    if let Some(start) = lower
+        .windows(needle.len())
+        .position(|window| window == needle.as_slice())
+    {
+        return Some(start..start + needle.len());
+    }
+    let shortest = needle.len().min(3);
+    let found = positions(query, text)?;
+    let mut start = 0;
+    for end in 1..=found.len() {
+        if end == found.len() || found[end] != found[end - 1] + 1 {
+            if end - start >= shortest {
+                return Some(found[start]..found[end - 1] + 1);
+            }
+            start = end;
+        }
+    }
+    None
+}
+
 fn is_boundary(c: char) -> bool {
     c.is_whitespace() || matches!(c, ':' | '-' | '_' | '/' | '.' | '+' | '(')
 }
@@ -155,6 +189,24 @@ mod tests {
         assert!(partial < EXACT);
         let long = "abcdefghijklmnopqrstuvwxyz";
         assert!(score(long, &format!("{long}!")).unwrap() < EXACT);
+    }
+
+    #[test]
+    fn main_run_is_the_unbroken_query_or_the_first_long_run() {
+        assert_eq!(main_run("pswds", "pswds_OneDrive"), Some(0..5));
+        assert_eq!(main_run("PSW", "my pswds"), Some(3..6));
+        assert_eq!(
+            main_run("pswds", "rde@RDE-HOME-PC: /mnt/e/codespace/_rde_windows"),
+            None
+        );
+        assert_eq!(main_run("mon", "Toggle monitor 1"), Some(7..10));
+        assert_eq!(main_run("tm1", "Toggle monitor 1"), None);
+        assert_eq!(main_run("monx", "Toggle monitor x"), Some(7..10));
+        assert_eq!(main_run("no", "Notion"), Some(0..2));
+        assert_eq!(main_run("nt", "Notion"), None);
+        assert_eq!(main_run("note", "Unnoticed notes"), Some(10..14));
+        assert_eq!(main_run("", "anything"), None);
+        assert_eq!(main_run("zz", "anything"), None);
     }
 
     #[test]
