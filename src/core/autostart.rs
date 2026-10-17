@@ -385,15 +385,31 @@ fn remove() -> Result<(), String> {
 }
 
 /// Turns start-at-sign-in on or off. On, it is the logon task, or the Run
-/// key when the task cannot be made; off, both are removed.
+/// key when the task cannot be made; off, both are removed. Another copy than
+/// the installed one may do neither.
 pub fn set(enabled: bool) -> Result<(), String> {
+    set_unless_hands_off(hands_off_note(), enabled, || install().map(|_| ()), remove)
+}
+
+/// Removes the logon task and the Run value for `--uninstall`, which is an
+/// explicit command and so allowed from any copy.
+pub fn remove_for_uninstall() -> Result<(), String> {
+    remove()
+}
+
+fn set_unless_hands_off(
+    note: Option<String>,
+    enabled: bool,
+    on: impl FnOnce() -> Result<(), String>,
+    off: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    if let Some(note) = note {
+        return Err(note);
+    }
     if enabled {
-        if let Some(note) = hands_off_note() {
-            return Err(note);
-        }
-        install().map(|_| ())
+        on()
     } else {
-        remove()
+        off()
     }
 }
 
@@ -485,6 +501,29 @@ mod tests {
 
     const INSTALLED: &str = r"C:\Users\Ann\AppData\Local\Programs\WinCraft\wincraft.exe";
     const DEV: &str = r"E:\code\wincraft\target\release\wincraft.exe";
+
+    #[test]
+    fn another_copy_can_neither_make_nor_remove_the_task() {
+        let note = hands_off_reason(Path::new(DEV), Path::new(INSTALLED), true);
+        let touched = Cell::new(false);
+        for enabled in [true, false] {
+            let touch = || {
+                touched.set(true);
+                Ok(())
+            };
+            let result = set_unless_hands_off(note.clone(), enabled, touch, touch);
+            assert_eq!(result.as_ref().err(), note.as_ref());
+        }
+        assert!(!touched.get());
+        assert_eq!(
+            set_unless_hands_off(None, false, || Err("on".into()), || Ok(())),
+            Ok(())
+        );
+        assert_eq!(
+            set_unless_hands_off(None, true, || Err("on".into()), || Ok(())),
+            Err("on".to_string())
+        );
+    }
 
     #[test]
     fn the_installed_copy_manages_the_task() {

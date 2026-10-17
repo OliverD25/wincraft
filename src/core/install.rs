@@ -485,7 +485,7 @@ pub fn uninstall() -> i32 {
             say(&format!("warning: {err}"));
         }
     }
-    match autostart::set(false) {
+    match autostart::remove_for_uninstall() {
         Ok(()) => say("start at sign-in removed"),
         Err(err) => {
             say(&format!("could not remove start at sign-in: {err}"));
