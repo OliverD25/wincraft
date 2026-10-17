@@ -2524,9 +2524,13 @@ mod tests {
 
     #[test]
     fn a_normal_instance_is_not_read_only() {
-        // cargo test runs without WINCRAFT_INSTANCE.
-        assert!(!instance::is_test());
-        let mut keeper = LayoutKeeper::default();
+        // The flag follows instance::is_test, which reads WINCRAFT_INSTANCE
+        // from the shell; this test must pass whatever the shell has set.
+        assert_eq!(LayoutKeeper::default().read_only, instance::is_test());
+        let mut keeper = LayoutKeeper {
+            read_only: instance::is_test_suffix(""),
+            ..LayoutKeeper::default()
+        };
         assert!(!keeper.read_only);
         assert!(!keeper.refuses("anything"));
         assert_eq!(keeper.refused, 0);
