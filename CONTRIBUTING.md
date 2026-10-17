@@ -346,7 +346,9 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   warning-free `cargo build --release`.** CI runs `cargo fmt --check`, the
   tests, clippy and the release build, with clippy and the build treating
   warnings as errors, so a formatting slip, a lint or a warning fails CI.
-  Do not reach for `#[allow]`; fix the cause.
+  Do not reach for `#[allow]`; fix the cause. CI runs on pull requests and by
+  hand (Actions → CI → Run workflow), not on pushes to `main`: run the same
+  four checks locally before you push. Releases build on `v*` tags.
 
 ## Testing next to your own WinCraft
 

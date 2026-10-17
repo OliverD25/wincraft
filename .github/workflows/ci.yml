@@ -1,9 +1,18 @@
 name: CI
 
+# Pull requests and manual runs only: every push to main is already checked
+# locally (fmt, tests, clippy, release build) before it is pushed, and docs-only
+# changes need no Windows build.
 on:
-  push:
-    branches: [main]
   pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
