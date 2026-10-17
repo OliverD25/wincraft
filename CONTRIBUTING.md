@@ -304,7 +304,9 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   same list ShortcutDetector probes.
 - **Hotkey defaults must start with `Win+Alt`.** That combination is nearly
   free on Windows, which keeps clashes rare and makes every WinCraft hotkey
-  feel like one family.
+  feel like one family. `wincraft --hotkey-verdict=Win+Alt+Shift+F1,Win+Alt+K`
+  prints ShortcutDetector's verdict on each combination before you pick one;
+  a key your own running WinCraft holds shows as taken by another app.
 - **No new crates without discussing it first.** WinCraft depends on
   `windows-sys`, `serde`, `serde_json`, `log`, `eframe`/`egui`,
   `egui_commonmark`, `ureq`, `winit` and `raw-window-handle`, and that is
@@ -429,7 +431,8 @@ windows on that monitor.
 Three separate numbering spaces, all local to your plugin:
 
 - **Hotkey action ids** (`HotkeyAction::id`) — any `u32`. ScreenDimmer uses
-  1, 2, 3 for the monitors and 100 for "wake all", leaving room to add more.
+  1, 2, 3 for covering the monitors from the left, 11, 12, 13 for turning
+  them off and 100 for "wake all", leaving room to add more.
   A `page_action` id is looked up among these first, then among the palette
   command ids, so give a page button a number no hotkey action uses.
 - **Tray action ids** (`TrayAction::id`) — must be **below 100**. The host

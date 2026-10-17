@@ -48,19 +48,20 @@ Once a release is published, you can instead download `wincraft.exe` from the
 
 ### ScreenDimmer
 
-Turns a monitor off over DDC/CI, like its power button, without Windows
-moving your windows. A monitor that ignores standby is dimmed to brightness 0
-instead, and one without DDC/CI is covered with a black overlay you can click
-straight through. Each monitor's mode (Auto, Off, Dim, Cover) is on the
-plugin's page. The mouse pointer cannot go onto a monitor that is off, and
-quitting WinCraft brings every monitor back.
+Covers a monitor with a black overlay you can click straight through, which
+turns partly see-through under your pointer, or turns it off over DDC/CI,
+like its power button, without Windows moving your windows. A monitor that
+ignores standby is dimmed to brightness 0 instead, and one without DDC/CI is
+only covered. What the Shift key does to each monitor (Auto, Off, Dim,
+Cover) is on the plugin's page. The mouse pointer cannot go onto a monitor
+that is off, and quitting WinCraft brings every monitor back. Monitors are
+counted from the left.
 [Full README](src/plugins/screen_dimmer/README.md)
 
 | Hotkey | What it does |
 |---|---|
-| `Win+Alt+F1` | Turn off / bring back monitor 1 |
-| `Win+Alt+F2` | Turn off / bring back monitor 2 |
-| `Win+Alt+F3` | Turn off / bring back monitor 3 |
+| `Win+Alt+F1` / `F2` / `F3` | Cover / uncover the left / centre / right monitor |
+| `Win+Alt+Shift+F1` / `F2` / `F3` | Turn off / bring back the left / centre / right monitor |
 | `Win+Alt+F12` | Bring back every monitor |
 
 ### ShortcutDetector

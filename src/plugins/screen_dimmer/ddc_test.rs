@@ -134,7 +134,7 @@ pub fn drive(
         machine.recover()
     } else {
         out("turning it off the way Auto does");
-        machine.toggle(Mode::Auto)
+        machine.off_key(Mode::Auto)
     };
     let mut ok = settle(&worker, &results, printed, &mut machine, first, out);
     if ok && !wake_only {
@@ -143,12 +143,12 @@ pub fn drive(
                 out(&format!("keeping it {} for {hold:?}", machine.describe()));
                 std::thread::sleep(hold);
                 out("bringing it back");
-                let job = machine.toggle(Mode::Auto);
+                let job = machine.off_key(Mode::Auto);
                 ok = settle(&worker, &results, printed, &mut machine, job, out);
             }
             Look::Covered => {
                 out("the plugin would only cover this monitor; nothing was changed");
-                machine.toggle(Mode::Auto);
+                machine.off_key(Mode::Auto);
             }
             Look::On => {}
         }

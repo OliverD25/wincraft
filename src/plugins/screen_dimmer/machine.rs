@@ -119,12 +119,34 @@ impl Machine {
         }
     }
 
-    /// The monitor's hotkey: off in `mode` when it is on, on otherwise.
-    pub fn toggle(&mut self, mode: Mode) -> Option<Job> {
+    /// The plain hotkey: covers a monitor that is on, and brings back one
+    /// that is covered, dimmed or off. Covering sends nothing to the monitor.
+    pub fn cover_key(&mut self) -> Option<Job> {
         if self.look == Look::On && self.step.is_none() {
-            self.turn_off(mode)
-        } else {
-            self.wake()
+            self.look = Look::Covered;
+            return None;
+        }
+        self.wake()
+    }
+
+    /// The Shift hotkey: turns a monitor that is on or only covered off in
+    /// `mode`, and brings back one that is dimmed or off. When `mode` comes
+    /// to Cover for a covered monitor there is nothing deeper, so it comes
+    /// back instead.
+    pub fn off_key(&mut self, mode: Mode) -> Option<Job> {
+        if self.step.is_some() {
+            return self.wake();
+        }
+        match self.look {
+            Look::On => self.turn_off(mode),
+            Look::Covered => {
+                let job = self.turn_off(mode);
+                if job.is_none() && self.look == Look::Covered {
+                    self.look = Look::On;
+                }
+                job
+            }
+            Look::Dimmed | Look::Off => self.wake(),
         }
     }
 
@@ -397,14 +419,14 @@ mod tests {
     fn the_philips_goes_off_in_auto_and_is_remembered() {
         let mut monitor = Fake::new(Style::Philips);
         let mut machine = Machine::new(Saved::default());
-        let job = machine.toggle(Mode::Auto);
+        let job = machine.off_key(Mode::Auto);
         assert!(machine.saved.left_in_standby, "recorded before it is sent");
         assert_eq!(machine.look(), Look::Off);
         assert_eq!(settle(&mut machine, job, &mut monitor), [Job::Detect]);
         assert_eq!(machine.saved.standby, Some(Standby::Works));
         assert_eq!(machine.describe(), "off (standby)");
 
-        let job = machine.toggle(Mode::Auto);
+        let job = machine.off_key(Mode::Auto);
         assert_eq!(
             machine.look(),
             Look::Off,
@@ -416,7 +438,7 @@ mod tests {
         assert!(!monitor.asleep());
 
         // Known now: the next time it is not tested again.
-        let job = machine.toggle(Mode::Auto);
+        let job = machine.off_key(Mode::Auto);
         assert_eq!(job, Some(Job::Standby));
     }
 
@@ -424,7 +446,7 @@ mod tests {
     fn the_aorus_goes_off_in_auto_too() {
         let mut monitor = Fake::new(Style::Aorus);
         let mut machine = Machine::new(Saved::default());
-        let job = machine.toggle(Mode::Auto);
+        let job = machine.off_key(Mode::Auto);
         settle(&mut machine, job, &mut monitor);
         assert_eq!(machine.look(), Look::Off);
         assert_eq!(machine.saved.standby, Some(Standby::Works));
@@ -434,7 +456,7 @@ mod tests {
     fn the_mq780_ignores_standby_and_is_dimmed_instead() {
         let mut monitor = Fake::new(Style::Ignores);
         let mut machine = Machine::new(Saved::default());
-        let job = machine.toggle(Mode::Auto);
+        let job = machine.off_key(Mode::Auto);
         let jobs = settle(&mut machine, job, &mut monitor);
         assert_eq!(
             jobs,
@@ -447,7 +469,7 @@ mod tests {
         assert!(!machine.saved.left_in_standby);
         assert_eq!(monitor.brightness, Some(0));
 
-        let job = machine.toggle(Mode::Auto);
+        let job = machine.off_key(Mode::Auto);
         assert_eq!(
             settle(&mut machine, job, &mut monitor),
             [Job::SetBrightness(70)]
@@ -457,36 +479,36 @@ mod tests {
         assert_eq!(monitor.brightness, Some(70));
 
         // Known now: straight to dimming, no standby request.
-        assert_eq!(machine.toggle(Mode::Auto), Some(Job::ReadBrightness));
+        assert_eq!(machine.off_key(Mode::Auto), Some(Job::ReadBrightness));
     }
 
     #[test]
     fn a_monitor_without_ddc_is_only_covered() {
         let mut monitor = Fake::new(Style::Silent);
         let mut machine = Machine::new(Saved::default());
-        let job = machine.toggle(Mode::Auto);
+        let job = machine.off_key(Mode::Auto);
         settle(&mut machine, job, &mut monitor);
         assert_eq!(machine.look(), Look::Covered);
         assert_eq!(machine.saved.standby, Some(Standby::NoDdc));
         assert!(!machine.saved.left_in_standby);
         assert_eq!(machine.capability(), "no DDC/CI");
-        assert_eq!(machine.toggle(Mode::Auto), None);
+        assert_eq!(machine.off_key(Mode::Auto), None);
         assert_eq!(machine.look(), Look::On);
-        assert_eq!(machine.toggle(Mode::Auto), None);
+        assert_eq!(machine.off_key(Mode::Auto), None);
         assert_eq!(machine.look(), Look::Covered);
     }
 
     #[test]
     fn standby_ignored_without_brightness_falls_back_to_cover() {
         let mut machine = Machine::new(Saved::default());
-        machine.toggle(Mode::Auto);
+        machine.off_key(Mode::Auto);
         let job = machine.report(Outcome::Detected(Detected::Ignored));
         assert_eq!(job, Some(Job::ReadBrightness));
         assert_eq!(machine.report(Outcome::Brightness(None)), None);
         assert_eq!(machine.look(), Look::Covered);
         assert_eq!(machine.saved.brightness, Some(false));
-        machine.toggle(Mode::Auto);
-        assert_eq!(machine.toggle(Mode::Auto), None, "remembered: cover only");
+        machine.off_key(Mode::Auto);
+        assert_eq!(machine.off_key(Mode::Auto), None, "remembered: cover only");
         assert_eq!(machine.look(), Look::Covered);
     }
 
@@ -497,19 +519,19 @@ mod tests {
             ..Saved::default()
         };
         let mut machine = Machine::new(works.clone());
-        assert_eq!(machine.toggle(Mode::Cover), None);
+        assert_eq!(machine.off_key(Mode::Cover), None);
         assert_eq!(machine.look(), Look::Covered);
         let mut machine = Machine::new(works.clone());
-        assert_eq!(machine.toggle(Mode::Dim), Some(Job::ReadBrightness));
+        assert_eq!(machine.off_key(Mode::Dim), Some(Job::ReadBrightness));
         let mut machine = Machine::new(Saved::default());
-        assert_eq!(machine.toggle(Mode::Off), Some(Job::Standby));
+        assert_eq!(machine.off_key(Mode::Off), Some(Job::Standby));
         assert!(machine.saved.left_in_standby);
     }
 
     #[test]
     fn a_failed_standby_request_leaves_the_monitor_covered() {
         let mut machine = Machine::new(Saved::default());
-        machine.toggle(Mode::Off);
+        machine.off_key(Mode::Off);
         assert_eq!(machine.report(Outcome::StandbySent(false)), None);
         assert_eq!(machine.look(), Look::Covered);
         assert!(!machine.saved.left_in_standby);
@@ -518,8 +540,8 @@ mod tests {
     #[test]
     fn the_hotkey_while_it_is_still_going_off_brings_it_back_after() {
         let mut machine = Machine::new(Saved::default());
-        machine.toggle(Mode::Auto);
-        assert_eq!(machine.toggle(Mode::Auto), None);
+        machine.off_key(Mode::Auto);
+        assert_eq!(machine.off_key(Mode::Auto), None);
         assert_eq!(machine.describe(), "turning off");
         let job = machine.report(Outcome::Detected(Detected::Works));
         assert_eq!(job, Some(Job::Wake));
@@ -530,8 +552,8 @@ mod tests {
         assert_eq!(machine.look(), Look::On);
         // And while it is dimming.
         let mut machine = Machine::new(Saved::default());
-        machine.toggle(Mode::Dim);
-        machine.toggle(Mode::Dim);
+        machine.off_key(Mode::Dim);
+        machine.off_key(Mode::Dim);
         let reading = Reading {
             current: 40,
             max: 100,
@@ -547,10 +569,10 @@ mod tests {
             standby: Some(Standby::Works),
             ..Saved::default()
         });
-        machine.toggle(Mode::Auto);
+        machine.off_key(Mode::Auto);
         machine.report(Outcome::StandbySent(true));
-        assert_eq!(machine.toggle(Mode::Auto), Some(Job::Wake));
-        assert_eq!(machine.toggle(Mode::Auto), None);
+        assert_eq!(machine.off_key(Mode::Auto), Some(Job::Wake));
+        assert_eq!(machine.off_key(Mode::Auto), None);
         assert_eq!(machine.wake(), None);
         assert_eq!(machine.describe(), "waking");
     }
@@ -561,9 +583,9 @@ mod tests {
             standby: Some(Standby::Works),
             ..Saved::default()
         });
-        machine.toggle(Mode::Auto);
+        machine.off_key(Mode::Auto);
         machine.report(Outcome::StandbySent(true));
-        machine.toggle(Mode::Auto);
+        machine.off_key(Mode::Auto);
         assert_eq!(machine.report(Outcome::Woke(Woke::TimedOut)), None);
         assert_eq!(machine.look(), Look::On);
         assert!(machine.saved.left_in_standby);
@@ -606,7 +628,7 @@ mod tests {
     fn exit_puts_back_whatever_is_off_or_dimmed_even_mid_job() {
         let mut monitor = Fake::new(Style::Aorus);
         let mut machine = Machine::new(Saved::default());
-        let job = machine.toggle(Mode::Auto);
+        let job = machine.off_key(Mode::Auto);
         // Exit arrives while the standby test is still running.
         ddc::run(&mut monitor, job.unwrap());
         let release = machine.release();
@@ -648,7 +670,7 @@ mod tests {
     #[test]
     fn no_handle_from_windows_learns_nothing() {
         let mut machine = Machine::new(Saved::default());
-        machine.toggle(Mode::Auto);
+        machine.off_key(Mode::Auto);
         assert_eq!(machine.report(Outcome::NoMonitor), None);
         assert_eq!(machine.look(), Look::Covered);
         assert_eq!(machine.saved, Saved::default());
@@ -667,6 +689,87 @@ mod tests {
         assert_eq!(machine.saved.brightness, None);
         assert_eq!(machine.saved.dimmed_from, Some(30));
         assert_eq!(machine.capability(), "not tested yet");
+    }
+
+    fn every_capability() -> Vec<Saved> {
+        let mut all = Vec::new();
+        for standby in [
+            None,
+            Some(Standby::Works),
+            Some(Standby::Ignored),
+            Some(Standby::NoDdc),
+        ] {
+            for brightness in [None, Some(true), Some(false)] {
+                all.push(Saved {
+                    standby,
+                    brightness,
+                    ..Saved::default()
+                });
+            }
+        }
+        all
+    }
+
+    #[test]
+    fn the_plain_key_covers_and_uncovers_without_a_word_to_the_monitor() {
+        for saved in every_capability() {
+            let mut machine = Machine::new(saved.clone());
+            assert_eq!(machine.cover_key(), None, "{saved:?}");
+            assert_eq!(machine.look(), Look::Covered);
+            assert_eq!(machine.describe(), "covered");
+            assert_eq!(machine.cover_key(), None, "{saved:?}");
+            assert_eq!(machine.look(), Look::On);
+            assert_eq!(machine.saved, saved, "nothing recorded either");
+        }
+    }
+
+    #[test]
+    fn the_transition_table_of_the_two_keys() {
+        let works = Saved {
+            standby: Some(Standby::Works),
+            ..Saved::default()
+        };
+        // Plain: on -> cover -> on.
+        let mut machine = Machine::new(works.clone());
+        machine.cover_key();
+        assert_eq!(machine.look(), Look::Covered);
+        machine.cover_key();
+        assert_eq!(machine.look(), Look::On);
+        // Shift: on -> off -> on.
+        assert_eq!(machine.off_key(Mode::Auto), Some(Job::Standby));
+        machine.report(Outcome::StandbySent(true));
+        assert_eq!(machine.look(), Look::Off);
+        assert_eq!(machine.off_key(Mode::Auto), Some(Job::Wake));
+        machine.report(Outcome::Woke(Woke::On(Duration::from_secs(2))));
+        assert_eq!(machine.look(), Look::On);
+        // Shift on a covered monitor goes deeper.
+        machine.cover_key();
+        assert_eq!(machine.off_key(Mode::Auto), Some(Job::Standby));
+        machine.report(Outcome::StandbySent(true));
+        assert_eq!(machine.look(), Look::Off);
+        // Plain on a monitor that is off brings it back.
+        assert_eq!(machine.cover_key(), Some(Job::Wake));
+        machine.report(Outcome::Woke(Woke::On(Duration::from_secs(2))));
+        assert_eq!(machine.look(), Look::On);
+        // Dimmed: either key brings it back, with its brightness.
+        let mut monitor = Fake::new(Style::Ignores);
+        let mut machine = Machine::new(Saved {
+            standby: Some(Standby::Ignored),
+            ..Saved::default()
+        });
+        machine.cover_key();
+        let job = machine.off_key(Mode::Auto);
+        settle(&mut machine, job, &mut monitor);
+        assert_eq!(machine.look(), Look::Dimmed);
+        let job = machine.cover_key();
+        assert_eq!(job, Some(Job::SetBrightness(70)));
+        settle(&mut machine, job, &mut monitor);
+        assert_eq!(machine.look(), Look::On);
+        // Shift set to Cover on a covered monitor: nothing deeper, so back.
+        let mut machine = Machine::new(works);
+        machine.cover_key();
+        assert_eq!(machine.off_key(Mode::Cover), None);
+        assert_eq!(machine.look(), Look::On);
     }
 
     #[test]

@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     KillTimer, PostMessageW, SetTimer, WM_DISPLAYCHANGE, WM_ENDSESSION, WM_TIMER,
 };
@@ -30,7 +30,11 @@ use overlay::Overlay;
 use saved::StateFile;
 use screens::Screen;
 
-const ACTION_TOGGLE_BASE: u32 = 1;
+/// The plain keys cover, the Shift keys turn off; both count monitors from
+/// the left. The cover actions keep the names and ids of the old toggles, so
+/// a user's own bindings stay on the same keys.
+const ACTION_COVER_BASE: u32 = 1;
+const ACTION_OFF_BASE: u32 = 11;
 const MONITOR_ACTIONS: u32 = 3;
 const ACTION_WAKE_ALL: u32 = 100;
 const TRAY_WAKE_ALL: u32 = 1;
@@ -94,15 +98,23 @@ impl ScreenDimmer {
         for index in 0..self.screens.len() {
             self.sync_overlay(index);
         }
-        let names: Vec<&str> = self
+        let keys: Vec<String> = self
             .screens
             .iter()
-            .map(|screen| screen.id.as_str())
+            .enumerate()
+            .map(|(index, screen)| {
+                format!(
+                    "F{} = {} ({})",
+                    index + 1,
+                    screen.place.as_deref().unwrap_or("the only monitor"),
+                    screen.id
+                )
+            })
             .collect();
         log::info!(
-            "screen_dimmer covers {} monitor(s): {}",
+            "screen_dimmer covers {} monitor(s); hotkeys from the left: {}",
             self.overlays.iter().flatten().count(),
-            names.join(", ")
+            keys.join(", ")
         );
     }
 
@@ -388,25 +400,32 @@ impl ScreenDimmer {
         }
     }
 
-    fn toggle(&mut self, index: usize) {
+    fn press(&mut self, index: usize, shift: bool) {
         if self.layout_changed() {
             log::info!("the monitor layout changed since the overlays were built");
             self.rebuild();
         }
         let Some(id) = self.screens.get(index).map(|screen| screen.id.clone()) else {
-            log::info!("no monitor {} to toggle", index + 1);
+            log::info!("no monitor {} from the left", index + 1);
             return;
         };
         let mode = self.mode_of(&id);
-        let job = self
-            .machines
-            .get_mut(&id)
-            .and_then(|machine| machine.toggle(mode));
+        let job = self.machines.get_mut(&id).and_then(|machine| {
+            if shift {
+                machine.off_key(mode)
+            } else {
+                machine.cover_key()
+            }
+        });
         if let Some(machine) = self.machines.get(&id) {
+            let key = if shift {
+                format!("Shift key, mode {}", mode.label())
+            } else {
+                "cover key".to_string()
+            };
             log::info!(
-                "monitor {} ({id}, mode {}) toggled: {}",
+                "monitor {} from the left ({id}), {key}: {}",
                 index + 1,
-                mode.label(),
                 machine.describe()
             );
         }
@@ -469,9 +488,10 @@ impl WinCraftPlugin for ScreenDimmer {
         PluginMetadata {
             id: "screen_dimmer",
             name: "ScreenDimmer",
-            description: "Turn monitors off over DDC/CI, or dim or cover them.",
+            description:
+                "Cover monitors with click-through overlays, or turn them off over DDC/CI.",
             author: "community",
-            version: "1.2.0",
+            version: "1.3.0",
             readme: include_str!("README.md"),
         }
     }
@@ -515,15 +535,16 @@ impl WinCraftPlugin for ScreenDimmer {
                     .get(&screen.id)
                     .map_or("not tested yet", Machine::capability);
                 let label = match &screen.place {
-                    Some(place) => format!("{} monitor", capitalised(place)),
-                    None => "Monitor".to_string(),
+                    Some(place) => format!("Shift key turns the {place} monitor"),
+                    None => "Shift key turns this monitor".to_string(),
                 };
                 DynamicField {
                     key: format!("/monitors/{}/mode", config::pointer_token(&screen.id)),
                     label,
                     help: format!(
-                        "{}: {found}. Auto turns it off when standby works, dims it when \
-                         only its brightness can be set, and covers it otherwise.",
+                        "{}: {found}. The plain key always only covers it. Auto turns it \
+                         off when standby works, dims it when only its brightness can be set, \
+                         and covers it otherwise.",
                         screen.id
                     ),
                     kind: FieldKind::Choice(Mode::CHOICES),
@@ -571,40 +592,43 @@ impl WinCraftPlugin for ScreenDimmer {
     }
 
     fn hotkey_actions(&self) -> Vec<HotkeyAction> {
-        // Adding a fourth monitor later is one more entry in this list.
-        vec![
-            HotkeyAction {
-                id: ACTION_TOGGLE_BASE,
-                name: "toggle_monitor_1",
-                label: "Toggle monitor 1",
-                default: win_alt(0x70),
-            },
-            HotkeyAction {
-                id: ACTION_TOGGLE_BASE + 1,
-                name: "toggle_monitor_2",
-                label: "Toggle monitor 2",
-                default: win_alt(0x71),
-            },
-            HotkeyAction {
-                id: ACTION_TOGGLE_BASE + 2,
-                name: "toggle_monitor_3",
-                label: "Toggle monitor 3",
-                default: win_alt(0x72),
-            },
-            HotkeyAction {
-                id: ACTION_WAKE_ALL,
-                name: "wake_all",
-                label: "Wake all monitors",
-                default: win_alt(0x7B),
-            },
-        ]
+        // Adding a fourth monitor later is one more pair in this list.
+        const COVER_NAMES: [&str; 3] = ["toggle_monitor_1", "toggle_monitor_2", "toggle_monitor_3"];
+        const OFF_NAMES: [&str; 3] = ["off_monitor_1", "off_monitor_2", "off_monitor_3"];
+        const F_KEYS: [u32; 3] = [0x70, 0x71, 0x72];
+        let (cover, off) = labels(self.screens.len());
+        let mut actions = Vec::new();
+        for index in 0..MONITOR_ACTIONS as usize {
+            actions.push(HotkeyAction {
+                id: ACTION_COVER_BASE + index as u32,
+                name: COVER_NAMES[index],
+                label: cover[index],
+                default: win_alt(F_KEYS[index]),
+            });
+            actions.push(HotkeyAction {
+                id: ACTION_OFF_BASE + index as u32,
+                name: OFF_NAMES[index],
+                label: off[index],
+                default: Hotkey {
+                    modifiers: MOD_NOREPEAT | MOD_WIN | MOD_ALT | MOD_SHIFT,
+                    vk: F_KEYS[index],
+                },
+            });
+        }
+        actions.push(HotkeyAction {
+            id: ACTION_WAKE_ALL,
+            name: "wake_all",
+            label: "Wake all monitors",
+            default: win_alt(0x7B),
+        });
+        actions
     }
 
     fn on_hotkey(&mut self, action_id: u32) {
         if action_id == ACTION_WAKE_ALL {
             self.wake_all();
-        } else if (ACTION_TOGGLE_BASE..ACTION_TOGGLE_BASE + MONITOR_ACTIONS).contains(&action_id) {
-            self.toggle((action_id - ACTION_TOGGLE_BASE) as usize);
+        } else if let Some((index, shift)) = monitor_action(action_id) {
+            self.press(index, shift);
         }
     }
 
@@ -670,12 +694,11 @@ impl WinCraftPlugin for ScreenDimmer {
     }
 
     fn palette_subtitle(&self, kind: ActionKind, action_id: u32) -> Option<String> {
-        if kind != ActionKind::Hotkey || action_id < ACTION_TOGGLE_BASE {
+        if kind != ActionKind::Hotkey {
             return None;
         }
-        let screen = self
-            .screens
-            .get((action_id - ACTION_TOGGLE_BASE) as usize)?;
+        let (index, _) = monitor_action(action_id)?;
+        let screen = self.screens.get(index)?;
         let state = self.machines.get(&screen.id)?.describe();
         Some(match &screen.place {
             Some(place) => format!("{state} \u{b7} {place}"),
@@ -701,11 +724,65 @@ pub fn run_ddc_test(value: &str) -> i32 {
     ddc_test::run(value)
 }
 
-fn capitalised(word: &str) -> String {
-    let mut chars = word.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().chain(chars).collect(),
-        None => String::new(),
+/// Which monitor from the left a hotkey action is for, and whether it is
+/// the Shift (off) one.
+fn monitor_action(action_id: u32) -> Option<(usize, bool)> {
+    let range = |base: u32| base..base + MONITOR_ACTIONS;
+    if range(ACTION_COVER_BASE).contains(&action_id) {
+        Some(((action_id - ACTION_COVER_BASE) as usize, false))
+    } else if range(ACTION_OFF_BASE).contains(&action_id) {
+        Some(((action_id - ACTION_OFF_BASE) as usize, true))
+    } else {
+        None
+    }
+}
+
+type Labels = [&'static str; 3];
+
+/// The palette names of the cover and off actions for this many monitors,
+/// counted from the left as the hotkeys are.
+fn labels(monitors: usize) -> (Labels, Labels) {
+    match monitors {
+        0 | 1 => (
+            ["Cover the monitor", "Cover monitor 2", "Cover monitor 3"],
+            [
+                "Turn the monitor off",
+                "Turn monitor 2 off",
+                "Turn monitor 3 off",
+            ],
+        ),
+        2 => (
+            [
+                "Cover left monitor",
+                "Cover right monitor",
+                "Cover monitor 3",
+            ],
+            [
+                "Turn left monitor off",
+                "Turn right monitor off",
+                "Turn monitor 3 off",
+            ],
+        ),
+        3 => (
+            [
+                "Cover left monitor",
+                "Cover centre monitor",
+                "Cover right monitor",
+            ],
+            [
+                "Turn left monitor off",
+                "Turn centre monitor off",
+                "Turn right monitor off",
+            ],
+        ),
+        _ => (
+            ["Cover monitor 1", "Cover monitor 2", "Cover monitor 3"],
+            [
+                "Turn monitor 1 off",
+                "Turn monitor 2 off",
+                "Turn monitor 3 off",
+            ],
+        ),
     }
 }
 
@@ -738,8 +815,49 @@ mod tests {
     }
 
     #[test]
-    fn place_words_start_with_a_capital() {
-        assert_eq!(capitalised("left"), "Left");
-        assert_eq!(capitalised(""), "");
+    fn each_monitor_has_a_cover_key_and_a_shift_off_key() {
+        let plugin = ScreenDimmer::new();
+        let actions = plugin.hotkey_actions();
+        let names: Vec<(&str, String)> = actions
+            .iter()
+            .map(|action| (action.name, crate::core::hotkeys::format(action.default)))
+            .collect();
+        let expected = [
+            ("toggle_monitor_1", "Win+Alt+F1"),
+            ("off_monitor_1", "Win+Alt+Shift+F1"),
+            ("toggle_monitor_2", "Win+Alt+F2"),
+            ("off_monitor_2", "Win+Alt+Shift+F2"),
+            ("toggle_monitor_3", "Win+Alt+F3"),
+            ("off_monitor_3", "Win+Alt+Shift+F3"),
+            ("wake_all", "Win+Alt+F12"),
+        ];
+        assert_eq!(names.len(), expected.len());
+        for ((name, keys), (want_name, want_keys)) in names.iter().zip(expected) {
+            assert_eq!(*name, want_name);
+            assert_eq!(keys, want_keys, "{name}");
+        }
+        for action in &actions {
+            if action.id != ACTION_WAKE_ALL {
+                assert!(monitor_action(action.id).is_some(), "{}", action.name);
+            }
+        }
+        assert_eq!(monitor_action(1), Some((0, false)));
+        assert_eq!(monitor_action(13), Some((2, true)));
+        assert_eq!(monitor_action(ACTION_WAKE_ALL), None);
+    }
+
+    #[test]
+    fn the_palette_names_follow_the_monitors_from_the_left() {
+        assert_eq!(labels(2).0[1], "Cover right monitor");
+        assert_eq!(
+            labels(3).1,
+            [
+                "Turn left monitor off",
+                "Turn centre monitor off",
+                "Turn right monitor off"
+            ]
+        );
+        assert_eq!(labels(4).0[0], "Cover monitor 1");
+        assert_eq!(labels(1).1[0], "Turn the monitor off");
     }
 }

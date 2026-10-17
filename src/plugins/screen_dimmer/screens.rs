@@ -23,8 +23,8 @@ pub struct Screen {
     pub id: String,
 }
 
-/// Every monitor in the order Windows lists them, which is the order of the
-/// toggle hotkeys.
+/// Every monitor from the left, which is the order of the hotkeys: the
+/// first pair is for the left monitor, whatever number Windows gives it.
 pub fn list() -> Vec<Screen> {
     let mut found: Vec<(HMONITOR, RECT, bool, String)> = Vec::new();
     unsafe {
@@ -35,6 +35,16 @@ pub fn list() -> Vec<Screen> {
             &mut found as *mut Vec<(HMONITOR, RECT, bool, String)> as LPARAM,
         )
     };
+    let corners: Vec<(i32, i32)> = found
+        .iter()
+        .map(|(_, rect, _, _)| (rect.left, rect.top))
+        .collect();
+    let mut slots: Vec<Option<(HMONITOR, RECT, bool, String)>> =
+        found.into_iter().map(Some).collect();
+    let found: Vec<(HMONITOR, RECT, bool, String)> = left_to_right(&corners)
+        .into_iter()
+        .filter_map(|index| slots[index].take())
+        .collect();
     let friendly = friendly_names();
     let names: Vec<String> = found
         .iter()
@@ -67,6 +77,14 @@ pub fn list() -> Vec<Screen> {
             id,
         })
         .collect()
+}
+
+/// The places in `corners` from the left; monitors stacked above one
+/// another are counted from the top.
+pub fn left_to_right(corners: &[(i32, i32)]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..corners.len()).collect();
+    order.sort_by_key(|index| corners[*index]);
+    order
 }
 
 /// Each monitor's id: its EDID name when no other monitor has the same one,
@@ -134,6 +152,19 @@ mod tests {
             &[(0, 0), (-1920, 0), (3840, 0)],
         );
         assert_eq!(ids, names(&["AORUS FV43U", "PHL 323E7", "MQ780"]));
+    }
+
+    #[test]
+    fn hotkeys_follow_the_monitors_from_the_left_however_windows_lists_them() {
+        // The user's: Windows lists the primary (centre) first.
+        assert_eq!(left_to_right(&[(0, 0), (-1920, 0), (3840, 0)]), [1, 0, 2]);
+        assert_eq!(left_to_right(&[(2560, 0), (0, 0)]), [1, 0]);
+        assert_eq!(
+            left_to_right(&[(3840, 0), (0, 0), (-1920, 200), (1920, 0)]),
+            [2, 1, 3, 0]
+        );
+        // Stacked at the same left edge: the upper one first.
+        assert_eq!(left_to_right(&[(0, 1080), (0, 0)]), [1, 0]);
     }
 
     #[test]

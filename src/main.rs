@@ -49,6 +49,31 @@ fn main() {
         return;
     }
 
+    // ShortcutDetector's verdict on key combinations, for choosing a
+    // default; also before logging::init. Each is registered and freed at
+    // once.
+    if let Some(list) = args
+        .iter()
+        .skip(1)
+        .find_map(|arg| arg.strip_prefix("--hotkey-verdict="))
+    {
+        for text in list.split(',') {
+            let line = match core::hotkeys::parse(text.trim()) {
+                Ok(hotkey) => {
+                    let entry = plugins::shortcut_detector::probe::verdict(
+                        std::ptr::null_mut(),
+                        hotkey,
+                        &[],
+                    );
+                    plugins::shortcut_detector::probe::verdict_text(&entry)
+                }
+                Err(err) => err,
+            };
+            let _ = writeln!(std::io::stdout(), "{}: {line}", text.trim());
+        }
+        return;
+    }
+
     // Also before logging::init, for the same reason as the probe.
     if has_flag(&args, "--quit") {
         let outcome = quit::run(quit::TIMEOUT);
