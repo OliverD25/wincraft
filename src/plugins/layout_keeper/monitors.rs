@@ -191,12 +191,6 @@ unsafe extern "system" fn collect(
     1
 }
 
-/// The monitor a window's rectangle is mostly on; for a minimized window
-/// the rectangle is the one it will come back to.
-pub fn of_rect(rect: Rect, monitors: &[Monitor]) -> Option<SavedMonitor> {
-    index_of(rect, monitors).map(|index| monitors[index].saved.clone())
-}
-
 /// What the Arrange strip says about a window's monitor: its place word,
 /// or nothing when the window is on the primary monitor.
 pub fn strip_label(rect: Rect, monitors: &[Monitor]) -> Option<String> {
@@ -241,6 +235,21 @@ pub fn map_rect(rect: Rect, from: Rect, to: Rect) -> Rect {
     ]
 }
 
+/// `map_rect` for a window's normal position, which is in workspace
+/// coordinates: they start at the corner of the primary monitor's work area
+/// (`primary`) rather than of the screen.
+fn normal_on(normal: Rect, from: Rect, to: Rect, primary: Rect) -> Rect {
+    let [dx, dy] = [primary[0], primary[1]];
+    let screen = [
+        normal[0] + dx,
+        normal[1] + dy,
+        normal[2] + dx,
+        normal[3] + dy,
+    ];
+    let [left, top, right, bottom] = map_rect(screen, from, to);
+    [left - dx, top - dy, right - dx, bottom - dy]
+}
+
 /// Moves a window from one monitor to another with `map_rect`, without
 /// activating it: activating a window on another virtual desktop would
 /// switch to that desktop. A minimized window only gets the place it comes
@@ -259,25 +268,17 @@ pub fn move_window(
     if unsafe { GetWindowPlacement(hwnd, &mut place) } == 0 {
         return Err(failed("GetWindowPlacement"));
     }
-    // The normal position is in workspace coordinates, which start at the
-    // corner of the primary monitor's work area rather than of the screen.
-    let (dx, dy) = monitors
+    let primary = monitors
         .iter()
         .find(|monitor| monitor.primary)
-        .map_or((0, 0), |primary| (primary.work[0], primary.work[1]));
-    let normal = place.rcNormalPosition;
-    let normal = [
-        normal.left + dx,
-        normal.top + dy,
-        normal.right + dx,
-        normal.bottom + dy,
-    ];
-    let [left, top, right, bottom] = map_rect(normal, from.work, to.work);
+        .map_or([0, 0, 0, 0], |primary| primary.work);
+    let [left, top, right, bottom] =
+        normal_on(corners(place.rcNormalPosition), from.work, to.work, primary);
     place.rcNormalPosition = RECT {
-        left: left - dx,
-        top: top - dy,
-        right: right - dx,
-        bottom: bottom - dy,
+        left,
+        top,
+        right,
+        bottom,
     };
     if unsafe { IsIconic(hwnd) } != 0 {
         place.showCmd = SW_SHOWMINNOACTIVE as u32;
@@ -478,6 +479,31 @@ mod tests {
             map_rect([10, 10, 20, 20], [0, 0, 0, 0], [100, 100, 900, 900]),
             [110, 110, 120, 120]
         );
+    }
+
+    #[test]
+    fn a_normal_position_is_mapped_in_screen_terms_and_given_back_in_workspace_terms() {
+        // Taskbar at the bottom: workspace and screen coordinates agree.
+        let normal = [400, 300, 2400, 1500];
+        assert_eq!(
+            normal_on(normal, PRIMARY, RIGHT, PRIMARY),
+            map_rect(normal, PRIMARY, RIGHT)
+        );
+        // Taskbar on the left of the primary monitor, 100 px wide: its work
+        // area starts at x 100, and so does workspace x 0.
+        let primary = [100, 0, 3840, 2160];
+        let mapped = normal_on([0, 0, 1870, 1080], primary, LEFT, primary);
+        let on_screen = map_rect([100, 0, 1970, 1080], primary, LEFT);
+        assert_eq!(
+            mapped,
+            [
+                on_screen[0] - 100,
+                on_screen[1],
+                on_screen[2] - 100,
+                on_screen[3]
+            ]
+        );
+        assert_eq!(on_screen, [-1920, 0, -960, 516]);
     }
 
     #[test]

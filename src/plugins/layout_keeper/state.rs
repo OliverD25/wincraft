@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -94,9 +94,8 @@ pub fn path() -> PathBuf {
     config::plugins_dir().join("layout_keeper.state.json")
 }
 
-pub fn load() -> Option<StateFile> {
-    let path = path();
-    let text = fs::read_to_string(&path).ok()?;
+pub fn load(path: &Path) -> Option<StateFile> {
+    let text = fs::read_to_string(path).ok()?;
     match serde_json::from_str(config::strip_bom(&text)) {
         Ok(state) => Some(migrate(state)),
         Err(err) => {

@@ -33,9 +33,10 @@ use crate::core::ui_bridge::{
 use crate::core::{appid, clock, host, instance, session, wide, window_names};
 use crate::search::providers::apps;
 use desktops::{Desktop, DesktopId};
+use identity::Rect;
 use order::{Handle, OrderModel};
 use restore::Restore;
-use state::{ProgramState, Programs, SavedWindow};
+use state::{ProgramState, Programs, SavedMonitor, SavedWindow};
 
 /// WindowNamer tells a browser's page title from its product name the same way.
 pub use identity::PRODUCT_SUFFIXES;
@@ -129,6 +130,8 @@ pub struct LayoutKeeper {
     ticks: u64,
     started_once: bool,
     reader: Option<desktops::Reader>,
+    /// The layout file `init` reads and the writer writes.
+    state_path: std::path::PathBuf,
     writer: state::Writer,
     /// One order model per taskbar group, keyed like Windows keys the group:
     /// by AppUserModelID, or by program path when a window names none.
@@ -193,6 +196,7 @@ impl Default for LayoutKeeper {
             ticks: 0,
             started_once: false,
             reader: None,
+            state_path: state::path(),
             writer: state::Writer::default(),
             groups: BTreeMap::new(),
             labels: BTreeMap::new(),
@@ -285,8 +289,14 @@ impl LayoutKeeper {
     /// Looks at the windows and brings every group's order model up to date.
     fn refresh(&mut self) -> Vec<windows::LiveWindow> {
         let live = self.live_windows();
+        self.track(&live);
+        live
+    }
+
+    /// Brings every group's order model up to date with these windows.
+    fn track(&mut self, live: &[windows::LiveWindow]) {
         let mut keys: Vec<String> = Vec::new();
-        for window in &live {
+        for window in live {
             if !keys.contains(&window.group) {
                 keys.push(window.group.clone());
             }
@@ -299,14 +309,13 @@ impl LayoutKeeper {
             }
         }
         for key in keys {
-            let mine = handles_in(&live, &key);
+            let mine = handles_in(live, &key);
             self.groups
                 .entry(key)
                 .or_default()
                 .refresh(&mine, self.ticks, self.snapshot_seconds);
         }
         self.groups.retain(|_, group| !group.is_empty());
-        live
     }
 
     /// Gives a group its name the first time one of its windows is seen.
@@ -465,69 +474,6 @@ impl LayoutKeeper {
         }
     }
 
-    /// The watched programs' windows as they are now, each program's list in
-    /// taskbar order. `z_index` counts across all programs, so the order
-    /// between apps can be put back too.
-    fn capture(&self, live: &[windows::LiveWindow]) -> Programs {
-        let desktops = desktops::list();
-        let monitors = monitors::list();
-        let connected = monitors::saved_names(&monitors);
-        let today = clock::local_iso(SystemTime::now())
-            .get(..10)
-            .map(str::to_string);
-        let mut programs = Programs::new();
-        let mut exes: Vec<&str> = Vec::new();
-        for window in live {
-            if !exes.contains(&window.identity.exe.as_str()) {
-                exes.push(&window.identity.exe);
-            }
-        }
-        for exe in exes {
-            let mine: Vec<(usize, &windows::LiveWindow)> = live
-                .iter()
-                .enumerate()
-                .filter(|(_, window)| window.identity.exe == exe)
-                .collect();
-            let mut saved: Vec<SavedWindow> = mine
-                .iter()
-                .map(|(z_index, window)| {
-                    let z_index = *z_index;
-                    let desktop = self
-                        .reader
-                        .as_ref()
-                        .and_then(|reader| reader.read(window.hwnd));
-                    SavedWindow {
-                        name: window.identity.name.clone(),
-                        title: window.identity.title.clone(),
-                        rect: window.identity.rect,
-                        maximized: window.identity.maximized,
-                        desktop: desktop.map(|id| id.to_string()),
-                        desktop_name: desktop.and_then(|id| desktops::name_of(&desktops, id)),
-                        group: window.group.clone(),
-                        taskbar_index: self
-                            .groups
-                            .get(&window.group)
-                            .and_then(|group| group.position_of(window.hwnd as Handle))
-                            .unwrap_or(z_index),
-                        z_index,
-                        monitor: monitors::of_rect(window.identity.rect, &monitors),
-                        seen: today.clone(),
-                    }
-                })
-                .collect();
-            if let Some(before) = self.writer.last().and_then(|programs| programs.get(exe)) {
-                let released: Vec<bool> = mine
-                    .iter()
-                    .map(|(_, window)| self.released.contains(&(window.hwnd as Handle)))
-                    .collect();
-                monitors::keep_unplugged(exe, &before.windows, &mut saved, &released, &connected);
-            }
-            saved.sort_by_key(|window| window.taskbar_index);
-            programs.insert(exe.to_string(), ProgramState { windows: saved });
-        }
-        programs
-    }
-
     /// Tells the guard what each taskbar group holds now and logs any hold
     /// that starts or ends.
     fn watch_bursts(&mut self, live: &[windows::LiveWindow]) {
@@ -621,51 +567,76 @@ impl LayoutKeeper {
         self.shared_titles = shared;
     }
 
-    /// A fresh look at the windows, written to the state file. A timer save
-    /// keeps the saved windows of any group the guard holds, and the first
-    /// write that puts a held group's new windows in the file copies the old
-    /// file aside first. Returns whether anything was written and how many
+    /// A fresh look at the windows, written to the state file (see
+    /// `plan_save`). Returns whether anything was written and how many
     /// windows the file holds.
     fn write_layout(&mut self, reason: &str, force: bool) -> Result<(bool, usize), String> {
-        let timer = reason == "timer";
-        let live = self.refresh();
-        self.note_shared_titles(&live);
-        self.watch_bursts(&live);
-        let mut merged = state::merge(
-            self.writer.last(),
-            self.capture(&live),
-            reason == "shutdown",
-            &|exe| self.watch.covers(exe),
-        );
-        // Groups in a crash burst keep their saved windows for timer saves;
-        // groups still waiting for their restore keep them for every save,
-        // because what is on screen is the scrambled order the file fixes.
-        let mut held = if timer {
-            self.guard.held()
-        } else {
-            BTreeSet::new()
+        let live = self.live_windows();
+        let desktops = desktops::list();
+        let monitors = monitors::list();
+        let connected = monitors::saved_names(&monitors);
+        let on_desktop: BTreeMap<Handle, DesktopId> = live
+            .iter()
+            .filter_map(|window| {
+                let desktop = self.reader.as_ref()?.read(window.hwnd)?;
+                Some((window.hwnd as Handle, desktop))
+            })
+            .collect();
+        let world = World {
+            desktops: &desktops,
+            monitors: &connected,
+            desktop_of: &|hwnd| on_desktop.get(&(hwnd as Handle)).copied(),
+            monitor_of: &|rect| monitors::index_of(rect, &monitors),
+            today: clock::local_iso(SystemTime::now())
+                .get(..10)
+                .map(str::to_string),
         };
-        held.extend(self.restore.pending());
-        merged = state::keep_groups(self.writer.last(), merged, &held);
-        let count: usize = merged.values().map(|program| program.windows.len()).sum();
-        let backup = self.guard.backup_needed(timer);
-        // Only windows that differ from the file can lose anything; a burst
-        // that came back exactly as saved needs no copy.
-        let changes = self.writer.last() != Some(&merged);
-        if backup && changes && self.writer.keep_previous()? {
+        self.write_seen(&live, &world, reason, force)
+    }
+
+    /// `write_layout` over windows already looked at.
+    fn write_seen(
+        &mut self,
+        live: &[windows::LiveWindow],
+        world: &World,
+        reason: &str,
+        force: bool,
+    ) -> Result<(bool, usize), String> {
+        self.track(live);
+        self.note_shared_titles(live);
+        self.watch_bursts(live);
+        let fresh = capture(
+            live,
+            world,
+            &self.groups,
+            self.writer.last(),
+            &self.released,
+        );
+        let plan = plan_save(
+            self.writer.last(),
+            fresh,
+            reason,
+            &self.watch,
+            &self.guard,
+            self.restore.pending(),
+        );
+        if plan.copy_aside && self.writer.keep_previous()? {
             log::info!(
                 "kept the previous layout as {} before writing over it",
                 self.writer.prev_path().display()
             );
         }
-        let wrote =
-            self.writer
-                .write(merged, reason, clock::local_iso(SystemTime::now()), force)?;
+        let wrote = self.writer.write(
+            plan.programs,
+            reason,
+            clock::local_iso(SystemTime::now()),
+            force,
+        )?;
         self.released.clear();
-        if backup {
-            self.guard.wrote(timer);
+        if plan.backup {
+            self.guard.wrote(reason == "timer");
         }
-        Ok((wrote, count))
+        Ok((wrote, plan.count))
     }
 
     fn save(&mut self, reason: &str) {
@@ -900,167 +871,103 @@ impl LayoutKeeper {
         let known: Vec<DesktopId> = registry.iter().map(|desktop| desktop.id).collect();
         let can_move = self.ensure_mover(&registry);
         let monitors = monitors::list();
+        let connected = monitors::saved_names(&monitors);
         let foreground = unsafe { GetForegroundWindow() };
-        let mut moves: Vec<(HWND, DesktopId, String)> = Vec::new();
-        let mut parts: Vec<String> = Vec::new();
-        let mut late_parts: Vec<String> = Vec::new();
-        let mut missing = 0;
-
-        let exes: Vec<String> = saved
-            .iter()
-            .filter(|(exe, program)| {
-                self.watch.covers(exe)
-                    && program
-                        .windows
-                        .iter()
-                        .any(|window| due.iter().any(|due| due.group == window.group))
-            })
-            .map(|(exe, _)| exe.clone())
-            .collect();
-        for exe in exes {
-            let mut windows = saved[&exe].windows.clone();
-            windows.sort_by_key(|window| window.taskbar_index);
-            let saved_ids: Vec<identity::WindowIdentity> =
-                windows.iter().map(|window| window.identity(&exe)).collect();
-            let mine: Vec<&windows::LiveWindow> = live
-                .iter()
-                .filter(|window| window.identity.exe == exe)
-                .collect();
-            let live_ids: Vec<identity::WindowIdentity> =
-                mine.iter().map(|window| window.identity.clone()).collect();
-            let matching = identity::match_windows(&saved_ids, &live_ids);
+        let mut done = Restored::default();
+        for exe in restore_exes(&saved, &due, &self.watch) {
             // Read before any button is re-added, which pulls windows here.
-            let before: Vec<Option<DesktopId>> = mine
-                .iter()
-                .map(|window| self.reader.as_ref().and_then(|r| r.read(window.hwnd)))
-                .collect();
-            let live_groups: Vec<String> = mine.iter().map(|window| window.group.clone()).collect();
-
-            for entry in due
-                .iter()
-                .filter(|entry| live_groups.contains(&entry.group))
-            {
-                let key = &entry.group;
-                let late = entry.pass == restore::Pass::Late;
-                let members = state::saved_for_group(&windows, &matching, &live_groups, key);
-                let ids = members.iter().map(|s| saved_ids[*s].clone()).collect();
-                let mut model = OrderModel::from_saved(ids);
-                model.refresh(&handles_in(&live, key), self.ticks, self.snapshot_seconds);
-                self.groups.insert(key.clone(), model);
-                let pairs: Vec<(usize, usize)> = matching
-                    .pairs
-                    .iter()
-                    .filter(|(s, l)| members.contains(s) && live_groups[*l] == *key)
-                    .copied()
-                    .collect();
-                // Before the taskbar order: with buttons on the taskbar of
-                // the window's own monitor, a move to another monitor moves
-                // its button too, and the order is rebuilt after that.
-                if self.restore_monitors {
-                    for (s, l) in &pairs {
-                        let window = mine[*l];
-                        if late && self.placed.contains(&(window.hwnd as Handle)) {
-                            continue;
-                        }
-                        self.return_to_monitor(window, windows[*s].monitor.as_ref(), &monitors);
-                    }
-                }
-                self.apply_group(key, can_move);
-
-                let mut moved_late = 0;
-                if can_move {
-                    for (l, window) in mine.iter().enumerate() {
-                        if live_groups[l] != *key {
-                            continue;
-                        }
-                        let kept = late && self.placed.contains(&(window.hwnd as Handle));
-                        let saved_desktop = pairs
-                            .iter()
-                            .find(|(_, live)| *live == l && !kept)
-                            .and_then(|(s, _)| windows[*s].desktop.as_deref());
-                        if !late {
-                            let gone = saved_desktop
-                                .and_then(DesktopId::parse)
-                                .filter(|id| *id != DesktopId::ALL && !known.contains(id));
-                            if let Some(gone) = gone {
-                                log::info!(
-                                    "\"{}\" was saved on desktop {gone}, which no longer exists; it stays where it is",
-                                    window.identity.label()
-                                );
-                            }
-                        }
-                        if let Some(target) = desktop_target(before[l], saved_desktop, &known) {
-                            if late && !kept && Some(target) != before[l] {
-                                moved_late += 1;
-                            }
-                            moves.push((window.hwnd, target, window.identity.label().to_string()));
-                        }
-                    }
-                }
-                for (s, l) in &pairs {
-                    self.placed.insert(mine[*l].hwnd as Handle);
-                    if !late {
-                        self.restored_stack
-                            .push((windows[*s].z_index, mine[*l].hwnd));
-                    }
-                }
-
-                let label = self.label_of(key);
-                if late {
-                    log::info!("second pass: moved {moved_late} late {label} windows");
-                    late_parts.push(format!(
-                        "second pass: moved {moved_late} late {label} windows"
-                    ));
-                    continue;
-                }
-                let lost: Vec<&str> = members
-                    .iter()
-                    .filter(|s| !pairs.iter().any(|(paired, _)| paired == *s))
-                    .map(|s| windows[*s].label())
-                    .collect();
-                log::info!(
-                    "restored {} of {} {label} windows",
-                    pairs.len(),
-                    members.len()
-                );
-                if !lost.is_empty() {
-                    log::info!("not matched: {}", lost.join(" | "));
-                }
-                missing += lost.len();
-                parts.push(format!(
-                    "{} of {} {label} windows",
-                    pairs.len(),
-                    members.len()
-                ));
-            }
+            let reader = self.reader.as_ref();
+            let view = ExeView::new(
+                &exe,
+                &saved[&exe],
+                &live,
+                &|hwnd| reader.and_then(|reader| reader.read(hwnd)),
+                &|rect| monitors::index_of(rect, &monitors),
+            );
+            let cx = RestoreContext {
+                live: &live,
+                known: &known,
+                monitors: &connected,
+                can_move,
+                restore_monitors: self.restore_monitors,
+                ticks: self.ticks,
+                snapshot_seconds: self.snapshot_seconds,
+            };
+            let plans = plan_restore(
+                &view,
+                &due,
+                &cx,
+                &mut self.groups,
+                &mut self.placed,
+                &mut self.restored_stack,
+            );
+            self.carry_out(plans, can_move, &monitors, &mut done);
         }
-
-        if parts.is_empty() && late_parts.is_empty() {
+        let Some(summary) = summary(&done) else {
             return;
-        }
-        let mut sentences = Vec::new();
-        if !parts.is_empty() {
-            let mut summary = format!("Restored {}", parts.join(", "));
-            if missing > 0 {
-                summary.push_str(&format!(" ({missing} not found)"));
-            }
-            sentences.push(summary);
-        }
-        sentences.extend(late_parts);
+        };
+        let restored = !done.parts.is_empty();
         // With the notice on, its last line says it; the balloon would repeat it.
-        let announce = !parts.is_empty() && !self.announced && !self.show_progress;
-        self.announced |= !parts.is_empty();
+        let announce = restored && !self.announced && !self.show_progress;
+        self.announced |= restored;
         self.finishing = Some(Finish {
-            moves,
-            stack: if parts.is_empty() {
-                Vec::new()
-            } else {
+            moves: done.moves,
+            stack: if restored {
                 self.restored_stack.clone()
+            } else {
+                Vec::new()
             },
             foreground,
-            summary: sentences.join("; "),
+            summary,
             announce,
         });
+    }
+
+    /// The first half of a restore for the groups of one program, as
+    /// `plan_restore` decided it: monitors, then the taskbar order. The
+    /// desktop moves are kept in `done` for the second half.
+    fn carry_out(
+        &mut self,
+        plans: Vec<GroupPlan>,
+        can_move: bool,
+        monitors: &[monitors::Monitor],
+        done: &mut Restored,
+    ) {
+        for plan in plans {
+            for step in &plan.monitors {
+                self.return_to_monitor(step, monitors);
+            }
+            self.apply_group(&plan.group, can_move);
+            for (label, gone) in &plan.gone {
+                log::info!(
+                    "\"{label}\" was saved on desktop {gone}, which no longer exists; it stays where it is"
+                );
+            }
+            done.moves.extend(plan.moves);
+            let label = self.label_of(&plan.group);
+            if plan.late {
+                let line = format!(
+                    "second pass: moved {} late {label} windows",
+                    plan.moved_late
+                );
+                log::info!("{line}");
+                done.late_parts.push(line);
+                continue;
+            }
+            log::info!(
+                "restored {} of {} {label} windows",
+                plan.matched,
+                plan.saved
+            );
+            if !plan.lost.is_empty() {
+                log::info!("not matched: {}", plan.lost.join(" | "));
+            }
+            done.missing += plan.lost.len();
+            done.parts.push(format!(
+                "{} of {} {label} windows",
+                plan.matched, plan.saved
+            ));
+        }
     }
 
     /// Second half of a restore: desktops, then the front-to-back order.
@@ -1072,21 +979,12 @@ impl LayoutKeeper {
             return;
         }
         let registry = desktops::list();
-        let current = desktops::current();
-        for (hwnd, target, label) in &finish.moves {
-            if Some(*target) != current {
-                self.move_to_desktop(*hwnd, *target, &registry, label);
-            }
+        let (moves, raises) = finish_steps(&finish, desktops::current(), self.front_order);
+        for (hwnd, target, label) in moves {
+            self.move_to_desktop(*hwnd, *target, &registry, label);
         }
-        let mut stack = finish.stack;
-        if self.front_order && !stack.is_empty() {
-            stack.sort_by_key(|entry| std::cmp::Reverse(entry.0));
-            for (_, hwnd) in &stack {
-                raise(*hwnd);
-            }
-            if !finish.foreground.is_null() {
-                raise(finish.foreground);
-            }
+        for hwnd in raises {
+            raise(hwnd);
         }
         log::info!("{}", finish.summary);
         if finish.announce {
@@ -1146,18 +1044,12 @@ impl LayoutKeeper {
     }
 
     /// Puts a restored window back on the monitor it was saved on.
-    fn return_to_monitor(
-        &mut self,
-        window: &windows::LiveWindow,
-        saved: Option<&state::SavedMonitor>,
-        monitors: &[monitors::Monitor],
-    ) {
-        let now = monitors::index_of(window.identity.rect, monitors);
-        let label = window.identity.label();
-        match monitors::restore_target(saved, now, &monitors::saved_names(monitors)) {
+    fn return_to_monitor(&mut self, step: &MonitorStep, monitors: &[monitors::Monitor]) {
+        let label = &step.label;
+        match step.target {
             monitors::Return::Stay => {}
             monitors::Return::Unplugged => {
-                if let Some(saved) = saved {
+                if let Some(saved) = &step.saved {
                     log::info!(
                         "\"{label}\" was saved on monitor {} ({}), which is not connected; it stays where it is",
                         saved.device,
@@ -1166,16 +1058,12 @@ impl LayoutKeeper {
                 }
             }
             monitors::Return::To(target) => {
-                let (Some(now), false) = (now, self.refuses("monitor move")) else {
+                let (Some(now), false) = (step.now, self.refuses("monitor move")) else {
                     return;
                 };
                 let device = &monitors[target].saved().device;
-                match monitors::move_window(
-                    window.hwnd,
-                    &monitors[now],
-                    &monitors[target],
-                    monitors,
-                ) {
+                match monitors::move_window(step.hwnd, &monitors[now], &monitors[target], monitors)
+                {
                     Ok(()) => log::info!("put \"{label}\" back on monitor {device}"),
                     Err(err) => {
                         log::warn!("could not put \"{label}\" back on monitor {device}: {err}")
@@ -1270,18 +1158,14 @@ impl LayoutKeeper {
                         names(&timed_out.by_limit)
                     );
                 }
-                if self.restore.restored() == 0 && self.restore.waiting_count() == 0 {
-                    let summary = format!(
-                        "None of the saved apps opened a window within {} minutes, so nothing was restored",
-                        self.restore.give_up_seconds / 60
-                    );
+                if let Some(summary) = nothing_restored(&self.restore) {
                     host::notify("LayoutKeeper", &summary);
                     self.last_restore = Some(summary);
                 }
             }
             self.update_progress(&counts);
         }
-        if self.ticks.is_multiple_of(self.snapshot_seconds.max(1)) {
+        if save_due(self.ticks, self.snapshot_seconds) {
             self.save("timer");
         }
     }
@@ -1397,10 +1281,10 @@ impl LayoutKeeper {
     }
 
     fn open_state_file(&mut self) {
-        if !state::path().exists() {
+        if !self.state_path.exists() {
             self.save("manual");
         }
-        let args = wide(&format!("\"{}\"", state::path().display()));
+        let args = wide(&format!("\"{}\"", self.state_path.display()));
         unsafe {
             ShellExecuteW(
                 std::ptr::null_mut(),
@@ -1485,6 +1369,438 @@ fn start_follows_sign_in() -> bool {
         );
     }
     restores
+}
+
+/// What a save reads from Windows besides the window list, as plain values
+/// and lookups, so tests can give answers of their own.
+struct World<'a> {
+    desktops: &'a [Desktop],
+    /// The connected monitors as the layout file names them, in the order
+    /// of `monitors::list`.
+    monitors: &'a [SavedMonitor],
+    desktop_of: &'a dyn Fn(HWND) -> Option<DesktopId>,
+    /// The place in `monitors` of the monitor a rectangle is mostly on.
+    monitor_of: &'a dyn Fn(Rect) -> Option<usize>,
+    /// The day a window is seen on, as the file writes it: "2026-10-18".
+    today: Option<String>,
+}
+
+/// The watched programs' windows as they are now, each program's list in
+/// taskbar order. `z_index` counts across all programs, so the order
+/// between apps can be put back too. A window saved on a monitor that is
+/// unplugged now keeps that monitor, unless the user has put it on another
+/// one in the strip since (`released`).
+fn capture(
+    live: &[windows::LiveWindow],
+    world: &World,
+    groups: &BTreeMap<String, OrderModel>,
+    previous: Option<&Programs>,
+    released: &BTreeSet<Handle>,
+) -> Programs {
+    let mut programs = Programs::new();
+    let mut exes: Vec<&str> = Vec::new();
+    for window in live {
+        if !exes.contains(&window.identity.exe.as_str()) {
+            exes.push(&window.identity.exe);
+        }
+    }
+    for exe in exes {
+        let mine: Vec<(usize, &windows::LiveWindow)> = live
+            .iter()
+            .enumerate()
+            .filter(|(_, window)| window.identity.exe == exe)
+            .collect();
+        let mut saved: Vec<SavedWindow> = mine
+            .iter()
+            .map(|(z_index, window)| {
+                let z_index = *z_index;
+                let desktop = (world.desktop_of)(window.hwnd);
+                SavedWindow {
+                    name: window.identity.name.clone(),
+                    title: window.identity.title.clone(),
+                    rect: window.identity.rect,
+                    maximized: window.identity.maximized,
+                    desktop: desktop.map(|id| id.to_string()),
+                    desktop_name: desktop.and_then(|id| desktops::name_of(world.desktops, id)),
+                    group: window.group.clone(),
+                    taskbar_index: groups
+                        .get(&window.group)
+                        .and_then(|group| group.position_of(window.hwnd as Handle))
+                        .unwrap_or(z_index),
+                    z_index,
+                    monitor: (world.monitor_of)(window.identity.rect)
+                        .and_then(|index| world.monitors.get(index).cloned()),
+                    seen: world.today.clone(),
+                }
+            })
+            .collect();
+        if let Some(before) = previous.and_then(|programs| programs.get(exe)) {
+            let released: Vec<bool> = mine
+                .iter()
+                .map(|(_, window)| released.contains(&(window.hwnd as Handle)))
+                .collect();
+            monitors::keep_unplugged(exe, &before.windows, &mut saved, &released, world.monitors);
+        }
+        saved.sort_by_key(|window| window.taskbar_index);
+        programs.insert(exe.to_string(), ProgramState { windows: saved });
+    }
+    programs
+}
+
+/// What a save writes, decided before anything is written.
+#[derive(Debug, PartialEq)]
+struct SavePlan {
+    programs: Programs,
+    /// How many windows the file holds afterwards.
+    count: usize,
+    /// The guard wants the old file kept before a held group's new windows
+    /// go in; it hears when the write is done.
+    backup: bool,
+    /// Copy the old file aside before this write.
+    copy_aside: bool,
+}
+
+/// Folds a fresh look into the saved layout. Groups in a crash burst keep
+/// their saved windows for timer saves; groups still waiting for their
+/// restore (`pending`) keep them for every save, because what is on screen
+/// is the scrambled order the file fixes. The old file is copied aside only
+/// when the guard asks for it and this write changes the file: a burst that
+/// came back exactly as saved has nothing to lose.
+fn plan_save(
+    previous: Option<&Programs>,
+    fresh: Programs,
+    reason: &str,
+    watch: &Watch,
+    guard: &guard::Guard,
+    pending: Vec<String>,
+) -> SavePlan {
+    let timer = reason == "timer";
+    let merged = state::merge(previous, fresh, reason == "shutdown", &|exe| {
+        watch.covers(exe)
+    });
+    let mut held = if timer { guard.held() } else { BTreeSet::new() };
+    held.extend(pending);
+    let programs = state::keep_groups(previous, merged, &held);
+    let count = programs.values().map(|program| program.windows.len()).sum();
+    let backup = guard.backup_needed(timer);
+    let copy_aside = backup && previous != Some(&programs);
+    SavePlan {
+        programs,
+        count,
+        backup,
+        copy_aside,
+    }
+}
+
+/// The saved programs a restore of `due` goes through: the watched ones
+/// with a saved window in a group that is due.
+fn restore_exes(saved: &Programs, due: &[restore::Due], watch: &Watch) -> Vec<String> {
+    saved
+        .iter()
+        .filter(|(exe, program)| {
+            watch.covers(exe)
+                && program
+                    .windows
+                    .iter()
+                    .any(|window| due.iter().any(|due| due.group == window.group))
+        })
+        .map(|(exe, _)| exe.clone())
+        .collect()
+}
+
+/// What a restore reads about one program before it changes anything.
+struct ExeView<'a> {
+    exe: &'a str,
+    /// Its saved windows, in taskbar order.
+    saved: Vec<SavedWindow>,
+    /// Its open windows, top of the z-order first.
+    mine: Vec<&'a windows::LiveWindow>,
+    /// The desktop each open window is on before its button is re-added.
+    before: Vec<Option<DesktopId>>,
+    /// The monitor each open window is on, as a place in the monitor list.
+    on_monitor: Vec<Option<usize>>,
+}
+
+impl<'a> ExeView<'a> {
+    fn new(
+        exe: &'a str,
+        program: &ProgramState,
+        live: &'a [windows::LiveWindow],
+        desktop_of: &dyn Fn(HWND) -> Option<DesktopId>,
+        monitor_of: &dyn Fn(Rect) -> Option<usize>,
+    ) -> Self {
+        let mut saved = program.windows.clone();
+        saved.sort_by_key(|window| window.taskbar_index);
+        let mine: Vec<&windows::LiveWindow> = live
+            .iter()
+            .filter(|window| window.identity.exe == exe)
+            .collect();
+        let before = mine.iter().map(|window| desktop_of(window.hwnd)).collect();
+        let on_monitor = mine
+            .iter()
+            .map(|window| monitor_of(window.identity.rect))
+            .collect();
+        Self {
+            exe,
+            saved,
+            mine,
+            before,
+            on_monitor,
+        }
+    }
+}
+
+/// The rest of what a restore plan reads.
+struct RestoreContext<'a> {
+    /// Every open window, for the groups' order models.
+    live: &'a [windows::LiveWindow],
+    /// The desktops that exist now.
+    known: &'a [DesktopId],
+    /// The connected monitors as the layout file names them.
+    monitors: &'a [SavedMonitor],
+    /// The desktop mover works, so a re-added button's pull can be undone.
+    can_move: bool,
+    restore_monitors: bool,
+    ticks: u64,
+    snapshot_seconds: u64,
+}
+
+/// What a restore does about one window's monitor.
+#[derive(Debug, PartialEq)]
+struct MonitorStep {
+    hwnd: HWND,
+    label: String,
+    saved: Option<SavedMonitor>,
+    /// The monitor it is on, as a place in the monitor list.
+    now: Option<usize>,
+    target: monitors::Return,
+}
+
+/// One taskbar group's share of a restore, decided before anything moves.
+#[derive(Debug, Default, PartialEq)]
+struct GroupPlan {
+    group: String,
+    /// A second pass, for windows that came after the group's restore.
+    late: bool,
+    /// Done before the taskbar order: with buttons on the taskbar of the
+    /// window's own monitor, a move to another monitor moves its button too,
+    /// and the order is rebuilt after that.
+    monitors: Vec<MonitorStep>,
+    /// Desktop moves for the second half of the restore.
+    moves: Vec<(HWND, DesktopId, String)>,
+    /// Windows saved on a desktop that no longer exists, and that desktop.
+    gone: Vec<(String, DesktopId)>,
+    /// In a second pass, the late windows that change desktop.
+    moved_late: usize,
+    /// Saved windows matched to an open one, of `saved`.
+    matched: usize,
+    saved: usize,
+    /// The saved windows no open window matched, in a first pass.
+    lost: Vec<String>,
+}
+
+/// Plans the restore of one program's groups in `due` and brings the run's
+/// bookkeeping up to date: each group gets an order model built from its
+/// saved windows, every matched window counts as placed, and a first pass
+/// adds them to the front-to-back stack. In a second pass the windows this
+/// run placed already stay on the monitor and desktop they are on now.
+fn plan_restore(
+    view: &ExeView,
+    due: &[restore::Due],
+    cx: &RestoreContext,
+    groups: &mut BTreeMap<String, OrderModel>,
+    placed: &mut BTreeSet<Handle>,
+    stack: &mut Vec<(usize, HWND)>,
+) -> Vec<GroupPlan> {
+    let windows = &view.saved;
+    let mine = &view.mine;
+    let saved_ids: Vec<identity::WindowIdentity> = windows
+        .iter()
+        .map(|window| window.identity(view.exe))
+        .collect();
+    let live_ids: Vec<identity::WindowIdentity> =
+        mine.iter().map(|window| window.identity.clone()).collect();
+    let matching = identity::match_windows(&saved_ids, &live_ids);
+    let live_groups: Vec<String> = mine.iter().map(|window| window.group.clone()).collect();
+
+    let mut plans = Vec::new();
+    for entry in due
+        .iter()
+        .filter(|entry| live_groups.contains(&entry.group))
+    {
+        let key = &entry.group;
+        let late = entry.pass == restore::Pass::Late;
+        let members = state::saved_for_group(windows, &matching, &live_groups, key);
+        let ids = members.iter().map(|s| saved_ids[*s].clone()).collect();
+        let mut model = OrderModel::from_saved(ids);
+        model.refresh(&handles_in(cx.live, key), cx.ticks, cx.snapshot_seconds);
+        groups.insert(key.clone(), model);
+        let pairs: Vec<(usize, usize)> = matching
+            .pairs
+            .iter()
+            .filter(|(s, l)| members.contains(s) && live_groups[*l] == *key)
+            .copied()
+            .collect();
+        let mut plan = GroupPlan {
+            group: key.clone(),
+            late,
+            matched: pairs.len(),
+            saved: members.len(),
+            ..GroupPlan::default()
+        };
+        if cx.restore_monitors {
+            for (s, l) in &pairs {
+                let window = mine[*l];
+                if late && placed.contains(&(window.hwnd as Handle)) {
+                    continue;
+                }
+                let saved = windows[*s].monitor.clone();
+                let now = view.on_monitor[*l];
+                plan.monitors.push(MonitorStep {
+                    hwnd: window.hwnd,
+                    label: window.identity.label().to_string(),
+                    target: monitors::restore_target(saved.as_ref(), now, cx.monitors),
+                    saved,
+                    now,
+                });
+            }
+        }
+        if cx.can_move {
+            for (l, window) in mine.iter().enumerate() {
+                if live_groups[l] != *key {
+                    continue;
+                }
+                let kept = late && placed.contains(&(window.hwnd as Handle));
+                let saved_desktop = pairs
+                    .iter()
+                    .find(|(_, live)| *live == l && !kept)
+                    .and_then(|(s, _)| windows[*s].desktop.as_deref());
+                if !late {
+                    let gone = saved_desktop
+                        .and_then(DesktopId::parse)
+                        .filter(|id| *id != DesktopId::ALL && !cx.known.contains(id));
+                    if let Some(gone) = gone {
+                        plan.gone.push((window.identity.label().to_string(), gone));
+                    }
+                }
+                let before = view.before[l];
+                if let Some(target) = desktop_target(before, saved_desktop, cx.known) {
+                    if late && !kept && Some(target) != before {
+                        plan.moved_late += 1;
+                    }
+                    plan.moves
+                        .push((window.hwnd, target, window.identity.label().to_string()));
+                }
+            }
+        }
+        for (s, l) in &pairs {
+            placed.insert(mine[*l].hwnd as Handle);
+            if !late {
+                stack.push((windows[*s].z_index, mine[*l].hwnd));
+            }
+        }
+        if !late {
+            plan.lost = members
+                .iter()
+                .filter(|s| !pairs.iter().any(|(paired, _)| paired == *s))
+                .map(|s| windows[*s].label().to_string())
+                .collect();
+        }
+        plans.push(plan);
+    }
+    plans
+}
+
+/// What the first half of a restore run did, for its summary.
+#[derive(Default)]
+struct Restored {
+    moves: Vec<(HWND, DesktopId, String)>,
+    /// "2 of 3 Chrome windows", one per group restored.
+    parts: Vec<String>,
+    late_parts: Vec<String>,
+    /// Saved windows no open window matched.
+    missing: usize,
+}
+
+/// The line the log, the status and perhaps a balloon show for a restore,
+/// or None when it restored nothing.
+fn summary(done: &Restored) -> Option<String> {
+    if done.parts.is_empty() && done.late_parts.is_empty() {
+        return None;
+    }
+    let mut sentences = Vec::new();
+    if !done.parts.is_empty() {
+        let mut summary = format!("Restored {}", done.parts.join(", "));
+        if done.missing > 0 {
+            summary.push_str(&format!(" ({} not found)", done.missing));
+        }
+        sentences.push(summary);
+    }
+    sentences.extend(done.late_parts.iter().cloned());
+    Some(sentences.join("; "))
+}
+
+/// The second half's work: the desktop moves that still change something,
+/// then the windows to raise in that order, so the front window ends on
+/// top and the window that was in front before the restore above them all.
+fn finish_steps(
+    finish: &Finish,
+    current: Option<DesktopId>,
+    front_order: bool,
+) -> (Vec<&(HWND, DesktopId, String)>, Vec<HWND>) {
+    let moves = finish
+        .moves
+        .iter()
+        .filter(|(_, target, _)| Some(*target) != current)
+        .collect();
+    let mut raises = Vec::new();
+    if front_order && !finish.stack.is_empty() {
+        let mut stack = finish.stack.clone();
+        stack.sort_by_key(|entry| std::cmp::Reverse(entry.0));
+        raises.extend(stack.into_iter().map(|(_, hwnd)| hwnd));
+        if !finish.foreground.is_null() {
+            raises.push(finish.foreground);
+        }
+    }
+    (moves, raises)
+}
+
+/// A timer save is due on every `snapshot_seconds`-th tick.
+fn save_due(ticks: u64, snapshot_seconds: u64) -> bool {
+    ticks.is_multiple_of(snapshot_seconds.max(1))
+}
+
+/// What a run that timed out says when none of the saved apps opened a
+/// window in time, so it restored nothing and waits for nothing.
+fn nothing_restored(run: &Restore) -> Option<String> {
+    (run.restored() == 0 && run.waiting_count() == 0).then(|| {
+        format!(
+            "None of the saved apps opened a window within {} minutes, so nothing was restored",
+            run.give_up_seconds / 60
+        )
+    })
+}
+
+/// One order model per saved taskbar group, in the saved taskbar order.
+/// Windows from a version 1 file have no group yet; their groups are built
+/// when the windows are first seen.
+fn saved_models(saved: Option<&Programs>) -> BTreeMap<String, OrderModel> {
+    let mut groups = BTreeMap::new();
+    for (exe, program) in saved.into_iter().flatten() {
+        let mut windows = program.windows.clone();
+        windows.sort_by_key(|window| window.taskbar_index);
+        let mut by_group: BTreeMap<String, Vec<identity::WindowIdentity>> = BTreeMap::new();
+        for window in windows.iter().filter(|window| !window.group.is_empty()) {
+            by_group
+                .entry(window.group.clone())
+                .or_default()
+                .push(window.identity(exe));
+        }
+        for (key, identities) in by_group {
+            groups.insert(key, OrderModel::from_saved(identities));
+        }
+    }
+    groups
 }
 
 fn handles_in(live: &[windows::LiveWindow], key: &str) -> Vec<(Handle, identity::WindowIdentity)> {
@@ -1812,7 +2128,7 @@ impl WinCraftPlugin for LayoutKeeper {
                 None
             }
         };
-        let file = state::load();
+        let file = state::load(&self.state_path);
         if let Some(file) = &file {
             let count: usize = file
                 .programs
@@ -1831,24 +2147,8 @@ impl WinCraftPlugin for LayoutKeeper {
                 ),
             }
         }
-        self.writer = state::Writer::new(state::path(), file.map(|file| file.programs));
-        // Windows from a version 1 file have no group yet; their groups are
-        // built when the windows are first seen.
-        self.groups = BTreeMap::new();
-        for (exe, program) in self.writer.last().cloned().unwrap_or_default() {
-            let mut windows = program.windows;
-            windows.sort_by_key(|window| window.taskbar_index);
-            let mut by_group: BTreeMap<String, Vec<identity::WindowIdentity>> = BTreeMap::new();
-            for window in windows.iter().filter(|window| !window.group.is_empty()) {
-                by_group
-                    .entry(window.group.clone())
-                    .or_default()
-                    .push(window.identity(&exe));
-            }
-            for (key, identities) in by_group {
-                self.groups.insert(key, OrderModel::from_saved(identities));
-            }
-        }
+        self.writer = state::Writer::new(self.state_path.clone(), file.map(|file| file.programs));
+        self.groups = saved_models(self.writer.last());
         if unsafe { SetTimer(ctx.hwnd, TIMER_ID, TICK_MS, None) } == 0 {
             return Err("could not start its timer".to_string());
         }
@@ -3161,5 +3461,836 @@ mod tests {
         // Nothing builds the index in a test, so it is not final.
         assert!(keeper.unresolved.contains("Some.Unlisted.App"));
         assert!(keeper.labels.contains_key("Some.Unlisted.App"));
+    }
+
+    // Saves and restores below run over fake windows, desktops and monitors.
+    // Nothing in them reaches a real window: the handles are made up and the
+    // only writes go to scratch files.
+
+    const D1: DesktopId = DesktopId(1);
+    const D2: DesktopId = DesktopId(2);
+    /// A desktop the PC no longer has.
+    const D9: DesktopId = DesktopId(9);
+
+    fn two_desktops() -> Vec<Desktop> {
+        vec![
+            Desktop {
+                id: D1,
+                name: "Desktop 1".to_string(),
+            },
+            Desktop {
+                id: D2,
+                name: "Work".to_string(),
+            },
+        ]
+    }
+
+    fn screen(device: &str, name: &str, position: usize) -> SavedMonitor {
+        SavedMonitor {
+            device: format!(r"\\.\{device}"),
+            name: name.to_string(),
+            position,
+        }
+    }
+
+    /// DELL on the left, LG right of it at x 1920.
+    fn two_monitors() -> Vec<SavedMonitor> {
+        vec![screen("DISPLAY1", "DELL", 0), screen("DISPLAY2", "LG", 1)]
+    }
+
+    fn by_left_edge(rect: Rect) -> Option<usize> {
+        Some(usize::from(rect[0] >= 1920))
+    }
+
+    fn open(hwnd: isize, exe: &str, title: &str, group: &str, rect: Rect) -> windows::LiveWindow {
+        windows::LiveWindow {
+            hwnd: hwnd as HWND,
+            identity: identity::WindowIdentity::new(exe, title, rect, false).in_group(group),
+            group: group.to_string(),
+            app_name: None,
+            exe_path: format!(r"c:\apps\{exe}"),
+        }
+    }
+
+    fn chrome(hwnd: isize, title: &str, left: i32) -> windows::LiveWindow {
+        open(
+            hwnd,
+            "chrome.exe",
+            title,
+            "Chrome",
+            [left, 10 * hwnd as i32, left + 700, 500],
+        )
+    }
+
+    fn kept(
+        title: &str,
+        desktop: Option<DesktopId>,
+        monitor: Option<SavedMonitor>,
+        place: usize,
+    ) -> SavedWindow {
+        SavedWindow {
+            name: Some(title.to_string()),
+            title: title.to_string(),
+            rect: [5000 + place as i32, 0, 5600, 400],
+            desktop: desktop.map(|id| id.to_string()),
+            monitor,
+            taskbar_index: place,
+            z_index: place,
+            ..saved("Chrome")
+        }
+    }
+
+    fn programs(entries: Vec<(&str, Vec<SavedWindow>)>) -> Programs {
+        entries
+            .into_iter()
+            .map(|(exe, windows)| (exe.to_string(), ProgramState { windows }))
+            .collect()
+    }
+
+    fn read_file(path: &std::path::Path) -> state::StateFile {
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    fn titles(file: &state::StateFile, exe: &str) -> Vec<String> {
+        file.programs[exe]
+            .windows
+            .iter()
+            .map(|window| window.title.clone())
+            .collect()
+    }
+
+    /// The titles whatever their taskbar order, which a restart scrambles.
+    fn title_set(path: &std::path::Path, exe: &str) -> BTreeSet<String> {
+        titles(&read_file(path), exe).into_iter().collect()
+    }
+
+    fn set(titles: &[&str]) -> BTreeSet<String> {
+        titles.iter().map(|title| title.to_string()).collect()
+    }
+
+    /// Saves `live` the way a timer or a hotkey would, against two desktops
+    /// and two monitors, with window 1 on the Work desktop.
+    fn save_seen(
+        keeper: &mut LayoutKeeper,
+        live: &[windows::LiveWindow],
+        reason: &str,
+    ) -> (bool, usize) {
+        let desktops = two_desktops();
+        let monitors = two_monitors();
+        let world = World {
+            desktops: &desktops,
+            monitors: &monitors,
+            desktop_of: &|hwnd| (hwnd as isize == 1).then_some(D2),
+            monitor_of: &by_left_edge,
+            today: Some("2026-10-18".to_string()),
+        };
+        let force = reason == "manual";
+        keeper.write_seen(live, &world, reason, force).unwrap()
+    }
+
+    fn clean_up(path: &std::path::Path) {
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(path.with_extension("prev.json"));
+    }
+
+    #[test]
+    fn a_save_writes_each_window_with_its_desktop_monitor_order_and_day() {
+        let (mut keeper, path) = keeper_with(Programs::new(), "save-fresh");
+        let live = [
+            chrome(1, "Inbox", 2000),
+            chrome(2, "Docs", 0),
+            open(3, "viber.exe", "Viber", "Viber.Desktop", [0, 0, 400, 400]),
+        ];
+        assert_eq!(save_seen(&mut keeper, &live, "manual"), (true, 3));
+        let file = read_file(&path);
+        assert_eq!(file.reason, "manual");
+        // A group seen for the first time is in taskbar order bottom first.
+        assert_eq!(titles(&file, "chrome.exe"), ["Docs", "Inbox"]);
+        let docs = &file.programs["chrome.exe"].windows[0];
+        let inbox = &file.programs["chrome.exe"].windows[1];
+        assert_eq!(inbox.desktop, Some(D2.to_string()));
+        assert_eq!(inbox.desktop_name.as_deref(), Some("Work"));
+        assert_eq!(inbox.monitor, Some(screen("DISPLAY2", "LG", 1)));
+        assert_eq!((inbox.z_index, docs.z_index), (0, 1));
+        assert_eq!(docs.desktop, None);
+        assert_eq!(docs.monitor, Some(screen("DISPLAY1", "DELL", 0)));
+        assert_eq!(docs.seen.as_deref(), Some("2026-10-18"));
+        assert_eq!(file.programs["viber.exe"].windows[0].z_index, 2);
+
+        // The same windows again: a timer save writes nothing.
+        assert_eq!(save_seen(&mut keeper, &live, "timer"), (false, 3));
+        clean_up(&path);
+    }
+
+    #[test]
+    fn a_save_keeps_closed_apps_and_drops_the_ones_no_longer_watched() {
+        let before = programs(vec![
+            ("viber.exe", vec![kept("Viber", None, None, 0)]),
+            ("telegram.exe", vec![kept("Telegram", None, None, 0)]),
+        ]);
+        let (mut keeper, path) = keeper_with(before, "save-closed");
+        keeper.watch = Watch::new("*", "telegram.exe");
+        save_seen(&mut keeper, &[chrome(2, "Docs", 0)], "timer");
+        let file = read_file(&path);
+        assert_eq!(
+            file.programs.keys().collect::<Vec<_>>(),
+            ["chrome.exe", "viber.exe"]
+        );
+        assert_eq!(titles(&file, "viber.exe"), ["Viber"]);
+        clean_up(&path);
+    }
+
+    #[test]
+    fn a_window_saved_on_an_unplugged_monitor_keeps_it_until_moved_in_the_strip() {
+        let samsung = screen("DISPLAY3", "SAMSUNG", 2);
+        let before = programs(vec![(
+            "chrome.exe",
+            vec![kept("Mail", None, Some(samsung.clone()), 0)],
+        )]);
+        let (mut keeper, path) = keeper_with(before, "save-unplugged");
+        let live = [chrome(2, "Mail", 0)];
+        save_seen(&mut keeper, &live, "manual");
+        let mail = &read_file(&path).programs["chrome.exe"].windows[0];
+        assert_eq!(mail.monitor, Some(samsung));
+
+        keeper.released.insert(2);
+        save_seen(&mut keeper, &live, "manual");
+        let mail = &read_file(&path).programs["chrome.exe"].windows[0];
+        assert_eq!(mail.monitor, Some(screen("DISPLAY1", "DELL", 0)));
+        assert!(keeper.released.is_empty(), "a save uses the release up");
+        clean_up(&path);
+    }
+
+    fn four_tabs() -> Vec<windows::LiveWindow> {
+        ["A", "B", "C", "D"]
+            .iter()
+            .enumerate()
+            .map(|(index, title)| chrome(index as isize + 1, title, 0))
+            .collect()
+    }
+
+    /// Chrome restarted: two new windows in place of the four saved ones.
+    fn after_restart() -> Vec<windows::LiveWindow> {
+        vec![chrome(11, "X", 0), chrome(12, "Y", 0)]
+    }
+
+    #[test]
+    fn a_crash_burst_keeps_the_saved_windows_and_a_manual_save_copies_the_file_first() {
+        let (mut keeper, path) = keeper_with(Programs::new(), "save-burst");
+        let prev = path.with_extension("prev.json");
+        save_seen(&mut keeper, &four_tabs(), "timer");
+
+        keeper.ticks = 30;
+        assert_eq!(
+            save_seen(&mut keeper, &after_restart(), "timer"),
+            (false, 4)
+        );
+        assert_eq!(title_set(&path, "chrome.exe"), set(&["A", "B", "C", "D"]));
+        assert!(!prev.exists(), "nothing was written over yet");
+
+        assert_eq!(
+            save_seen(&mut keeper, &after_restart(), "manual"),
+            (true, 2)
+        );
+        assert_eq!(title_set(&path, "chrome.exe"), set(&["X", "Y"]));
+        assert_eq!(title_set(&prev, "chrome.exe"), set(&["A", "B", "C", "D"]));
+
+        // The copy was made once; later writes leave it alone.
+        std::fs::remove_file(&prev).unwrap();
+        keeper.ticks = 90;
+        let more = [chrome(11, "X", 0), chrome(12, "Y", 0), chrome(13, "Z", 0)];
+        assert_eq!(save_seen(&mut keeper, &more, "manual"), (true, 3));
+        assert!(!prev.exists());
+        clean_up(&path);
+    }
+
+    #[test]
+    fn the_first_timer_save_after_the_hold_ends_copies_the_file_first() {
+        let (mut keeper, path) = keeper_with(Programs::new(), "save-release");
+        let prev = path.with_extension("prev.json");
+        save_seen(&mut keeper, &four_tabs(), "timer");
+        keeper.ticks = 30;
+        save_seen(&mut keeper, &after_restart(), "timer");
+        keeper.ticks = 45;
+        assert_eq!(
+            save_seen(&mut keeper, &after_restart(), "timer"),
+            (false, 4)
+        );
+        assert!(!prev.exists());
+
+        keeper.ticks = 60;
+        assert_eq!(save_seen(&mut keeper, &after_restart(), "timer"), (true, 2));
+        assert_eq!(title_set(&prev, "chrome.exe"), set(&["A", "B", "C", "D"]));
+        assert_eq!(title_set(&path, "chrome.exe"), set(&["X", "Y"]));
+        clean_up(&path);
+    }
+
+    #[test]
+    fn groups_still_waiting_for_their_restore_keep_their_saved_windows_in_any_save() {
+        let before = programs(vec![(
+            "chrome.exe",
+            vec![kept("A", None, None, 0), kept("B", None, None, 1)],
+        )]);
+        let (mut keeper, path) = keeper_with(before, "save-pending");
+        keeper.restore.start(0, vec!["Chrome".to_string()]);
+        let live = [chrome(1, "B", 0), chrome(2, "A", 0), chrome(3, "New", 0)];
+        assert_eq!(save_seen(&mut keeper, &live, "manual"), (true, 2));
+        assert_eq!(titles(&read_file(&path), "chrome.exe"), ["A", "B"]);
+        clean_up(&path);
+    }
+
+    #[test]
+    fn a_save_plan_copies_aside_only_when_asked_and_something_changes() {
+        let watch = Watch::new("*", "");
+        let mut guard = guard::Guard::default();
+        let timing = guard::Timing {
+            stable_seconds: 30,
+            refill_seconds: 180,
+        };
+        let look = |handles: &[Handle]| BTreeMap::from([("Chrome".to_string(), handles.to_vec())]);
+        guard.observe(0, &look(&[1, 2, 3, 4]), timing);
+        guard.observe(30, &look(&[]), timing);
+        let saved = programs(vec![("chrome.exe", vec![kept("A", None, None, 0)])]);
+
+        let same = plan_save(
+            Some(&saved),
+            saved.clone(),
+            "manual",
+            &watch,
+            &guard,
+            vec![],
+        );
+        assert!(same.backup && !same.copy_aside, "nothing would be lost");
+
+        let other = programs(vec![("chrome.exe", vec![kept("B", None, None, 0)])]);
+        let manual = plan_save(
+            Some(&saved),
+            other.clone(),
+            "manual",
+            &watch,
+            &guard,
+            vec![],
+        );
+        assert!(manual.backup && manual.copy_aside);
+        assert_eq!(manual.programs, other);
+
+        let timer = plan_save(Some(&saved), other, "timer", &watch, &guard, vec![]);
+        assert!(!timer.backup && !timer.copy_aside);
+        assert_eq!(timer.programs, saved, "the held group keeps its windows");
+        assert_eq!(timer.count, 1);
+    }
+
+    fn due(group: &str, pass: restore::Pass) -> Vec<restore::Due> {
+        vec![restore::Due {
+            group: group.to_string(),
+            pass,
+        }]
+    }
+
+    /// Docs on desktop 1 of the left monitor, Inbox on Work on the right one,
+    /// Old on a desktop that is gone, Lost no longer open.
+    fn saved_chrome() -> ProgramState {
+        let dell = screen("DISPLAY1", "DELL", 0);
+        let lg = screen("DISPLAY2", "LG", 1);
+        ProgramState {
+            windows: vec![
+                kept("Inbox", Some(D2), Some(lg), 1),
+                kept("Docs", Some(D1), Some(dell.clone()), 0),
+                kept("Old", Some(D9), Some(dell), 2),
+                kept("Lost", Some(D1), None, 3),
+            ],
+        }
+    }
+
+    /// Every window was pulled to desktop 1 on the left monitor.
+    fn reopened() -> Vec<windows::LiveWindow> {
+        vec![
+            chrome(10, "Inbox", 0),
+            chrome(11, "Docs", 0),
+            chrome(12, "Old", 0),
+            open(20, "viber.exe", "Viber", "Viber.Desktop", [0, 0, 300, 300]),
+        ]
+    }
+
+    struct Plan {
+        plans: Vec<GroupPlan>,
+        groups: BTreeMap<String, OrderModel>,
+        placed: BTreeSet<Handle>,
+        stack: Vec<(usize, HWND)>,
+    }
+
+    fn plan_for(
+        program: &ProgramState,
+        live: &[windows::LiveWindow],
+        due: &[restore::Due],
+        placed: BTreeSet<Handle>,
+        can_move: bool,
+        restore_monitors: bool,
+    ) -> Plan {
+        let view = ExeView::new("chrome.exe", program, live, &|_| Some(D1), &by_left_edge);
+        let monitors = two_monitors();
+        let cx = RestoreContext {
+            live,
+            known: &[D1, D2],
+            monitors: &monitors,
+            can_move,
+            restore_monitors,
+            ticks: 0,
+            snapshot_seconds: 30,
+        };
+        let mut plan = Plan {
+            plans: Vec::new(),
+            groups: BTreeMap::new(),
+            placed,
+            stack: Vec::new(),
+        };
+        plan.plans = plan_restore(
+            &view,
+            due,
+            &cx,
+            &mut plan.groups,
+            &mut plan.placed,
+            &mut plan.stack,
+        );
+        plan
+    }
+
+    fn hwnd(handle: isize) -> HWND {
+        handle as HWND
+    }
+
+    #[test]
+    fn a_restore_plans_monitor_desktop_and_taskbar_moves_for_each_matched_window() {
+        let plan = plan_for(
+            &saved_chrome(),
+            &reopened(),
+            &due("Chrome", restore::Pass::Settled),
+            BTreeSet::new(),
+            true,
+            true,
+        );
+        let [group] = plan.plans.as_slice() else {
+            panic!("{:?}", plan.plans)
+        };
+        assert_eq!((group.matched, group.saved), (3, 4));
+        assert_eq!(group.lost, ["Lost"]);
+        let targets: Vec<(isize, monitors::Return)> = group
+            .monitors
+            .iter()
+            .map(|step| (step.hwnd as isize, step.target))
+            .collect();
+        assert_eq!(
+            targets,
+            [
+                (11, monitors::Return::Stay),
+                (10, monitors::Return::To(1)),
+                (12, monitors::Return::Stay),
+            ]
+        );
+        // Every window gets a desktop move, if only to undo the pull of
+        // its re-added button; a window from a desktop that is gone stays.
+        let moves: Vec<(isize, DesktopId)> = group
+            .moves
+            .iter()
+            .map(|(hwnd, target, _)| (*hwnd as isize, *target))
+            .collect();
+        assert_eq!(moves, [(10, D2), (11, D1), (12, D1)]);
+        assert_eq!(group.gone, [("Old".to_string(), D9)]);
+        // The taskbar gets the saved order.
+        assert_eq!(plan.groups["Chrome"].pending(), Some(vec![11, 10, 12]));
+        assert_eq!(plan.placed, BTreeSet::from([10, 11, 12]));
+        assert_eq!(plan.stack, [(0, hwnd(11)), (1, hwnd(10)), (2, hwnd(12))]);
+    }
+
+    #[test]
+    fn a_second_pass_moves_only_the_windows_that_came_late() {
+        let mut program = saved_chrome();
+        program.windows.push(kept(
+            "Later",
+            Some(D2),
+            Some(screen("DISPLAY2", "LG", 1)),
+            4,
+        ));
+        let mut live = reopened();
+        live.push(chrome(13, "Later", 0));
+        let plan = plan_for(
+            &program,
+            &live,
+            &due("Chrome", restore::Pass::Late),
+            BTreeSet::from([10, 11, 12]),
+            true,
+            true,
+        );
+        let [group] = plan.plans.as_slice() else {
+            panic!("{:?}", plan.plans)
+        };
+        assert!(group.late);
+        let stepped: Vec<isize> = group
+            .monitors
+            .iter()
+            .map(|step| step.hwnd as isize)
+            .collect();
+        assert_eq!(stepped, [13], "placed windows stay on their monitor");
+        let moves: Vec<(isize, DesktopId)> = group
+            .moves
+            .iter()
+            .map(|(hwnd, target, _)| (*hwnd as isize, *target))
+            .collect();
+        // Inbox was put on Work by the first pass and moved back here since:
+        // it only gets its pull undone, and only Later counts as moved.
+        assert_eq!(moves, [(10, D1), (11, D1), (12, D1), (13, D2)]);
+        assert_eq!(group.moved_late, 1);
+        assert!(group.gone.is_empty() && group.lost.is_empty());
+        assert!(plan.stack.is_empty(), "nothing is raised again");
+        assert!(plan.placed.contains(&13));
+    }
+
+    #[test]
+    fn without_the_desktop_mover_or_monitor_restore_those_moves_are_left_out() {
+        let plan = plan_for(
+            &saved_chrome(),
+            &reopened(),
+            &due("Chrome", restore::Pass::Settled),
+            BTreeSet::new(),
+            false,
+            false,
+        );
+        let group = &plan.plans[0];
+        assert!(group.moves.is_empty() && group.gone.is_empty());
+        assert!(group.monitors.is_empty());
+        assert_eq!(group.matched, 3);
+    }
+
+    #[test]
+    fn a_group_not_open_or_not_due_is_not_planned() {
+        let plan = plan_for(
+            &saved_chrome(),
+            &[open(
+                20,
+                "viber.exe",
+                "Viber",
+                "Viber.Desktop",
+                [0, 0, 300, 300],
+            )],
+            &due("Chrome", restore::Pass::Settled),
+            BTreeSet::new(),
+            true,
+            true,
+        );
+        assert!(plan.plans.is_empty());
+        let plan = plan_for(
+            &saved_chrome(),
+            &reopened(),
+            &due("Viber.Desktop", restore::Pass::Settled),
+            BTreeSet::new(),
+            true,
+            true,
+        );
+        assert!(plan.plans.is_empty(), "Viber is not chrome.exe's group");
+    }
+
+    #[test]
+    fn only_watched_programs_with_a_due_group_are_restored() {
+        let saved = programs(vec![
+            ("chrome.exe", saved_chrome().windows),
+            ("telegram.exe", vec![kept("Chat", None, None, 0)]),
+            (
+                "viber.exe",
+                vec![SavedWindow {
+                    group: "Viber.Desktop".to_string(),
+                    ..kept("Viber", None, None, 0)
+                }],
+            ),
+        ]);
+        let watch = Watch::new("*", "telegram.exe");
+        let due = due("Chrome", restore::Pass::Settled);
+        assert_eq!(restore_exes(&saved, &due, &watch), ["chrome.exe"]);
+    }
+
+    #[test]
+    fn the_summary_names_each_group_and_what_was_not_found() {
+        let mut done = Restored::default();
+        assert_eq!(summary(&done), None);
+        done.parts = vec![
+            "2 of 3 Chrome windows".to_string(),
+            "1 of 1 Viber windows".to_string(),
+        ];
+        done.missing = 1;
+        assert_eq!(
+            summary(&done).as_deref(),
+            Some("Restored 2 of 3 Chrome windows, 1 of 1 Viber windows (1 not found)")
+        );
+        done.late_parts = vec!["second pass: moved 1 late Chrome windows".to_string()];
+        assert_eq!(
+            summary(&done).as_deref(),
+            Some(
+                "Restored 2 of 3 Chrome windows, 1 of 1 Viber windows (1 not found); second pass: moved 1 late Chrome windows"
+            )
+        );
+        done.parts.clear();
+        done.missing = 0;
+        assert_eq!(
+            summary(&done).as_deref(),
+            Some("second pass: moved 1 late Chrome windows")
+        );
+    }
+
+    fn finish(stack: Vec<(usize, HWND)>, foreground: HWND) -> Finish {
+        Finish {
+            moves: vec![
+                (hwnd(10), D2, "Inbox".to_string()),
+                (hwnd(11), D1, "Docs".to_string()),
+            ],
+            stack,
+            foreground,
+            summary: String::new(),
+            announce: false,
+        }
+    }
+
+    #[test]
+    fn the_second_half_skips_windows_on_the_current_desktop_and_raises_back_to_front() {
+        let done = finish(vec![(1, hwnd(10)), (0, hwnd(11)), (2, hwnd(12))], hwnd(99));
+        let (moves, raises) = finish_steps(&done, Some(D1), true);
+        let moved: Vec<isize> = moves.iter().map(|(hwnd, _, _)| *hwnd as isize).collect();
+        assert_eq!(moved, [10]);
+        let raised: Vec<isize> = raises.iter().map(|hwnd| *hwnd as isize).collect();
+        assert_eq!(raised, [12, 10, 11, 99], "the old front window ends on top");
+
+        let (_, raises) = finish_steps(&done, Some(D1), false);
+        assert!(raises.is_empty(), "the front order is not restored");
+        let late = finish(Vec::new(), hwnd(99));
+        let (moves, raises) = finish_steps(&late, None, true);
+        assert_eq!(moves.len(), 2, "with no current desktop every move runs");
+        assert!(raises.is_empty(), "a second pass raises nothing");
+        let (_, raises) = finish_steps(
+            &finish(vec![(0, hwnd(10))], std::ptr::null_mut()),
+            None,
+            true,
+        );
+        assert_eq!(raises, [hwnd(10)]);
+    }
+
+    #[test]
+    fn a_read_only_instance_carries_out_no_planned_move_but_still_reports() {
+        let mut keeper = read_only();
+        let plans = vec![GroupPlan {
+            group: "Chrome".to_string(),
+            monitors: vec![MonitorStep {
+                hwnd: NO_WINDOW,
+                label: "Inbox".to_string(),
+                saved: None,
+                now: Some(0),
+                target: monitors::Return::To(1),
+            }],
+            moves: vec![(NO_WINDOW, D2, "Inbox".to_string())],
+            matched: 1,
+            saved: 2,
+            lost: vec!["Lost".to_string()],
+            ..GroupPlan::default()
+        }];
+        let mut done = Restored::default();
+        keeper.carry_out(plans, true, &[], &mut done);
+        assert_eq!(keeper.refused, 2, "the monitor move and the taskbar order");
+        assert_eq!(done.parts, ["1 of 2 Chrome windows"]);
+        assert_eq!((done.missing, done.moves.len()), (1, 1));
+
+        let late = vec![GroupPlan {
+            group: "Chrome".to_string(),
+            late: true,
+            moved_late: 1,
+            ..GroupPlan::default()
+        }];
+        keeper.carry_out(late, false, &[], &mut done);
+        assert_eq!(
+            done.late_parts,
+            ["second pass: moved 1 late Chrome windows"]
+        );
+    }
+
+    #[test]
+    fn a_monitor_step_that_stays_or_is_unplugged_moves_nothing() {
+        let mut keeper = read_only();
+        for target in [monitors::Return::Stay, monitors::Return::Unplugged] {
+            keeper.return_to_monitor(
+                &MonitorStep {
+                    hwnd: NO_WINDOW,
+                    label: "Inbox".to_string(),
+                    saved: Some(screen("DISPLAY3", "SAMSUNG", 2)),
+                    now: Some(0),
+                    target,
+                },
+                &[],
+            );
+        }
+        assert_eq!(keeper.refused, 0, "no move was even tried");
+    }
+
+    #[test]
+    fn timer_saves_come_every_snapshot_interval() {
+        assert!(save_due(30, 30) && save_due(60, 30) && !save_due(31, 30));
+        // A zero interval cannot come from the settings, but never divides by it.
+        assert!(save_due(7, 0));
+    }
+
+    /// A keeper that watches a program nobody runs, so its saves see no
+    /// window of the user's at all.
+    fn watching_nothing(name: &str) -> (LayoutKeeper, std::path::PathBuf) {
+        let before = programs(vec![("viber.exe", vec![kept("Viber", None, None, 0)])]);
+        let (mut keeper, path) = keeper_with(before, name);
+        keeper.watch = Watch::new("wincraft-test-nothing.exe", "");
+        (keeper, path)
+    }
+
+    #[test]
+    fn a_tick_saves_on_the_interval() {
+        let (mut keeper, path) = watching_nothing("tick-save");
+        keeper.snapshot_seconds = 3;
+        keeper.tick();
+        keeper.tick();
+        assert!(!path.exists());
+        keeper.tick();
+        let file = read_file(&path);
+        assert_eq!(file.reason, "timer");
+        assert!(
+            file.programs.is_empty(),
+            "viber.exe is not watched any more"
+        );
+        assert!(keeper.last_saved.is_some());
+        clean_up(&path);
+    }
+
+    #[test]
+    fn a_tick_finishes_a_restore_first_and_saves_nothing_then() {
+        let (mut keeper, path) = watching_nothing("tick-finish");
+        keeper.read_only = true;
+        keeper.snapshot_seconds = 1;
+        keeper.finishing = Some(finish(Vec::new(), std::ptr::null_mut()));
+        keeper.tick();
+        assert!(keeper.finishing.is_none());
+        assert_eq!(keeper.refused, 1);
+        assert!(!path.exists(), "the half-moved windows were not saved");
+        // While a restore is between its halves no save runs at all.
+        keeper.finishing = Some(finish(Vec::new(), std::ptr::null_mut()));
+        keeper.save("timer");
+        assert!(!path.exists());
+        keeper.finishing = None;
+        keeper.tick();
+        assert!(path.exists());
+        clean_up(&path);
+    }
+
+    #[test]
+    fn a_tick_rebuilds_the_groups_a_desktop_move_changed() {
+        let (mut keeper, _) = watching_nothing("tick-reapply");
+        keeper.read_only = true;
+        keeper.reapply = vec!["Chrome".to_string()];
+        keeper.arrange_stale = true;
+        keeper.tick();
+        assert!(keeper.reapply.is_empty() && !keeper.arrange_stale);
+        assert_eq!(keeper.refused, 1, "the taskbar reorder was turned down");
+    }
+
+    #[test]
+    fn a_run_where_no_app_opened_says_so() {
+        let mut run = Restore::new(15, 30 * 60);
+        assert_eq!(
+            nothing_restored(&run).as_deref(),
+            Some(
+                "None of the saved apps opened a window within 30 minutes, so nothing was restored"
+            )
+        );
+        run.start(0, vec!["Chrome".to_string()]);
+        assert_eq!(nothing_restored(&run), None, "Chrome is still waited for");
+    }
+
+    #[test]
+    fn saved_groups_start_with_their_saved_taskbar_order() {
+        let mut viber = kept("Viber", None, None, 0);
+        viber.group = "Viber.Desktop".to_string();
+        let mut old = kept("From version 1", None, None, 0);
+        old.group = String::new();
+        let saved = programs(vec![
+            (
+                "chrome.exe",
+                vec![kept("B", None, None, 1), kept("A", None, None, 0), old],
+            ),
+            ("viber.exe", vec![viber]),
+        ]);
+        let mut models = saved_models(Some(&saved));
+        assert_eq!(
+            models.keys().collect::<Vec<_>>(),
+            ["Chrome", "Viber.Desktop"]
+        );
+        let chrome = models.get_mut("Chrome").unwrap();
+        let live = [chrome_handle(1, "B"), chrome_handle(2, "A")];
+        chrome.refresh(&live, 0, 30);
+        assert_eq!(chrome.handles(), [2, 1], "A was saved first");
+        assert!(saved_models(None).is_empty());
+    }
+
+    fn chrome_handle(handle: Handle, title: &str) -> (Handle, identity::WindowIdentity) {
+        let window = chrome(handle, title, 0);
+        (handle, window.identity)
+    }
+
+    #[test]
+    fn init_reads_the_saved_layout_and_teardown_saves_and_forgets() {
+        let path = std::env::temp_dir().join(format!(
+            "wincraft-test-layout-init-{}.json",
+            std::process::id()
+        ));
+        let mut writer = state::Writer::new(path.clone(), None);
+        writer
+            .write(
+                layout_file(),
+                "manual",
+                "2026-10-18T09:00:00".to_string(),
+                true,
+            )
+            .unwrap();
+        let mut keeper = LayoutKeeper {
+            state_path: path.clone(),
+            ..LayoutKeeper::default()
+        };
+        let settings = serde_json::json!({
+            "programs": "wincraft-test-nothing.exe",
+            "restore_on_start": false,
+        });
+        // No window: the timer is the thread's own, and goes with it.
+        let ctx = HostContext {
+            hwnd: std::ptr::null_mut(),
+            settings: &settings,
+        };
+        keeper.init(&ctx).unwrap();
+        assert_eq!(keeper.writer.last(), Some(&layout_file()));
+        assert_eq!(
+            keeper.groups.keys().collect::<Vec<_>>(),
+            ["Chrome", "Viber.Desktop"]
+        );
+        assert!(keeper.host_hwnd.is_some() && keeper.started_once);
+        assert!(!keeper.restore.is_running());
+
+        keeper
+            .labels
+            .insert("Other".to_string(), "Other".to_string());
+        keeper.teardown();
+        assert_eq!(read_file(&path).reason, "teardown");
+        assert!(keeper.host_hwnd.is_none() && keeper.reader.is_none());
+        assert!(keeper.groups.is_empty() && keeper.labels.is_empty());
+
+        // Switched on again, it reads what teardown wrote. Torn down in the
+        // middle of a restore, it drops the restore and saves nothing.
+        keeper.init(&ctx).unwrap();
+        assert!(keeper.groups.is_empty(), "nothing watched was open");
+        let written = std::fs::metadata(&path).unwrap().modified().unwrap();
+        keeper.finishing = Some(finish(Vec::new(), std::ptr::null_mut()));
+        keeper.teardown();
+        assert!(keeper.finishing.is_none());
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().modified().unwrap(),
+            written
+        );
+        clean_up(&path);
     }
 }
