@@ -185,6 +185,9 @@ pub struct StartupFlags {
     pub updated_from: Option<String>,
     /// `--update-failed <version>`: a rollback from that version started it.
     pub update_failed: Option<String>,
+    /// `--restarted`: Windows started WinCraft again after an installer
+    /// closed it.
+    pub restarted: bool,
     /// The rest are for test instances only; main.rs leaves them empty
     /// otherwise.
     pub scene: SceneFlags,
@@ -211,6 +214,14 @@ pub struct SceneFlags {
 }
 
 static DEMO_RESTORE_PANEL: AtomicBool = AtomicBool::new(false);
+static STARTED_AGAIN: AtomicBool = AtomicBool::new(false);
+
+/// True when something other than the sign-in task started this process: an
+/// update, a rollback, or Windows starting WinCraft again after an installer
+/// closed it. LayoutKeeper restores the saved layout only after a sign-in.
+pub fn started_again() -> bool {
+    STARTED_AGAIN.load(Ordering::Relaxed)
+}
 
 /// True in a test instance started with `--show-restore-panel`: LayoutKeeper
 /// shows its please-wait panel with sample progress instead of a restore.
@@ -237,6 +248,10 @@ thread_local! {
 
 pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: StartupFlags) {
     DEMO_RESTORE_PANEL.store(flags.scene.restore_panel, Ordering::Relaxed);
+    STARTED_AGAIN.store(
+        flags.restarted || flags.updated_from.is_some() || flags.update_failed.is_some(),
+        Ordering::Relaxed,
+    );
     theme::set_current(config.theme);
     let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
 

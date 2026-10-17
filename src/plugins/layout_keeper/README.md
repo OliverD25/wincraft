@@ -367,7 +367,7 @@ saved order.
 |---|---|---|
 | Programs | `*` | `*` for every app, or exe names separated by commas. |
 | Never touch | (empty) | Exe names to leave alone, separated by commas. Windows' helper processes are always left alone. |
-| Restore when WinCraft starts | on | Restore once the windows have settled after start. |
+| Restore on start | on | After you sign in to Windows, restore once the windows have settled. Only a start within 15 minutes of signing in restores (the time is the logon time of your Windows session, so fast startup does not fool it). A later start, such as after an update or a restart of WinCraft, restores nothing and shows no panel; the log says why. **Restore now** and `Win+Alt+L` work at any time. |
 | Wait for windows (seconds) | 15 | How long a group's window count must hold still. |
 | Wait for apps to open (minutes) | 30 | How long to wait for an app that has opened no window yet. |
 | Save every (seconds) | 30 | How often the layout is saved when it changed. |

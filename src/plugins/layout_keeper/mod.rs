@@ -29,7 +29,7 @@ use crate::core::ui_bridge::{
     ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeView, ArrangeWindow,
     LayoutAction, LayoutApp, LayoutEntry, LayoutRef, LayoutSnapshot,
 };
-use crate::core::{appid, clock, host, instance, wide, window_names};
+use crate::core::{appid, clock, host, instance, session, wide, window_names};
 use desktops::{Desktop, DesktopId};
 use order::{Handle, OrderModel};
 use restore::Restore;
@@ -1400,6 +1400,38 @@ fn friendly_key(key: &str) -> String {
         .to_string()
 }
 
+/// Whether this start is the one that follows the user signing in. Any
+/// other start (a manual restart, an update, Windows starting WinCraft again
+/// after an installer closed it) restores nothing, because the windows are
+/// already where the user left them.
+fn start_follows_sign_in() -> bool {
+    let (age, source) = session::sign_in_age();
+    let again = host::started_again();
+    let restores = session::restores_at_start(age, again);
+    if restores {
+        log::info!(
+            "restore on start: WinCraft started {} after sign-in",
+            session::describe(age)
+        );
+    } else if again {
+        log::info!(
+            "no restore: WinCraft was started again, not by signing in ({} after sign-in)",
+            session::describe(age)
+        );
+    } else {
+        log::info!(
+            "no restore: WinCraft started {} after sign-in{}",
+            session::describe(age),
+            if source == session::Source::Boot {
+                " (counted from the start of the PC)"
+            } else {
+                ""
+            }
+        );
+    }
+    restores
+}
+
 fn handles_in(live: &[windows::LiveWindow], key: &str) -> Vec<(Handle, identity::WindowIdentity)> {
     live.iter()
         .filter(|window| window.group == key)
@@ -1624,8 +1656,8 @@ impl WinCraftPlugin for LayoutKeeper {
             },
             SettingField {
                 key: "restore_on_start",
-                label: "Restore when WinCraft starts",
-                help: "Put the saved layout back once the programs have opened their windows.",
+                label: "Restore on start",
+                help: "After you sign in to Windows, put the saved layout back once the programs have opened their windows. A later start of WinCraft, such as after an update, restores nothing; Restore layout (Win+Alt+L) does it at any time.",
                 kind: FieldKind::Toggle,
             },
             SettingField {
@@ -1769,7 +1801,7 @@ impl WinCraftPlugin for LayoutKeeper {
         log::info!("watching {}", self.watch);
 
         // Switching the plugin off and on again is not a reboot.
-        if !self.started_once && self.restore_on_start {
+        if !self.started_once && self.restore_on_start && start_follows_sign_in() {
             self.start_restore();
         }
         self.started_once = true;

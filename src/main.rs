@@ -185,6 +185,7 @@ fn main() {
         open_settings: has_flag(&args, "--open-settings"),
         updated_from,
         update_failed,
+        restarted: has_flag(&args, autostart::RESTARTED_FLAG),
         scene,
     };
     // Plugins talk to shell COM objects from the host thread, and those are
