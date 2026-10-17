@@ -1,5 +1,6 @@
 mod ddc;
 mod ddc_test;
+mod fence;
 mod machine;
 mod overlay;
 mod saved;
@@ -9,11 +10,12 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    KillTimer, PostMessageW, SetTimer, WM_DISPLAYCHANGE, WM_TIMER,
+    KillTimer, PostMessageW, SetTimer, WM_DISPLAYCHANGE, WM_ENDSESSION, WM_TIMER,
 };
 
 use crate::core::host;
@@ -40,6 +42,9 @@ const TICK_TIMER: usize = 0x5344_0001;
 const TICK_MS: u32 = 100;
 /// Posted by a worker after each report, so it is read at once.
 const NUDGE_TIMER: usize = 0x5344_0002;
+/// How long exit waits for the monitors to be asked back on. One request
+/// each takes up to 100 ms, and all monitors are asked at once.
+const RELEASE_WAIT: Duration = Duration::from_millis(1500);
 
 #[derive(Default)]
 pub struct ScreenDimmer {
@@ -57,6 +62,7 @@ pub struct ScreenDimmer {
     state_path: PathBuf,
     written: StateFile,
     ticking: bool,
+    fence: fence::Fence,
     idle_alpha: u8,
     hover_alpha: u8,
 }
@@ -198,7 +204,79 @@ impl ScreenDimmer {
         }
         self.write_state();
         self.update_timer();
+        self.update_fence();
         host::plugin_changed();
+    }
+
+    fn update_fence(&mut self) {
+        let areas: Vec<fence::Area> = self
+            .screens
+            .iter()
+            .map(|screen| fence::Area {
+                rect: [
+                    screen.rect.left,
+                    screen.rect.top,
+                    screen.rect.right,
+                    screen.rect.bottom,
+                ],
+                off: self
+                    .machines
+                    .get(&screen.id)
+                    .is_some_and(|machine| machine.look() == Look::Off),
+                primary: screen.primary,
+            })
+            .collect();
+        self.fence.apply(&fence::zones(&areas));
+    }
+
+    /// Asks every monitor that is in standby or dimmed back at once, waits
+    /// up to `RELEASE_WAIT` for the requests to go out, and stops every
+    /// worker. A monitor whose request did not go out keeps its record, so
+    /// the next start wakes it.
+    fn release_all(&mut self) {
+        let mut workers = std::mem::take(&mut self.workers);
+        let ids: Vec<String> = self.machines.keys().cloned().collect();
+        for id in ids {
+            let Some(job) = self.machines.get_mut(&id).and_then(Machine::release) else {
+                continue;
+            };
+            if !workers.contains_key(&id) {
+                if let Some(worker) = self.spawn_worker(&id) {
+                    workers.insert(id.clone(), worker);
+                }
+            }
+            match workers.get_mut(&id) {
+                Some(worker) => {
+                    log::info!("{id}: {job:?} before stopping");
+                    worker.stop(Some(job));
+                }
+                None => log::warn!("{id} is not connected; it is woken at the next start"),
+            }
+        }
+        for worker in workers.values_mut() {
+            worker.stop(None);
+        }
+        let all = ddc::wait_all(
+            workers.into_values().collect(),
+            Instant::now() + RELEASE_WAIT,
+        );
+        if !all {
+            log::warn!("a DDC/CI thread was still busy after {RELEASE_WAIT:?}");
+        }
+        let reports: Vec<Report> = match &self.reports {
+            Some((_, results)) => results.try_iter().collect(),
+            None => Vec::new(),
+        };
+        for report in reports {
+            if let (Outcome::Released(ok), Some(machine)) =
+                (report.outcome, self.machines.get_mut(&report.monitor))
+            {
+                machine.released(ok);
+                log::info!("{}: put back before stopping: {ok}", report.monitor);
+            }
+        }
+        self.write_state();
+        self.fence.release();
     }
 
     fn send(&mut self, id: &str, job: Job) {
@@ -503,7 +581,17 @@ impl WinCraftPlugin for ScreenDimmer {
     fn on_windows_message(&mut self, msg: u32, wparam: WPARAM, _lparam: LPARAM) {
         match msg {
             WM_DISPLAYCHANGE => self.rebuild(),
-            WM_TIMER if wparam == TICK_TIMER || wparam == NUDGE_TIMER => self.drain(),
+            WM_TIMER if wparam == TICK_TIMER || wparam == NUDGE_TIMER => {
+                self.drain();
+                self.update_fence();
+            }
+            // Windows may end the process without a teardown after this.
+            WM_ENDSESSION if wparam != 0 => {
+                self.release_all();
+                for index in 0..self.screens.len() {
+                    self.sync_overlay(index);
+                }
+            }
             _ => {}
         }
     }
@@ -562,13 +650,13 @@ impl WinCraftPlugin for ScreenDimmer {
     }
 
     fn teardown(&mut self) {
+        self.release_all();
         if let Some(hwnd) = self.host_hwnd.take() {
             if self.ticking {
                 unsafe { KillTimer(hwnd, TICK_TIMER) };
                 self.ticking = false;
             }
         }
-        self.workers.clear();
         self.destroy_overlays();
         self.screens.clear();
     }

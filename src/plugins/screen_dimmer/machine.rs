@@ -315,6 +315,30 @@ impl Machine {
         None
     }
 
+    /// At exit, or when the plugin is switched off: what puts the monitor
+    /// back at once, without waiting for it to answer. The monitor counts
+    /// as on from here; `released` says whether the request went out.
+    pub fn release(&mut self) -> Option<Job> {
+        self.step = None;
+        self.wake_wanted = false;
+        self.look = Look::On;
+        let standby = self.saved.left_in_standby;
+        let brightness = self.saved.dimmed_from;
+        (standby || brightness.is_some()).then_some(Job::Release {
+            standby,
+            brightness,
+        })
+    }
+
+    /// A release that failed keeps the record, so the next start tries
+    /// again.
+    pub fn released(&mut self, ok: bool) {
+        if ok {
+            self.saved.left_in_standby = false;
+            self.saved.dimmed_from = None;
+        }
+    }
+
     /// Forgets what testing found, so Auto tests the monitor again the next
     /// time it goes off.
     pub fn forget_tests(&mut self) {
@@ -576,6 +600,49 @@ mod tests {
         assert_eq!(monitor.brightness, Some(65));
         assert!(machine.saved.is_empty());
         assert_eq!(machine.recover(), None);
+    }
+
+    #[test]
+    fn exit_puts_back_whatever_is_off_or_dimmed_even_mid_job() {
+        let mut monitor = Fake::new(Style::Aorus);
+        let mut machine = Machine::new(Saved::default());
+        let job = machine.toggle(Mode::Auto);
+        // Exit arrives while the standby test is still running.
+        ddc::run(&mut monitor, job.unwrap());
+        let release = machine.release();
+        assert_eq!(
+            release,
+            Some(Job::Release {
+                standby: true,
+                brightness: None
+            })
+        );
+        assert_eq!(
+            ddc::run(&mut monitor, release.unwrap()),
+            Outcome::Released(true)
+        );
+        machine.released(true);
+        assert!(!machine.saved.left_in_standby);
+        assert_eq!(machine.look(), Look::On);
+
+        let mut machine = Machine::new(Saved {
+            dimmed_from: Some(80),
+            ..Saved::default()
+        });
+        assert_eq!(
+            machine.release(),
+            Some(Job::Release {
+                standby: false,
+                brightness: Some(80)
+            })
+        );
+        machine.released(false);
+        assert_eq!(
+            machine.saved.dimmed_from,
+            Some(80),
+            "kept for the next start"
+        );
+        assert_eq!(Machine::new(Saved::default()).release(), None);
     }
 
     #[test]

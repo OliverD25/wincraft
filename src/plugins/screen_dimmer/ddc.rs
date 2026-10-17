@@ -236,6 +236,11 @@ pub enum Job {
     Wake,
     ReadBrightness,
     SetBrightness(u32),
+    /// At exit: one request each, without waiting for an answer.
+    Release {
+        standby: bool,
+        brightness: Option<u32>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -245,6 +250,7 @@ pub enum Outcome {
     Woke(Woke),
     Brightness(Option<Reading>),
     BrightnessSet(bool),
+    Released(bool),
     /// Windows gave no DDC/CI handle for the monitor.
     NoMonitor,
 }
@@ -257,6 +263,19 @@ pub fn run(monitor: &mut dyn Monitor, job: Job) -> Outcome {
         Job::ReadBrightness => Outcome::Brightness(monitor.read(BRIGHTNESS)),
         Job::SetBrightness(value) => {
             Outcome::BrightnessSet(monitor.write(Write::Brightness(value)))
+        }
+        Job::Release {
+            standby,
+            brightness,
+        } => {
+            let mut ok = true;
+            if standby {
+                ok &= monitor.write(Write::Power(Power::On));
+            }
+            if let Some(value) = brightness {
+                ok &= monitor.write(Write::Brightness(value));
+            }
+            Outcome::Released(ok)
         }
     }
 }
@@ -523,6 +542,10 @@ mod tests {
             Job::ReadBrightness,
             Job::SetBrightness(0),
             Job::SetBrightness(5),
+            Job::Release {
+                standby: true,
+                brightness: Some(5),
+            },
         ];
         for style in [Style::Philips, Style::Aorus, Style::Ignores, Style::Silent] {
             let mut monitor = Fake::new(style);
@@ -690,6 +713,22 @@ mod tests {
         assert_eq!(wake(&mut monitor), Woke::Stopped);
     }
 
+    #[test]
+    fn release_sends_on_and_the_old_brightness_without_waiting() {
+        let mut monitor = Fake::new(Style::Philips);
+        let outcome = run(
+            &mut monitor,
+            Job::Release {
+                standby: true,
+                brightness: Some(55),
+            },
+        );
+        assert_eq!(outcome, Outcome::Released(true));
+        assert_eq!(monitor.now, Duration::ZERO);
+        assert_eq!(monitor.brightness, Some(55));
+        assert_eq!(monitor.writes[0].1, Write::Power(Power::On));
+    }
+
     fn fake_opener(style: Style) -> Opener {
         Box::new(move |stop| {
             let mut monitor = Fake::new(style);
@@ -713,7 +752,10 @@ mod tests {
         let first: Vec<Report> = (0..2)
             .map(|_| results.recv_timeout(Duration::from_secs(5)).unwrap())
             .collect();
-        worker.stop(None);
+        worker.stop(Some(Job::Release {
+            standby: true,
+            brightness: None,
+        }));
         assert!(wait_all(
             vec![worker],
             Instant::now() + Duration::from_secs(5)
@@ -726,10 +768,11 @@ mod tests {
             [
                 Outcome::Detected(Detected::Works),
                 Outcome::Woke(Woke::On(Duration::from_secs(2))),
+                Outcome::Released(true),
             ]
         );
         assert!(got.iter().all(|report| report.monitor == "left"));
-        assert_eq!(nudges.load(Ordering::Relaxed), 2);
+        assert_eq!(nudges.load(Ordering::Relaxed), 3);
     }
 
     #[test]
