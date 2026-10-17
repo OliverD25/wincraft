@@ -39,7 +39,10 @@ pub fn show(
                 ui,
                 "autostart",
                 RowText::new("Start with Windows").desc(
-                    "Launch when you sign in, with a logon task in Task Scheduler.",
+                    snapshot
+                        .autostart_note
+                        .as_deref()
+                        .unwrap_or("Launch when you sign in, with a logon task in Task Scheduler."),
                     tokens.text_secondary,
                 ),
                 false,

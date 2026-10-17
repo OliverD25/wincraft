@@ -21,7 +21,7 @@ use windows_sys::Win32::System::Registry::{
 };
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
-use crate::core::{decode_console, instance, wide};
+use crate::core::{decode_console, install, instance, wide};
 
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const VALUE_NAME: &str = "WinCraft";
@@ -297,6 +297,40 @@ fn install_with(
     }
 }
 
+/// Why this WinCraft must leave the logon task alone, or None when it may
+/// create and repoint it. Only the installed copy owns the task, or any copy
+/// when none is installed (a WinCraft that was never put through `--install`).
+/// Without this a dev build started while the installed one is closed would
+/// repoint the task at itself. Whether the task exists does not matter: a
+/// missing task is not created for a dev build either.
+fn hands_off_reason(running: &Path, installed: &Path, installed_exists: bool) -> Option<String> {
+    if !installed_exists || install::same_path(running, installed) {
+        return None;
+    }
+    let plain = |path: &Path| {
+        path.to_string_lossy()
+            .trim_start_matches(r"\\?\")
+            .to_string()
+    };
+    Some(format!(
+        "autostart: this is not the installed WinCraft ({}); the logon task keeps starting {}",
+        plain(running),
+        plain(installed)
+    ))
+}
+
+/// `hands_off_reason` for the program running now. Paths are canonicalized
+/// first, so a link or a short name does not make the installed copy look
+/// like another one.
+pub fn hands_off_note() -> Option<String> {
+    let running = std::env::current_exe().ok()?;
+    let running = running.canonicalize().unwrap_or(running);
+    let installed = install::exe();
+    let installed_exists = installed.is_file();
+    let installed = installed.canonicalize().unwrap_or(installed);
+    hands_off_reason(&running, &installed, installed_exists)
+}
+
 fn install() -> Result<Installed, String> {
     let exe = std::env::current_exe().map_err(|e| format!("cannot find own path: {e}"))?;
     point_at(&exe)
@@ -354,6 +388,9 @@ fn remove() -> Result<(), String> {
 /// key when the task cannot be made; off, both are removed.
 pub fn set(enabled: bool) -> Result<(), String> {
     if enabled {
+        if let Some(note) = hands_off_note() {
+            return Err(note);
+        }
         install().map(|_| ())
     } else {
         remove()
@@ -385,6 +422,10 @@ fn sync(wanted: bool) {
         if task_exists(&name) {
             log::warn!("the logon task exists but start_with_windows is off; the switch in Settings removes it");
         }
+        return;
+    }
+    if let Some(note) = hands_off_note() {
+        log::info!("{note}");
         return;
     }
     let exe = match std::env::current_exe() {
@@ -441,6 +482,57 @@ mod tests {
     use std::path::PathBuf;
 
     const EXE: &str = r"C:\Tools\Win & Co\wincraft.exe";
+
+    const INSTALLED: &str = r"C:\Users\Ann\AppData\Local\Programs\WinCraft\wincraft.exe";
+    const DEV: &str = r"E:\code\wincraft\target\release\wincraft.exe";
+
+    #[test]
+    fn the_installed_copy_manages_the_task() {
+        assert_eq!(
+            hands_off_reason(Path::new(INSTALLED), Path::new(INSTALLED), true),
+            None
+        );
+    }
+
+    #[test]
+    fn another_copy_leaves_the_task_alone_when_a_copy_is_installed() {
+        let note = hands_off_reason(Path::new(DEV), Path::new(INSTALLED), true).unwrap();
+        assert_eq!(
+            note,
+            format!("autostart: this is not the installed WinCraft ({DEV}); the logon task keeps starting {INSTALLED}")
+        );
+    }
+
+    #[test]
+    fn with_no_installed_copy_any_copy_manages_the_task() {
+        assert_eq!(
+            hands_off_reason(Path::new(DEV), Path::new(INSTALLED), false),
+            None
+        );
+    }
+
+    #[test]
+    fn a_missing_task_is_not_created_for_another_copy() {
+        // The decision takes no task state, so it is the same with the task
+        // gone: sync returns before it queries the task at all.
+        assert!(hands_off_reason(Path::new(DEV), Path::new(INSTALLED), true).is_some());
+    }
+
+    #[test]
+    fn case_slashes_and_the_extended_prefix_do_not_make_another_copy() {
+        let spelled = r"\\?\c:/users/ann/appdata/local/programs/wincraft/WINCRAFT.EXE";
+        assert_eq!(
+            hands_off_reason(Path::new(spelled), Path::new(INSTALLED), true),
+            None
+        );
+    }
+
+    #[test]
+    fn the_note_shows_paths_without_the_extended_prefix() {
+        let running = format!(r"\\?\{DEV}");
+        let note = hands_off_reason(Path::new(&running), Path::new(INSTALLED), true).unwrap();
+        assert!(note.contains(&format!("({DEV})")), "{note}");
+    }
 
     #[test]
     fn the_task_starts_the_exe_for_the_user_five_seconds_after_sign_in() {

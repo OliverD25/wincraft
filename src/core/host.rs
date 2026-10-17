@@ -124,6 +124,8 @@ struct Host {
     updates: Updates,
     /// The "Updated to" panel while it is on screen.
     update_notice: Option<UpdateNotice>,
+    /// Why this copy leaves the logon task alone, worked out once at start.
+    autostart_note: Option<String>,
 }
 
 /// What clicking the last balloon opens: a "hotkey is taken" balloon opens
@@ -333,6 +335,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         peek_card: flags.scene.peek_card,
         updates: Updates::default(),
         update_notice: None,
+        autostart_note: autostart::hands_off_note(),
     };
     HOST_WINDOW.with(|cell| cell.set(hwnd));
     // Notices queued before the window existed have nobody to post them.
@@ -725,6 +728,7 @@ impl Host {
         UiSnapshot {
             version: env!("CARGO_PKG_VERSION").to_string(),
             start_with_windows: self.config.start_with_windows,
+            autostart_note: self.autostart_note.clone(),
             theme: self.config.theme,
             palette_hotkey: self.config.palette_hotkey.clone(),
             palette_hotkey_registered: self.palette_hotkey.map(|(_, ok)| ok).unwrap_or(false),

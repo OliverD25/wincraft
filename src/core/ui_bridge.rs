@@ -511,6 +511,9 @@ pub struct PaletteEntry {
 pub struct UiSnapshot {
     pub version: String,
     pub start_with_windows: bool,
+    /// Set when this copy is not the installed one and so cannot change the
+    /// logon task; shown in place of the setting's help text.
+    pub autostart_note: Option<String>,
     pub theme: ThemeChoice,
     pub palette_hotkey: String,
     pub palette_hotkey_registered: bool,
