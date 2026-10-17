@@ -136,6 +136,8 @@ The About page lists the kinds the build you are running can draw.
 | `palette_subtitle(kind, id)` | Each time the palette's list is rebuilt. A second line under one of your palette entries, such as the state the command would change; `kind` says whether `id` is a hotkey, tray or palette id, because those numbers can overlap. Return `None` for no subtitle, and call `host::plugin_changed()` when the answer changes. |
 | `window_groups` | When the Arrange strip opens (`host::open_arrange()`) and after every change made in it. Only for plugins that keep a window order. |
 | `on_arrange_action(action)` | When the user does something in the Arrange strip: activates a window, drags windows into a new order inside a taskbar group, moves a window to another desktop, or closes it. Rename and Clear name on a card go to WindowNamer instead, whichever plugin draws the strip. |
+| `layout_snapshot` | While the Layout page is open, every two seconds: the plugin's saved windows, grouped by app. Only for plugins that keep a saved layout. |
+| `on_layout_action(action)` | When the user does something on the Layout page: picks another desktop for a saved window, forgets a closed one, or asks to restore or save now. |
 | `on_prompt_answer(id, target, text)` | When the user answers a question the plugin asked with `host::ask`: see below. |
 | `on_windows_message` | On `WM_DISPLAYCHANGE`, `WM_SETTINGCHANGE`, `WM_POWERBROADCAST`, `WM_TIMER`, `WM_QUERYENDSESSION` and `WM_ENDSESSION`. The two session messages arrive while every program is still open; the host answers `WM_QUERYENDSESSION` with TRUE itself. |
 | `teardown` | When the plugin is switched off and at exit. Release every window and handle here. |
@@ -147,6 +149,10 @@ reached through the palette.
 
 `host::notify(title, text)` shows a tray balloon. It is safe to call from any
 callback: the balloon appears once the host's message loop comes round.
+
+`host::set_tray_tip(Some(text))` sets the tray icon's tooltip (Windows keeps
+the first 127 characters) and `host::set_tray_tip(None)` puts the plain name
+back. It is safe to call from any callback too.
 
 `host::ask(prompt)` opens the palette as a one-line text box: a `Prompt`
 names your plugin, your own number for the question, what it is about (a
