@@ -1,5 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
@@ -117,6 +118,16 @@ pub struct SceneFlags {
     pub rename: Option<(isize, String)>,
     /// A window to open the palette's rename box for.
     pub ask_name: Option<isize>,
+    /// Show LayoutKeeper's please-wait panel with sample progress.
+    pub restore_panel: bool,
+}
+
+static DEMO_RESTORE_PANEL: AtomicBool = AtomicBool::new(false);
+
+/// True in a test instance started with `--show-restore-panel`: LayoutKeeper
+/// shows its please-wait panel with sample progress instead of a restore.
+pub fn demo_restore_panel() -> bool {
+    DEMO_RESTORE_PANEL.load(Ordering::Relaxed)
 }
 
 thread_local! {
@@ -127,12 +138,16 @@ thread_local! {
     static TASKBAR_CREATED: Cell<u32> = const { Cell::new(0) };
     static HOST_WINDOW: Cell<HWND> = const { Cell::new(std::ptr::null_mut()) };
     static NOTICES: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
+    /// A tooltip a plugin asked for and the host has not applied yet; the
+    /// inner None means the plain name.
+    static TRAY_TIP: RefCell<Option<Option<String>>> = const { RefCell::new(None) };
     static ARRANGE_WANTED: Cell<bool> = const { Cell::new(false) };
     static PROMPT: RefCell<Option<Prompt>> = const { RefCell::new(None) };
     static ARRANGE_STALE: Cell<bool> = const { Cell::new(false) };
 }
 
 pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: StartupFlags) {
+    DEMO_RESTORE_PANEL.store(flags.scene.restore_panel, Ordering::Relaxed);
     theme::set_current(config.theme);
     let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
 
@@ -1078,6 +1093,13 @@ pub fn notify(title: &str, text: &str) {
     plugin_changed();
 }
 
+/// Sets the tray icon's tooltip, or with None puts the plain name back.
+/// Safe to call from any plugin callback.
+pub fn set_tray_tip(tip: Option<String>) {
+    TRAY_TIP.with(|cell| *cell.borrow_mut() = Some(tip));
+    plugin_changed();
+}
+
 /// Opens the palette as a one-line box that asks the user `prompt`; the
 /// answer comes back to the plugin it names, through `on_prompt_answer`.
 /// Safe to call from any plugin callback.
@@ -1378,7 +1400,11 @@ unsafe extern "system" fn wnd_proc(
             let arrange = ARRANGE_WANTED.with(|cell| cell.replace(false));
             let stale = ARRANGE_STALE.with(|cell| cell.replace(false));
             let prompt = PROMPT.with(|cell| cell.borrow_mut().take());
+            let tip = TRAY_TIP.with(|cell| cell.borrow_mut().take());
             let palette = with_host(|host| {
+                if let Some(tip) = &tip {
+                    host.tray.set_tip(tip.as_deref());
+                }
                 for (title, text) in &notices {
                     host.balloon_opens_detector = false;
                     host.tray.balloon(title, text);

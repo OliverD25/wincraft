@@ -93,7 +93,17 @@ fn main() {
     // was removed by hand or points at a moved exe is repaired here.
     autostart::sync_in_background(config.start_with_windows);
 
-    let (scene, theme, notes) = scene_flags(&args, instance::is_test());
+    let (mut scene, theme, mut notes) = scene_flags(&args, instance::is_test());
+    if has_flag(&args, "--show-restore-panel") {
+        if instance::is_test() {
+            scene.restore_panel = true;
+        } else {
+            notes.push(
+                "--show-restore-panel ignored: only a test instance (WINCRAFT_INSTANCE) takes it"
+                    .to_string(),
+            );
+        }
+    }
     for note in notes {
         log::info!("{note}");
     }

@@ -85,6 +85,16 @@ impl Tray {
         }
     }
 
+    /// Replaces the tooltip; None goes back to the plain name.
+    pub fn set_tip(&mut self, tip: Option<&str>) {
+        copy_into(&mut self.data.szTip, tip.unwrap_or("WinCraft"));
+        if self.visible {
+            let mut data = self.data;
+            data.uFlags = NIF_TIP;
+            unsafe { Shell_NotifyIconW(NIM_MODIFY, &data) };
+        }
+    }
+
     pub fn add(&mut self) {
         self.data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
         let ok = unsafe { Shell_NotifyIconW(NIM_ADD, &self.data) };

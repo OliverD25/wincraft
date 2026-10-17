@@ -19,6 +19,9 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const GROUP_LIMIT_SECONDS: u64 = 240;
 /// How long a restored group is watched for late windows.
 pub const SECOND_PASS_SECONDS: u64 = 300;
+/// How long a group counts as "being moved" after its restore: the buttons
+/// are re-added on the tick that decides, the windows move on the next.
+const MOVING_SECONDS: u64 = 2;
 
 /// Why a group is restored now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,6 +57,40 @@ pub struct Step {
     pub timed_out: Option<TimedOut>,
 }
 
+/// Where a group stands, for the notice that asks the person to wait.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase {
+    /// Saved, but the app has opened no window yet.
+    NotOpened,
+    /// Windows are opening; the group is restored when their number holds.
+    Settling,
+    /// The group was just restored and its windows are being moved.
+    Moving,
+    /// A restored group is getting more windows, which will be moved too.
+    LateWindows,
+    /// Restored; the watch for late windows may still be running.
+    Done,
+    /// Dropped: it never opened a window, or lost the ones it had.
+    Skipped,
+}
+
+impl Phase {
+    /// Phases the person should wait for.
+    pub fn is_active(self) -> bool {
+        matches!(self, Phase::Settling | Phase::Moving | Phase::LateWindows)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Progress {
+    pub group: String,
+    pub phase: Phase,
+    /// Windows the group has now (or had when it was restored).
+    pub count: usize,
+    /// Windows saved for the group.
+    pub expected: usize,
+}
+
 /// A group that has not had its first restore yet.
 #[derive(Clone, Copy, Debug)]
 struct Waiting {
@@ -80,6 +117,12 @@ pub struct Restore {
     waiting: BTreeMap<String, Waiting>,
     watching: BTreeMap<String, Watching>,
     by_limit: Vec<String>,
+    /// Groups restored in this run, with the windows they had when they were
+    /// last restored; kept after the watch ends for the final summary.
+    done: BTreeMap<String, usize>,
+    /// The tick of each group's latest restore.
+    moved_at: BTreeMap<String, u64>,
+    skipped: BTreeSet<String>,
     restored: usize,
     pub settle_seconds: u64,
     pub give_up_seconds: u64,
@@ -93,6 +136,9 @@ impl Restore {
             waiting: BTreeMap::new(),
             watching: BTreeMap::new(),
             by_limit: Vec::new(),
+            done: BTreeMap::new(),
+            moved_at: BTreeMap::new(),
+            skipped: BTreeSet::new(),
             restored: 0,
             settle_seconds,
             give_up_seconds,
@@ -105,6 +151,9 @@ impl Restore {
         self.deadline_passed = false;
         self.restored = 0;
         self.by_limit.clear();
+        self.done.clear();
+        self.moved_at.clear();
+        self.skipped.clear();
         self.watching.clear();
         self.waiting = groups
             .into_iter()
@@ -139,6 +188,60 @@ impl Restore {
         self.waiting.len()
     }
 
+    /// Where every group of this run stands at `tick`, given the window
+    /// counts now and the number of windows saved for each group. Also valid
+    /// after the run ended, for its summary.
+    pub fn progress(
+        &self,
+        tick: u64,
+        counts: &BTreeMap<String, usize>,
+        expected: &BTreeMap<String, usize>,
+    ) -> Vec<Progress> {
+        let now = |group: &String| counts.get(group).copied().unwrap_or(0);
+        let wanted = |group: &String| expected.get(group).copied().unwrap_or(0);
+        let just_moved = |group: &String| {
+            self.moved_at
+                .get(group)
+                .is_some_and(|at| tick.saturating_sub(*at) < MOVING_SECONDS)
+        };
+        let mut all = Vec::new();
+        for (group, watch) in &self.waiting {
+            let (phase, count) = match watch.first_seen {
+                None => (Phase::NotOpened, 0),
+                Some(_) => (Phase::Settling, now(group)),
+            };
+            all.push(Progress {
+                group: group.clone(),
+                phase,
+                count,
+                expected: wanted(group),
+            });
+        }
+        for (group, restored_count) in &self.done {
+            let (phase, count) = match self.watching.get(group) {
+                _ if just_moved(group) => (Phase::Moving, now(group).max(*restored_count)),
+                Some(watch) if now(group) > watch.baseline => (Phase::LateWindows, now(group)),
+                _ => (Phase::Done, *restored_count),
+            };
+            all.push(Progress {
+                group: group.clone(),
+                phase,
+                count,
+                expected: wanted(group),
+            });
+        }
+        for group in &self.skipped {
+            all.push(Progress {
+                group: group.clone(),
+                phase: Phase::Skipped,
+                count: 0,
+                expected: wanted(group),
+            });
+        }
+        all.sort_by(|a, b| a.group.cmp(&b.group));
+        all
+    }
+
     /// How many groups this run has restored so far.
     pub fn restored(&self) -> usize {
         self.restored
@@ -164,6 +267,7 @@ impl Restore {
                 .collect();
             for group in &never_opened {
                 self.waiting.remove(group);
+                self.skipped.insert(group.clone());
             }
             if !never_opened.is_empty() {
                 step.timed_out = Some(TimedOut {
@@ -183,6 +287,8 @@ impl Restore {
                         group: group.clone(),
                         pass: Pass::Late,
                     });
+                    self.done.insert(group.clone(), watch.count);
+                    self.moved_at.insert(group.clone(), tick);
                 }
                 finished.push(group.clone());
                 continue;
@@ -199,6 +305,8 @@ impl Restore {
                     group: group.clone(),
                     pass: Pass::Late,
                 });
+                self.done.insert(group.clone(), count);
+                self.moved_at.insert(group.clone(), tick);
                 finished.push(group.clone());
             }
         }
@@ -232,6 +340,7 @@ impl Restore {
         }
         for group in closed_again {
             self.waiting.remove(&group);
+            self.skipped.insert(group);
         }
         for (group, pass, count) in restored_now {
             self.waiting.remove(&group);
@@ -248,6 +357,8 @@ impl Restore {
                 self.by_limit.push(group.clone());
             }
             self.restored += 1;
+            self.done.insert(group.clone(), count);
+            self.moved_at.insert(group.clone(), tick);
             step.due.push(Due { group, pass });
         }
 
@@ -595,5 +706,141 @@ mod tests {
         restore.start(50, vec!["B".into()]);
         assert_eq!(restore.restored(), 0);
         assert_eq!(restore.pending(), ["B"]);
+    }
+
+    fn expected(pairs: &[(&str, usize)]) -> BTreeMap<String, usize> {
+        counts(pairs)
+    }
+
+    fn phases(restore: &Restore, tick: u64, now: &[(&str, usize)]) -> Vec<(String, Phase, usize)> {
+        restore
+            .progress(
+                tick,
+                &counts(now),
+                &expected(&[("Chrome", 22), ("Telegram", 1)]),
+            )
+            .into_iter()
+            .map(|entry| (entry.group, entry.phase, entry.count))
+            .collect()
+    }
+
+    fn entry(group: &str, phase: Phase, count: usize) -> (String, Phase, usize) {
+        (group.to_string(), phase, count)
+    }
+
+    #[test]
+    fn progress_follows_a_group_from_not_opened_to_done() {
+        let mut restore = Restore::new(15, 100);
+        restore.start(0, vec!["Chrome".into(), "Ghost".into()]);
+        let none: [(&str, usize); 0] = [];
+        restore.step(1, &counts(&none));
+        assert_eq!(
+            phases(&restore, 1, &none),
+            [
+                entry("Chrome", Phase::NotOpened, 0),
+                entry("Ghost", Phase::NotOpened, 0)
+            ]
+        );
+
+        // Windows are opening.
+        restore.step(5, &counts(&[("Chrome", 12)]));
+        assert_eq!(
+            phases(&restore, 5, &[("Chrome", 12)]),
+            [
+                entry("Chrome", Phase::Settling, 12),
+                entry("Ghost", Phase::NotOpened, 0)
+            ]
+        );
+        let progress =
+            restore.progress(5, &counts(&[("Chrome", 12)]), &expected(&[("Chrome", 22)]));
+        assert_eq!(progress[0].expected, 22);
+
+        // The count holds at 22 from tick 6, so the group settles at 21:
+        // moving for two ticks, then done.
+        restore.step(6, &counts(&[("Chrome", 22)]));
+        let step = restore.step(21, &counts(&[("Chrome", 22)]));
+        assert_eq!(step.due.len(), 1);
+        for tick in [21, 22] {
+            assert_eq!(
+                phases(&restore, tick, &[("Chrome", 22)])[0],
+                entry("Chrome", Phase::Moving, 22)
+            );
+        }
+        assert_eq!(
+            phases(&restore, 23, &[("Chrome", 22)])[0],
+            entry("Chrome", Phase::Done, 22)
+        );
+    }
+
+    #[test]
+    fn progress_shows_late_windows_and_their_second_pass() {
+        let mut restore = Restore::new(15, 1800);
+        restore.start(0, vec!["Chrome".into()]);
+        restore.step(1, &counts(&[("Chrome", 5)]));
+        restore.step(16, &counts(&[("Chrome", 5)]));
+        assert_eq!(
+            phases(&restore, 30, &[("Chrome", 5)]),
+            [entry("Chrome", Phase::Done, 5)]
+        );
+        // A window comes late: the group is active again.
+        restore.step(100, &counts(&[("Chrome", 6)]));
+        assert_eq!(
+            phases(&restore, 100, &[("Chrome", 6)]),
+            [entry("Chrome", Phase::LateWindows, 6)]
+        );
+        // The second pass moves it, and then the group is done at 6 windows.
+        let step = restore.step(115, &counts(&[("Chrome", 6)]));
+        assert_eq!(step, due(&[("Chrome", Pass::Late)]));
+        assert_eq!(
+            phases(&restore, 115, &[("Chrome", 6)]),
+            [entry("Chrome", Phase::Moving, 6)]
+        );
+        assert_eq!(
+            phases(&restore, 117, &[("Chrome", 6)]),
+            [entry("Chrome", Phase::Done, 6)]
+        );
+    }
+
+    #[test]
+    fn progress_keeps_the_summary_after_the_run_and_names_what_was_skipped() {
+        let mut restore = Restore::new(15, 100);
+        restore.start(0, vec!["Chrome".into(), "Ghost".into()]);
+        restore.step(1, &counts(&[("Chrome", 3)]));
+        restore.step(16, &counts(&[("Chrome", 3)]));
+        let step = restore.step(100, &counts(&[("Chrome", 3)]));
+        assert!(step.timed_out.is_some());
+        assert_eq!(
+            phases(&restore, 101, &[("Chrome", 3)]),
+            [
+                entry("Chrome", Phase::Done, 3),
+                entry("Ghost", Phase::Skipped, 0)
+            ]
+        );
+        // The watch for late windows ends at 316; the summary stays.
+        restore.step(320, &counts(&[("Chrome", 3)]));
+        assert!(!restore.is_running());
+        assert_eq!(
+            phases(&restore, 330, &[]),
+            [
+                entry("Chrome", Phase::Done, 3),
+                entry("Ghost", Phase::Skipped, 0)
+            ]
+        );
+        // A new run starts from nothing.
+        restore.start(400, vec!["Telegram".into()]);
+        assert_eq!(
+            phases(&restore, 401, &[]),
+            [entry("Telegram", Phase::NotOpened, 0)]
+        );
+    }
+
+    #[test]
+    fn only_settling_moving_and_late_phases_are_active() {
+        assert!(Phase::Settling.is_active());
+        assert!(Phase::Moving.is_active());
+        assert!(Phase::LateWindows.is_active());
+        assert!(!Phase::NotOpened.is_active());
+        assert!(!Phase::Done.is_active());
+        assert!(!Phase::Skipped.is_active());
     }
 }

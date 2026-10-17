@@ -2,6 +2,7 @@ mod desktops;
 mod guard;
 mod identity;
 mod monitors;
+mod notice;
 mod order;
 mod restore;
 mod state;
@@ -11,6 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows_sys::Win32::System::SystemInformation::GetTickCount64;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -39,6 +41,10 @@ pub use identity::PRODUCT_SUFFIXES;
 /// any other plugin's.
 const TIMER_ID: usize = 0x4C4B;
 const TICK_MS: u32 = 1000;
+/// The restore notice fades with its own short timer, only while it fades.
+const FADE_TIMER_ID: usize = 0x4C4B_0001;
+const FADE_STEP_MS: u32 = 16;
+const FADE_MS: u64 = 250;
 
 const ACTION_RESTORE: u32 = 1;
 const ACTION_SAVE_NOW: u32 = 2;
@@ -130,6 +136,16 @@ pub struct LayoutKeeper {
     placed: BTreeSet<Handle>,
     /// This run has already shown its one balloon.
     announced: bool,
+    /// Windows saved for each group when the restore started, to tell how
+    /// far along an app is.
+    expected: BTreeMap<String, usize>,
+    /// "Show restore progress": the please-wait notice and the tray tooltip.
+    show_progress: bool,
+    notice: Option<notice::Notice>,
+    notice_ctl: notice::Controller,
+    fading_since: Option<u64>,
+    /// The tooltip last handed to the host.
+    tray_tip: Option<String>,
     /// Groups to rebuild again on the next tick, after a desktop move that
     /// Windows only reports a moment later.
     reapply: Vec<String>,
@@ -168,6 +184,12 @@ impl Default for LayoutKeeper {
             restored_stack: Vec::new(),
             placed: BTreeSet::new(),
             announced: false,
+            expected: BTreeMap::new(),
+            show_progress: true,
+            notice: None,
+            notice_ctl: notice::Controller::default(),
+            fading_since: None,
+            tray_tip: None,
             reapply: Vec::new(),
             arrange_stale: false,
             guard: guard::Guard::default(),
@@ -212,6 +234,10 @@ impl LayoutKeeper {
         self.restore_on_start = flag(settings, "restore_on_start");
         self.front_order = flag(settings, "restore_front_order");
         self.preview_on_hover = flag(settings, "preview_on_hover");
+        self.show_progress = flag(settings, "show_restore_progress");
+        if !self.show_progress {
+            self.hide_notice();
+        }
         self.restore.settle_seconds =
             number(settings, "settle_seconds", 1, 60).unwrap_or(DEFAULT_SETTLE_SECONDS);
         self.restore.give_up_seconds = number(settings, "restore_window_minutes", 1, 120)
@@ -606,6 +632,20 @@ impl LayoutKeeper {
         groups
     }
 
+    /// How many windows are saved for each taskbar group.
+    fn saved_counts(&self) -> BTreeMap<String, usize> {
+        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+        for (exe, program) in self.writer.last().into_iter().flatten() {
+            if !self.watch.covers(exe) {
+                continue;
+            }
+            for window in program.windows.iter().filter(|w| !w.group.is_empty()) {
+                *counts.entry(window.group.clone()).or_default() += 1;
+            }
+        }
+        counts
+    }
+
     fn start_restore(&mut self) {
         if self.refuses("restore") {
             return;
@@ -630,6 +670,7 @@ impl LayoutKeeper {
         self.restored_stack.clear();
         self.placed.clear();
         self.announced = false;
+        self.expected = self.saved_counts();
         self.restore.start(self.ticks, groups);
     }
 
@@ -777,8 +818,9 @@ impl LayoutKeeper {
             sentences.push(summary);
         }
         sentences.extend(late_parts);
-        let announce = !parts.is_empty() && !self.announced;
-        self.announced |= announce;
+        // With the notice on, its last line says it; the balloon would repeat it.
+        let announce = !parts.is_empty() && !self.announced && !self.show_progress;
+        self.announced |= !parts.is_empty();
         self.finishing = Some(Finish {
             moves,
             stack: if parts.is_empty() {
@@ -892,7 +934,7 @@ impl LayoutKeeper {
             self.finish_restore(finish);
             return;
         }
-        if self.restore.is_running() {
+        if self.restore.is_running() || self.notice_ctl.is_visible() || self.tray_tip.is_some() {
             let mut counts: BTreeMap<String, usize> = BTreeMap::new();
             for window in self.live_windows() {
                 *counts.entry(window.group).or_default() += 1;
@@ -940,9 +982,110 @@ impl LayoutKeeper {
                     self.last_restore = Some(summary);
                 }
             }
+            self.update_progress(&counts);
         }
         if self.ticks.is_multiple_of(self.snapshot_seconds.max(1)) {
             self.save("timer");
+        }
+    }
+
+    /// For `--show-restore-panel` in a test instance: the panel with sample
+    /// progress, so it can be looked at without restoring anything.
+    fn show_demo_panel(&mut self) {
+        let progress = notice::sample();
+        if let Some(content) = notice::active_content(&progress, &notice::same_label) {
+            self.show_notice(&content);
+        }
+        let tip = notice::tooltip(&progress, &notice::same_label);
+        host::set_tray_tip(tip.clone());
+        self.tray_tip = tip;
+    }
+
+    /// Brings the please-wait notice and the tray tooltip up to date.
+    fn update_progress(&mut self, counts: &BTreeMap<String, usize>) {
+        let progress = self.restore.progress(self.ticks, counts, &self.expected);
+        let (tip, active, last) = {
+            let label = |group: &str| self.label_of(group);
+            // Once the run is over the tooltip goes back to the plain name,
+            // however many apps never opened.
+            let showing = self.restore.is_running() || self.notice_ctl.is_visible();
+            (
+                showing
+                    .then(|| notice::tooltip(&progress, &label))
+                    .flatten(),
+                notice::active_content(&progress, &label),
+                notice::final_line(&progress, &label),
+            )
+        };
+        if tip != self.tray_tip {
+            host::set_tray_tip(tip.clone());
+            self.tray_tip = tip;
+        }
+        if !self.show_progress {
+            return;
+        }
+        match self.notice_ctl.update(self.ticks, active, last) {
+            notice::Command::Nothing => {}
+            notice::Command::Show(content) => self.show_notice(&content),
+            notice::Command::Fade => self.start_fade(),
+        }
+    }
+
+    fn show_notice(&mut self, content: &notice::Content) {
+        if let Some(hwnd) = self.host_hwnd {
+            self.fading_since = None;
+            unsafe { KillTimer(hwnd, FADE_TIMER_ID) };
+        }
+        if self.notice.is_none() {
+            match notice::Notice::create() {
+                Ok(window) => self.notice = Some(window),
+                Err(err) => {
+                    log::warn!("{err}");
+                    return;
+                }
+            }
+        }
+        if let Some(window) = self.notice.as_mut() {
+            window.show(content);
+        }
+    }
+
+    fn start_fade(&mut self) {
+        let Some(hwnd) = self.host_hwnd else {
+            return;
+        };
+        if self.notice.is_none() {
+            return;
+        }
+        unsafe { SetTimer(hwnd, FADE_TIMER_ID, FADE_STEP_MS, None) };
+        self.fading_since = Some(unsafe { GetTickCount64() });
+    }
+
+    fn fade_step(&mut self) {
+        let (Some(since), Some(hwnd)) = (self.fading_since, self.host_hwnd) else {
+            return;
+        };
+        let elapsed = unsafe { GetTickCount64() }.saturating_sub(since);
+        let Some(window) = self.notice.as_mut() else {
+            return;
+        };
+        if elapsed >= FADE_MS {
+            window.hide();
+            self.fading_since = None;
+            unsafe { KillTimer(hwnd, FADE_TIMER_ID) };
+            return;
+        }
+        window.set_alpha((255 * (FADE_MS - elapsed) / FADE_MS) as u8);
+    }
+
+    fn hide_notice(&mut self) {
+        if let Some(hwnd) = self.host_hwnd {
+            unsafe { KillTimer(hwnd, FADE_TIMER_ID) };
+        }
+        self.fading_since = None;
+        self.notice_ctl.reset();
+        if let Some(window) = self.notice.as_mut() {
+            window.hide();
         }
     }
 
@@ -1165,6 +1308,7 @@ impl WinCraftPlugin for LayoutKeeper {
             "restore_window_minutes": DEFAULT_RESTORE_MINUTES,
             "snapshot_interval_seconds": DEFAULT_SNAPSHOT_SECONDS,
             "restore_front_order": true,
+            "show_restore_progress": true,
             "preview_on_hover": true,
         })
     }
@@ -1220,6 +1364,12 @@ impl WinCraftPlugin for LayoutKeeper {
                 key: "restore_front_order",
                 label: "Restore which window is in front",
                 help: "Also put the windows back in their front-to-back order on each desktop.",
+                kind: FieldKind::Toggle,
+            },
+            SettingField {
+                key: "show_restore_progress",
+                label: "Show restore progress",
+                help: "While windows are being put back, show a small please-wait panel at the bottom right and the progress in the tray icon's tooltip.",
                 kind: FieldKind::Toggle,
             },
             SettingField {
@@ -1322,6 +1472,9 @@ impl WinCraftPlugin for LayoutKeeper {
             self.start_restore();
         }
         self.started_once = true;
+        if host::demo_restore_panel() {
+            self.show_demo_panel();
+        }
         Ok(())
     }
 
@@ -1592,6 +1745,7 @@ impl WinCraftPlugin for LayoutKeeper {
     fn on_windows_message(&mut self, msg: u32, wparam: WPARAM, _lparam: LPARAM) {
         match msg {
             WM_TIMER if wparam == TIMER_ID => self.tick(),
+            WM_TIMER if wparam == FADE_TIMER_ID => self.fade_step(),
             WM_QUERYENDSESSION => self.save("shutdown"),
             WM_ENDSESSION if wparam != 0 => self.save("shutdown"),
             _ => {}
@@ -1604,6 +1758,13 @@ impl WinCraftPlugin for LayoutKeeper {
             self.save("teardown");
         }
         self.restore = Restore::new(self.restore.settle_seconds, self.restore.give_up_seconds);
+        self.hide_notice();
+        if let Some(mut window) = self.notice.take() {
+            window.destroy();
+        }
+        if self.tray_tip.take().is_some() {
+            host::set_tray_tip(None);
+        }
         self.finishing = None;
         self.restored_stack.clear();
         self.reader = None;

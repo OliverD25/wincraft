@@ -105,6 +105,24 @@ the status line on this page. The log also says which apps never opened a
 window and which were restored only because of the 4-minute limit.
 **Restore layout** runs the same steps at any time.
 
+### The please-wait panel
+
+While windows are being put back, a small panel at the bottom right of the
+main monitor asks you to wait, so you do not start moving windows at the same
+time. It lists each app that has opened windows and is not done yet ("Chrome:
+12 of 22 opened, waiting for the rest", "Claude: moving 4 windows"), and
+which apps are done. It never stays for an app that has opened no window. It
+cannot be clicked and never takes the focus. When nothing is waiting any more
+it says "Layout restored: 22 Chrome windows, 6 apps" for 4 seconds and
+fades. If some apps never opened a window within the wait, it says
+"Layout restored, 2 apps skipped", and the tray icon's tooltip names them.
+
+While a restore runs, the tray icon's tooltip shows the same progress, for
+example "WinCraft - restoring layout: Chrome 12/22 settling; waiting for 3
+apps to open". With **Show restore progress** on, the panel's last line takes
+the place of the notification balloon; with it off there is no panel and no
+tooltip, and the balloon stays.
+
 **Never moved between desktops:** a window pinned to all desktops, and a
 window Windows does not place on any desktop (WhatsApp's, for example). They
 still get their place in the taskbar.
@@ -239,5 +257,6 @@ saved order.
 | Wait for windows (seconds) | 15 | How long a group's window count must hold still. |
 | Wait for apps to open (minutes) | 30 | How long to wait for an app that has opened no window yet. |
 | Save every (seconds) | 30 | How often the layout is saved when it changed. |
+| Show restore progress | on | The please-wait panel and the tray tooltip while windows are put back. |
 | Restore which window is in front | on | Also restore the front-to-back order. |
 | Preview window on hover | on | Resting the mouse on a picture in the Arrange strip shows that window on its monitor. |

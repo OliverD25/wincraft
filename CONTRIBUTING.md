@@ -365,6 +365,7 @@ it is a separate instance:
   | `--peek-card=<n>` | The strip with the hover peek on card `n` (from 0), or `chip` for the first card with a monitor chip. |
   | `--theme=light` or `dark` | That theme for this run. |
   | `--ask-name=<hwnd>` | The palette's rename box for that window (WindowNamer). Nothing is renamed without Enter. |
+  | `--show-restore-panel` | LayoutKeeper's please-wait panel with sample progress, and nothing else. A flag without a value. |
   | `--rename-window=<hwnd>:<name>` | Renames that window through WindowNamer at start, for a live test on a window the test owns. Never point it at a window you did not create. |
 
   A test instance's WindowNamer renames only on request and puts saved

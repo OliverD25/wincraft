@@ -168,6 +168,8 @@ $scenes = @(
     # The rename box for the window that was in front; nothing is renamed.
     @{ Name = 'palette-rename';         Args = @('--ask-name={front}');                    Window = 'palette' },
     # A minimized window of the harness's own, renamed, in the strip.
+    # The please-wait panel with sample progress; nothing is restored.
+    @{ Name = 'restore-panel';          Args = @('--show-restore-panel');                  Window = 'panel';    Settle = 800 },
     @{ Name = 'strip-renamed';          Args = @('"--rename-window={helper}:Build server"', '--open-arrange={helper-group}'); Window = 'strip'; Settle = 1500; Helper = $true }
 )
 $number = 0
@@ -364,6 +366,7 @@ function Find-Target([System.Diagnostics.Process]$process, [string]$kind) {
         'settings' { $windows | Where-Object { $_.Title -eq 'WinCraft' -and $_.Class -notlike 'WinCraftHost*' } |
                          Sort-Object { $_.Width * $_.Height } -Descending | Select-Object -First 1 }
         'strip'    { $windows | Where-Object { $_.Title -eq 'WinCraft Arrange' } | Select-Object -First 1 }
+        'panel'    { $windows | Where-Object { $_.Class -eq 'WinCraftRestoreNotice' } | Select-Object -First 1 }
         'peek'     { $windows | Where-Object { $_.Class -eq 'WinCraftPeek' } |
                          Sort-Object { $_.Width * $_.Height } -Descending | Select-Object -First 1 }
     }
