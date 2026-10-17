@@ -56,10 +56,9 @@ LayoutKeeper does not save that scrambled order over the good one:
 
 - If a taskbar group loses more than half of its windows, or all of them,
   timer saves keep that group's saved windows. If the windows come back
-  within the restore time (3 minutes by default), it was a restart; saving
-  stays held until the number of windows has not changed for six times the
-  settle time (30 seconds by default). If they do not come back, you closed
-  them on purpose, and saving goes on as normal.
+  within 3 minutes, it was a restart; saving stays held until the number of
+  windows has not changed for 30 seconds. If they do not come back, you
+  closed them on purpose, and saving goes on as normal.
 - If more than a third of a group's windows are replaced by new windows
   between two saves, saving is held the same way until the number is steady.
 - Before the new windows of a held group are first written into the file,
@@ -73,11 +72,19 @@ never held. The log says when a hold starts and ends.
 ## Restoring
 
 Apps open their windows at their own pace after you sign in, so each app's
-taskbar group is restored on its own: once that group's number of windows
-has not changed for 5 seconds, as long as that happens within 3 minutes of
-WinCraft's start. An app that starts a little later, such as Telegram, is
-still covered; an app you open an hour later is left where you put it. Apps
-with nothing saved are not touched. For each group, LayoutKeeper:
+taskbar group is restored on its own, and each group has its own clock. The
+clock starts when the group's first window appears, not when WinCraft
+starts. The group is restored once its number of windows has not changed for
+15 seconds. If the number keeps changing, the group is restored 4 minutes
+after its first window with the windows that are open then.
+
+- A group that has opened no window is waited for 30 minutes after WinCraft
+  starts. Chrome is the usual reason: Windows can start it without a window,
+  and it opens its windows only when you first open it.
+- An app you open later than that is left where you put it. Apps with
+  nothing saved are not touched.
+
+For each group, LayoutKeeper:
 
 1. puts the taskbar thumbnails back in the saved order,
 2. moves every window back to its saved virtual desktop,
@@ -85,15 +92,19 @@ with nothing saved are not touched. For each group, LayoutKeeper:
 
 The desktop you are on and the window you are using stay as they are. A
 notification says how many windows were found, and the log lists the ones
-that were not. **Restore layout** runs the same steps at any time.
+that were not. There is one notification for each restore run, for its first
+restored group; the other groups are in the log and in the status line on
+this page. The log also says which apps never opened a
+window and which were restored only because of the 4-minute limit.
+**Restore layout** runs the same steps at any time.
 
 **Never moved between desktops:** a window pinned to all desktops, and a
 window Windows does not place on any desktop (WhatsApp's, for example). They
 still get their place in the taskbar.
 
-While a group waits for its restore, saves keep its saved windows, so the
-scrambled windows of a fresh start never overwrite the layout they are about
-to be put back into. Everything else is saved as normal.
+While a group waits for its restore, saves keep its saved windows, so the scrambled windows of a fresh start never
+overwrite the layout they are about to be put back into. Everything else is
+saved as normal.
 
 ## Naming windows
 
@@ -217,8 +228,8 @@ saved order.
 | Programs | `*` | `*` for every app, or exe names separated by commas. |
 | Never touch | (empty) | Exe names to leave alone, separated by commas. Windows' helper processes are always left alone. |
 | Restore when WinCraft starts | on | Restore once the windows have settled after start. |
-| Wait for windows (seconds) | 5 | How long the window count must hold still. |
-| Give up after (minutes) | 3 | Stop waiting if it never does. |
+| Wait for windows (seconds) | 15 | How long a group's window count must hold still. |
+| Wait for apps to open (minutes) | 30 | How long to wait for an app that has opened no window yet. |
 | Save every (seconds) | 30 | How often the layout is saved when it changed. |
 | Restore which window is in front | on | Also restore the front-to-back order. |
 | Preview window on hover | on | Resting the mouse on a picture in the Arrange strip shows that window on its monitor. |

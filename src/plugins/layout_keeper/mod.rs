@@ -29,7 +29,7 @@ use crate::core::ui_bridge::{
 use crate::core::{appid, clock, host, instance, wide, window_names};
 use desktops::{Desktop, DesktopId};
 use order::{Handle, OrderModel};
-use restore::{Restore, Step};
+use restore::Restore;
 use state::{ProgramState, Programs, SavedWindow};
 
 /// WindowNamer tells a browser's page title from its product name the same way.
@@ -72,8 +72,16 @@ const SYSTEM_HELPERS: &[&str] = &[
     "ShellHost.exe",
 ];
 const DEFAULT_SNAPSHOT_SECONDS: u64 = 30;
-const DEFAULT_SETTLE_SECONDS: u64 = 5;
-const DEFAULT_RESTORE_MINUTES: u64 = 3;
+const DEFAULT_SETTLE_SECONDS: u64 = 15;
+const DEFAULT_RESTORE_MINUTES: u64 = 30;
+/// Until 0.11.1 these were the defaults, so a saved 5 or 3 is not a choice.
+const OLD_DEFAULT_SETTLE_SECONDS: u64 = 5;
+const OLD_DEFAULT_RESTORE_MINUTES: u64 = 3;
+/// How the crash guard times a hold. They do not follow the restore
+/// settings: a wait of 30 minutes for apps to open is far too long to keep
+/// saves held after a browser restart.
+const GUARD_STABLE_SECONDS: u64 = 30;
+const GUARD_REFILL_SECONDS: u64 = 180;
 
 /// The second half of a restore, run one tick after the first.
 struct Finish {
@@ -81,6 +89,8 @@ struct Finish {
     stack: Vec<(usize, HWND)>,
     foreground: HWND,
     summary: String,
+    /// Show the summary as a balloon too, not only in the log.
+    announce: bool,
 }
 
 /// The undocumented move chain is built on first use and kept for the
@@ -115,6 +125,8 @@ pub struct LayoutKeeper {
     /// Every window this restore run has put back, with its saved place in
     /// the front-to-back order, so each later group raises them all again.
     restored_stack: Vec<(usize, HWND)>,
+    /// This run has already shown its one balloon.
+    announced: bool,
     /// Groups to rebuild again on the next tick, after a desktop move that
     /// Windows only reports a moment later.
     reapply: Vec<String>,
@@ -151,6 +163,7 @@ impl Default for LayoutKeeper {
             restore: Restore::new(DEFAULT_SETTLE_SECONDS, DEFAULT_RESTORE_MINUTES * 60),
             finishing: None,
             restored_stack: Vec::new(),
+            announced: false,
             reapply: Vec::new(),
             arrange_stale: false,
             guard: guard::Guard::default(),
@@ -197,7 +210,7 @@ impl LayoutKeeper {
         self.preview_on_hover = flag(settings, "preview_on_hover");
         self.restore.settle_seconds =
             number(settings, "settle_seconds", 1, 60).unwrap_or(DEFAULT_SETTLE_SECONDS);
-        self.restore.give_up_seconds = number(settings, "restore_window_minutes", 1, 30)
+        self.restore.give_up_seconds = number(settings, "restore_window_minutes", 1, 120)
             .unwrap_or(DEFAULT_RESTORE_MINUTES)
             * 60;
     }
@@ -335,8 +348,8 @@ impl LayoutKeeper {
                 .push(window.hwnd as Handle);
         }
         let timing = guard::Timing {
-            stable_seconds: self.restore.settle_seconds * 6,
-            refill_seconds: self.restore.give_up_seconds,
+            stable_seconds: GUARD_STABLE_SECONDS,
+            refill_seconds: GUARD_REFILL_SECONDS,
         };
         for event in self.guard.observe(self.ticks, &groups, timing) {
             match event {
@@ -603,12 +616,14 @@ impl LayoutKeeper {
             return;
         }
         log::info!(
-            "restore watches {} saved taskbar groups for {} minutes; each is put back once its windows have held still for {} s",
+            "restore watches {} saved taskbar groups for {} minutes; each is put back once its windows have held still for {} s (at the latest {} minutes after its first window)",
             groups.len(),
             self.restore.give_up_seconds / 60,
-            self.restore.settle_seconds
+            self.restore.settle_seconds,
+            restore::GROUP_LIMIT_SECONDS / 60
         );
         self.restored_stack.clear();
+        self.announced = false;
         self.restore.start(self.ticks, groups);
     }
 
@@ -619,7 +634,7 @@ impl LayoutKeeper {
     /// Without the desktop mover only the windows already on this desktop
     /// are re-added. The current desktop and the foreground window are left
     /// as they are.
-    fn restore_groups(&mut self, due: Vec<String>) {
+    fn restore_groups(&mut self, due: Vec<restore::Due>) {
         let Some(saved) = self.writer.last().cloned() else {
             return;
         };
@@ -639,7 +654,7 @@ impl LayoutKeeper {
                     && program
                         .windows
                         .iter()
-                        .any(|window| due.contains(&window.group))
+                        .any(|window| due.iter().any(|due| due.group == window.group))
             })
             .map(|(exe, _)| exe.clone())
             .collect();
@@ -662,7 +677,11 @@ impl LayoutKeeper {
                 .collect();
             let live_groups: Vec<String> = mine.iter().map(|window| window.group.clone()).collect();
 
-            for key in due.iter().filter(|key| live_groups.contains(key)) {
+            for entry in due
+                .iter()
+                .filter(|entry| live_groups.contains(&entry.group))
+            {
+                let key = &entry.group;
                 let members = state::saved_for_group(&windows, &matching, &live_groups, key);
                 let ids = members.iter().map(|s| saved_ids[*s].clone()).collect();
                 let mut model = OrderModel::from_saved(ids);
@@ -725,11 +744,14 @@ impl LayoutKeeper {
         if missing > 0 {
             summary.push_str(&format!(" ({missing} not found)"));
         }
+        let announce = !self.announced;
+        self.announced = true;
         self.finishing = Some(Finish {
             moves,
             stack: self.restored_stack.clone(),
             foreground,
             summary,
+            announce,
         });
     }
 
@@ -759,7 +781,9 @@ impl LayoutKeeper {
             }
         }
         log::info!("{}", finish.summary);
-        host::notify("LayoutKeeper", &finish.summary);
+        if finish.announce {
+            host::notify("LayoutKeeper", &finish.summary);
+        }
         self.last_restore = Some(format!(
             "{} at {}",
             finish.summary,
@@ -836,26 +860,48 @@ impl LayoutKeeper {
             for window in self.live_windows() {
                 *counts.entry(window.group).or_default() += 1;
             }
-            match self.restore.step(self.ticks, &counts) {
-                Step::Apply(groups) => self.restore_groups(groups),
-                Step::TimedOut(left) => {
-                    let labels: Vec<String> =
-                        left.iter().map(|group| self.label_of(group)).collect();
+            let step = self.restore.step(self.ticks, &counts);
+            for due in &step.due {
+                if due.pass == restore::Pass::Limit {
                     log::info!(
-                        "stopped waiting after {} minutes; not restored because no windows settled: {}",
-                        self.restore.give_up_seconds / 60,
-                        labels.join(", ")
+                        "\"{}\" never held still for {} s; restoring what is open {} minutes after its first window",
+                        self.label_of(&due.group),
+                        self.restore.settle_seconds,
+                        restore::GROUP_LIMIT_SECONDS / 60
                     );
-                    if self.restore.restored() == 0 {
-                        let summary = format!(
-                            "None of the saved apps settled within {} minutes, so nothing was restored",
-                            self.restore.give_up_seconds / 60
-                        );
-                        host::notify("LayoutKeeper", &summary);
-                        self.last_restore = Some(summary);
-                    }
                 }
-                Step::Wait | Step::Nothing => {}
+            }
+            if !step.due.is_empty() {
+                self.restore_groups(step.due);
+            }
+            if let Some(timed_out) = step.timed_out {
+                let names = |groups: &[String]| {
+                    groups
+                        .iter()
+                        .map(|group| self.label_of(group))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                log::info!(
+                    "stopped waiting after {} minutes; never opened a window: {}",
+                    self.restore.give_up_seconds / 60,
+                    names(&timed_out.never_opened)
+                );
+                if !timed_out.by_limit.is_empty() {
+                    log::info!(
+                        "opened windows that kept changing, so restored after {} minutes anyway: {}",
+                        restore::GROUP_LIMIT_SECONDS / 60,
+                        names(&timed_out.by_limit)
+                    );
+                }
+                if self.restore.restored() == 0 && self.restore.waiting_count() == 0 {
+                    let summary = format!(
+                        "None of the saved apps opened a window within {} minutes, so nothing was restored",
+                        self.restore.give_up_seconds / 60
+                    );
+                    host::notify("LayoutKeeper", &summary);
+                    self.last_restore = Some(summary);
+                }
             }
         }
         if self.ticks.is_multiple_of(self.snapshot_seconds.max(1)) {
@@ -986,6 +1032,16 @@ fn migrate_programs(settings: &mut serde_json::Value) -> bool {
     true
 }
 
+/// A number setting that still holds the old default was never a choice, so
+/// it takes the new default. Any other number is kept.
+fn migrate_default(settings: &mut serde_json::Value, key: &str, old: u64, new: u64) -> bool {
+    if settings.get(key).and_then(|value| value.as_f64()) != Some(old as f64) {
+        return false;
+    }
+    settings[key] = serde_json::Value::from(new);
+    true
+}
+
 /// The browsers keep their product name in front of each web app's name:
 /// "Chrome · Gemini".
 fn browser_name(exe: &str) -> Option<&'static str> {
@@ -1099,8 +1155,7 @@ impl WinCraftPlugin for LayoutKeeper {
             SettingField {
                 key: "settle_seconds",
                 label: "Wait for windows (seconds)",
-                help:
-                    "The restore starts when the number of windows has not changed for this long.",
+                help: "An app is restored when its number of windows has not changed for this long.",
                 kind: FieldKind::Number {
                     min: 1.0,
                     max: 60.0,
@@ -1108,11 +1163,11 @@ impl WinCraftPlugin for LayoutKeeper {
             },
             SettingField {
                 key: "restore_window_minutes",
-                label: "Give up after (minutes)",
-                help: "Stop waiting if the windows never settle.",
+                label: "Wait for apps to open (minutes)",
+                help: "An app that has opened no window by then is not restored. An app that opens one is restored within 4 minutes, and again if more windows come in the next 5.",
                 kind: FieldKind::Number {
                     min: 1.0,
-                    max: 30.0,
+                    max: 120.0,
                 },
             },
             SettingField {
@@ -1143,6 +1198,26 @@ impl WinCraftPlugin for LayoutKeeper {
         if migrate_programs(settings) {
             log::info!(
                 "programs was the old default \"{OLD_DEFAULT_PROGRAMS}\"; now \"*\", every app"
+            );
+        }
+        if migrate_default(
+            settings,
+            "settle_seconds",
+            OLD_DEFAULT_SETTLE_SECONDS,
+            DEFAULT_SETTLE_SECONDS,
+        ) {
+            log::info!(
+                "settle_seconds was the old default {OLD_DEFAULT_SETTLE_SECONDS}; now {DEFAULT_SETTLE_SECONDS}"
+            );
+        }
+        if migrate_default(
+            settings,
+            "restore_window_minutes",
+            OLD_DEFAULT_RESTORE_MINUTES,
+            DEFAULT_RESTORE_MINUTES,
+        ) {
+            log::info!(
+                "restore_window_minutes was the old default {OLD_DEFAULT_RESTORE_MINUTES}; now {DEFAULT_RESTORE_MINUTES}"
             );
         }
     }
@@ -1464,10 +1539,10 @@ impl WinCraftPlugin for LayoutKeeper {
                 self.refused
             ));
         }
-        if self.restore.is_running() {
+        if self.restore.waiting_count() > 0 {
             parts.push(format!(
-                "Restore waiting for {} apps to settle",
-                self.restore.pending().len()
+                "Restore waiting for {} apps to open",
+                self.restore.waiting_count()
             ));
         }
         if let Some(restore) = &self.last_restore {
@@ -1697,6 +1772,7 @@ mod tests {
             stack: vec![(0, NO_WINDOW)],
             foreground: NO_WINDOW,
             summary: "Restored 1 of 1 test windows".to_string(),
+            announce: true,
         });
         assert_eq!(keeper.refused, 1);
         assert!(keeper.last_restore.is_none());
@@ -1753,6 +1829,49 @@ mod tests {
             assert!(!migrate_programs(&mut own), "{kept}");
             assert_eq!(own["programs"], kept);
         }
+    }
+
+    #[test]
+    fn only_the_old_restore_defaults_move_to_the_new_ones() {
+        let mut old = serde_json::json!({
+            "settle_seconds": 5,
+            "restore_window_minutes": 3,
+            "snapshot_interval_seconds": 5,
+        });
+        keeper_migrate(&mut old);
+        assert_eq!(old["settle_seconds"], 15);
+        assert_eq!(old["restore_window_minutes"], 30);
+        assert_eq!(old["snapshot_interval_seconds"], 5);
+
+        let mut own = serde_json::json!({ "settle_seconds": 8, "restore_window_minutes": 10 });
+        keeper_migrate(&mut own);
+        assert_eq!(own["settle_seconds"], 8);
+        assert_eq!(own["restore_window_minutes"], 10);
+
+        let mut new = LayoutKeeper::default().default_settings();
+        keeper_migrate(&mut new);
+        assert_eq!(new["settle_seconds"], 15);
+        assert_eq!(new["restore_window_minutes"], 30);
+
+        // A float written by the settings page counts the same as an integer.
+        let mut float = serde_json::json!({ "settle_seconds": 5.0 });
+        assert!(migrate_default(&mut float, "settle_seconds", 5, 15));
+        assert_eq!(float["settle_seconds"], 15);
+    }
+
+    fn keeper_migrate(settings: &mut serde_json::Value) {
+        LayoutKeeper::default().migrate_settings(settings);
+    }
+
+    #[test]
+    fn the_restore_runs_with_the_new_defaults() {
+        let keeper = LayoutKeeper::default();
+        assert_eq!(keeper.restore.settle_seconds, 15);
+        assert_eq!(keeper.restore.give_up_seconds, 30 * 60);
+        let mut applied = LayoutKeeper::default();
+        applied.apply_settings(&keeper.default_settings());
+        assert_eq!(applied.restore.settle_seconds, 15);
+        assert_eq!(applied.restore.give_up_seconds, 30 * 60);
     }
 
     #[test]
