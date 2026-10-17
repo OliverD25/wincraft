@@ -1,10 +1,14 @@
-//! Files and folders from every disk, through Everything (voidtools).
+//! Files and folders from every disk, through Everything (voidtools), or
+//! through the Windows Search index when Everything is not running.
 //!
 //! Everything keeps an index of all file names and answers in milliseconds.
 //! WinCraft asks it over its window messages (see `everything_ipc`), on a
 //! thread of its own, so a slow or stuck Everything never freezes the
-//! palette. The palette sees the usual async provider: `query` answers from
-//! the last reply, `waiting` and `has_news` say when a new one arrives.
+//! palette. The Windows index is asked the same way, by `windows_index` on
+//! its own thread, and has a client of its own so that the two sources never
+//! share an answer. The palette sees the usual async provider: `query`
+//! answers from the last reply, `waiting` and `has_news` say when a new one
+//! arrives.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicIsize, Ordering};
@@ -24,6 +28,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use super::everything_ipc::{
     self as ipc, Hit, ParseError, Query2Header, Reply as Answer, REQUEST_FIELDS,
 };
+use super::windows_index::{self, Outcome};
+use crate::core::config::SearchConfig;
 use crate::core::wide;
 use crate::search::{
     usage, Action, Choice, Completion, Context, Glyph, IconRef, Query, Reply, ResultItem,
@@ -66,8 +72,14 @@ pub enum Status {
     Loading,
     NotAnswering,
     Refused,
-    /// "Search files with Everything" is off in the settings.
+    /// File search is off in the settings.
     TurnedOff,
+    /// Not an error: Everything is not there, so the Windows index answers.
+    UsingIndex,
+    /// Neither Everything nor the Windows index can be asked.
+    IndexUnavailable,
+    IndexTimedOut,
+    IndexFailed,
 }
 
 impl Status {
@@ -80,6 +92,12 @@ impl Status {
             Status::NotAnswering => "Everything did not answer in time.",
             Status::Refused => "Everything refused the search.",
             Status::TurnedOff => "File search is turned off.",
+            Status::UsingIndex => {
+                "Searching the Windows index (Everything is not running; it is faster)"
+            }
+            Status::IndexUnavailable => "File search needs Everything or Windows Search",
+            Status::IndexTimedOut => "The Windows index did not answer in time.",
+            Status::IndexFailed => "The Windows index refused the search.",
         }
     }
 
@@ -90,15 +108,70 @@ impl Status {
             Status::Alpha15 => "Everything 1.4 works",
             Status::Loading => "Type again in a moment",
             Status::NotAnswering | Status::Refused => "Type again, or restart Everything",
-            Status::TurnedOff => "Turn on Search files with Everything in Settings, General",
+            Status::TurnedOff => "Turn on File search in Settings, General",
+            Status::UsingIndex => "Start Everything for instant results",
+            Status::IndexUnavailable => "Start Everything, or start the Windows Search service",
+            Status::IndexTimedOut | Status::IndexFailed => {
+                "Type again, or start Everything for faster results"
+            }
+        }
+    }
+
+    fn tone(self) -> Tone {
+        match self {
+            Status::UsingIndex => Tone::Normal,
+            _ => Tone::Warning,
         }
     }
 }
 
+/// Where a search goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Source {
+    Everything,
+    /// The Windows index; `down` when the last try found it unreachable.
+    Index {
+        down: bool,
+    },
+    /// Nowhere, and why.
+    Unavailable(Status),
+}
+
+/// Everything when it is running, else the Windows index, unless the
+/// settings say otherwise. `presence` is why Everything cannot be asked, if
+/// it cannot; its 1.5 alpha counts as not running, because its messages are
+/// not the ones this code speaks.
+fn choose(search: &SearchConfig, presence: Option<Status>, index_down: bool) -> Source {
+    if !search.everything {
+        return Source::Unavailable(Status::TurnedOff);
+    }
+    match presence {
+        None => Source::Everything,
+        Some(_) if search.file_search_fallback => Source::Index { down: index_down },
+        Some(status) => Source::Unavailable(status),
+    }
+}
+
+/// The second line of a row from the Windows index starts with this.
+const VIA_INDEX: &str = "Windows index";
+
 /// What the worker thread sends back to the palette side.
 enum Incoming {
     Reply(u32, Vec<u8>),
+    /// Rows the Windows index found.
+    Hits(u32, Vec<Hit>),
     Failed(u32, Status),
+}
+
+/// What the Windows index's thread found, as the client takes it.
+fn incoming_of(done: windows_index::Done) -> Incoming {
+    let id = done.id;
+    match done.outcome {
+        Outcome::Hits(hits) => Incoming::Hits(id, hits),
+        Outcome::Unavailable => Incoming::Failed(id, Status::IndexUnavailable),
+        Outcome::Failed => Incoming::Failed(id, Status::IndexFailed),
+        Outcome::TimedOut => Incoming::Failed(id, Status::IndexTimedOut),
+    }
 }
 
 struct Job {
@@ -345,16 +418,36 @@ struct Wanted {
 
 /// The palette side of the conversation: which search is wanted, and the last
 /// answer. Holds no window and no thread, so it is tested on its own.
-#[derive(Default)]
 struct Client {
     last_id: u32,
     wanted: Option<Wanted>,
     shown: Option<(String, Answer)>,
     failed: Option<(String, Status)>,
     news: bool,
+    /// How long a search may stay unanswered, and what is said when it does.
+    give_up: Duration,
+    expired: Status,
+}
+
+impl Default for Client {
+    fn default() -> Self {
+        Self::new(GIVE_UP, Status::NotAnswering)
+    }
 }
 
 impl Client {
+    fn new(give_up: Duration, expired: Status) -> Self {
+        Self {
+            last_id: 0,
+            wanted: None,
+            shown: None,
+            failed: None,
+            news: false,
+            give_up,
+            expired,
+        }
+    }
+
     fn ask(&mut self, text: &str, now: Instant) -> Next {
         if self.shown.as_ref().is_some_and(|(shown, _)| shown == text)
             || self
@@ -385,6 +478,13 @@ impl Client {
     fn receive(&mut self, incoming: Incoming) {
         let (id, outcome) = match incoming {
             Incoming::Reply(id, bytes) => (id, ipc::parse_list2(&bytes).map_err(refusal)),
+            Incoming::Hits(id, hits) => (
+                id,
+                Ok(Answer {
+                    total: hits.len() as u32,
+                    hits,
+                }),
+            ),
             Incoming::Failed(id, status) => (id, Err(status)),
         };
         let Some(wanted) = self.wanted.take_if(|wanted| wanted.id == id) else {
@@ -406,11 +506,11 @@ impl Client {
     fn expire(&mut self, now: Instant) {
         if let Some(wanted) = self
             .wanted
-            .take_if(|wanted| now.duration_since(wanted.since) >= GIVE_UP)
+            .take_if(|wanted| now.duration_since(wanted.since) >= self.give_up)
         {
-            log::debug!("Everything did not answer {:?} in time", wanted.text);
+            log::debug!("{:?} was not answered in time", wanted.text);
             self.shown = None;
-            self.failed = Some((wanted.text, Status::NotAnswering));
+            self.failed = Some((wanted.text, self.expired));
             self.news = true;
         }
     }
@@ -549,21 +649,26 @@ fn hint(status: Status) -> ResultItem {
         title: status.title().to_string(),
         subtitle: status.subtitle().to_string(),
         icon: IconRef::Glyph(Glyph::Search),
-        tone: Tone::Warning,
+        tone: status.tone(),
         ..Default::default()
     }
 }
 
-fn row(ranked: Ranked, group: &str) -> ResultItem {
+/// A row for a hit. `via` names the source when it is not Everything.
+fn row(ranked: Ranked, group: &str, via: Option<&str>) -> ResultItem {
     let hit = ranked.hit;
     let path = hit.full_path();
+    let place = if hit.drive {
+        "Drive".to_string()
+    } else {
+        hit.path.clone()
+    };
     ResultItem {
         group: group.to_string(),
         title: hit.name.clone(),
-        subtitle: if hit.drive {
-            "Drive".to_string()
-        } else {
-            hit.path.clone()
+        subtitle: match via {
+            Some(via) => format!("{via} \u{b7} {place}"),
+            None => place,
         },
         icon: IconRef::Path(PathBuf::from(&path)),
         score: ranked.score,
@@ -596,9 +701,21 @@ fn row(ranked: Ranked, group: &str) -> ResultItem {
 /// The command on a folder row's Tab action, followed by the folder.
 const BROWSE: &str = "browse";
 
-#[derive(Default)]
 pub struct Files {
     client: Client,
+    index: Client,
+}
+
+impl Default for Files {
+    fn default() -> Self {
+        Self {
+            client: Client::default(),
+            index: Client::new(
+                windows_index::DEBOUNCE + windows_index::TIMEOUT + Duration::from_millis(100),
+                Status::IndexTimedOut,
+            ),
+        }
+    }
 }
 
 impl Files {
@@ -614,6 +731,9 @@ impl Files {
         for incoming in incoming {
             self.client.receive(incoming);
         }
+        for done in windows_index::take_done() {
+            self.index.receive(incoming_of(done));
+        }
     }
 }
 
@@ -627,7 +747,7 @@ impl SearchProvider for Files {
     }
 
     fn description(&self) -> &'static str {
-        "Find files and folders on every disk with Everything (voidtools)"
+        "Find files and folders on every disk with Everything (voidtools), or the Windows index"
     }
 
     fn default_prefix(&self) -> Option<&'static str> {
@@ -643,13 +763,17 @@ impl SearchProvider for Files {
     }
 
     fn waiting(&self) -> bool {
-        self.client.waiting()
+        self.client.waiting() || self.index.waiting()
     }
 
     fn has_news(&mut self) -> bool {
         self.drain();
-        self.client.expire(Instant::now());
-        self.client.take_news()
+        let now = Instant::now();
+        self.client.expire(now);
+        self.index.expire(now);
+        let everything = self.client.take_news();
+        let index = self.index.take_news();
+        everything || index
     }
 
     fn act(&mut self, command: &str, _context: &Context) -> Reply {
@@ -667,17 +791,22 @@ impl SearchProvider for Files {
     }
 
     fn query(&mut self, query: &Query, context: &Context) -> Vec<ResultItem> {
-        let missing = if context.search.everything {
+        let presence = if context.search.everything {
             presence()
         } else {
-            Some(Status::TurnedOff)
+            None
         };
-        let (rows, job) = self.rows(query, missing, Instant::now());
+        let source = choose(context.search, presence, windows_index::is_down());
+        let (rows, job) = self.rows(query, source, Instant::now());
         if let Some(job) = job {
-            if let Ok(mut slot) = JOB.lock() {
-                *slot = Some(job);
+            if matches!(source, Source::Index { .. }) {
+                windows_index::submit(job.id, &job.text);
+            } else {
+                if let Ok(mut slot) = JOB.lock() {
+                    *slot = Some(job);
+                }
+                wake_worker();
             }
-            wake_worker();
         }
         rows
     }
@@ -685,12 +814,13 @@ impl SearchProvider for Files {
 
 impl Files {
     /// The rows for a query, and the search to send when it is a new one.
-    /// `missing` is why Everything cannot be asked, if it cannot. After the
-    /// `.` prefix that is said in a row; in the blended list it is silent.
+    /// After the `.` prefix, why there is nothing to list is said in a row;
+    /// in the blended list it is silent. With the Windows index as the
+    /// source, the row that says so also stands in for an empty list.
     fn rows(
         &mut self,
         query: &Query,
-        missing: Option<Status>,
+        source: Source,
         now: Instant,
     ) -> (Vec<ResultItem>, Option<Job>) {
         let prefixed = query.prefix.is_some();
@@ -701,36 +831,53 @@ impl Files {
                 Vec::new()
             }
         };
-        if let Some(status) = missing {
-            return (hint_for(status), None);
-        }
+        let (client, via, notice) = match source {
+            Source::Unavailable(status) => return (hint_for(status), None),
+            Source::Everything => (&mut self.client, None, None),
+            Source::Index { down } => {
+                let notice = if down {
+                    Status::IndexUnavailable
+                } else {
+                    Status::UsingIndex
+                };
+                (&mut self.index, Some(VIA_INDEX), Some(notice))
+            }
+        };
         let text = query.text.trim();
         if text.chars().count() < MIN_CHARS {
-            return (Vec::new(), None);
+            return (notice.map_or_else(Vec::new, hint_for), None);
         }
-        let job = match self.client.ask(text, now) {
+        let job = match client.ask(text, now) {
             Next::Send(id) => Some(Job {
                 id,
                 text: text.to_string(),
             }),
             Next::Show | Next::Wait => None,
         };
-        let Some(answer) = self.client.answer(text) else {
-            let rows = self.client.failure(text).map_or_else(Vec::new, hint_for);
+        let Some(answer) = client.answer(text) else {
+            let rows = client
+                .failure(text)
+                .or(notice)
+                .map_or_else(Vec::new, hint_for);
             return (rows, job);
         };
-        let rows = if prefixed {
+        let rows: Vec<ResultItem> = if prefixed {
             let list = prefixed_list(text, answer, PREFIXED_ROWS.min(query.limit));
             list.into_iter()
-                .map(|r| row(r, "Files and folders"))
+                .map(|r| row(r, "Files and folders", via))
                 .collect()
         } else {
             let (folders, files) = blended(text, answer, BLENDED_ROWS.min(query.limit));
-            let mut rows: Vec<ResultItem> =
-                folders.into_iter().map(|r| row(r, "Folders")).collect();
-            rows.extend(files.into_iter().map(|r| row(r, "Files")));
+            let mut rows: Vec<ResultItem> = folders
+                .into_iter()
+                .map(|r| row(r, "Folders", via))
+                .collect();
+            rows.extend(files.into_iter().map(|r| row(r, "Files", via)));
             rows
         };
+        if rows.is_empty() {
+            return (notice.map_or_else(Vec::new, hint_for), job);
+        }
         (rows, job)
     }
 }
@@ -867,6 +1014,7 @@ mod tests {
                 hit: &folder,
             },
             "Folders",
+            None,
         );
         let path = r"D:\Windows_OneDrive\OneDrive\pswds_OneDrive";
         assert_eq!(item.title, "pswds_OneDrive");
@@ -915,6 +1063,7 @@ mod tests {
                 hit: &file,
             },
             "Files",
+            None,
         );
         assert!(item.tab_action.is_none());
         assert!(item.tab.is_none());
@@ -930,6 +1079,7 @@ mod tests {
                 hit: &drive,
             },
             "Folders",
+            None,
         );
         assert_eq!(item.subtitle, "Drive");
         assert_eq!(
@@ -1120,13 +1270,17 @@ mod tests {
             .collect();
         hits.push(hit("proj", r"D:\a", true, 1));
         let mut files = answered("proj", hits);
-        let (rows, job) = files.rows(&query_for("proj", true), None, Instant::now());
+        let (rows, job) = files.rows(&query_for("proj", true), Source::Everything, Instant::now());
         assert!(job.is_none(), "the answer is in hand");
         assert_eq!(rows.len(), 50);
         assert!(rows.iter().all(|item| item.group == "Files and folders"));
         assert_eq!(rows[0].title, "proj", "the exact folder name leads");
         // Without the prefix the list is the short one.
-        let (rows, _) = files.rows(&query_for("proj", false), None, Instant::now());
+        let (rows, _) = files.rows(
+            &query_for("proj", false),
+            Source::Everything,
+            Instant::now(),
+        );
         assert_eq!(rows.len(), 6);
     }
 
@@ -1145,7 +1299,8 @@ mod tests {
         let mut files = Files::new();
         let now = Instant::now();
         for status in [Status::NotRunning, Status::Alpha15, Status::TurnedOff] {
-            let (rows, job) = files.rows(&query_for("pswds", true), Some(status), now);
+            let (rows, job) =
+                files.rows(&query_for("pswds", true), Source::Unavailable(status), now);
             assert!(
                 job.is_none(),
                 "nothing is sent to an Everything that is not there"
@@ -1154,11 +1309,16 @@ mod tests {
             assert_eq!(rows[0].title, status.title());
             assert_eq!(rows[0].tone, Tone::Warning);
             assert!(rows[0].enter.is_none());
-            let (rows, job) = files.rows(&query_for("pswds", false), Some(status), now);
+            let (rows, job) =
+                files.rows(&query_for("pswds", false), Source::Unavailable(status), now);
             assert!(rows.is_empty() && job.is_none());
         }
         // The hint is there at once after the prefix, before anything is typed.
-        let (rows, _) = files.rows(&query_for("", true), Some(Status::NotRunning), now);
+        let (rows, _) = files.rows(
+            &query_for("", true),
+            Source::Unavailable(Status::NotRunning),
+            now,
+        );
         assert_eq!(
             rows[0].title,
             "File search needs Everything (voidtools). It is not running."
@@ -1170,28 +1330,32 @@ mod tests {
     fn a_failed_search_is_told_after_the_dot_only() {
         let mut files = Files::new();
         let now = Instant::now();
-        let (_, job) = files.rows(&query_for("pswds", true), None, now);
+        let (_, job) = files.rows(&query_for("pswds", true), Source::Everything, now);
         let job = job.expect("a new search is sent");
         files
             .client
             .receive(Incoming::Failed(job.id, Status::Loading));
-        let (rows, job) = files.rows(&query_for("pswds", true), None, now);
+        let (rows, job) = files.rows(&query_for("pswds", true), Source::Everything, now);
         assert!(job.is_none(), "the same text is not sent again");
         assert_eq!(rows[0].title, "Everything is still reading its index.");
-        let (rows, _) = files.rows(&query_for("pswds", false), None, now);
+        let (rows, _) = files.rows(&query_for("pswds", false), Source::Everything, now);
         assert!(rows.is_empty());
     }
 
     #[test]
     fn a_new_text_gives_a_job_and_nothing_before_the_reply() {
         let mut files = Files::new();
-        let (rows, job) = files.rows(&query_for("pswds", false), None, Instant::now());
+        let (rows, job) = files.rows(
+            &query_for("pswds", false),
+            Source::Everything,
+            Instant::now(),
+        );
         assert!(rows.is_empty());
         let job = job.expect("sent");
         assert_eq!(job.text, "pswds");
         assert!(files.waiting());
         // One letter is too short to ask about.
-        let (rows, job) = files.rows(&query_for("p", true), None, Instant::now());
+        let (rows, job) = files.rows(&query_for("p", true), Source::Everything, Instant::now());
         assert!(rows.is_empty() && job.is_none());
     }
 
@@ -1249,6 +1413,348 @@ mod tests {
         );
     }
 
+    fn search_with(everything: bool, fallback: bool) -> SearchConfig {
+        SearchConfig {
+            everything,
+            file_search_fallback: fallback,
+            ..SearchConfig::default()
+        }
+    }
+
+    #[test]
+    fn everything_answers_when_it_runs_and_the_index_when_it_does_not() {
+        let both = search_with(true, true);
+        assert_eq!(choose(&both, None, false), Source::Everything);
+        assert_eq!(choose(&both, None, true), Source::Everything);
+        for gone in [Status::NotRunning, Status::Alpha15] {
+            assert_eq!(
+                choose(&both, Some(gone), false),
+                Source::Index { down: false }
+            );
+        }
+        assert_eq!(
+            choose(&both, Some(Status::NotRunning), true),
+            Source::Index { down: true },
+            "the index is still tried; a service that came back is found"
+        );
+    }
+
+    #[test]
+    fn with_the_fallback_off_a_missing_everything_means_no_files() {
+        let only = search_with(true, false);
+        assert_eq!(choose(&only, None, false), Source::Everything);
+        assert_eq!(
+            choose(&only, Some(Status::NotRunning), false),
+            Source::Unavailable(Status::NotRunning)
+        );
+        assert_eq!(
+            choose(&only, Some(Status::Alpha15), false),
+            Source::Unavailable(Status::Alpha15)
+        );
+    }
+
+    #[test]
+    fn with_file_search_off_neither_source_is_asked() {
+        for fallback in [true, false] {
+            let off = search_with(false, fallback);
+            for presence in [None, Some(Status::NotRunning)] {
+                assert_eq!(
+                    choose(&off, presence, false),
+                    Source::Unavailable(Status::TurnedOff)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_index_rows_say_where_they_come_from_and_keep_the_folder_first_order() {
+        let mut files = Files::new();
+        let Next::Send(id) = files.index.ask("report", Instant::now()) else {
+            panic!()
+        };
+        files.index.receive(Incoming::Hits(
+            id,
+            vec![
+                hit("report.docx", r"D:\a", false, 5),
+                hit("old report archive", r"D:\a", true, 5),
+            ],
+        ));
+        let source = Source::Index { down: false };
+        let (rows, job) = files.rows(&query_for("report", false), source, Instant::now());
+        assert!(job.is_none(), "the answer is in hand");
+        let titles: Vec<&str> = rows.iter().map(|item| item.title.as_str()).collect();
+        assert_eq!(titles, ["old report archive", "report.docx"]);
+        assert_eq!(rows[0].group, "Folders");
+        assert_eq!(rows[1].group, "Files");
+        assert_eq!(rows[0].subtitle, "Windows index \u{b7} D:\\a");
+        assert!(rows[0].tab_action.is_some() && rows[1].tab_action.is_none());
+        let path = PathBuf::from(r"D:\a\report.docx");
+        assert_eq!(
+            rows[1].enter.as_ref().map(|c| &c.action),
+            Some(&Action::Open(path))
+        );
+        // After the dot it is one list of up to fifty, as with Everything.
+        let (rows, _) = files.rows(&query_for("report", true), source, Instant::now());
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|item| item.group == "Files and folders"));
+        assert!(
+            files.client.answer("report").is_none(),
+            "Everything's client was not touched"
+        );
+    }
+
+    #[test]
+    fn at_most_six_index_rows_in_the_blended_list_and_fifty_after_the_dot() {
+        let mut files = Files::new();
+        let Next::Send(id) = files.index.ask("proj", Instant::now()) else {
+            panic!()
+        };
+        let mut hits: Vec<Hit> = (0..60)
+            .map(|n| hit(&format!("proj{n:02}"), r"D:\a", true, n))
+            .collect();
+        hits.extend((0..60).map(|n| hit(&format!("proj{n:02}.txt"), r"D:\a", false, n)));
+        files.index.receive(Incoming::Hits(id, hits));
+        let source = Source::Index { down: false };
+        let (rows, _) = files.rows(&query_for("proj", false), source, Instant::now());
+        assert_eq!(rows.len(), 6);
+        assert_eq!(
+            rows.iter().filter(|item| item.group == "Folders").count(),
+            4
+        );
+        let (rows, _) = files.rows(&query_for("proj", true), source, Instant::now());
+        assert_eq!(rows.len(), 50);
+    }
+
+    #[test]
+    fn after_the_dot_the_index_says_so_and_in_the_blended_list_it_is_silent() {
+        let mut files = Files::new();
+        let now = Instant::now();
+        let source = Source::Index { down: false };
+        // Nothing typed yet, a single letter, and a search still running.
+        for text in ["", "p", "pswds"] {
+            let (rows, _) = files.rows(&query_for(text, true), source, now);
+            assert_eq!(rows.len(), 1, "{text:?}");
+            assert_eq!(
+                rows[0].title,
+                "Searching the Windows index (Everything is not running; it is faster)"
+            );
+            assert_eq!(rows[0].tone, Tone::Normal);
+            assert!(rows[0].enter.is_none());
+            let (rows, _) = files.rows(&query_for(text, false), source, now);
+            assert!(rows.is_empty(), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_search_with_no_index_matches_keeps_the_notice() {
+        let mut files = Files::new();
+        let Next::Send(id) = files.index.ask("pswds", Instant::now()) else {
+            panic!()
+        };
+        files.index.receive(Incoming::Hits(id, Vec::new()));
+        let source = Source::Index { down: false };
+        let (rows, job) = files.rows(&query_for("pswds", true), source, Instant::now());
+        assert!(job.is_none());
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, Status::UsingIndex.title());
+        let (rows, _) = files.rows(&query_for("pswds", false), source, Instant::now());
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn when_the_index_is_down_the_row_names_both_ways_to_search() {
+        let mut files = Files::new();
+        let now = Instant::now();
+        let source = Source::Index { down: true };
+        let (rows, job) = files.rows(&query_for("", true), source, now);
+        assert!(job.is_none());
+        assert_eq!(
+            rows[0].title,
+            "File search needs Everything or Windows Search"
+        );
+        assert_eq!(rows[0].tone, Tone::Warning);
+        // A new text still goes out, so a service that came back is found.
+        let (_, job) = files.rows(&query_for("pswds", true), source, now);
+        let job = job.expect("sent");
+        files.index.receive(incoming_of(windows_index::Done {
+            id: job.id,
+            outcome: Outcome::Unavailable,
+        }));
+        let (rows, job) = files.rows(&query_for("pswds", true), source, now);
+        assert!(job.is_none());
+        assert_eq!(
+            rows[0].title,
+            "File search needs Everything or Windows Search"
+        );
+        let (rows, _) = files.rows(&query_for("pswds", false), source, now);
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn what_the_index_thread_found_becomes_hits_or_a_status() {
+        let done = |outcome| windows_index::Done { id: 3, outcome };
+        let found = vec![hit("a", r"D:\x", true, 1)];
+        assert!(matches!(
+            incoming_of(done(Outcome::Hits(found))),
+            Incoming::Hits(3, hits) if hits.len() == 1
+        ));
+        for (outcome, status) in [
+            (Outcome::Unavailable, Status::IndexUnavailable),
+            (Outcome::Failed, Status::IndexFailed),
+            (Outcome::TimedOut, Status::IndexTimedOut),
+        ] {
+            assert!(matches!(
+                incoming_of(done(outcome)),
+                Incoming::Failed(3, got) if got == status
+            ));
+        }
+    }
+
+    #[test]
+    fn a_slow_index_is_given_up_after_its_own_longer_wait() {
+        let mut files = Files::new();
+        let now = Instant::now();
+        assert!(matches!(files.index.ask("pswds", now), Next::Send(_)));
+        assert!(matches!(files.client.ask("pswds", now), Next::Send(_)));
+        // Everything's wait is over; the index's is not.
+        let later = now + GIVE_UP;
+        files.client.expire(later);
+        files.index.expire(later);
+        assert_eq!(
+            failure_of(&files.client, "pswds"),
+            Some(Status::NotAnswering)
+        );
+        assert!(files.index.waiting(), "the index may take up to 800 ms");
+        files.index.expire(now + Duration::from_millis(1020));
+        assert!(!files.index.waiting());
+        assert_eq!(
+            failure_of(&files.index, "pswds"),
+            Some(Status::IndexTimedOut)
+        );
+    }
+
+    /// Asks the Windows index of this PC for "pswds", as the palette does
+    /// when Everything is not running, and reports what comes back and how
+    /// long it takes. Read-only: it searches and opens nothing, and it does
+    /// not look at Everything. Run it with
+    /// `cargo test -- --ignored live_index --nocapture`.
+    #[test]
+    #[ignore = "needs Windows Search running"]
+    fn live_index_pswds() {
+        use super::super::oledb::Connection;
+        let sql = windows_index::sql("pswds", windows_index::CANDIDATES).unwrap();
+        println!("sql: {sql}");
+        unsafe {
+            windows_sys::Win32::System::Com::CoInitializeEx(
+                std::ptr::null(),
+                windows_sys::Win32::System::Com::COINIT_MULTITHREADED as u32,
+            )
+        };
+        let opened = Instant::now();
+        let connection = Connection::open().expect("the index opens");
+        println!("opened in {} ms", opened.elapsed().as_millis());
+        for round in 1..=2 {
+            let asked = Instant::now();
+            let rows = connection
+                .query(
+                    &sql,
+                    windows_index::CANDIDATES,
+                    asked + Duration::from_secs(5),
+                )
+                .expect("the index answers");
+            println!(
+                "query {round}: {} rows in {} ms",
+                rows.len(),
+                asked.elapsed().as_millis()
+            );
+            for row in rows.iter().take(5) {
+                println!("  {row:?}");
+            }
+        }
+
+        let mut files = Files::new();
+        let source = Source::Index { down: false };
+        let query = query_for("pswds", false);
+        let started = Instant::now();
+        let (_, job) = files.rows(&query, source, started);
+        let job = job.expect("a new search");
+        windows_index::submit(job.id, &job.text);
+        let mut rows = Vec::new();
+        while started.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(20));
+            files.has_news();
+            if files.index.answer("pswds").is_some() || files.index.failure("pswds").is_some() {
+                rows = files.rows(&query, source, Instant::now()).0;
+                break;
+            }
+        }
+        println!(
+            "through the provider: {} rows in {} ms (the 120 ms wait for a pause in typing included), failure {:?}",
+            rows.len(),
+            started.elapsed().as_millis(),
+            files.index.failure("pswds")
+        );
+        for item in &rows {
+            println!(
+                "{} | {} | {} | {}",
+                item.group, item.title, item.subtitle, item.score
+            );
+        }
+        assert_eq!(files.index.failure("pswds"), None);
+        assert!(files.index.answer("pswds").is_some(), "the index answered");
+    }
+
+    /// Searches the Windows index of this PC for words that are likely to be
+    /// in it, to see rows come back whole: real paths, folders told from
+    /// files, Cyrillic and `_` kept. Read-only. Run it with
+    /// `cargo test -- --ignored live_index_words --nocapture`.
+    #[test]
+    #[ignore = "needs Windows Search running"]
+    fn live_index_words() {
+        use super::super::oledb::Connection;
+        unsafe {
+            windows_sys::Win32::System::Com::CoInitializeEx(
+                std::ptr::null(),
+                windows_sys::Win32::System::Com::COINIT_MULTITHREADED as u32,
+            )
+        };
+        let connection = Connection::open().expect("the index opens");
+        for text in [
+            "onedrive",
+            "\u{437}\u{432}\u{456}\u{442}",
+            "mods 41_51",
+            "30%",
+            "it's",
+            "users admin zomboid",
+            r"admin\zomboid",
+        ] {
+            let sql = windows_index::sql(text, windows_index::CANDIDATES).unwrap();
+            let started = Instant::now();
+            let rows = connection
+                .query(
+                    &sql,
+                    windows_index::CANDIDATES,
+                    started + Duration::from_secs(5),
+                )
+                .expect("the index answers");
+            println!(
+                "{text:?}: {} rows in {} ms",
+                rows.len(),
+                started.elapsed().as_millis()
+            );
+            for row in rows.iter().take(3) {
+                let hit = windows_index::hit_of(row);
+                println!(
+                    "  {} | folder {:?} | {:?}",
+                    hit.as_ref().map_or(String::new(), Hit::full_path),
+                    hit.as_ref().map(|hit| hit.folder),
+                    row.modified
+                );
+            }
+            assert!(rows.iter().all(|row| windows_index::hit_of(row).is_some()));
+        }
+    }
+
     #[test]
     fn a_found_folder_can_be_bookmarked_with_ctrl_b() {
         let folder = hit("pswds_OneDrive", r"D:\Windows_OneDrive\OneDrive", true, 1);
@@ -1258,6 +1764,7 @@ mod tests {
                 hit: &folder,
             },
             "Folders",
+            None,
         );
         assert_eq!(
             item.bookmark.map(|c| c.action),

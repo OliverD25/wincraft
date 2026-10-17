@@ -9,12 +9,14 @@ mod everything_ipc;
 mod explorer;
 mod files;
 mod installed;
+mod oledb;
 mod paths;
 mod process;
 pub mod shell;
 mod terminal;
 pub mod web;
 mod windows;
+mod windows_index;
 
 use crate::search::SearchProvider;
 

@@ -239,8 +239,8 @@ fn search_rows(ui: &mut egui::Ui, search: &SearchConfig, to_host: &Arc<HostChann
     settings_row(
         ui,
         "everything",
-        RowText::new("Search files with Everything").desc(
-            "Finds files and folders on every disk while you type, and after the . prefix. Needs Everything (voidtools) to be running.",
+        RowText::new("File search: Everything, then Windows index").desc(
+            "Finds files and folders on every disk while you type, and after the . prefix. Uses Everything (voidtools) when it is running.",
             tokens.text_secondary,
         ),
         false,
@@ -248,6 +248,22 @@ fn search_rows(ui: &mut egui::Ui, search: &SearchConfig, to_host: &Arc<HostChann
             let mut on = search.everything;
             if toggle::toggle(ui, &mut on).changed() {
                 send(&|next| next.everything = on);
+            }
+        },
+    );
+
+    settings_row(
+        ui,
+        "file-search-fallback",
+        RowText::new("Use the Windows index when Everything is not running").desc(
+            "Slower than Everything, and it only finds what Windows Search has indexed. Off means no file search without Everything.",
+            tokens.text_secondary,
+        ),
+        false,
+        |ui| {
+            let mut on = search.file_search_fallback;
+            if toggle::toggle(ui, &mut on).changed() {
+                send(&|next| next.file_search_fallback = on);
             }
         },
     );

@@ -116,10 +116,15 @@ pub struct SearchConfig {
     /// palette_usage.json.
     #[serde(default = "enabled_by_default")]
     pub rank_by_use: bool,
-    /// Whether files and folders are searched with Everything, in the blended
-    /// list and after the `.` prefix.
+    /// Whether files and folders are searched at all, in the blended list and
+    /// after the `.` prefix: with Everything when it is running. The key kept
+    /// its first name.
     #[serde(default = "enabled_by_default")]
     pub everything: bool,
+    /// Whether the Windows Search index answers file searches while
+    /// Everything is not running.
+    #[serde(default = "enabled_by_default")]
+    pub file_search_fallback: bool,
 }
 
 impl Default for SearchConfig {
@@ -132,6 +137,7 @@ impl Default for SearchConfig {
             terminal_history: true,
             rank_by_use: true,
             everything: true,
+            file_search_fallback: true,
         }
     }
 }
@@ -605,6 +611,19 @@ mod tests {
         );
         let (config, _) = Config::parse(r#"{"search":{"everything":false}}"#).unwrap();
         assert!(!config.search.everything);
+    }
+
+    #[test]
+    fn the_windows_index_fallback_is_on_until_the_file_says_otherwise() {
+        assert!(SearchConfig::default().file_search_fallback);
+        let (config, _) = Config::parse(r#"{"search":{"everything":true}}"#).unwrap();
+        assert!(
+            config.search.file_search_fallback,
+            "an older file gets the fallback"
+        );
+        let (config, _) = Config::parse(r#"{"search":{"file_search_fallback":false}}"#).unwrap();
+        assert!(!config.search.file_search_fallback);
+        assert!(config.search.everything);
     }
 
     #[test]

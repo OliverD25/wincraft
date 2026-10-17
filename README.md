@@ -200,7 +200,7 @@ a chip before the search box; Backspace in the empty box removes it.
 | none | Commands, apps and open windows | Run, open or switch to | | Put the title in the box; on a File Explorer window, browse its folder under `/` |
 | `<` | Open windows only, the ones Alt+Tab shows, by title or program; a window renamed with WindowNamer by its name or its app's own title | Switch to it, restoring it if minimized | | Put the title in the box; on a File Explorer window, browse its folder under `/` |
 | `/` | Drives, then one folder at a time: `/C:\Users\` | Open the file or folder | Show it in Explorer, selected | Go into the folder |
-| `.` | Files and folders on every disk, through Everything: `.pswds` | Open it | Show it in Explorer, selected (Ctrl+Enter copies the path) | Go into the folder under `/` |
+| `.` | Files and folders on every disk, through Everything (or the Windows index when it is not running): `.pswds` | Open it | Show it in Explorer, selected (Ctrl+Enter copies the path) | Go into the folder under `/` |
 | `'` | Your bookmarks, all of them when nothing is typed | Open it | Show it in Explorer, selected (Ctrl+Enter copies the target) | Go into the folder under `/` |
 | `=` | A sum: `+ - * / ^ %` and brackets; `×` and `÷` work too | Copy the answer | | Put the answer in the box |
 | `>` | A command for the terminal shell chosen in settings (WSL bash unless you change it), then your earlier commands | Run it here, with its output in the palette | | Put the earlier command in the box |
@@ -238,12 +238,25 @@ what you typed leads, then names that start with it, then the rest; rows
 you pick often move up. Everything's own search words work too, such as
 `ext:pdf invoice` or `*.log`.
 
+Without Everything, WinCraft asks the Windows Search index instead, so file
+search still works on a PC where Everything is not installed. It is slower
+(a search that matches little can take most of a second, so the palette waits
+up to 0.8 s) and it finds only what Windows Search has indexed, which by
+default is your user folders, not whole disks. Each word you type must be in
+the file name, and a word with a `\` in it is looked for in the whole path.
+Rows from the index have "Windows index" at the start of the second line.
+Everything's search words do not work there. If the Windows Search service is
+off, `.` says "File search needs Everything or Windows Search" and the log has
+one line about it.
+
 Searches go out 120 ms after you stop typing, from a thread of their own, so
 a slow Everything never freezes the palette. A search needs two letters.
 Rows from the recycle bin and the Recent shortcuts folder are left out. If
-Everything is not running, `.` says so in one row, and the blended list
-stays silent. **Search files with Everything** in Settings → General
-switches all of it off.
+Everything is not running, `.` says "Searching the Windows index" in one
+row, and the blended list stays silent. **File search: Everything, then
+Windows index** in Settings → General switches all file search off, and
+**Use the Windows index when Everything is not running** switches only the
+fallback off.
 
 ### Bookmarks
 
@@ -350,7 +363,8 @@ in the log.
     "terminal_custom": "",
     "terminal_history": true,
     "rank_by_use": true,
-    "everything": true
+    "everything": true,
+    "file_search_fallback": true
   },
   "updates": {
     "check_daily": true,
@@ -375,7 +389,8 @@ in the log.
 | `search.terminal_custom` | For `Custom`: a command line with `{cmd}` where the command goes and optionally `{cwd}` for the folder, such as `C:\msys64\usr\bin\bash.exe -lc {cmd}`. Without `{cmd}` WSL bash is used. |
 | `search.terminal_history` | Whether commands run from the palette are remembered. |
 | `search.rank_by_use` | Whether results you pick often move up, and picks are counted in `palette_usage.json`. |
-| `search.everything` | Whether files and folders are searched with Everything, in the blended list and after `.`. |
+| `search.everything` | Whether files and folders are searched at all, in the blended list and after `.`: with Everything when it is running. |
+| `search.file_search_fallback` | Whether the Windows Search index answers file searches while Everything is not running. |
 | `updates.check_daily` | Whether GitHub is asked once a day for a newer release. |
 | `updates.last_check` | When GitHub last answered, in seconds since 1970. WinCraft writes it. |
 | `updates.latest` | The newest release tag seen; the tray says once per new tag that it is there. WinCraft writes it. |
