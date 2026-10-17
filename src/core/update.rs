@@ -1144,9 +1144,13 @@ mod tests {
             .collect()
     }
 
-    fn cmd_exe() -> PathBuf {
+    fn system32(exe: &str) -> PathBuf {
         let system = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
-        Path::new(&system).join("System32").join("cmd.exe")
+        Path::new(&system).join("System32").join(exe)
+    }
+
+    fn cmd_exe() -> PathBuf {
+        system32("cmd.exe")
     }
 
     #[test]
@@ -1162,9 +1166,10 @@ mod tests {
     #[test]
     fn a_real_process_that_hangs_times_out_and_is_ended() {
         let mut signal = HealthSignal::named(&format!("{}.hang", test_event())).unwrap();
-        let mut started = signal
-            .start(&cmd_exe(), &cmd("ping -n 30 127.0.0.1 >nul"))
-            .unwrap();
+        // ping itself, not through cmd: kill ends only the process it
+        // started, and a ping left behind by a killed cmd ran on for 30 s.
+        let args = ["-n", "30", "127.0.0.1"].map(str::to_string);
+        let mut started = signal.start(&system32("PING.EXE"), &args).unwrap();
         assert_eq!(started.wait(Duration::from_millis(300)), Waited::TimedOut);
         started.kill();
         assert!(matches!(
