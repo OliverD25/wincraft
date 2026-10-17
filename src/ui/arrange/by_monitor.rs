@@ -435,21 +435,32 @@ pub fn order_after(count: usize, bands: &[Band], moved: usize, spot: Spot) -> Ve
 }
 
 /// What putting `moved` at `spot` means: a move to the band's desktop when
-/// it is another one, then the group's new order.
+/// it is another one, a move to the column's monitor when that is another
+/// one, then the group's new order.
 pub fn drop_actions(
     group: &ArrangeGroup,
     bands: &[Band],
+    rows: &[Vec<usize>],
+    monitors: &[ArrangeMonitor],
     moved: usize,
     spot: Spot,
 ) -> Vec<ArrangeAction> {
     let mut actions = Vec::new();
-    let hwnd = group.windows[moved].hwnd;
+    let window = &group.windows[moved];
+    let hwnd = window.hwnd;
     let from = locate(bands, moved);
     let to = &bands[spot.band];
     if from.map(|from| from.band) != Some(spot.band) && !to.desktop.is_empty() {
         actions.push(ArrangeAction::MoveToDesktop {
             hwnd,
             desktop: to.desktop.clone(),
+        });
+    }
+    let target = rows[spot.cell.0][spot.cell.1];
+    if monitors[target].connected && column_of(window, monitors) != Some(target) {
+        actions.push(ArrangeAction::MoveToMonitor {
+            hwnd,
+            monitor: monitors[target].device.clone(),
         });
     }
     let order: Vec<isize> = order_after(group.windows.len(), bands, moved, spot)
@@ -473,6 +484,10 @@ pub enum Key {
     Down,
     Left,
     Right,
+    ShiftUp,
+    ShiftDown,
+    ShiftLeft,
+    ShiftRight,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -483,9 +498,26 @@ pub enum Step {
 
 /// What a key does to the window `cursor`: ↑ and ↓ pick the card before or
 /// after it, across columns and bands; ← and → move it one place within its
-/// column.
-pub fn step(bands: &[Band], cursor: usize, key: Key) -> Option<Step> {
+/// column; Shift+← and Shift+→ move it to the end of the next column of a
+/// connected monitor; Shift+↑ and Shift+↓ move it to the end of the same
+/// monitor's column in the band above or below, or of the primary monitor's
+/// when its own is disconnected.
+pub fn step(
+    bands: &[Band],
+    rows: &[Vec<usize>],
+    monitors: &[ArrangeMonitor],
+    cursor: usize,
+    key: Key,
+) -> Option<Step> {
     let here = locate(bands, cursor)?;
+    let connected = |(r, c): (usize, usize)| monitors[rows[r][c]].connected;
+    let end = |band: usize, cell: (usize, usize)| {
+        Step::Move(Spot {
+            band,
+            cell,
+            index: bands[band].cells[cell.0][cell.1].len(),
+        })
+    };
     match key {
         Key::Up | Key::Down => {
             let walk = walk(bands);
@@ -508,6 +540,54 @@ pub fn step(bands: &[Band], cursor: usize, key: Key) -> Option<Step> {
                 ..here
             }))
         }
+        Key::ShiftLeft | Key::ShiftRight => {
+            let cells: Vec<(usize, usize)> = rows
+                .iter()
+                .enumerate()
+                .flat_map(|(r, row)| (0..row.len()).map(move |c| (r, c)))
+                .collect();
+            let at = cells.iter().position(|cell| *cell == here.cell)?;
+            let next = if key == Key::ShiftRight {
+                cells[at + 1..]
+                    .iter()
+                    .copied()
+                    .find(|cell| connected(*cell))
+            } else {
+                cells[..at]
+                    .iter()
+                    .rev()
+                    .copied()
+                    .find(|cell| connected(*cell))
+            }?;
+            Some(end(here.band, next))
+        }
+        Key::ShiftUp | Key::ShiftDown => {
+            let band = if key == Key::ShiftUp {
+                here.band.checked_sub(1)?
+            } else {
+                here.band + 1
+            };
+            if band >= bands.len() {
+                return None;
+            }
+            let cell = if connected(here.cell) {
+                here.cell
+            } else {
+                primary_cell(monitors, rows)
+            };
+            Some(end(band, cell))
+        }
+    }
+}
+
+/// The window is on another monitor than the last saved layout says: moved
+/// by hand since the last save, or not put back yet by a running restore.
+pub fn moved(window: &ArrangeWindow, monitors: &[ArrangeMonitor]) -> bool {
+    match (window.saved_monitor, window.on_monitor) {
+        (Some(saved), Some(now)) => {
+            saved != now && monitors.get(saved).is_some_and(|monitor| monitor.connected)
+        }
+        _ => false,
     }
 }
 
@@ -624,9 +704,14 @@ pub fn body(
     if let Some(member) = dragged {
         if !ctx.input(|i| i.pointer.primary_down()) {
             if let Some(spot) = target {
-                frame
-                    .actions
-                    .extend(drop_actions(group, &model.bands, member, spot));
+                frame.actions.extend(drop_actions(
+                    group,
+                    &model.bands,
+                    &model.rows,
+                    &snapshot.monitors,
+                    member,
+                    spot,
+                ));
             }
             shared.drag = None;
         }
@@ -670,7 +755,7 @@ pub fn body(
     footer(ui, panel);
 
     if !menu_open && !dragging {
-        keyboard(&ctx, shared, group, &model.bands, &mut frame);
+        keyboard(&ctx, shared, group, &model, &snapshot.monitors, &mut frame);
     }
     frame
 }
@@ -922,6 +1007,12 @@ impl Draw<'_> {
 
         let title_top = thumb.bottom() + TITLE_GAP;
         let mut right = rect.right() - CARD_PAD - 2.0;
+        // In the title line, not on the picture as in the design: DWM draws
+        // the picture over anything painted there.
+        if moved(window, self.monitors) {
+            let chip = title_chip(&painter, right, title_top, "Moved", tokens.accent);
+            right = chip.left() - 4.0;
+        }
         if window.same_title {
             let chip = title_chip(&painter, right, title_top, "Same title", tokens.warning);
             right = chip.left() - 4.0;
@@ -1181,7 +1272,11 @@ fn footer(ui: &Ui, panel: Rect) {
         theme::stroke(ui.ctx(), 1.0, tokens.border),
     );
     let centre = area.top() + 1.0 + (FOOTER - 1.0) / 2.0;
-    let hints = [("\u{2190}\u{2192}", "Move within monitor")];
+    let hints = [
+        ("\u{2190}\u{2192}", "Move within monitor"),
+        ("Shift + \u{2190}\u{2192}", "Move to next monitor"),
+        ("Shift + \u{2191}\u{2193}", "Move to next desktop"),
+    ];
     let mut x = area.right() - SIDE;
     for (index, (key, label)) in hints.iter().enumerate().rev() {
         let label = painter.layout_no_wrap(
@@ -1239,13 +1334,15 @@ fn footer(ui: &Ui, panel: Rect) {
     );
 }
 
-/// ↑ and ↓ pick a window, ← and → move it within its column, Enter
-/// switches to it. Esc is handled with the other ways to close.
+/// ↑ and ↓ pick a window, ← and → move it within its column, Shift with
+/// the arrows moves it to the next monitor or desktop, Enter switches to it.
+/// Esc is handled with the other ways to close.
 fn keyboard(
     ctx: &egui::Context,
     shared: &mut Shared,
     group: &ArrangeGroup,
-    bands: &[Band],
+    model: &Model,
+    monitors: &[ArrangeMonitor],
     frame: &mut Frame,
 ) {
     let Some(cursor) = shared
@@ -1254,12 +1351,28 @@ fn keyboard(
     else {
         return;
     };
-    let (up, down, left, right, enter) = ctx.input_mut(|i| {
+    // The Shift keys first: a key without modifiers also matches with Shift.
+    let keys = [
+        (egui::Modifiers::SHIFT, egui::Key::ArrowUp, Key::ShiftUp),
+        (egui::Modifiers::SHIFT, egui::Key::ArrowDown, Key::ShiftDown),
+        (egui::Modifiers::SHIFT, egui::Key::ArrowLeft, Key::ShiftLeft),
         (
-            i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
-            i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
-            i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft),
-            i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight),
+            egui::Modifiers::SHIFT,
+            egui::Key::ArrowRight,
+            Key::ShiftRight,
+        ),
+        (egui::Modifiers::NONE, egui::Key::ArrowUp, Key::Up),
+        (egui::Modifiers::NONE, egui::Key::ArrowDown, Key::Down),
+        (egui::Modifiers::NONE, egui::Key::ArrowLeft, Key::Left),
+        (egui::Modifiers::NONE, egui::Key::ArrowRight, Key::Right),
+    ];
+    let (pressed, enter) = ctx.input_mut(|i| {
+        let pressed = keys
+            .iter()
+            .find(|(modifiers, key, _)| i.consume_key(*modifiers, *key))
+            .map(|(_, _, key)| *key);
+        (
+            pressed,
             i.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
         )
     });
@@ -1267,19 +1380,16 @@ fn keyboard(
         frame.activate = Some(group.windows[cursor].hwnd);
         return;
     }
-    let key = [
-        (up, Key::Up),
-        (down, Key::Down),
-        (left, Key::Left),
-        (right, Key::Right),
-    ]
-    .into_iter()
-    .find_map(|(pressed, key)| pressed.then_some(key));
-    match key.and_then(|key| step(bands, cursor, key)) {
+    match pressed.and_then(|key| step(&model.bands, &model.rows, monitors, cursor, key)) {
         Some(Step::Select(member)) => shared.cursor = Some(group.windows[member].hwnd),
-        Some(Step::Move(spot)) => frame
-            .actions
-            .extend(drop_actions(group, bands, cursor, spot)),
+        Some(Step::Move(spot)) => frame.actions.extend(drop_actions(
+            group,
+            &model.bands,
+            &model.rows,
+            monitors,
+            cursor,
+            spot,
+        )),
         None => {}
     }
 }
@@ -1580,8 +1690,17 @@ mod tests {
     #[test]
     fn a_drop_in_another_band_moves_the_window_to_that_desktop_first() {
         let bands = three_columns();
-        let group = group(&[("d1", None, None); 6]);
-        let actions = drop_actions(&group, &bands, 1, spot(1, (0, 1), 1));
+        let monitors = desk();
+        let rows = monitor_rows(&monitors, &every);
+        let group = group(&[
+            ("d1", Some(1), None),
+            ("d1", Some(1), None),
+            ("d1", Some(0), None),
+            ("d1", Some(0), None),
+            ("d1", Some(0), None),
+            ("d0", Some(0), None),
+        ]);
+        let actions = drop_actions(&group, &bands, &rows, &monitors, 1, spot(1, (0, 1), 1));
         assert_eq!(
             actions[0],
             ArrangeAction::MoveToDesktop {
@@ -1589,39 +1708,172 @@ mod tests {
                 desktop: "d0".to_string()
             }
         );
+        // From the left monitor's column to the primary's: moved there too.
         assert_eq!(
             actions[1],
+            ArrangeAction::MoveToMonitor {
+                hwnd: 101,
+                monitor: monitors[0].device.clone()
+            }
+        );
+        assert_eq!(
+            actions[2],
             ArrangeAction::Reorder {
                 group: "chrome.exe".to_string(),
                 order: vec![100, 102, 103, 104, 105, 101],
             }
         );
         // Dropped where it already is: nothing to do.
-        assert!(drop_actions(&group, &bands, 3, spot(0, (0, 1), 1)).is_empty());
+        assert!(drop_actions(&group, &bands, &rows, &monitors, 3, spot(0, (0, 1), 1)).is_empty());
+    }
+
+    #[test]
+    fn a_drop_on_another_column_moves_the_window_to_that_monitor_now() {
+        let bands = three_columns();
+        let monitors = desk();
+        let rows = monitor_rows(&monitors, &every);
+        let group = group(&[
+            ("d1", Some(1), None),
+            ("d1", Some(1), None),
+            ("d1", Some(0), None),
+            ("d1", Some(0), None),
+            ("d1", Some(0), None),
+            ("d0", Some(0), None),
+        ]);
+        // Window 3, on the primary monitor, to the empty right column.
+        assert_eq!(
+            drop_actions(&group, &bands, &rows, &monitors, 3, spot(0, (0, 2), 0)),
+            [
+                ArrangeAction::MoveToMonitor {
+                    hwnd: 103,
+                    monitor: monitors[2].device.clone()
+                },
+                // Its place in the taskbar is the same; the order is sent
+                // anyway, as after a desktop move.
+                ArrangeAction::Reorder {
+                    group: "chrome.exe".to_string(),
+                    order: (100..106).collect(),
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn a_window_from_a_disconnected_column_is_kept_where_it_is_dropped() {
+        let mut monitors = desk();
+        monitors.push(disconnected());
+        let rows = monitor_rows(&monitors, &every);
+        // Saved on the unplugged monitor, on the primary one now.
+        let group = group(&[("d1", Some(0), Some(3))]);
+        let bands = bands(&group, &desktops(), &monitors, &rows);
+        assert_eq!(bands[0].cells[0][3], [0]);
+        // Dropped on the primary column: that is where it is, but the
+        // plugin hears of it, so the saved monitor follows.
+        assert_eq!(
+            drop_actions(&group, &bands, &rows, &monitors, 0, spot(0, (0, 1), 0)),
+            [
+                ArrangeAction::MoveToMonitor {
+                    hwnd: 100,
+                    monitor: monitors[0].device.clone()
+                },
+                ArrangeAction::Reorder {
+                    group: "chrome.exe".to_string(),
+                    order: vec![100],
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn a_window_on_another_monitor_than_saved_is_marked_moved() {
+        let mut monitors = desk();
+        monitors.push(disconnected());
+        let windows = group(&[
+            ("d1", Some(0), Some(1)),
+            ("d1", Some(0), Some(0)),
+            ("d1", Some(0), None),
+            ("d1", Some(0), Some(3)),
+            ("d1", None, Some(1)),
+        ]);
+        let marked: Vec<bool> = windows
+            .windows
+            .iter()
+            .map(|w| moved(w, &monitors))
+            .collect();
+        // Only the first: the second is where it was saved, the third was
+        // never saved, the fourth sits in its disconnected column and the
+        // fifth is on no known monitor.
+        assert_eq!(marked, [true, false, false, false, false]);
     }
 
     #[test]
     fn the_keys_walk_across_columns_and_move_within_one() {
         let bands = three_columns();
+        let monitors = desk();
+        let rows = monitor_rows(&monitors, &every);
+        let step = |cursor: usize, key: Key| step(&bands, &rows, &monitors, cursor, key);
         assert_eq!(walk(&bands), [0, 1, 2, 3, 4, 5]);
-        assert_eq!(step(&bands, 1, Key::Down), Some(Step::Select(2)));
-        assert_eq!(step(&bands, 4, Key::Down), Some(Step::Select(5)));
-        assert_eq!(step(&bands, 5, Key::Down), None);
-        assert_eq!(step(&bands, 0, Key::Up), None);
-        assert_eq!(step(&bands, 2, Key::Up), Some(Step::Select(1)));
-        assert_eq!(
-            step(&bands, 3, Key::Left),
-            Some(Step::Move(spot(0, (0, 1), 0)))
-        );
-        assert_eq!(
-            step(&bands, 3, Key::Right),
-            Some(Step::Move(spot(0, (0, 1), 2)))
-        );
-        assert_eq!(step(&bands, 4, Key::Right), None);
-        assert_eq!(step(&bands, 2, Key::Left), None);
+        assert_eq!(step(1, Key::Down), Some(Step::Select(2)));
+        assert_eq!(step(4, Key::Down), Some(Step::Select(5)));
+        assert_eq!(step(5, Key::Down), None);
+        assert_eq!(step(0, Key::Up), None);
+        assert_eq!(step(2, Key::Up), Some(Step::Select(1)));
+        assert_eq!(step(3, Key::Left), Some(Step::Move(spot(0, (0, 1), 0))));
+        assert_eq!(step(3, Key::Right), Some(Step::Move(spot(0, (0, 1), 2))));
+        assert_eq!(step(4, Key::Right), None);
+        assert_eq!(step(2, Key::Left), None);
         assert_eq!(
             order_after(6, &bands, 3, spot(0, (0, 1), 2)),
             [0, 1, 2, 4, 3, 5]
+        );
+    }
+
+    #[test]
+    fn shift_moves_to_the_end_of_the_next_monitor_or_desktop() {
+        let bands = three_columns();
+        let mut monitors = desk();
+        let rows = monitor_rows(&monitors, &every);
+        let step = |monitors: &[ArrangeMonitor], cursor: usize, key: Key| {
+            step(&bands, &rows, monitors, cursor, key)
+        };
+        // Window 0 is on the left monitor: right goes to the primary's end.
+        assert_eq!(
+            step(&monitors, 0, Key::ShiftRight),
+            Some(Step::Move(spot(0, (0, 1), 3)))
+        );
+        assert_eq!(step(&monitors, 0, Key::ShiftLeft), None);
+        // From the primary to the empty right column.
+        assert_eq!(
+            step(&monitors, 3, Key::ShiftRight),
+            Some(Step::Move(spot(0, (0, 2), 0)))
+        );
+        // Down to the next desktop, same monitor; up from the first is none.
+        assert_eq!(
+            step(&monitors, 3, Key::ShiftDown),
+            Some(Step::Move(spot(1, (0, 1), 1)))
+        );
+        assert_eq!(
+            step(&monitors, 0, Key::ShiftDown),
+            Some(Step::Move(spot(1, (0, 0), 0)))
+        );
+        assert_eq!(step(&monitors, 0, Key::ShiftUp), None);
+        assert_eq!(
+            step(&monitors, 5, Key::ShiftUp),
+            Some(Step::Move(spot(0, (0, 1), 3)))
+        );
+        // A disconnected right monitor is skipped; its windows go down to
+        // the primary column of the next desktop.
+        monitors[2].connected = false;
+        assert_eq!(step(&monitors, 3, Key::ShiftRight), None);
+        let mut in_gone = three_columns();
+        in_gone[0].cells[0][2].push(6);
+        assert_eq!(
+            super::step(&in_gone, &rows, &monitors, 6, Key::ShiftDown),
+            Some(Step::Move(spot(1, (0, 1), 1)))
+        );
+        assert_eq!(
+            super::step(&in_gone, &rows, &monitors, 6, Key::ShiftLeft),
+            Some(Step::Move(spot(0, (0, 1), 3)))
         );
     }
 

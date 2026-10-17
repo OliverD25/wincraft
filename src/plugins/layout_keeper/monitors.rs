@@ -11,12 +11,16 @@ use windows_sys::Win32::Devices::Display::{
     DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_PATH_INFO, DISPLAYCONFIG_SOURCE_DEVICE_NAME,
     DISPLAYCONFIG_TARGET_DEVICE_NAME, QDC_ONLY_ACTIVE_PATHS,
 };
-use windows_sys::Win32::Foundation::{ERROR_SUCCESS, LPARAM, RECT};
+use windows_sys::Win32::Foundation::{GetLastError, ERROR_SUCCESS, HWND, LPARAM, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
     EnumDisplayMonitors, GetMonitorInfoW, MonitorFromRect, HDC, HMONITOR, MONITORINFO,
     MONITORINFOEXW, MONITOR_DEFAULTTONEAREST,
 };
-use windows_sys::Win32::UI::WindowsAndMessaging::MONITORINFOF_PRIMARY;
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    GetWindowPlacement, GetWindowRect, IsIconic, IsZoomed, PostMessageW, SetWindowPlacement,
+    SetWindowPos, MONITORINFOF_PRIMARY, SC_MAXIMIZE, SWP_NOACTIVATE, SWP_NOOWNERZORDER,
+    SWP_NOZORDER, SW_SHOWMINNOACTIVE, SW_SHOWNOACTIVATE, WINDOWPLACEMENT, WM_SYSCOMMAND,
+};
 
 use super::identity::Rect;
 use super::state::SavedMonitor;
@@ -83,6 +87,12 @@ pub fn list() -> Vec<Monitor> {
 
 fn corners(rect: RECT) -> Rect {
     [rect.left, rect.top, rect.right, rect.bottom]
+}
+
+impl Monitor {
+    pub fn saved(&self) -> &SavedMonitor {
+        &self.saved
+    }
 }
 
 /// Every monitor as the saved layout names it, in the order of `list`.
@@ -216,6 +226,107 @@ pub fn index_of(rect: Rect, monitors: &[Monitor]) -> Option<usize> {
     monitors.iter().position(|monitor| monitor.handle == handle)
 }
 
+/// A window rectangle on one monitor's work area put at the same place on
+/// another's, in proportion: a window half as wide as the left monitor is
+/// half as wide as the right one, as far in from its edges. Physical pixels,
+/// so a different scale on the other monitor changes nothing here.
+pub fn map_rect(rect: Rect, from: Rect, to: Rect) -> Rect {
+    let along = |value: i32, from_start: i32, from_end: i32, to_start: i32, to_end: i32| {
+        let from_length = i64::from(from_end - from_start);
+        if from_length <= 0 {
+            return to_start + (value - from_start);
+        }
+        let offset = i64::from(value - from_start) * i64::from(to_end - to_start);
+        to_start + (offset as f64 / from_length as f64).round() as i32
+    };
+    [
+        along(rect[0], from[0], from[2], to[0], to[2]),
+        along(rect[1], from[1], from[3], to[1], to[3]),
+        along(rect[2], from[0], from[2], to[0], to[2]),
+        along(rect[3], from[1], from[3], to[1], to[3]),
+    ]
+}
+
+/// Moves a window from one monitor to another with `map_rect`, without
+/// activating it: activating a window on another virtual desktop would
+/// switch to that desktop. A minimized window only gets the place it comes
+/// back to. A maximized one is put back to its normal size on the new
+/// monitor and asked to maximize there, since Windows has no way to
+/// maximize another program's window without activating it.
+pub fn move_window(
+    hwnd: HWND,
+    from: &Monitor,
+    to: &Monitor,
+    monitors: &[Monitor],
+) -> Result<(), String> {
+    let failed = |what: &str| format!("{what} failed (error {})", unsafe { GetLastError() });
+    let mut place: WINDOWPLACEMENT = unsafe { std::mem::zeroed() };
+    place.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+    if unsafe { GetWindowPlacement(hwnd, &mut place) } == 0 {
+        return Err(failed("GetWindowPlacement"));
+    }
+    // The normal position is in workspace coordinates, which start at the
+    // corner of the primary monitor's work area rather than of the screen.
+    let (dx, dy) = monitors
+        .iter()
+        .find(|monitor| monitor.primary)
+        .map_or((0, 0), |primary| (primary.work[0], primary.work[1]));
+    let normal = place.rcNormalPosition;
+    let normal = [
+        normal.left + dx,
+        normal.top + dy,
+        normal.right + dx,
+        normal.bottom + dy,
+    ];
+    let [left, top, right, bottom] = map_rect(normal, from.work, to.work);
+    place.rcNormalPosition = RECT {
+        left: left - dx,
+        top: top - dy,
+        right: right - dx,
+        bottom: bottom - dy,
+    };
+    if unsafe { IsIconic(hwnd) } != 0 {
+        place.showCmd = SW_SHOWMINNOACTIVE as u32;
+        if unsafe { SetWindowPlacement(hwnd, &place) } == 0 {
+            return Err(failed("SetWindowPlacement"));
+        }
+        return Ok(());
+    }
+    if unsafe { IsZoomed(hwnd) } != 0 {
+        place.showCmd = SW_SHOWNOACTIVATE as u32;
+        if unsafe { SetWindowPlacement(hwnd, &place) } == 0 {
+            return Err(failed("SetWindowPlacement"));
+        }
+        unsafe { PostMessageW(hwnd, WM_SYSCOMMAND, SC_MAXIMIZE as usize, 0) };
+        return Ok(());
+    }
+    let mut now: RECT = unsafe { std::mem::zeroed() };
+    if unsafe { GetWindowRect(hwnd, &mut now) } == 0 {
+        return Err(failed("GetWindowRect"));
+    }
+    let [left, top, right, bottom] = map_rect(corners(now), from.work, to.work);
+    let flags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
+    // Twice: on a monitor with another scale the window resizes itself to
+    // the new DPI as it arrives, and the second call gives it its size.
+    for _ in 0..2 {
+        if unsafe {
+            SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                left,
+                top,
+                right - left,
+                bottom - top,
+                flags,
+            )
+        } == 0
+        {
+            return Err(failed("SetWindowPos"));
+        }
+    }
+    Ok(())
+}
+
 /// Each monitor's place from the left, 0 first; monitors stacked above one
 /// another are counted from the top.
 fn left_to_right(corners: &[(i32, i32)]) -> Vec<usize> {
@@ -342,6 +453,46 @@ mod tests {
         assert_eq!(find(&saved("DISPLAY2", "LG SDQHD", 1), &live), Some(1));
         assert_eq!(find(&saved("DISPLAY1", "", 0), &live), Some(0));
         assert_eq!(find(&saved("DISPLAY3", "LG SDQHD", 2), &live), None);
+    }
+
+    /// The monitors of the PC this was built on: left 1920 x 1080 at 100 %,
+    /// primary 3840 x 2160 at 150 %, right 2560 x 2880 at 175 %, each with
+    /// its taskbar at the bottom (48, 72 and 84 physical pixels high).
+    const LEFT: Rect = [-1920, 0, 0, 1032];
+    const PRIMARY: Rect = [0, 0, 3840, 2088];
+    const RIGHT: Rect = [3840, 0, 6400, 2796];
+
+    #[test]
+    fn a_window_keeps_its_place_and_size_relative_to_the_screen() {
+        // Left half of the primary monitor, invisible borders and all.
+        let half = [-7, 0, 1927, 2095];
+        assert_eq!(map_rect(half, PRIMARY, LEFT), [-1924, 0, -956, 1035]);
+        // A quarter of the left monitor in its middle, to the right one.
+        let quarter = [-1440, 258, -480, 774];
+        assert_eq!(map_rect(quarter, LEFT, RIGHT), [4480, 699, 5760, 2097]);
+        // And back again lands where it started, give or take rounding.
+        let back = map_rect(map_rect(quarter, LEFT, RIGHT), RIGHT, LEFT);
+        for (a, b) in back.iter().zip(quarter) {
+            assert!((a - b).abs() <= 1, "{back:?}");
+        }
+    }
+
+    #[test]
+    fn a_maximized_or_minimized_window_maps_its_normal_rectangle() {
+        // The normal rectangle of a window maximized on the primary
+        // monitor, the part of it that matters for the move.
+        let normal = [400, 300, 2400, 1500];
+        assert_eq!(map_rect(normal, PRIMARY, RIGHT), [4107, 402, 5440, 2009]);
+        // A window off the edge stays off it by the same share.
+        assert_eq!(
+            map_rect([-2020, 0, -960, 520], LEFT, PRIMARY),
+            [-200, 0, 1920, 1052]
+        );
+        // A monitor with no size is treated as a plain shift.
+        assert_eq!(
+            map_rect([10, 10, 20, 20], [0, 0, 0, 0], [100, 100, 900, 900]),
+            [110, 110, 120, 120]
+        );
     }
 
     #[test]

@@ -210,6 +210,12 @@ pub enum ArrangeAction {
         hwnd: isize,
         desktop: String,
     },
+    /// Move the window to the monitor with this device name now, keeping
+    /// its size and place relative to the screen.
+    MoveToMonitor {
+        hwnd: isize,
+        monitor: String,
+    },
     Close(isize),
     /// Give the window a name, or take its name away with None. Names
     /// belong to WindowNamer, whichever plugin draws the strip.

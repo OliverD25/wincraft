@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use egui::text::TextWrapping;
 use egui::{pos2, vec2, Rect, Response, Sense, StrokeKind, Ui, UiBuilder, Vec2};
@@ -57,6 +57,10 @@ const VIEWS: [&str; 2] = ["By monitor", "Flat"];
 const SLACK: f32 = 4.0;
 /// Space left between the strip and the taskbar.
 const TASKBAR_GAP: f32 = 12.0;
+/// How long the strip stays open without the focus after it moved a window
+/// to another monitor, while it takes the focus back: a window that
+/// maximizes itself there can come to the front for a moment.
+const MOVE_GRACE: Duration = Duration::from_millis(1500);
 
 pub fn viewport_id() -> egui::ViewportId {
     egui::ViewportId::from_hash_of("wincraft-arrange")
@@ -216,6 +220,8 @@ struct Shared {
     hover: Hover,
     /// A test scene's card to peek at, without a mouse.
     forced_peek: Option<PeekCard>,
+    /// Losing the focus does not close the strip before this.
+    keep_open_until: Option<Instant>,
 }
 
 impl Shared {
@@ -291,6 +297,7 @@ impl Arrange {
                 peek: Peek::default(),
                 hover: Hover::default(),
                 forced_peek: None,
+                keep_open_until: None,
             })),
             palette_hwnd,
         }
@@ -402,7 +409,13 @@ impl Arrange {
             if focused == Some(true) {
                 shared.focused_once = true;
             }
-            if escape || (shared.focused_once && focused == Some(false)) {
+            let grace = shared
+                .keep_open_until
+                .and_then(|until| until.checked_duration_since(Instant::now()));
+            if let Some(left) = grace {
+                ui.ctx().request_repaint_after(left);
+            }
+            if escape || (shared.focused_once && focused == Some(false) && grace.is_none()) {
                 shared.closed = true;
             }
             if ui.ctx().input(|i| i.viewport().close_requested()) {
@@ -683,11 +696,18 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     for action in &actions {
         apply_locally(shared, action);
     }
+    let moves_monitor = actions
+        .iter()
+        .any(|action| matches!(action, ArrangeAction::MoveToMonitor { .. }));
     for action in actions {
         shared.to_host.send(HostRequest::Arrange {
             plugin: snapshot.plugin.clone(),
             action,
         });
+    }
+    if moves_monitor && shared.window != 0 {
+        shared.keep_open_until = Some(Instant::now() + MOVE_GRACE);
+        shared.to_host.send(HostRequest::FocusWindow(shared.window));
     }
     if let Some(hwnd) = frame.activate {
         shared.hide_peek();
@@ -1162,11 +1182,15 @@ fn apply_locally(shared: &mut Shared, action: &ArrangeAction) {
     let Some(key) = shared.key.clone() else {
         return;
     };
-    let Some(group) = shared
-        .snapshot
-        .as_mut()
-        .and_then(|snapshot| snapshot.groups.iter_mut().find(|group| group.key == key))
-    else {
+    let Some(snapshot) = shared.snapshot.as_mut() else {
+        return;
+    };
+    let monitor_place = |device: &str| snapshot.monitors.iter().position(|m| m.device == device);
+    let moved_to = match action {
+        ArrangeAction::MoveToMonitor { monitor, .. } => monitor_place(monitor),
+        _ => None,
+    };
+    let Some(group) = snapshot.groups.iter_mut().find(|group| group.key == key) else {
         return;
     };
     match action {
@@ -1182,6 +1206,14 @@ fn apply_locally(shared: &mut Shared, action: &ArrangeAction) {
                     .position(|h| *h == window.hwnd)
                     .unwrap_or(usize::MAX)
             });
+        }
+        ArrangeAction::MoveToMonitor { hwnd, .. } => {
+            // The plugin saves right after the move, so the saved monitor
+            // follows too and no Moved badge flashes up.
+            if let Some(window) = group.windows.iter_mut().find(|w| w.hwnd == *hwnd) {
+                window.on_monitor = moved_to;
+                window.saved_monitor = moved_to;
+            }
         }
         ArrangeAction::Close(hwnd) => group.windows.retain(|window| window.hwnd != *hwnd),
         ArrangeAction::Rename {

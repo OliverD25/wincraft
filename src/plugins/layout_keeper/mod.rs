@@ -1061,6 +1061,33 @@ impl LayoutKeeper {
         }
     }
 
+    /// Moves a window to the monitor with that device name, from the one it
+    /// is on now; nothing when it is there already.
+    fn move_to_monitor(&mut self, hwnd: HWND, device: &str) {
+        let monitors = monitors::list();
+        let Some(to) = monitors.iter().position(|m| m.saved().device == device) else {
+            log::info!("monitor {device} is not connected; the window stays where it is");
+            return;
+        };
+        let rect = self
+            .refresh()
+            .iter()
+            .find(|window| window.hwnd == hwnd)
+            .map(|window| window.identity.rect);
+        let Some(from) = rect.and_then(|rect| monitors::index_of(rect, &monitors)) else {
+            log::info!("the window to move to {device} is no longer open");
+            return;
+        };
+        if from == to {
+            return;
+        }
+        let label = window_names::display_title(hwnd);
+        match monitors::move_window(hwnd, &monitors[from], &monitors[to], &monitors) {
+            Ok(()) => log::info!("moved \"{label}\" to monitor {device}"),
+            Err(err) => log::warn!("could not move \"{label}\" to monitor {device}: {err}"),
+        }
+    }
+
     fn tick(&mut self) {
         self.ticks += 1;
         if !self.reapply.is_empty() {
@@ -1819,6 +1846,7 @@ impl WinCraftPlugin for LayoutKeeper {
             ArrangeAction::Activate(_) => "switching to a window",
             ArrangeAction::Reorder { .. } => "reordering from the strip",
             ArrangeAction::MoveToDesktop { .. } => "moving a window to another desktop",
+            ArrangeAction::MoveToMonitor { .. } => "moving a window to another monitor",
             ArrangeAction::Close(_) => "closing a window",
             // The host sends names to WindowNamer; they never come here.
             ArrangeAction::Rename { .. } | ArrangeAction::AskName(_) => return,
@@ -1871,6 +1899,11 @@ impl WinCraftPlugin for LayoutKeeper {
                         self.reapply.push(exe);
                     }
                 }
+                self.arrange_stale = true;
+            }
+            ArrangeAction::MoveToMonitor { hwnd, monitor } => {
+                self.move_to_monitor(*hwnd as HWND, monitor);
+                self.save("manual");
                 self.arrange_stale = true;
             }
             ArrangeAction::Close(hwnd) => {
@@ -2335,6 +2368,10 @@ mod tests {
             ArrangeAction::MoveToDesktop {
                 hwnd,
                 desktop: "{00000000-0000-0000-0000-000000000007}".to_string(),
+            },
+            ArrangeAction::MoveToMonitor {
+                hwnd,
+                monitor: r"\\.\DISPLAY2".to_string(),
             },
             ArrangeAction::Close(hwnd),
         ];
