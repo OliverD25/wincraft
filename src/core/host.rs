@@ -1,5 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
@@ -28,7 +29,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use serde_json::Value;
 
-use crate::core::config::{Config, PluginConfig, DEFAULT_PALETTE_HOTKEY};
+use crate::core::config::{Config, PluginConfig, UpdateConfig, DEFAULT_PALETTE_HOTKEY};
 use crate::core::traits::{HostContext, Hotkey, WinCraftPlugin};
 use crate::core::tray::{show_menu, MenuItem, Tray, WM_TRAY_CALLBACK};
 use crate::core::ui_bridge::{
@@ -109,11 +110,8 @@ struct PluginSlot {
 struct Host {
     hwnd: HWND,
     config: Config,
-    plugins: BTreeMap<String, PluginConfig>,
-    slots: Vec<PluginSlot>,
+    plugins: PluginSet,
     tray: Tray,
-    next_hotkey_id: i32,
-    palette_hotkey: Option<(Hotkey, bool)>,
     to_ui: Arc<UiChannel>,
     host_rx: Receiver<HostRequest>,
     palette_hwnd: HWND,
@@ -187,6 +185,82 @@ impl Default for Updates {
             tx,
             rx,
         }
+    }
+}
+
+/// What the host does after an update check, decided by `Updates::checked`.
+#[derive(Debug, Default, PartialEq)]
+struct AfterCheck {
+    /// GitHub answered; the config remembers when, and what it said.
+    answered: bool,
+    /// The balloon that says a newer version is there, once per new tag.
+    notice: Option<String>,
+    /// Read this version's notes again: the newest release is this one.
+    reload_notes: bool,
+    /// Install the newer version now: Update now started this check.
+    update_now: bool,
+}
+
+impl Updates {
+    fn checked(
+        &mut self,
+        result: Result<Checked, String>,
+        config: &mut UpdateConfig,
+        now: u64,
+    ) -> AfterCheck {
+        self.checking = false;
+        let manual = std::mem::take(&mut self.manual);
+        let auto_update = std::mem::take(&mut self.auto_update);
+        let mut after = AfterCheck::default();
+        let checked = match result {
+            Ok(checked) => checked,
+            Err(err) => {
+                log::info!("update check failed: {err}");
+                if manual {
+                    self.status = UpdateStatus::Offline;
+                }
+                return after;
+            }
+        };
+        after.answered = true;
+        config.last_check = now;
+        match checked {
+            Checked::NoRelease => {
+                log::info!("update check: no release is published yet");
+                self.status = UpdateStatus::NoRelease;
+                self.newer = None;
+            }
+            Checked::UpToDate(tag) => {
+                log::info!("update check: {tag} is the newest release, nothing to update");
+                self.status = UpdateStatus::UpToDate;
+                self.newer = None;
+                // The check keeps the notes when the newest release is this one.
+                after.reload_notes = true;
+                config.latest = tag;
+            }
+            Checked::Newer(release) => {
+                log::info!("update check: {} is available", release.tag);
+                self.status = UpdateStatus::Idle;
+                if config.latest != release.tag {
+                    after.notice = Some(format!(
+                        "WinCraft {} is available \u{2014} open About to update",
+                        release.tag.trim_start_matches(['v', 'V'])
+                    ));
+                    config.latest = release.tag.clone();
+                }
+                self.newer = Some(release);
+                after.update_now = auto_update;
+            }
+        }
+        after
+    }
+
+    /// The version waiting to hear that this one is healthy, taken so it
+    /// hears once, and whether the old version's files go afterwards: not
+    /// when quitting, nor from a copy that cannot update itself.
+    fn healthy_report(&mut self, quitting: bool) -> Option<(String, bool)> {
+        let from = self.healthy_pending.take()?;
+        Some((from, !quitting && self.blocked.is_none()))
     }
 }
 
@@ -315,18 +389,13 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
     let mut host = Host {
         hwnd,
         config,
-        slots: plugins
-            .into_iter()
-            .map(|plugin| PluginSlot {
-                plugin,
-                enabled: false,
-                registered: Vec::new(),
-            })
-            .collect(),
-        plugins: BTreeMap::new(),
+        plugins: PluginSet::new(
+            hwnd,
+            plugins,
+            Box::new(WindowHotkeys(hwnd)),
+            config::data_dir(),
+        ),
         tray: Tray::new(hwnd, hinstance),
-        next_hotkey_id: 1,
-        palette_hotkey: None,
         to_ui: Arc::clone(&bridge.to_ui),
         host_rx: bridge.host_rx,
         palette_hwnd: std::ptr::null_mut(),
@@ -343,20 +412,15 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
     TASKBAR_CREATED
         .with(|cell| cell.set(unsafe { RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()) }));
 
-    host.load_plugin_configs();
-    host.register_palette_hotkey();
-    let wanted: Vec<usize> = (0..host.slots.len())
-        .filter(|index| {
-            let id = host.slots[*index].plugin.metadata().id;
-            host.plugins
-                .get(id)
-                .map(|plugin| plugin.enabled)
-                .unwrap_or(true)
-        })
-        .collect();
-    for index in wanted {
-        host.enable_slot(index);
+    host.plugins.load_configs();
+    let palette = host.config.palette_hotkey.clone();
+    host.plugins.register_palette(&palette);
+    for index in host.plugins.wanted() {
+        host.plugins.enable(index);
     }
+    // Before the tray icon exists, so these balloons are not shown, as
+    // they never were.
+    host.show_warnings();
     host.save_config();
 
     let ui_thread = ui::start(
@@ -452,168 +516,18 @@ fn wait_for_ui(thread: std::thread::JoinHandle<()>) {
 }
 
 impl Host {
-    fn load_plugin_configs(&mut self) {
-        for index in 0..self.slots.len() {
-            self.load_plugin_config(index);
-        }
-    }
-
-    fn load_plugin_config(&mut self, index: usize) {
-        let slot = &self.slots[index];
-        let meta = slot.plugin.metadata();
-        let defaults: Vec<(&str, String)> = slot
-            .plugin
-            .hotkey_actions()
-            .iter()
-            .map(|action| (action.name, hotkeys::format(action.default)))
-            .collect();
-        let settings = slot.plugin.default_settings();
-
-        let mut plugin = PluginConfig::load(meta.id);
-        plugin.merge_defaults(&defaults, &settings);
-        slot.plugin.migrate_settings(&mut plugin.settings);
-        self.plugins.insert(meta.id.to_string(), plugin);
-        self.save_plugin(meta.id);
-    }
-
-    fn register_palette_hotkey(&mut self) {
-        let text = self.config.palette_hotkey.clone();
-        let hotkey = match hotkeys::parse(&text) {
-            Ok(hotkey) => hotkey,
-            Err(err) => {
-                log::warn!("palette_hotkey \"{text}\": {err}; using {DEFAULT_PALETTE_HOTKEY}");
-                hotkeys::parse(DEFAULT_PALETTE_HOTKEY).expect("the built-in default parses")
-            }
-        };
-        let ok = unsafe {
-            RegisterHotKey(self.hwnd, PALETTE_HOTKEY_ID, hotkey.modifiers, hotkey.vk) != 0
-        };
-        let keys = hotkeys::format(hotkey);
-        if ok {
-            log::info!("registered {keys} for host.palette");
-        } else {
-            log::warn!("could not register {keys} for host.palette; another app holds it");
+    /// Shows the balloons the plugin bookkeeping asked for. Clicking one
+    /// opens ShortcutDetector.
+    fn show_warnings(&mut self) {
+        for text in std::mem::take(&mut self.plugins.warnings) {
             self.balloon_click = BalloonClick::Detector;
-            self.tray
-                .balloon("WinCraft", &format!("{keys} is used by another app"));
-        }
-        self.palette_hotkey = Some((hotkey, ok));
-    }
-
-    fn plugin(&self, id: &str) -> Option<&PluginConfig> {
-        self.plugins.get(id)
-    }
-
-    fn plugin_mut(&mut self, id: &str) -> &mut PluginConfig {
-        self.plugins.entry(id.to_string()).or_default()
-    }
-
-    fn resolve_hotkey(&self, plugin_id: &str, name: &str, default: Hotkey) -> Hotkey {
-        let text = self
-            .plugin(plugin_id)
-            .and_then(|plugin| plugin.hotkeys.get(name));
-        match text {
-            Some(text) => match hotkeys::parse(text) {
-                Ok(hotkey) => hotkey,
-                Err(err) => {
-                    log::warn!("{plugin_id}.{name}: {err}; using the plugin default");
-                    default
-                }
-            },
-            None => default,
+            self.tray.balloon("WinCraft", &text);
         }
     }
 
     fn enable_slot(&mut self, index: usize) {
-        if self.slots[index].enabled {
-            return;
-        }
-        let meta = self.slots[index].plugin.metadata();
-        let settings = self
-            .plugin(meta.id)
-            .map(|plugin| plugin.settings.clone())
-            .unwrap_or_else(|| serde_json::json!({}));
-
-        let init_result = {
-            let ctx = HostContext {
-                hwnd: self.hwnd,
-                settings: &settings,
-            };
-            self.slots[index].plugin.init(&ctx)
-        };
-        if let Err(err) = init_result {
-            log::error!("{}: init failed: {err}", meta.id);
-            self.balloon_click = BalloonClick::Detector;
-            self.tray
-                .balloon("WinCraft", &format!("{} failed to start: {err}", meta.name));
-            return;
-        }
-
-        let actions: Vec<(u32, &'static str, &'static str, Hotkey)> = self.slots[index]
-            .plugin
-            .hotkey_actions()
-            .iter()
-            .map(|action| (action.id, action.name, action.label, action.default))
-            .collect();
-
-        for (action_id, name, label, default) in actions {
-            let hotkey = self.resolve_hotkey(meta.id, name, default);
-            let global_id = self.next_hotkey_id;
-            self.next_hotkey_id += 1;
-            let keys = hotkeys::format(hotkey);
-            let ok =
-                unsafe { RegisterHotKey(self.hwnd, global_id, hotkey.modifiers, hotkey.vk) != 0 };
-            if ok {
-                log::info!("registered {keys} for {}.{name}", meta.id);
-            } else {
-                log::warn!(
-                    "could not register {keys} for {}.{name}; another app holds it",
-                    meta.id
-                );
-                self.balloon_click = BalloonClick::Detector;
-                self.tray
-                    .balloon("WinCraft", &format!("{keys} is used by another app"));
-            }
-            self.slots[index].registered.push(RegisteredHotkey {
-                action_id,
-                global_id,
-                label,
-                hotkey,
-                keys,
-                ok,
-            });
-        }
-
-        self.slots[index].enabled = true;
-        self.plugin_mut(meta.id).enabled = true;
-        self.save_plugin(meta.id);
-        log::info!("{} enabled", meta.id);
-    }
-
-    fn disable_slot(&mut self, index: usize) {
-        if !self.stop_slot(index) {
-            return;
-        }
-        let id = self.slots[index].plugin.metadata().id;
-        self.plugin_mut(id).enabled = false;
-        self.save_plugin(id);
-        log::info!("{id} disabled");
-    }
-
-    /// Frees the plugin's hotkeys and tears it down, leaving its saved
-    /// enabled flag alone. False when it was not running.
-    fn stop_slot(&mut self, index: usize) -> bool {
-        if !self.slots[index].enabled {
-            return false;
-        }
-        for entry in self.slots[index].registered.drain(..) {
-            if entry.ok {
-                unsafe { UnregisterHotKey(self.hwnd, entry.global_id) };
-            }
-        }
-        self.slots[index].plugin.teardown();
-        self.slots[index].enabled = false;
-        true
+        self.plugins.enable(index);
+        self.show_warnings();
     }
 
     /// Open palette, Settings, then one primary action per enabled plugin,
@@ -633,6 +547,7 @@ impl Host {
         }
         items.push(MenuItem::Separator);
         let primary: Vec<MenuItem> = self
+            .plugins
             .slots
             .iter()
             .enumerate()
@@ -653,61 +568,12 @@ impl Host {
         items
     }
 
-    fn hotkey_infos(&self, index: usize) -> Vec<HotkeyInfo> {
-        let slot = &self.slots[index];
-        let meta = slot.plugin.metadata();
-        let actions = slot.plugin.hotkey_actions();
-        let default_of = |action_id: u32| {
-            actions
-                .iter()
-                .find(|action| action.id == action_id)
-                .map(|action| hotkeys::format(action.default))
-                .unwrap_or_default()
-        };
-        if slot.enabled {
-            return slot
-                .registered
-                .iter()
-                .map(|entry| HotkeyInfo {
-                    action: self.action_name(index, entry.action_id).to_string(),
-                    label: entry.label.to_string(),
-                    binding: entry.keys.clone(),
-                    default_binding: default_of(entry.action_id),
-                    registered: entry.ok,
-                })
-                .collect();
-        }
-        actions
-            .iter()
-            .map(|action| HotkeyInfo {
-                action: action.name.to_string(),
-                label: action.label.to_string(),
-                binding: hotkeys::format(self.resolve_hotkey(meta.id, action.name, action.default)),
-                default_binding: hotkeys::format(action.default),
-                registered: true,
-            })
-            .collect()
-    }
-
-    fn action_name(&self, index: usize, action_id: u32) -> &'static str {
-        self.slots[index]
-            .plugin
-            .hotkey_actions()
-            .into_iter()
-            .find(|action| action.id == action_id)
-            .map(|action| action.name)
-            .unwrap_or("")
-    }
-
     fn snapshot(&self) -> UiSnapshot {
-        let plugins: Vec<PluginInfo> = (0..self.slots.len())
+        let plugins: Vec<PluginInfo> = (0..self.plugins.slots.len())
             .map(|index| {
-                let slot = &self.slots[index];
+                let slot = &self.plugins.slots[index];
                 let meta = slot.plugin.metadata();
-                let settings = self
-                    .plugin(meta.id)
-                    .map(|plugin| plugin.settings.clone())
-                    .unwrap_or_else(|| serde_json::json!({}));
+                let settings = self.plugins.settings_of(meta.id);
                 PluginInfo {
                     id: meta.id.to_string(),
                     name: meta.name.to_string(),
@@ -717,7 +583,7 @@ impl Host {
                     readme: meta.readme.to_string(),
                     enabled: slot.enabled,
                     config_path: config::plugin_path(meta.id),
-                    hotkeys: self.hotkey_infos(index),
+                    hotkeys: self.plugins.hotkey_infos(index),
                     fields: field_infos(slot.plugin.as_ref(), &settings),
                     status: slot.plugin.status(),
                     page_action: page_button(slot.plugin.as_ref(), index),
@@ -731,10 +597,14 @@ impl Host {
             autostart_note: self.autostart_note.clone(),
             theme: self.config.theme,
             palette_hotkey: self.config.palette_hotkey.clone(),
-            palette_hotkey_registered: self.palette_hotkey.map(|(_, ok)| ok).unwrap_or(false),
+            palette_hotkey_registered: self
+                .plugins
+                .palette_hotkey
+                .map(|(_, ok)| ok)
+                .unwrap_or(false),
             config_path: config::config_path(),
             log_path: config::log_path(),
-            commands: self.palette_entries(&plugins),
+            commands: self.plugins.palette_entries(&plugins),
             plugins,
             search: self.config.search.clone(),
             update: self.update_view(),
@@ -804,7 +674,7 @@ impl Host {
     /// before the timer counts too, since nothing crashed.
     fn report_healthy(&mut self, quitting: bool) {
         unsafe { KillTimer(self.hwnd, HEALTHY_TIMER) };
-        let Some(from) = self.updates.healthy_pending.take() else {
+        let Some((from, tidy)) = self.updates.healthy_report(quitting) else {
             return;
         };
         if update::report_healthy() {
@@ -812,10 +682,7 @@ impl Host {
         } else {
             log::info!("no WinCraft {from} was waiting to hear that this version is healthy");
         }
-        if quitting {
-            return;
-        }
-        if self.updates.blocked.is_none() {
+        if tidy {
             update::remove_leftovers_soon(install::dir());
         }
     }
@@ -1037,51 +904,746 @@ impl Host {
     }
 
     fn checked(&mut self, result: Result<Checked, String>) {
-        self.updates.checking = false;
-        let manual = std::mem::take(&mut self.updates.manual);
-        let auto_update = std::mem::take(&mut self.updates.auto_update);
-        let checked = match result {
-            Ok(checked) => checked,
-            Err(err) => {
-                log::info!("update check failed: {err}");
-                if manual {
-                    self.updates.status = UpdateStatus::Offline;
-                }
-                return;
+        let after = self
+            .updates
+            .checked(result, &mut self.config.updates, update::now_secs());
+        if after.reload_notes {
+            self.updates.installed_notes = release_notes::load(env!("CARGO_PKG_VERSION"));
+        }
+        if let Some(text) = after.notice {
+            self.update_notice(&text);
+        }
+        if after.update_now {
+            self.update_now();
+        }
+        if after.answered {
+            self.save_config();
+        }
+    }
+
+    fn search_router(&self) -> Router {
+        let mut providers: Vec<(Option<String>, Box<dyn SearchProvider>)> =
+            search::providers::built_in()
+                .into_iter()
+                .map(|provider| (None, provider))
+                .collect();
+        for slot in &self.plugins.slots {
+            let id = slot.plugin.metadata().id;
+            for provider in slot.plugin.search_providers() {
+                providers.push((Some(id.to_string()), provider));
             }
+        }
+        let mut router = Router::new(providers, &self.config.search.prefixes);
+        router.load_usage(config::data_dir().join("palette_usage.json"));
+        router
+    }
+
+    fn publish(&self) {
+        self.to_ui
+            .send(UiCommand::Snapshot(Box::new(self.snapshot())));
+    }
+
+    /// Asks the first enabled plugin that keeps a window order for its groups
+    /// and sends them to the Arrange window.
+    fn send_arrange(&mut self, open: bool) {
+        // Read before the plugin builds its groups, so the mouse is still
+        // where it was when the hotkey came.
+        let hovered = if open {
+            taskbar::app_under_cursor()
+        } else {
+            None
         };
-        self.config.updates.last_check = update::now_secs();
-        match checked {
-            Checked::NoRelease => {
-                log::info!("update check: no release is published yet");
-                self.updates.status = UpdateStatus::NoRelease;
-                self.updates.newer = None;
+        let found = self.plugins.slots.iter_mut().find_map(|slot| {
+            if !slot.enabled {
+                return None;
             }
-            Checked::UpToDate(tag) => {
-                log::info!("update check: {tag} is the newest release, nothing to update");
-                self.updates.status = UpdateStatus::UpToDate;
-                self.updates.newer = None;
-                // The check keeps the notes when the newest release is this one.
-                self.updates.installed_notes = release_notes::load(env!("CARGO_PKG_VERSION"));
-                self.config.updates.latest = tag;
-            }
-            Checked::Newer(release) => {
-                log::info!("update check: {} is available", release.tag);
-                self.updates.status = UpdateStatus::Idle;
-                if self.config.updates.latest != release.tag {
-                    self.update_notice(&format!(
-                        "WinCraft {} is available \u{2014} open About to update",
-                        release.tag.trim_start_matches(['v', 'V'])
-                    ));
-                    self.config.updates.latest = release.tag.clone();
+            let groups = slot.plugin.window_groups()?;
+            Some((slot.plugin.metadata().id, groups))
+        });
+        let Some((id, groups)) = found else {
+            log::info!("no enabled plugin keeps a window order");
+            return;
+        };
+        let mut focus = groups.focus;
+        if open {
+            let under_cursor = hovered.as_deref().and_then(|app| {
+                groups
+                    .groups
+                    .iter()
+                    .position(|group| taskbar::same_app(app, &group.key))
+            });
+            let asked = self.arrange_focus.take().and_then(|wanted| {
+                let found = ArrangeGroup::pick(&groups.groups, &wanted);
+                if found.is_none() {
+                    log::info!("the scene asked for group \"{wanted}\", which is not open");
                 }
-                self.updates.newer = Some(release);
-                if auto_update {
-                    self.update_now();
+                found
+            });
+            let rule = match (asked, under_cursor) {
+                (Some(index), _) => {
+                    focus = index;
+                    "asked for by the test scene"
+                }
+                (None, Some(index)) => {
+                    focus = index;
+                    "taskbar button under cursor"
+                }
+                (None, None) => "front window",
+            };
+            match groups.groups.get(focus) {
+                Some(group) => log::info!("arrange opened on {} ({rule})", group.label),
+                None => log::info!("arrange opened with no app windows"),
+            }
+        }
+        let snapshot = ArrangeSnapshot {
+            plugin: id.to_string(),
+            groups: groups.groups,
+            desktops: groups.desktops,
+            focus,
+            watched: groups.watched,
+            preview: groups.preview,
+            can_rename: self.plugins.is_on(NAMER_ID),
+            monitors: groups.monitors,
+            view: groups.view,
+        };
+        self.to_ui.send(if open {
+            UiCommand::ShowArrange(snapshot)
+        } else {
+            UiCommand::ArrangeUpdate(snapshot)
+        });
+        if open {
+            if let Some(card) = self.peek_card.take() {
+                self.to_ui.send(UiCommand::PeekCard(card));
+            }
+        }
+    }
+
+    /// Asks the first enabled plugin that keeps a layout for its saved
+    /// windows and sends them to the Layout page.
+    fn send_layout(&mut self) {
+        let can_rename = self.plugins.is_on(NAMER_ID);
+        let snapshot = self.plugins.slots.iter_mut().find_map(|slot| {
+            if !slot.enabled {
+                return None;
+            }
+            slot.plugin.layout_snapshot()
+        });
+        self.to_ui
+            .send(UiCommand::LayoutUpdate(snapshot.map(|mut s| {
+                s.can_rename = can_rename;
+                s
+            })));
+    }
+
+    fn run_command(&mut self, id: CommandId) {
+        match id {
+            CommandId::Host(HostCommand::OpenSettings) => {
+                self.to_ui.send(UiCommand::ShowSettings(Page::General))
+            }
+            CommandId::Host(HostCommand::OpenStore) => {
+                self.to_ui.send(UiCommand::ShowSettings(Page::Store))
+            }
+            CommandId::Host(HostCommand::OpenLayout) => {
+                self.to_ui.send(UiCommand::ShowSettings(Page::Layout))
+            }
+            CommandId::Host(HostCommand::OpenAbout) => {
+                self.to_ui.send(UiCommand::ShowSettings(Page::About))
+            }
+            CommandId::Host(HostCommand::OpenConfig) => open_in_notepad(&config::config_path()),
+            CommandId::Host(HostCommand::OpenLog) => open_in_notepad(&config::log_path()),
+            CommandId::Host(HostCommand::Exit) => self.shutdown(),
+            CommandId::Host(HostCommand::TogglePlugin(index)) => {
+                if index < self.plugins.slots.len() {
+                    if self.plugins.slots[index].enabled {
+                        self.plugins.disable(index);
+                    } else {
+                        self.enable_slot(index);
+                    }
+                    self.publish();
+                }
+            }
+            CommandId::Plugin {
+                index,
+                kind,
+                action,
+            } => {
+                let Some(slot) = self.plugins.slots.get_mut(index) else {
+                    return;
+                };
+                if !slot.enabled {
+                    return;
+                }
+                match kind {
+                    ActionKind::Hotkey => slot.plugin.on_hotkey(action),
+                    ActionKind::Tray => slot.plugin.on_tray_action(action),
+                    ActionKind::Palette => slot.plugin.on_palette_command(action),
                 }
             }
         }
+    }
+
+    fn handle_request(&mut self, request: HostRequest) {
+        match request {
+            HostRequest::UiReady { palette_hwnd } => {
+                self.palette_hwnd = palette_hwnd as HWND;
+                clear_system_frame(self.palette_hwnd);
+                self.publish();
+            }
+            HostRequest::RunCommand(id) => self.run_command(id),
+            HostRequest::RunAction(search::Action::Command(id)) => self.run_command(id),
+            HostRequest::RunAction(action) => search::actions::perform(&action, self.hwnd),
+            HostRequest::PromptAnswer {
+                plugin,
+                id,
+                target,
+                text,
+            } => match self.plugins.index_of(&plugin) {
+                Some(index) if self.plugins.slots[index].enabled => self.plugins.slots[index]
+                    .plugin
+                    .on_prompt_answer(id, target, &text),
+                _ => log::info!("{plugin} is off; the answer to its question was dropped"),
+            },
+            HostRequest::Arrange { plugin, action } => {
+                let owner = if action.is_about_names() {
+                    NAMER_ID
+                } else {
+                    plugin.as_str()
+                };
+                self.arrange_action(owner, &action);
+                if !matches!(action, ArrangeAction::Activate(_)) {
+                    self.send_arrange(false);
+                }
+            }
+            HostRequest::LayoutRefresh => self.send_layout(),
+            HostRequest::Layout { plugin, action } => {
+                match self.plugins.index_of(&plugin) {
+                    Some(index) if self.plugins.slots[index].enabled => {
+                        self.plugins.slots[index].plugin.on_layout_action(&action)
+                    }
+                    _ => log::info!("{plugin} is off; the Layout page's request was dropped"),
+                }
+                self.send_layout();
+            }
+            HostRequest::FocusWindow(hwnd) => bring_to_front(hwnd as HWND),
+            HostRequest::ClearPaletteUsage => self.to_ui.send(UiCommand::ClearPaletteUsage),
+            HostRequest::SetPluginEnabled { id, enabled } => {
+                if let Some(index) = self.plugins.index_of(&id) {
+                    if enabled {
+                        self.enable_slot(index);
+                    } else {
+                        self.plugins.disable(index);
+                    }
+                    self.publish();
+                }
+            }
+            HostRequest::SetHotkey {
+                plugin,
+                action,
+                binding,
+            } => self.set_hotkey(&plugin, &action, &binding),
+            HostRequest::SetSetting { plugin, key, value } => {
+                self.set_setting(&plugin, &key, value)
+            }
+            HostRequest::ResetPlugin(id) => self.reset_plugin(&id),
+            HostRequest::SetHostSetting(setting) => self.set_host_setting(setting),
+            HostRequest::CheckForUpdates => self.check_for_updates(true),
+            HostRequest::UpdateNow => self.update_now(),
+            HostRequest::OpenPath(path) => open_in_notepad(&path),
+            HostRequest::Exit => self.shutdown(),
+        }
+    }
+
+    fn arrange_action(&mut self, plugin: &str, action: &ArrangeAction) {
+        match self.plugins.index_of(plugin) {
+            Some(index) if self.plugins.slots[index].enabled => {
+                self.plugins.slots[index].plugin.on_arrange_action(action)
+            }
+            _ => log::info!("{plugin} is off; the strip's request was dropped"),
+        }
+    }
+
+    fn set_hotkey(&mut self, plugin_id: &str, action: &str, binding: &str) {
+        self.plugins.set_hotkey(plugin_id, action, binding);
+        self.show_warnings();
+        self.publish();
+    }
+
+    fn set_setting(&mut self, plugin_id: &str, key: &str, value: Value) {
+        self.plugins.set_setting(plugin_id, key, value);
+        self.show_warnings();
+        self.publish();
+    }
+
+    fn reset_plugin(&mut self, plugin_id: &str) {
+        if self.plugins.reset(plugin_id) {
+            self.show_warnings();
+            self.publish();
+        }
+    }
+
+    fn set_host_setting(&mut self, setting: HostSetting) {
+        match setting {
+            HostSetting::StartWithWindows(wanted) => match autostart::set(wanted) {
+                Ok(()) => {
+                    self.config.start_with_windows = wanted;
+                    log::info!("start with Windows: {wanted}");
+                }
+                Err(err) => log::error!("could not change autostart: {err}"),
+            },
+            HostSetting::Search(search) => self.config.search = search,
+            HostSetting::CheckUpdatesDaily(on) => {
+                self.config.updates.check_daily = on;
+                log::info!("check for updates daily: {on}");
+            }
+            HostSetting::Theme(choice) => {
+                self.config.theme = choice;
+                theme::set_current(choice);
+                self.to_ui.send(UiCommand::ThemeChanged);
+            }
+            HostSetting::PaletteHotkey(binding) => match self.plugins.rebind_palette(&binding) {
+                Ok(text) => {
+                    self.config.palette_hotkey = text;
+                    self.show_warnings();
+                }
+                Err(err) => log::warn!("palette hotkey: {err}"),
+            },
+        }
         self.save_config();
+        self.publish();
+    }
+
+    fn save_config(&self) {
+        if let Err(err) = self.config.save_in(&self.plugins.data) {
+            log::error!("could not save config.json: {err}");
+        }
+    }
+
+    fn shutdown(&mut self) {
+        log::info!("WinCraft is shutting down");
+        self.report_healthy(true);
+        self.to_ui.send(UiCommand::Quit);
+        self.plugins.stop_all();
+        self.tray.remove();
+        unsafe { PostQuitMessage(0) };
+    }
+}
+
+/// Global hotkeys, behind a trait so the bookkeeping runs in tests with a
+/// fake that never registers anything with Windows.
+trait Registrar {
+    /// False when the keys are taken, by another app or by WinCraft itself.
+    fn register(&mut self, id: i32, hotkey: Hotkey) -> bool;
+    fn unregister(&mut self, id: i32);
+}
+
+/// The hotkeys of the host window.
+struct WindowHotkeys(HWND);
+
+impl Registrar for WindowHotkeys {
+    fn register(&mut self, id: i32, hotkey: Hotkey) -> bool {
+        unsafe { RegisterHotKey(self.0, id, hotkey.modifiers, hotkey.vk) != 0 }
+    }
+
+    fn unregister(&mut self, id: i32) {
+        unsafe { UnregisterHotKey(self.0, id) };
+    }
+}
+
+/// The plugins and their hotkeys: which plugins run, what each one's
+/// settings file says, and which global hotkeys are registered. Kept apart
+/// from the tray and the UI, so it runs in tests with fake plugins and a
+/// fake registrar.
+struct PluginSet {
+    /// The host window, which plugins get in their `HostContext`.
+    hwnd: HWND,
+    slots: Vec<PluginSlot>,
+    configs: BTreeMap<String, PluginConfig>,
+    keys: Box<dyn Registrar>,
+    next_hotkey_id: i32,
+    palette_hotkey: Option<(Hotkey, bool)>,
+    /// The folder of config.json and the plugin files.
+    data: PathBuf,
+    /// Balloons for the host to show; a click on one opens ShortcutDetector.
+    warnings: Vec<String>,
+}
+
+impl PluginSet {
+    fn new(
+        hwnd: HWND,
+        plugins: Vec<Box<dyn WinCraftPlugin>>,
+        keys: Box<dyn Registrar>,
+        data: PathBuf,
+    ) -> Self {
+        Self {
+            hwnd,
+            slots: plugins
+                .into_iter()
+                .map(|plugin| PluginSlot {
+                    plugin,
+                    enabled: false,
+                    registered: Vec::new(),
+                })
+                .collect(),
+            configs: BTreeMap::new(),
+            keys,
+            next_hotkey_id: 1,
+            palette_hotkey: None,
+            data,
+            warnings: Vec::new(),
+        }
+    }
+
+    fn load_configs(&mut self) {
+        for index in 0..self.slots.len() {
+            self.load_config(index);
+        }
+    }
+
+    fn load_config(&mut self, index: usize) {
+        let slot = &self.slots[index];
+        let meta = slot.plugin.metadata();
+        let defaults: Vec<(&str, String)> = slot
+            .plugin
+            .hotkey_actions()
+            .iter()
+            .map(|action| (action.name, hotkeys::format(action.default)))
+            .collect();
+        let settings = slot.plugin.default_settings();
+
+        let mut plugin = PluginConfig::load_in(&self.data, meta.id);
+        plugin.merge_defaults(&defaults, &settings);
+        slot.plugin.migrate_settings(&mut plugin.settings);
+        self.configs.insert(meta.id.to_string(), plugin);
+        self.save(meta.id);
+    }
+
+    /// The plugins to start: those their file has on, and any without one.
+    fn wanted(&self) -> Vec<usize> {
+        (0..self.slots.len())
+            .filter(|index| {
+                let id = self.slots[*index].plugin.metadata().id;
+                self.configs
+                    .get(id)
+                    .map(|plugin| plugin.enabled)
+                    .unwrap_or(true)
+            })
+            .collect()
+    }
+
+    fn register_palette(&mut self, text: &str) {
+        let hotkey = match hotkeys::parse(text) {
+            Ok(hotkey) => hotkey,
+            Err(err) => {
+                log::warn!("palette_hotkey \"{text}\": {err}; using {DEFAULT_PALETTE_HOTKEY}");
+                hotkeys::parse(DEFAULT_PALETTE_HOTKEY).expect("the built-in default parses")
+            }
+        };
+        let ok = self.keys.register(PALETTE_HOTKEY_ID, hotkey);
+        let keys = hotkeys::format(hotkey);
+        if ok {
+            log::info!("registered {keys} for host.palette");
+        } else {
+            log::warn!("could not register {keys} for host.palette; another app holds it");
+            self.warnings.push(format!("{keys} is used by another app"));
+        }
+        self.palette_hotkey = Some((hotkey, ok));
+    }
+
+    /// Frees the palette hotkey and registers `binding` instead. Returns
+    /// the binding as the config file spells it.
+    fn rebind_palette(&mut self, binding: &str) -> Result<String, String> {
+        let hotkey = hotkeys::parse(binding)?;
+        self.free_palette();
+        let text = hotkeys::format(hotkey);
+        self.register_palette(&text);
+        Ok(text)
+    }
+
+    fn free_palette(&mut self) {
+        if let Some((_, true)) = self.palette_hotkey {
+            self.keys.unregister(PALETTE_HOTKEY_ID);
+        }
+    }
+
+    fn config(&self, id: &str) -> Option<&PluginConfig> {
+        self.configs.get(id)
+    }
+
+    fn config_mut(&mut self, id: &str) -> &mut PluginConfig {
+        self.configs.entry(id.to_string()).or_default()
+    }
+
+    fn settings_of(&self, id: &str) -> Value {
+        self.config(id)
+            .map(|plugin| plugin.settings.clone())
+            .unwrap_or_else(|| serde_json::json!({}))
+    }
+
+    fn resolve_hotkey(&self, plugin_id: &str, name: &str, default: Hotkey) -> Hotkey {
+        let text = self
+            .config(plugin_id)
+            .and_then(|plugin| plugin.hotkeys.get(name));
+        match text {
+            Some(text) => match hotkeys::parse(text) {
+                Ok(hotkey) => hotkey,
+                Err(err) => {
+                    log::warn!("{plugin_id}.{name}: {err}; using the plugin default");
+                    default
+                }
+            },
+            None => default,
+        }
+    }
+
+    /// Starts a plugin and registers its hotkeys. A plugin whose start fails
+    /// stays off for this session but keeps its saved enabled flag, so the
+    /// next start tries it again.
+    fn enable(&mut self, index: usize) {
+        if self.slots[index].enabled {
+            return;
+        }
+        let meta = self.slots[index].plugin.metadata();
+        let settings = self.settings_of(meta.id);
+
+        let init_result = {
+            let ctx = HostContext {
+                hwnd: self.hwnd,
+                settings: &settings,
+            };
+            self.slots[index].plugin.init(&ctx)
+        };
+        if let Err(err) = init_result {
+            log::error!("{}: init failed: {err}", meta.id);
+            self.warnings
+                .push(format!("{} failed to start: {err}", meta.name));
+            return;
+        }
+
+        let actions: Vec<(u32, &'static str, &'static str, Hotkey)> = self.slots[index]
+            .plugin
+            .hotkey_actions()
+            .iter()
+            .map(|action| (action.id, action.name, action.label, action.default))
+            .collect();
+
+        for (action_id, name, label, default) in actions {
+            let hotkey = self.resolve_hotkey(meta.id, name, default);
+            let global_id = self.next_hotkey_id;
+            self.next_hotkey_id += 1;
+            let keys = hotkeys::format(hotkey);
+            let ok = self.keys.register(global_id, hotkey);
+            if ok {
+                log::info!("registered {keys} for {}.{name}", meta.id);
+            } else {
+                log::warn!(
+                    "could not register {keys} for {}.{name}; another app holds it",
+                    meta.id
+                );
+                self.warnings.push(format!("{keys} is used by another app"));
+            }
+            self.slots[index].registered.push(RegisteredHotkey {
+                action_id,
+                global_id,
+                label,
+                hotkey,
+                keys,
+                ok,
+            });
+        }
+
+        self.slots[index].enabled = true;
+        self.config_mut(meta.id).enabled = true;
+        self.save(meta.id);
+        log::info!("{} enabled", meta.id);
+    }
+
+    fn disable(&mut self, index: usize) {
+        if !self.stop(index) {
+            return;
+        }
+        let id = self.slots[index].plugin.metadata().id;
+        self.config_mut(id).enabled = false;
+        self.save(id);
+        log::info!("{id} disabled");
+    }
+
+    /// Frees the plugin's hotkeys and tears it down, leaving its saved
+    /// enabled flag alone. False when it was not running.
+    fn stop(&mut self, index: usize) -> bool {
+        if !self.slots[index].enabled {
+            return false;
+        }
+        for entry in self.slots[index].registered.drain(..) {
+            if entry.ok {
+                self.keys.unregister(entry.global_id);
+            }
+        }
+        self.slots[index].plugin.teardown();
+        self.slots[index].enabled = false;
+        true
+    }
+
+    /// Quitting stops every plugin but must not save it as disabled, or
+    /// the next start would come up with every plugin switched off.
+    fn stop_all(&mut self) {
+        for index in 0..self.slots.len() {
+            if self.stop(index) {
+                log::info!("{} stopped", self.slots[index].plugin.metadata().id);
+            }
+        }
+        self.free_palette();
+    }
+
+    /// Stops a running plugin and starts it again, for a change it can only
+    /// take at start.
+    fn restart(&mut self, index: usize) {
+        if self.slots[index].enabled {
+            self.disable(index);
+            self.enable(index);
+        }
+    }
+
+    fn set_hotkey(&mut self, plugin_id: &str, action: &str, binding: &str) {
+        let hotkey = match hotkeys::parse(binding) {
+            Ok(hotkey) => hotkey,
+            Err(err) => {
+                log::warn!("{plugin_id}.{action}: {err}");
+                return;
+            }
+        };
+        self.config_mut(plugin_id)
+            .hotkeys
+            .insert(action.to_string(), hotkeys::format(hotkey));
+        self.save(plugin_id);
+
+        if let Some(index) = self.index_of(plugin_id) {
+            self.restart(index);
+        }
+        log::info!(
+            "{plugin_id}.{action} rebound to {}",
+            hotkeys::format(hotkey)
+        );
+    }
+
+    fn set_setting(&mut self, plugin_id: &str, key: &str, value: Value) {
+        {
+            let plugin = self.config_mut(plugin_id);
+            if !plugin.settings.is_object() {
+                plugin.settings = serde_json::json!({});
+            }
+            if key.starts_with('/') {
+                config::set_pointer(&mut plugin.settings, key, value);
+            } else if let Some(object) = plugin.settings.as_object_mut() {
+                object.insert(key.to_string(), value);
+            }
+        }
+        self.save(plugin_id);
+
+        let settings = self.settings_of(plugin_id);
+        if let Some(index) = self.index_of(plugin_id) {
+            if self.slots[index].enabled && !self.slots[index].plugin.on_settings_changed(&settings)
+            {
+                self.restart(index);
+            }
+        }
+    }
+
+    /// Deletes the plugin's settings file and starts it again from its
+    /// defaults. False when the file could not be deleted.
+    fn reset(&mut self, plugin_id: &str) -> bool {
+        if let Err(err) = PluginConfig::reset_in(&self.data, plugin_id) {
+            log::error!("{err}");
+            return false;
+        }
+        let Some(index) = self.index_of(plugin_id) else {
+            return false;
+        };
+        let was_enabled = self.slots[index].enabled;
+        if was_enabled {
+            self.disable(index);
+        }
+        self.configs.remove(plugin_id);
+        self.load_config(index);
+        if was_enabled {
+            self.enable(index);
+        }
+        log::info!("{plugin_id} reset to defaults");
+        true
+    }
+
+    /// The plugin and action a global hotkey belongs to, while it is on.
+    fn hotkey_target(&self, global_id: i32) -> Option<(usize, u32)> {
+        let target = self.slots.iter().enumerate().find_map(|(index, slot)| {
+            slot.registered
+                .iter()
+                .find(|entry| entry.global_id == global_id)
+                .map(|entry| (index, entry.action_id))
+        })?;
+        log::debug!(
+            "hotkey {global_id} goes to {}, action {}",
+            self.slots[target.0].plugin.metadata().id,
+            target.1
+        );
+        self.slots[target.0].enabled.then_some(target)
+    }
+
+    /// The registered hotkeys of the plugins that are on: (plugin name,
+    /// action label, keys).
+    fn registered(&self) -> Vec<(String, String, Hotkey)> {
+        let mut found = Vec::new();
+        for slot in self.slots.iter().filter(|slot| slot.enabled) {
+            let plugin = slot.plugin.metadata().name;
+            for entry in slot.registered.iter().filter(|entry| entry.ok) {
+                found.push((plugin.to_string(), entry.label.to_string(), entry.hotkey));
+            }
+        }
+        found
+    }
+
+    fn hotkey_infos(&self, index: usize) -> Vec<HotkeyInfo> {
+        let slot = &self.slots[index];
+        let meta = slot.plugin.metadata();
+        let actions = slot.plugin.hotkey_actions();
+        let default_of = |action_id: u32| {
+            actions
+                .iter()
+                .find(|action| action.id == action_id)
+                .map(|action| hotkeys::format(action.default))
+                .unwrap_or_default()
+        };
+        if slot.enabled {
+            return slot
+                .registered
+                .iter()
+                .map(|entry| HotkeyInfo {
+                    action: self.action_name(index, entry.action_id).to_string(),
+                    label: entry.label.to_string(),
+                    binding: entry.keys.clone(),
+                    default_binding: default_of(entry.action_id),
+                    registered: entry.ok,
+                })
+                .collect();
+        }
+        actions
+            .iter()
+            .map(|action| HotkeyInfo {
+                action: action.name.to_string(),
+                label: action.label.to_string(),
+                binding: hotkeys::format(self.resolve_hotkey(meta.id, action.name, action.default)),
+                default_binding: hotkeys::format(action.default),
+                registered: true,
+            })
+            .collect()
+    }
+
+    fn action_name(&self, index: usize, action_id: u32) -> &'static str {
+        self.slots[index]
+            .plugin
+            .hotkey_actions()
+            .into_iter()
+            .find(|action| action.id == action_id)
+            .map(|action| action.name)
+            .unwrap_or("")
     }
 
     fn palette_entries(&self, plugins: &[PluginInfo]) -> Vec<PaletteEntry> {
@@ -1189,399 +1751,25 @@ impl Host {
         entries
     }
 
-    fn search_router(&self) -> Router {
-        let mut providers: Vec<(Option<String>, Box<dyn SearchProvider>)> =
-            search::providers::built_in()
-                .into_iter()
-                .map(|provider| (None, provider))
-                .collect();
-        for slot in &self.slots {
-            let id = slot.plugin.metadata().id;
-            for provider in slot.plugin.search_providers() {
-                providers.push((Some(id.to_string()), provider));
-            }
-        }
-        let mut router = Router::new(providers, &self.config.search.prefixes);
-        router.load_usage(config::data_dir().join("palette_usage.json"));
-        router
-    }
-
-    fn publish(&self) {
-        self.to_ui
-            .send(UiCommand::Snapshot(Box::new(self.snapshot())));
-    }
-
-    /// Asks the first enabled plugin that keeps a window order for its groups
-    /// and sends them to the Arrange window.
-    fn send_arrange(&mut self, open: bool) {
-        // Read before the plugin builds its groups, so the mouse is still
-        // where it was when the hotkey came.
-        let hovered = if open {
-            taskbar::app_under_cursor()
-        } else {
-            None
-        };
-        let found = self.slots.iter_mut().find_map(|slot| {
-            if !slot.enabled {
-                return None;
-            }
-            let groups = slot.plugin.window_groups()?;
-            Some((slot.plugin.metadata().id, groups))
-        });
-        let Some((id, groups)) = found else {
-            log::info!("no enabled plugin keeps a window order");
-            return;
-        };
-        let mut focus = groups.focus;
-        if open {
-            let under_cursor = hovered.as_deref().and_then(|app| {
-                groups
-                    .groups
-                    .iter()
-                    .position(|group| taskbar::same_app(app, &group.key))
-            });
-            let asked = self.arrange_focus.take().and_then(|wanted| {
-                let found = ArrangeGroup::pick(&groups.groups, &wanted);
-                if found.is_none() {
-                    log::info!("the scene asked for group \"{wanted}\", which is not open");
-                }
-                found
-            });
-            let rule = match (asked, under_cursor) {
-                (Some(index), _) => {
-                    focus = index;
-                    "asked for by the test scene"
-                }
-                (None, Some(index)) => {
-                    focus = index;
-                    "taskbar button under cursor"
-                }
-                (None, None) => "front window",
-            };
-            match groups.groups.get(focus) {
-                Some(group) => log::info!("arrange opened on {} ({rule})", group.label),
-                None => log::info!("arrange opened with no app windows"),
-            }
-        }
-        let snapshot = ArrangeSnapshot {
-            plugin: id.to_string(),
-            groups: groups.groups,
-            desktops: groups.desktops,
-            focus,
-            watched: groups.watched,
-            preview: groups.preview,
-            can_rename: self
-                .index_of(NAMER_ID)
-                .is_some_and(|index| self.slots[index].enabled),
-            monitors: groups.monitors,
-            view: groups.view,
-        };
-        self.to_ui.send(if open {
-            UiCommand::ShowArrange(snapshot)
-        } else {
-            UiCommand::ArrangeUpdate(snapshot)
-        });
-        if open {
-            if let Some(card) = self.peek_card.take() {
-                self.to_ui.send(UiCommand::PeekCard(card));
-            }
-        }
-    }
-
-    /// Asks the first enabled plugin that keeps a layout for its saved
-    /// windows and sends them to the Layout page.
-    fn send_layout(&mut self) {
-        let can_rename = self
-            .index_of(NAMER_ID)
-            .is_some_and(|index| self.slots[index].enabled);
-        let snapshot = self.slots.iter_mut().find_map(|slot| {
-            if !slot.enabled {
-                return None;
-            }
-            slot.plugin.layout_snapshot()
-        });
-        self.to_ui
-            .send(UiCommand::LayoutUpdate(snapshot.map(|mut s| {
-                s.can_rename = can_rename;
-                s
-            })));
-    }
-
     fn index_of(&self, id: &str) -> Option<usize> {
         self.slots
             .iter()
             .position(|slot| slot.plugin.metadata().id == id)
     }
 
-    fn run_command(&mut self, id: CommandId) {
-        match id {
-            CommandId::Host(HostCommand::OpenSettings) => {
-                self.to_ui.send(UiCommand::ShowSettings(Page::General))
-            }
-            CommandId::Host(HostCommand::OpenStore) => {
-                self.to_ui.send(UiCommand::ShowSettings(Page::Store))
-            }
-            CommandId::Host(HostCommand::OpenLayout) => {
-                self.to_ui.send(UiCommand::ShowSettings(Page::Layout))
-            }
-            CommandId::Host(HostCommand::OpenAbout) => {
-                self.to_ui.send(UiCommand::ShowSettings(Page::About))
-            }
-            CommandId::Host(HostCommand::OpenConfig) => open_in_notepad(&config::config_path()),
-            CommandId::Host(HostCommand::OpenLog) => open_in_notepad(&config::log_path()),
-            CommandId::Host(HostCommand::Exit) => self.shutdown(),
-            CommandId::Host(HostCommand::TogglePlugin(index)) => {
-                if index < self.slots.len() {
-                    if self.slots[index].enabled {
-                        self.disable_slot(index);
-                    } else {
-                        self.enable_slot(index);
-                    }
-                    self.publish();
-                }
-            }
-            CommandId::Plugin {
-                index,
-                kind,
-                action,
-            } => {
-                let Some(slot) = self.slots.get_mut(index) else {
-                    return;
-                };
-                if !slot.enabled {
-                    return;
-                }
-                match kind {
-                    ActionKind::Hotkey => slot.plugin.on_hotkey(action),
-                    ActionKind::Tray => slot.plugin.on_tray_action(action),
-                    ActionKind::Palette => slot.plugin.on_palette_command(action),
-                }
-            }
-        }
+    /// Whether the plugin with this id is there and on.
+    fn is_on(&self, id: &str) -> bool {
+        self.index_of(id)
+            .is_some_and(|index| self.slots[index].enabled)
     }
 
-    fn handle_request(&mut self, request: HostRequest) {
-        match request {
-            HostRequest::UiReady { palette_hwnd } => {
-                self.palette_hwnd = palette_hwnd as HWND;
-                clear_system_frame(self.palette_hwnd);
-                self.publish();
-            }
-            HostRequest::RunCommand(id) => self.run_command(id),
-            HostRequest::RunAction(search::Action::Command(id)) => self.run_command(id),
-            HostRequest::RunAction(action) => search::actions::perform(&action, self.hwnd),
-            HostRequest::PromptAnswer {
-                plugin,
-                id,
-                target,
-                text,
-            } => match self.index_of(&plugin) {
-                Some(index) if self.slots[index].enabled => {
-                    self.slots[index].plugin.on_prompt_answer(id, target, &text)
-                }
-                _ => log::info!("{plugin} is off; the answer to its question was dropped"),
-            },
-            HostRequest::Arrange { plugin, action } => {
-                let owner = if action.is_about_names() {
-                    NAMER_ID
-                } else {
-                    plugin.as_str()
-                };
-                self.arrange_action(owner, &action);
-                if !matches!(action, ArrangeAction::Activate(_)) {
-                    self.send_arrange(false);
-                }
-            }
-            HostRequest::LayoutRefresh => self.send_layout(),
-            HostRequest::Layout { plugin, action } => {
-                match self.index_of(&plugin) {
-                    Some(index) if self.slots[index].enabled => {
-                        self.slots[index].plugin.on_layout_action(&action)
-                    }
-                    _ => log::info!("{plugin} is off; the Layout page's request was dropped"),
-                }
-                self.send_layout();
-            }
-            HostRequest::FocusWindow(hwnd) => bring_to_front(hwnd as HWND),
-            HostRequest::ClearPaletteUsage => self.to_ui.send(UiCommand::ClearPaletteUsage),
-            HostRequest::SetPluginEnabled { id, enabled } => {
-                if let Some(index) = self.index_of(&id) {
-                    if enabled {
-                        self.enable_slot(index);
-                    } else {
-                        self.disable_slot(index);
-                    }
-                    self.publish();
-                }
-            }
-            HostRequest::SetHotkey {
-                plugin,
-                action,
-                binding,
-            } => self.set_hotkey(&plugin, &action, &binding),
-            HostRequest::SetSetting { plugin, key, value } => {
-                self.set_setting(&plugin, &key, value)
-            }
-            HostRequest::ResetPlugin(id) => self.reset_plugin(&id),
-            HostRequest::SetHostSetting(setting) => self.set_host_setting(setting),
-            HostRequest::CheckForUpdates => self.check_for_updates(true),
-            HostRequest::UpdateNow => self.update_now(),
-            HostRequest::OpenPath(path) => open_in_notepad(&path),
-            HostRequest::Exit => self.shutdown(),
-        }
-    }
-
-    fn arrange_action(&mut self, plugin: &str, action: &ArrangeAction) {
-        match self.index_of(plugin) {
-            Some(index) if self.slots[index].enabled => {
-                self.slots[index].plugin.on_arrange_action(action)
-            }
-            _ => log::info!("{plugin} is off; the strip's request was dropped"),
-        }
-    }
-
-    fn set_hotkey(&mut self, plugin_id: &str, action: &str, binding: &str) {
-        let hotkey = match hotkeys::parse(binding) {
-            Ok(hotkey) => hotkey,
-            Err(err) => {
-                log::warn!("{plugin_id}.{action}: {err}");
-                return;
-            }
-        };
-        self.plugin_mut(plugin_id)
-            .hotkeys
-            .insert(action.to_string(), hotkeys::format(hotkey));
-        self.save_plugin(plugin_id);
-
-        if let Some(index) = self.index_of(plugin_id) {
-            if self.slots[index].enabled {
-                self.disable_slot(index);
-                self.enable_slot(index);
-            }
-        }
-        log::info!(
-            "{plugin_id}.{action} rebound to {}",
-            hotkeys::format(hotkey)
-        );
-        self.publish();
-    }
-
-    fn set_setting(&mut self, plugin_id: &str, key: &str, value: Value) {
-        {
-            let plugin = self.plugin_mut(plugin_id);
-            if !plugin.settings.is_object() {
-                plugin.settings = serde_json::json!({});
-            }
-            if key.starts_with('/') {
-                config::set_pointer(&mut plugin.settings, key, value);
-            } else if let Some(object) = plugin.settings.as_object_mut() {
-                object.insert(key.to_string(), value);
-            }
-        }
-        self.save_plugin(plugin_id);
-
-        let settings = self
-            .plugin(plugin_id)
-            .map(|plugin| plugin.settings.clone())
-            .unwrap_or_else(|| serde_json::json!({}));
-        if let Some(index) = self.index_of(plugin_id) {
-            if self.slots[index].enabled {
-                let applied = self.slots[index].plugin.on_settings_changed(&settings);
-                if !applied {
-                    self.disable_slot(index);
-                    self.enable_slot(index);
-                }
-            }
-        }
-        self.publish();
-    }
-
-    fn reset_plugin(&mut self, plugin_id: &str) {
-        if let Err(err) = PluginConfig::reset(plugin_id) {
-            log::error!("{err}");
-            return;
-        }
-        let Some(index) = self.index_of(plugin_id) else {
+    fn save(&self, id: &str) {
+        let Some(plugin) = self.configs.get(id) else {
             return;
         };
-        let was_enabled = self.slots[index].enabled;
-        if was_enabled {
-            self.disable_slot(index);
-        }
-        self.plugins.remove(plugin_id);
-        self.load_plugin_config(index);
-        if was_enabled {
-            self.enable_slot(index);
-        }
-        log::info!("{plugin_id} reset to defaults");
-        self.publish();
-    }
-
-    fn set_host_setting(&mut self, setting: HostSetting) {
-        match setting {
-            HostSetting::StartWithWindows(wanted) => match autostart::set(wanted) {
-                Ok(()) => {
-                    self.config.start_with_windows = wanted;
-                    log::info!("start with Windows: {wanted}");
-                }
-                Err(err) => log::error!("could not change autostart: {err}"),
-            },
-            HostSetting::Search(search) => self.config.search = search,
-            HostSetting::CheckUpdatesDaily(on) => {
-                self.config.updates.check_daily = on;
-                log::info!("check for updates daily: {on}");
-            }
-            HostSetting::Theme(choice) => {
-                self.config.theme = choice;
-                theme::set_current(choice);
-                self.to_ui.send(UiCommand::ThemeChanged);
-            }
-            HostSetting::PaletteHotkey(binding) => match hotkeys::parse(&binding) {
-                Ok(hotkey) => {
-                    if let Some((_, true)) = self.palette_hotkey {
-                        unsafe { UnregisterHotKey(self.hwnd, PALETTE_HOTKEY_ID) };
-                    }
-                    self.config.palette_hotkey = hotkeys::format(hotkey);
-                    self.register_palette_hotkey();
-                }
-                Err(err) => log::warn!("palette hotkey: {err}"),
-            },
-        }
-        self.save_config();
-        self.publish();
-    }
-
-    fn save_config(&self) {
-        if let Err(err) = self.config.save() {
-            log::error!("could not save config.json: {err}");
-        }
-    }
-
-    fn save_plugin(&self, id: &str) {
-        let Some(plugin) = self.plugins.get(id) else {
-            return;
-        };
-        if let Err(err) = plugin.save(id) {
+        if let Err(err) = plugin.save_in(&self.data, id) {
             log::error!("could not save the settings for {id}: {err}");
         }
-    }
-
-    /// Quitting stops every plugin but must not save it as disabled, or
-    /// the next start would come up with every plugin switched off.
-    fn shutdown(&mut self) {
-        log::info!("WinCraft is shutting down");
-        self.report_healthy(true);
-        self.to_ui.send(UiCommand::Quit);
-        for index in 0..self.slots.len() {
-            if self.stop_slot(index) {
-                log::info!("{} stopped", self.slots[index].plugin.metadata().id);
-            }
-        }
-        if let Some((_, true)) = self.palette_hotkey {
-            unsafe { UnregisterHotKey(self.hwnd, PALETTE_HOTKEY_ID) };
-        }
-        self.tray.remove();
-        unsafe { PostQuitMessage(0) };
     }
 }
 
@@ -1687,17 +1875,10 @@ pub fn plugin_changed() {
 pub fn registered_hotkeys() -> Vec<(String, String, Hotkey)> {
     HOST.with(|cell| {
         let borrowed = cell.borrow();
-        let Some(host) = borrowed.as_ref() else {
-            return Vec::new();
-        };
-        let mut found = Vec::new();
-        for slot in host.slots.iter().filter(|slot| slot.enabled) {
-            let plugin = slot.plugin.metadata().name;
-            for entry in slot.registered.iter().filter(|entry| entry.ok) {
-                found.push((plugin.to_string(), entry.label.to_string(), entry.hotkey));
-            }
-        }
-        found
+        borrowed
+            .as_ref()
+            .map(|host| host.plugins.registered())
+            .unwrap_or_default()
     })
 }
 
@@ -1781,6 +1962,7 @@ fn show_palette() {
 fn open_shortcut_detector() {
     with_host(|host| {
         let slot = host
+            .plugins
             .slots
             .iter_mut()
             .find(|slot| slot.enabled && slot.plugin.metadata().id == DETECTOR_ID);
@@ -1962,7 +2144,7 @@ fn handle_menu_choice(choice: u32) {
                 let offset = id - MENU_PLUGIN_ACTION_BASE;
                 let index = (offset / 100) as usize;
                 let action_id = offset % 100;
-                if let Some(slot) = host.slots.get_mut(index) {
+                if let Some(slot) = host.plugins.slots.get_mut(index) {
                     if slot.enabled {
                         slot.plugin.on_tray_action(action_id);
                     }
@@ -2042,20 +2224,8 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
                 return 0;
             }
             with_host_or_later(hwnd, msg, wparam, lparam, |host| {
-                let target = host.slots.iter().enumerate().find_map(|(index, slot)| {
-                    slot.registered
-                        .iter()
-                        .find(|entry| entry.global_id == global_id)
-                        .map(|entry| (index, entry.action_id))
-                });
-                if let Some((index, action_id)) = target {
-                    log::debug!(
-                        "hotkey {global_id} goes to {}, action {action_id}",
-                        host.slots[index].plugin.metadata().id
-                    );
-                    if host.slots[index].enabled {
-                        host.slots[index].plugin.on_hotkey(action_id);
-                    }
+                if let Some((index, action_id)) = host.plugins.hotkey_target(global_id) {
+                    host.plugins.slots[index].plugin.on_hotkey(action_id);
                 }
             });
             0
@@ -2162,7 +2332,7 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
                 // The palette was placed against a monitor layout that no
                 // longer exists, so it is hidden rather than left stranded.
                 host.to_ui.send(UiCommand::HideAll);
-                for slot in host.slots.iter_mut().filter(|slot| slot.enabled) {
+                for slot in host.plugins.slots.iter_mut().filter(|slot| slot.enabled) {
                     slot.plugin.on_windows_message(msg, wparam, lparam);
                 }
             });
@@ -2176,7 +2346,7 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
                 });
             }
             with_host(|host| {
-                for slot in host.slots.iter_mut().filter(|slot| slot.enabled) {
+                for slot in host.plugins.slots.iter_mut().filter(|slot| slot.enabled) {
                     slot.plugin.on_windows_message(msg, wparam, lparam);
                 }
             });
@@ -2195,7 +2365,7 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
                 log::info!("the session did not end after all: {why}");
             }
             with_host(|host| {
-                for slot in host.slots.iter_mut().filter(|slot| slot.enabled) {
+                for slot in host.plugins.slots.iter_mut().filter(|slot| slot.enabled) {
                     slot.plugin.on_windows_message(msg, wparam, lparam);
                 }
             });
@@ -2216,6 +2386,942 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The plugin and hotkey bookkeeping below runs with fake plugins, a fake
+    // keyboard instead of RegisterHotKey, and settings files in a scratch
+    // folder. No test registers a real hotkey or touches the real profile.
+
+    use std::rc::Rc;
+
+    use crate::core::traits::{HotkeyAction, PaletteCommand, TrayAction};
+    use crate::core::ui_bridge::LayoutAction;
+
+    /// Stands in for RegisterHotKey: keys another app holds, and keys
+    /// already registered here, are refused, as Windows refuses them.
+    #[derive(Default)]
+    struct Keyboard {
+        taken_by_others: Vec<Hotkey>,
+        registered: BTreeMap<i32, Hotkey>,
+        freed: Vec<i32>,
+    }
+
+    #[derive(Clone, Default)]
+    struct FakeKeys(Rc<RefCell<Keyboard>>);
+
+    impl Registrar for FakeKeys {
+        fn register(&mut self, id: i32, hotkey: Hotkey) -> bool {
+            let mut keyboard = self.0.borrow_mut();
+            let taken = keyboard.taken_by_others.contains(&hotkey)
+                || keyboard.registered.contains_key(&id)
+                || keyboard.registered.values().any(|held| *held == hotkey);
+            if !taken {
+                keyboard.registered.insert(id, hotkey);
+            }
+            !taken
+        }
+
+        fn unregister(&mut self, id: i32) {
+            let mut keyboard = self.0.borrow_mut();
+            keyboard.registered.remove(&id);
+            keyboard.freed.push(id);
+        }
+    }
+
+    impl FakeKeys {
+        fn held(&self) -> Vec<String> {
+            self.0
+                .borrow()
+                .registered
+                .values()
+                .map(|hotkey| hotkeys::format(*hotkey))
+                .collect()
+        }
+    }
+
+    fn keys(text: &str) -> Hotkey {
+        hotkeys::parse(text).unwrap()
+    }
+
+    type Diary = Rc<RefCell<Vec<String>>>;
+
+    /// A plugin that writes down what the host asks of it.
+    struct FakePlugin {
+        id: &'static str,
+        name: &'static str,
+        /// (action id, name, label, default keys)
+        actions: Vec<(u32, &'static str, &'static str, &'static str)>,
+        fails_with: Option<&'static str>,
+        takes_settings_live: bool,
+        diary: Diary,
+    }
+
+    fn fake(
+        id: &'static str,
+        name: &'static str,
+        default: &'static str,
+        diary: &Diary,
+    ) -> FakePlugin {
+        FakePlugin {
+            id,
+            name,
+            actions: vec![(1, "go", "Go", default)],
+            fails_with: None,
+            takes_settings_live: true,
+            diary: Rc::clone(diary),
+        }
+    }
+
+    impl FakePlugin {
+        fn note(&self, what: String) {
+            self.diary.borrow_mut().push(what);
+        }
+    }
+
+    impl WinCraftPlugin for FakePlugin {
+        fn metadata(&self) -> crate::core::traits::PluginMetadata {
+            crate::core::traits::PluginMetadata {
+                id: self.id,
+                name: self.name,
+                description: "A plugin for tests.",
+                author: "test",
+                version: "1.0.0",
+                readme: "",
+            }
+        }
+
+        fn default_settings(&self) -> Value {
+            serde_json::json!({ "level": 1 })
+        }
+
+        fn init(&mut self, ctx: &HostContext) -> Result<(), String> {
+            self.note(format!("init {} level {}", self.id, ctx.settings["level"]));
+            match self.fails_with {
+                Some(why) => Err(why.to_string()),
+                None => Ok(()),
+            }
+        }
+
+        fn hotkey_actions(&self) -> Vec<HotkeyAction> {
+            self.actions
+                .iter()
+                .map(|(id, name, label, default)| HotkeyAction {
+                    id: *id,
+                    name,
+                    label,
+                    default: keys(default),
+                })
+                .collect()
+        }
+
+        fn on_hotkey(&mut self, action_id: u32) {
+            self.note(format!("hotkey {} {action_id}", self.id));
+        }
+
+        fn tray_actions(&self) -> Vec<TrayAction> {
+            vec![
+                TrayAction { id: 1, label: "Go" },
+                TrayAction {
+                    id: 2,
+                    label: "Open",
+                },
+            ]
+        }
+
+        fn on_tray_action(&mut self, action_id: u32) {
+            self.note(format!("tray {} {action_id}", self.id));
+        }
+
+        fn palette_commands(&self) -> Vec<PaletteCommand> {
+            vec![PaletteCommand {
+                id: 7,
+                label: "Tidy up",
+                hint: "tidy",
+            }]
+        }
+
+        fn on_settings_changed(&mut self, settings: &Value) -> bool {
+            self.note(format!("settings {} {settings}", self.id));
+            self.takes_settings_live
+        }
+
+        fn on_prompt_answer(&mut self, prompt_id: u32, _target: isize, text: &str) {
+            self.note(format!("answer {} {prompt_id} {text}", self.id));
+        }
+
+        fn on_layout_action(&mut self, _action: &LayoutAction) {
+            self.note(format!("layout {}", self.id));
+        }
+
+        fn teardown(&mut self) {
+            self.note(format!("teardown {}", self.id));
+        }
+    }
+
+    /// A data folder of its own, removed afterwards.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir =
+                std::env::temp_dir().join(format!("wincraft-host-{}-{name}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Scratch(dir)
+        }
+
+        fn saved(&self, id: &str) -> PluginConfig {
+            PluginConfig::load_in(&self.0, id)
+        }
+
+        fn has_file(&self, id: &str) -> bool {
+            self.0.join("plugins").join(format!("{id}.json")).exists()
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn plugin_set(plugins: Vec<FakePlugin>, keyboard: &FakeKeys, data: &Scratch) -> PluginSet {
+        let plugins = plugins
+            .into_iter()
+            .map(|plugin| Box::new(plugin) as Box<dyn WinCraftPlugin>)
+            .collect();
+        let mut set = PluginSet::new(
+            std::ptr::null_mut(),
+            plugins,
+            Box::new(keyboard.clone()),
+            data.0.clone(),
+        );
+        set.load_configs();
+        set
+    }
+
+    fn diary() -> Diary {
+        Rc::new(RefCell::new(Vec::new()))
+    }
+
+    fn read(diary: &Diary) -> Vec<String> {
+        std::mem::take(&mut *diary.borrow_mut())
+    }
+
+    #[test]
+    fn a_plugin_starts_with_its_saved_settings_and_registers_its_hotkeys() {
+        let data = Scratch::new("start");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let mut set = plugin_set(
+            vec![
+                fake("fake_a", "Fake A", "Win+Alt+F1", &log),
+                fake("fake_b", "Fake B", "Win+Alt+F2", &log),
+            ],
+            &keyboard,
+            &data,
+        );
+        assert_eq!(set.wanted(), [0, 1], "no file says a plugin is off");
+        for index in set.wanted() {
+            set.enable(index);
+        }
+        assert_eq!(read(&log), ["init fake_a level 1", "init fake_b level 1"]);
+        assert_eq!(keyboard.held(), ["Win+Alt+F1", "Win+Alt+F2"]);
+        assert!(set.warnings.is_empty());
+        let saved = data.saved("fake_a");
+        assert!(saved.enabled);
+        assert_eq!(saved.hotkeys["go"], "Win+Alt+F1");
+        assert_eq!(saved.settings["level"], 1);
+        assert_eq!(
+            set.registered(),
+            [
+                ("Fake A".to_string(), "Go".to_string(), keys("Win+Alt+F1")),
+                ("Fake B".to_string(), "Go".to_string(), keys("Win+Alt+F2")),
+            ]
+        );
+        assert_eq!(set.hotkey_target(1), Some((0, 1)));
+        assert_eq!(set.hotkey_target(2), Some((1, 1)));
+        assert_eq!(set.hotkey_target(3), None);
+        // Asked again, a running plugin is not started twice.
+        set.enable(0);
+        assert!(read(&log).is_empty());
+    }
+
+    #[test]
+    fn a_plugin_saved_as_off_is_not_started() {
+        let data = Scratch::new("saved-off");
+        let off = PluginConfig {
+            enabled: false,
+            ..PluginConfig::default()
+        };
+        off.save_in(&data.0, "fake_b").unwrap();
+        let log = diary();
+        let set = plugin_set(
+            vec![
+                fake("fake_a", "Fake A", "Win+Alt+F1", &log),
+                fake("fake_b", "Fake B", "Win+Alt+F2", &log),
+            ],
+            &FakeKeys::default(),
+            &data,
+        );
+        assert_eq!(set.wanted(), [0]);
+        // Its file got the defaults it was missing.
+        assert_eq!(data.saved("fake_b").hotkeys["go"], "Win+Alt+F2");
+    }
+
+    #[test]
+    fn a_plugin_whose_start_fails_stays_off_and_keeps_its_saved_flag() {
+        let data = Scratch::new("crash");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let mut broken = fake("broken", "Broken", "Win+Alt+F1", &log);
+        broken.fails_with = Some("no device");
+        let mut set = plugin_set(vec![broken], &keyboard, &data);
+        set.enable(0);
+        assert!(!set.slots[0].enabled);
+        assert!(set.slots[0].registered.is_empty());
+        assert!(keyboard.held().is_empty());
+        assert_eq!(set.next_hotkey_id, 1, "no hotkey id was used up");
+        assert_eq!(set.warnings, ["Broken failed to start: no device"]);
+        assert!(data.saved("broken").enabled, "the next start tries again");
+        assert_eq!(set.wanted(), [0]);
+        // Turning it off now changes nothing: it is not running.
+        set.disable(0);
+        assert!(data.saved("broken").enabled);
+        assert_eq!(read(&log), ["init broken level 1"]);
+    }
+
+    #[test]
+    fn turning_a_plugin_off_frees_its_hotkeys_and_saves_it_off() {
+        let data = Scratch::new("off");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let mut set = plugin_set(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        set.enable(0);
+        set.disable(0);
+        assert!(!set.slots[0].enabled);
+        assert!(keyboard.held().is_empty());
+        assert_eq!(read(&log), ["init fake_a level 1", "teardown fake_a"]);
+        assert!(!data.saved("fake_a").enabled);
+        assert!(set.wanted().is_empty());
+        set.disable(0);
+        assert!(read(&log).is_empty(), "no second teardown");
+        // Back on with a fresh hotkey id, saved on again.
+        set.enable(0);
+        assert_eq!(set.slots[0].registered[0].global_id, 2);
+        assert!(data.saved("fake_a").enabled);
+    }
+
+    #[test]
+    fn quitting_stops_every_plugin_but_saves_none_of_them_as_off() {
+        let data = Scratch::new("quit");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let mut set = plugin_set(
+            vec![
+                fake("fake_a", "Fake A", "Win+Alt+F1", &log),
+                fake("fake_b", "Fake B", "Win+Alt+F2", &log),
+            ],
+            &keyboard,
+            &data,
+        );
+        set.register_palette("Win+Alt+Space");
+        set.enable(0);
+        set.enable(1);
+        read(&log);
+        set.stop_all();
+        assert_eq!(read(&log), ["teardown fake_a", "teardown fake_b"]);
+        assert!(
+            keyboard.held().is_empty(),
+            "the palette's keys are free too"
+        );
+        assert!(set.slots.iter().all(|slot| !slot.enabled));
+        assert!(data.saved("fake_a").enabled && data.saved("fake_b").enabled);
+        assert!(set.configs["fake_a"].enabled);
+        assert_eq!(set.wanted(), [0, 1]);
+    }
+
+    #[test]
+    fn a_hotkey_another_app_holds_is_reported_and_never_freed() {
+        let data = Scratch::new("taken");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        keyboard
+            .0
+            .borrow_mut()
+            .taken_by_others
+            .push(keys("Win+Alt+F1"));
+        let mut a = fake("fake_a", "Fake A", "Win+Alt+F1", &log);
+        a.actions.push((2, "stop", "Stop", "Win+Alt+F4"));
+        let mut set = plugin_set(vec![a], &keyboard, &data);
+        set.enable(0);
+        assert!(set.slots[0].enabled, "the plugin runs without that hotkey");
+        assert_eq!(set.warnings, ["Win+Alt+F1 is used by another app"]);
+        let infos = set.hotkey_infos(0);
+        let shown: Vec<(&str, &str, bool)> = infos
+            .iter()
+            .map(|info| (info.action.as_str(), info.binding.as_str(), info.registered))
+            .collect();
+        assert_eq!(
+            shown,
+            [("go", "Win+Alt+F1", false), ("stop", "Win+Alt+F4", true)]
+        );
+        assert_eq!(
+            set.registered().len(),
+            1,
+            "only keys it holds count as its own"
+        );
+        set.disable(0);
+        assert_eq!(
+            keyboard.0.borrow().freed,
+            [2],
+            "the refused id is not freed"
+        );
+    }
+
+    #[test]
+    fn two_plugins_that_want_the_same_keys_get_them_in_turn() {
+        let data = Scratch::new("clash");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let mut set = plugin_set(
+            vec![
+                fake("fake_a", "Fake A", "Win+Alt+F1", &log),
+                fake("fake_b", "Fake B", "Win+Alt+F1", &log),
+            ],
+            &keyboard,
+            &data,
+        );
+        set.enable(0);
+        set.enable(1);
+        assert!(set.slots[0].registered[0].ok);
+        assert!(!set.slots[1].registered[0].ok);
+        assert_eq!(set.warnings, ["Win+Alt+F1 is used by another app"]);
+        // Once the first lets go, the second gets them on its next start.
+        set.disable(0);
+        set.set_hotkey("fake_b", "go", "Win+Alt+F1");
+        assert!(set.slots[1].registered[0].ok);
+    }
+
+    #[test]
+    fn the_palette_hotkey_clashes_like_any_other_and_can_be_rebound() {
+        let data = Scratch::new("palette");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let mut set = plugin_set(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        set.register_palette("Win+Alt+F1");
+        assert_eq!(set.palette_hotkey, Some((keys("Win+Alt+F1"), true)));
+        set.enable(0);
+        assert!(!set.slots[0].registered[0].ok, "the palette was first");
+        assert_eq!(set.warnings, ["Win+Alt+F1 is used by another app"]);
+
+        assert_eq!(
+            set.rebind_palette("Win+Alt+F9"),
+            Ok("Win+Alt+F9".to_string())
+        );
+        assert_eq!(keyboard.held(), ["Win+Alt+F9"]);
+        assert!(set.rebind_palette("Win+Nothing").is_err());
+        assert_eq!(set.palette_hotkey, Some((keys("Win+Alt+F9"), true)));
+
+        // A palette hotkey another app holds is not freed when rebound.
+        keyboard
+            .0
+            .borrow_mut()
+            .taken_by_others
+            .push(keys("Win+Alt+F8"));
+        set.rebind_palette("Win+Alt+F8").unwrap();
+        assert_eq!(set.palette_hotkey, Some((keys("Win+Alt+F8"), false)));
+        let freed = keyboard.0.borrow().freed.len();
+        set.rebind_palette("Win+Alt+F7").unwrap();
+        assert_eq!(keyboard.0.borrow().freed.len(), freed);
+    }
+
+    #[test]
+    fn a_palette_hotkey_that_does_not_parse_falls_back_to_the_default() {
+        let data = Scratch::new("palette-default");
+        let keyboard = FakeKeys::default();
+        let mut set = plugin_set(Vec::new(), &keyboard, &data);
+        set.register_palette("Ctrl+Nonsense");
+        assert_eq!(
+            set.palette_hotkey,
+            Some((keys(DEFAULT_PALETTE_HOTKEY), true))
+        );
+    }
+
+    #[test]
+    fn a_rebound_hotkey_is_saved_and_the_plugin_restarted_with_it() {
+        let data = Scratch::new("rebind");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let mut set = plugin_set(
+            vec![
+                fake("fake_a", "Fake A", "Win+Alt+F1", &log),
+                fake("fake_b", "Fake B", "Win+Alt+F2", &log),
+            ],
+            &keyboard,
+            &data,
+        );
+        set.enable(0);
+        read(&log);
+        set.set_hotkey("fake_a", "go", "win+alt+f3");
+        assert_eq!(data.saved("fake_a").hotkeys["go"], "Win+Alt+F3");
+        assert_eq!(keyboard.held(), ["Win+Alt+F3"]);
+        assert_eq!(read(&log), ["teardown fake_a", "init fake_a level 1"]);
+        assert_eq!(set.hotkey_infos(0)[0].default_binding, "Win+Alt+F1");
+
+        set.set_hotkey("fake_a", "go", "Win+Banana");
+        assert_eq!(data.saved("fake_a").hotkeys["go"], "Win+Alt+F3");
+        assert!(read(&log).is_empty(), "nothing restarted");
+
+        // A plugin that is off only gets its file changed.
+        set.set_hotkey("fake_b", "go", "Win+Alt+F5");
+        assert_eq!(data.saved("fake_b").hotkeys["go"], "Win+Alt+F5");
+        assert!(read(&log).is_empty());
+        assert_eq!(set.hotkey_infos(1)[0].binding, "Win+Alt+F5");
+    }
+
+    #[test]
+    fn a_saved_binding_that_does_not_parse_gives_the_plugin_default() {
+        let data = Scratch::new("bad-binding");
+        let mut file = PluginConfig::default();
+        file.hotkeys.insert("go".to_string(), "Hyper+Q".to_string());
+        file.save_in(&data.0, "fake_a").unwrap();
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let mut set = plugin_set(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        let infos = set.hotkey_infos(0);
+        assert_eq!(
+            (infos[0].binding.as_str(), infos[0].registered),
+            ("Win+Alt+F1", true)
+        );
+        set.enable(0);
+        assert_eq!(keyboard.held(), ["Win+Alt+F1"]);
+        assert_eq!(
+            data.saved("fake_a").hotkeys["go"],
+            "Hyper+Q",
+            "the file keeps it"
+        );
+    }
+
+    #[test]
+    fn a_setting_the_plugin_cannot_take_live_restarts_it() {
+        let data = Scratch::new("settings");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let mut stubborn = fake("fake_b", "Fake B", "Win+Alt+F2", &log);
+        stubborn.takes_settings_live = false;
+        let mut set = plugin_set(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log), stubborn],
+            &keyboard,
+            &data,
+        );
+        set.enable(0);
+        set.enable(1);
+        read(&log);
+        set.set_setting("fake_a", "level", serde_json::json!(2));
+        assert_eq!(read(&log), [r#"settings fake_a {"level":2}"#]);
+        set.set_setting("fake_b", "/monitors/LG", serde_json::json!(true));
+        assert_eq!(
+            read(&log),
+            [
+                r#"settings fake_b {"level":1,"monitors":{"LG":true}}"#,
+                "teardown fake_b",
+                "init fake_b level 1",
+            ]
+        );
+        assert_eq!(data.saved("fake_b").settings["monitors"]["LG"], true);
+        // A plugin that is off is not asked.
+        set.disable(0);
+        read(&log);
+        set.set_setting("fake_a", "level", serde_json::json!(3));
+        assert!(read(&log).is_empty());
+        assert_eq!(data.saved("fake_a").settings["level"], 3);
+    }
+
+    #[test]
+    fn a_reset_deletes_the_file_of_a_plugin_that_is_off_and_reads_its_defaults() {
+        let data = Scratch::new("reset");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let mut set = plugin_set(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        set.set_setting("fake_a", "level", serde_json::json!(5));
+        set.set_hotkey("fake_a", "go", "Win+Alt+F6");
+        assert!(set.reset("fake_a"));
+        let saved = data.saved("fake_a");
+        assert_eq!(saved.settings["level"], 1);
+        assert_eq!(saved.hotkeys["go"], "Win+Alt+F1");
+        assert!(read(&log).is_empty(), "it stays off");
+        assert!(!set.reset("nobody"), "no such plugin");
+        assert!(!data.has_file("nobody"));
+    }
+
+    #[test]
+    fn a_reset_of_a_running_plugin_restarts_it() {
+        let data = Scratch::new("reset-on");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let mut set = plugin_set(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        set.enable(0);
+        set.set_setting("fake_a", "level", serde_json::json!(5));
+        read(&log);
+        assert!(set.reset("fake_a"));
+        assert!(set.slots[0].enabled && data.saved("fake_a").enabled);
+        assert_eq!(read(&log)[0], "teardown fake_a");
+    }
+
+    #[test]
+    fn the_palette_lists_each_plugins_commands_dimmed_while_it_is_off() {
+        let data = Scratch::new("entries");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let mut set = plugin_set(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        let plugins = |set: &PluginSet| -> Vec<PluginInfo> {
+            vec![PluginInfo {
+                id: "fake_a".to_string(),
+                name: "Fake A".to_string(),
+                version: String::new(),
+                author: String::new(),
+                description: String::new(),
+                readme: String::new(),
+                enabled: set.slots[0].enabled,
+                config_path: PathBuf::new(),
+                hotkeys: set.hotkey_infos(0),
+                fields: Vec::new(),
+                status: None,
+                page_action: None,
+            }]
+        };
+        let off = set.palette_entries(&plugins(&set));
+        let mine: Vec<(&str, &str, bool)> = off
+            .iter()
+            .filter(|entry| entry.group == "Fake A")
+            .map(|entry| (entry.label.as_str(), entry.hint.as_str(), entry.disabled))
+            .collect();
+        // The tray's "Go" is the hotkey's "Go" already, so it is listed once.
+        assert_eq!(
+            mine,
+            [
+                ("Turn Fake A on", "", false),
+                ("Go", "Win+Alt+F1", true),
+                ("Open", "", true),
+                ("Tidy up", "tidy", true),
+            ]
+        );
+        assert_eq!(
+            off.iter().filter(|entry| entry.group == "WinCraft").count(),
+            7
+        );
+        set.enable(0);
+        let on = set.palette_entries(&plugins(&set));
+        let toggle = on.iter().find(|entry| entry.group == "Fake A").unwrap();
+        assert_eq!(toggle.label, "Turn Fake A off");
+        assert_eq!(toggle.id, CommandId::Host(HostCommand::TogglePlugin(0)));
+        assert!(on
+            .iter()
+            .filter(|entry| entry.group == "Fake A")
+            .all(|entry| !entry.disabled));
+    }
+
+    fn release(tag: &str) -> Release {
+        Release {
+            tag: tag.to_string(),
+            notes: String::new(),
+            page: String::new(),
+            assets: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_failed_update_check_says_offline_only_when_asked_for() {
+        let mut updates = Updates::default();
+        let mut config = UpdateConfig::default();
+        updates.checking = true;
+        let after = updates.checked(Err("no network".to_string()), &mut config, 100);
+        assert_eq!(after, AfterCheck::default());
+        assert_eq!(updates.status, UpdateStatus::Idle);
+        assert!(!updates.checking);
+        assert_eq!(config.last_check, 0, "nothing answered");
+
+        updates.manual = true;
+        updates.auto_update = true;
+        updates.checked(Err("no network".to_string()), &mut config, 100);
+        assert_eq!(updates.status, UpdateStatus::Offline);
+        assert!(!updates.manual && !updates.auto_update);
+    }
+
+    #[test]
+    fn an_answered_check_records_what_github_said() {
+        let mut updates = Updates::default();
+        let mut config = UpdateConfig::default();
+        let after = updates.checked(Ok(Checked::NoRelease), &mut config, 100);
+        assert!(after.answered && after.notice.is_none() && !after.reload_notes);
+        assert_eq!(updates.status, UpdateStatus::NoRelease);
+        assert_eq!(config.last_check, 100);
+
+        updates.newer = Some(release("v9.9.9"));
+        let after = updates.checked(
+            Ok(Checked::UpToDate("v0.16.6".to_string())),
+            &mut config,
+            200,
+        );
+        assert!(after.answered && after.reload_notes);
+        assert_eq!(updates.status, UpdateStatus::UpToDate);
+        assert!(updates.newer.is_none());
+        assert_eq!(
+            (config.last_check, config.latest.as_str()),
+            (200, "v0.16.6")
+        );
+    }
+
+    #[test]
+    fn a_newer_release_is_announced_once_and_installed_only_after_update_now() {
+        let mut updates = Updates::default();
+        let mut config = UpdateConfig::default();
+        let after = updates.checked(Ok(Checked::Newer(release("v0.17.0"))), &mut config, 100);
+        assert_eq!(
+            after.notice.as_deref(),
+            Some("WinCraft 0.17.0 is available \u{2014} open About to update")
+        );
+        assert!(!after.update_now);
+        assert_eq!(config.latest, "v0.17.0");
+        assert_eq!(
+            updates.newer.as_ref().map(|r| r.tag.as_str()),
+            Some("v0.17.0")
+        );
+
+        updates.auto_update = true;
+        let after = updates.checked(Ok(Checked::Newer(release("v0.17.0"))), &mut config, 200);
+        assert_eq!(after.notice, None, "the same tag is not announced again");
+        assert!(after.update_now && !updates.auto_update);
+    }
+
+    #[test]
+    fn the_healthy_report_goes_once_and_tidies_only_a_copy_that_updates_itself() {
+        let mut updates = Updates::default();
+        assert_eq!(updates.healthy_report(false), None);
+        updates.healthy_pending = Some("0.16.5".to_string());
+        assert_eq!(
+            updates.healthy_report(false),
+            Some(("0.16.5".to_string(), true))
+        );
+        assert_eq!(updates.healthy_report(false), None, "told once");
+        updates.healthy_pending = Some("0.16.5".to_string());
+        assert_eq!(
+            updates.healthy_report(true),
+            Some(("0.16.5".to_string(), false))
+        );
+        updates.healthy_pending = Some("0.16.5".to_string());
+        updates.blocked = Some("a development build".to_string());
+        assert_eq!(
+            updates.healthy_report(false),
+            Some(("0.16.5".to_string(), false))
+        );
+    }
+
+    /// A host with no window and no tray icon. What it sends the UI waits
+    /// in the returned receiver.
+    fn test_host(
+        plugins: Vec<FakePlugin>,
+        keyboard: &FakeKeys,
+        data: &Scratch,
+    ) -> (Host, Receiver<UiCommand>) {
+        let bridge = ui_bridge::create();
+        let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
+        let mut host = Host {
+            hwnd: std::ptr::null_mut(),
+            config: Config::default(),
+            plugins: plugin_set(plugins, keyboard, data),
+            tray: Tray::new(std::ptr::null_mut(), hinstance),
+            to_ui: bridge.to_ui,
+            host_rx: bridge.host_rx,
+            palette_hwnd: std::ptr::null_mut(),
+            balloon_click: BalloonClick::Nothing,
+            arrange_focus: None,
+            peek_card: None,
+            updates: Updates::default(),
+            update_notice: None,
+            autostart_note: None,
+        };
+        for index in host.plugins.wanted() {
+            host.enable_slot(index);
+        }
+        (host, bridge.ui_rx)
+    }
+
+    fn snapshots(ui: &Receiver<UiCommand>) -> Vec<UiSnapshot> {
+        ui.try_iter()
+            .filter_map(|command| match command {
+                UiCommand::Snapshot(snapshot) => Some(*snapshot),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_settings_window_switches_plugins_and_gets_a_fresh_snapshot() {
+        let data = Scratch::new("request-enable");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let (mut host, ui) = test_host(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        host.handle_request(HostRequest::SetPluginEnabled {
+            id: "fake_a".to_string(),
+            enabled: false,
+        });
+        let sent = snapshots(&ui);
+        assert_eq!(sent.len(), 1);
+        assert!(!sent[0].plugins[0].enabled);
+        assert!(sent[0]
+            .commands
+            .iter()
+            .any(|entry| entry.label == "Turn Fake A on"));
+        assert!(!data.saved("fake_a").enabled);
+
+        host.handle_request(HostRequest::SetPluginEnabled {
+            id: "nobody".to_string(),
+            enabled: true,
+        });
+        assert!(snapshots(&ui).is_empty(), "nothing changed");
+        host.handle_request(HostRequest::RunCommand(CommandId::Host(
+            HostCommand::TogglePlugin(0),
+        )));
+        assert!(host.plugins.slots[0].enabled);
+        assert_eq!(snapshots(&ui).len(), 1);
+    }
+
+    #[test]
+    fn requests_reach_a_plugin_only_while_it_is_on() {
+        let data = Scratch::new("request-off");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let (mut host, ui) = test_host(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        read(&log);
+        let ask = || HostRequest::PromptAnswer {
+            plugin: "fake_a".to_string(),
+            id: 3,
+            target: 0,
+            text: "yes".to_string(),
+        };
+        let run = || {
+            HostRequest::RunCommand(CommandId::Plugin {
+                index: 0,
+                kind: ActionKind::Hotkey,
+                action: 1,
+            })
+        };
+        let layout = || HostRequest::Layout {
+            plugin: "fake_a".to_string(),
+            action: LayoutAction::SaveNow,
+        };
+        host.handle_request(ask());
+        host.handle_request(run());
+        host.handle_request(layout());
+        host.handle_request(HostRequest::RunCommand(CommandId::Plugin {
+            index: 0,
+            kind: ActionKind::Tray,
+            action: 2,
+        }));
+        assert_eq!(
+            read(&log),
+            [
+                "answer fake_a 3 yes",
+                "hotkey fake_a 1",
+                "layout fake_a",
+                "tray fake_a 2"
+            ]
+        );
+        let layouts = ui
+            .try_iter()
+            .filter(|command| matches!(command, UiCommand::LayoutUpdate(None)))
+            .count();
+        assert_eq!(layouts, 1, "the Layout page hears there is no layout");
+
+        host.plugins.disable(0);
+        read(&log);
+        host.handle_request(ask());
+        host.handle_request(run());
+        host.handle_request(layout());
+        host.handle_request(HostRequest::Arrange {
+            plugin: "fake_a".to_string(),
+            action: ArrangeAction::Activate(0),
+        });
+        assert!(read(&log).is_empty());
+        host.handle_request(HostRequest::RunCommand(CommandId::Plugin {
+            index: 9,
+            kind: ActionKind::Hotkey,
+            action: 1,
+        }));
+    }
+
+    #[test]
+    fn settings_requests_save_and_publish() {
+        let data = Scratch::new("request-settings");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let (mut host, ui) = test_host(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        host.handle_request(HostRequest::SetHotkey {
+            plugin: "fake_a".to_string(),
+            action: "go".to_string(),
+            binding: "Win+Alt+F2".to_string(),
+        });
+        host.handle_request(HostRequest::SetSetting {
+            plugin: "fake_a".to_string(),
+            key: "level".to_string(),
+            value: serde_json::json!(4),
+        });
+        host.handle_request(HostRequest::ResetPlugin("fake_a".to_string()));
+        assert_eq!(snapshots(&ui).len(), 3);
+
+        host.handle_request(HostRequest::SetHostSetting(HostSetting::PaletteHotkey(
+            "win+alt+f9".to_string(),
+        )));
+        assert_eq!(host.config.palette_hotkey, "Win+Alt+F9");
+        assert!(keyboard.held().contains(&"Win+Alt+F9".to_string()));
+        host.handle_request(HostRequest::SetHostSetting(HostSetting::PaletteHotkey(
+            "nonsense".to_string(),
+        )));
+        assert_eq!(host.config.palette_hotkey, "Win+Alt+F9");
+        host.handle_request(HostRequest::SetHostSetting(HostSetting::CheckUpdatesDaily(
+            false,
+        )));
+        let saved = Config::load_in(&data.0);
+        assert_eq!(saved.palette_hotkey, "Win+Alt+F9");
+        assert!(!saved.updates.check_daily);
+        host.handle_request(HostRequest::ClearPaletteUsage);
+        assert!(ui
+            .try_iter()
+            .any(|command| matches!(command, UiCommand::ClearPaletteUsage)));
+    }
+
+    #[test]
+    fn a_failed_start_from_the_settings_window_warns_with_a_balloon_that_opens_the_detector() {
+        let data = Scratch::new("request-crash");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let mut broken = fake("broken", "Broken", "Win+Alt+F1", &log);
+        broken.fails_with = Some("no device");
+        let (host, _ui) = test_host(vec![broken], &keyboard, &data);
+        assert_eq!(host.balloon_click, BalloonClick::Detector);
+        assert!(host.plugins.warnings.is_empty(), "the balloon was shown");
+        assert!(!host.plugins.slots[0].enabled);
+    }
 
     #[test]
     fn a_busy_host_keeps_only_the_newest_display_change() {

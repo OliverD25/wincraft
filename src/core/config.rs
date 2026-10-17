@@ -292,7 +292,7 @@ impl Config {
         Self::load_in(&data_dir())
     }
 
-    fn load_in(data: &Path) -> Self {
+    pub fn load_in(data: &Path) -> Self {
         let path = config_in(data);
         let Ok(text) = fs::read_to_string(&path) else {
             log::info!("no config at {}, using defaults", path.display());
@@ -344,7 +344,7 @@ impl Config {
         self.save_in(&data_dir())
     }
 
-    fn save_in(&self, data: &Path) -> Result<(), String> {
+    pub fn save_in(&self, data: &Path) -> Result<(), String> {
         let text = serde_json::to_string_pretty(self)
             .map_err(|e| format!("cannot serialise config: {e}"))?;
         save_readable(&config_in(data), &text)
@@ -380,11 +380,7 @@ pub fn take_legacy_plugins(raw: &mut Value) -> Vec<(String, PluginConfig)> {
 }
 
 impl PluginConfig {
-    pub fn load(id: &str) -> Self {
-        Self::load_in(&data_dir(), id)
-    }
-
-    fn load_in(data: &Path, id: &str) -> Self {
+    pub fn load_in(data: &Path, id: &str) -> Self {
         let path = plugin_in(data, id);
         let Ok(text) = fs::read_to_string(&path) else {
             return Self::default();
@@ -402,21 +398,13 @@ impl PluginConfig {
         }
     }
 
-    pub fn save(&self, id: &str) -> Result<(), String> {
-        self.save_in(&data_dir(), id)
-    }
-
-    fn save_in(&self, data: &Path, id: &str) -> Result<(), String> {
+    pub fn save_in(&self, data: &Path, id: &str) -> Result<(), String> {
         let text = serde_json::to_string_pretty(self)
             .map_err(|e| format!("cannot serialise the settings for {id}: {e}"))?;
         save_readable(&plugin_in(data, id), &text)
     }
 
-    pub fn reset(id: &str) -> Result<(), String> {
-        Self::reset_in(&data_dir(), id)
-    }
-
-    fn reset_in(data: &Path, id: &str) -> Result<(), String> {
+    pub fn reset_in(data: &Path, id: &str) -> Result<(), String> {
         let path = plugin_in(data, id);
         match fs::remove_file(&path) {
             Ok(()) => Ok(()),
