@@ -254,6 +254,15 @@ What to know:
   The router adds your provider's id in front, so keys only need to be
   unique within your provider. Leave it `None` for rows that are answers
   rather than things, like a sum or a web search.
+- **A provider can ask a question.** Return `Reply::Ask(Ask { .. })` from
+  `act()` and the palette turns into a one-line box (the Ctrl+B bookmark box
+  is one). The answer comes back to your `answered(payload, text, context)`,
+  which returns another `Ask` when it needs more, such as a second Enter to
+  confirm. `payload` is yours: it carries what the answer needs. The
+  question is answered in the palette, with no trip through the host.
+- **Two more keys on a row:** `bookmark` is the action for Ctrl+B and
+  `delete` for Ctrl+Delete. The footer lists them and drops the least needed
+  hint instead of running into the wordmark.
 - **Users can move or switch off your prefix** in config.json under
   `search.prefixes`, keyed by your provider's `id`. If your default prefix is
   already taken, your provider gets none and the log says so.

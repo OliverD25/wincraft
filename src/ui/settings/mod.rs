@@ -1,4 +1,5 @@
 mod about;
+mod bookmarks;
 mod general;
 mod layout;
 mod plugins;
@@ -221,6 +222,8 @@ pub struct SettingsState {
     pub layout_asked: Option<std::time::Instant>,
     /// The Layout page's "Recent activity" list.
     pub log: layout::LogView,
+    /// The Bookmarks page's form boxes and what it knows about the places.
+    pub bookmarks: bookmarks::BookmarksView,
 }
 
 impl SettingsState {
@@ -483,6 +486,7 @@ impl Settings {
                     Page::General => general::show(ui, snapshot, state, to_host),
                     Page::Plugins => plugins::show(ui, snapshot, state, to_host),
                     Page::Layout => layout::show(ui, snapshot, state, to_host),
+                    Page::Bookmarks => bookmarks::show(ui, state, to_host),
                     Page::Store => store::show(ui, snapshot, state, to_host),
                     Page::About => about::show(ui, snapshot, state),
                 });
@@ -498,6 +502,7 @@ const PAGES: &[(Page, &str)] = &[
     (Page::General, "General"),
     (Page::Plugins, "Plugins"),
     (Page::Layout, "Layout"),
+    (Page::Bookmarks, "Bookmarks"),
     (Page::Store, "Plugin Store"),
     (Page::About, "About"),
 ];

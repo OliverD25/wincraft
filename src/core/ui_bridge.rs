@@ -21,6 +21,8 @@ pub enum Page {
     Plugins,
     /// The windows LayoutKeeper has saved.
     Layout,
+    /// The palette's bookmarks.
+    Bookmarks,
     Store,
     About,
 }
@@ -302,6 +304,10 @@ pub enum LayoutAction {
     SaveNow,
 }
 
+/// A search provider's question names its prompt `search:<provider id>`; the
+/// palette answers it itself, with no round trip through the host.
+pub const SEARCH_PROMPT: &str = "search:";
+
 /// A question the palette asks for a plugin: one line of text, handed back
 /// to the plugin's `on_prompt_answer` when the user presses Enter.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -327,6 +333,22 @@ pub struct Prompt {
     pub subtitle: String,
     /// What a search provider needs back with the answer; unused by plugins.
     pub payload: String,
+}
+
+impl Prompt {
+    /// A search provider's question as a prompt.
+    pub fn from_ask(ask: crate::search::Ask) -> Self {
+        Self {
+            plugin: format!("{SEARCH_PROMPT}{}", ask.provider),
+            chip: ask.chip,
+            placeholder: ask.placeholder,
+            text: ask.text,
+            action: ask.action,
+            subtitle: ask.subtitle,
+            payload: ask.payload,
+            ..Default::default()
+        }
+    }
 }
 
 /// Screen rectangle in physical pixels, as Win32 reports it.

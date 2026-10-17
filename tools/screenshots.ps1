@@ -166,6 +166,16 @@ $scenes = @(
     @{ Name = 'settings-layout';        Args = @('--open-settings=layout');                Window = 'settings'; Settle = 2500; Seed = 'full'; Helper = $true },
     # The same page with few windows, so Recent activity shows under them.
     @{ Name = 'settings-layout-log';    Args = @('--open-settings=layout');                Window = 'settings'; Settle = 2500; Seed = 'small'; Helper = $true },
+    # File search through Everything, which must be running on this PC. The
+    # folder is the user's own pswds folder; nothing is opened.
+    @{ Name = 'palette-files';          Args = @('--open-palette=pswds');                  Window = 'palette'; Settle = 1500 },
+    @{ Name = 'palette-files-dot';      Args = @('--open-palette=.pswds');                 Window = 'palette'; Settle = 1500 },
+    # Bookmarks: the same search with a bookmark for it, the ' list, the
+    # Ctrl+B box for a folder, and the settings page (see Write-BookmarkSeed).
+    @{ Name = 'palette-bookmark-match'; Args = @('--open-palette=pswds');                  Window = 'palette'; Settle = 1500; Bookmarks = $true },
+    @{ Name = 'palette-bookmarks';      Args = @('"--open-palette=''"');                   Window = 'palette'; Settle = 1000; Bookmarks = $true },
+    @{ Name = 'palette-bookmark-ask';   Args = @('"--ask-bookmark=D:\Windows_OneDrive\OneDrive\pswds_OneDrive"'); Window = 'palette' },
+    @{ Name = 'settings-bookmarks';     Args = @('--open-settings=bookmarks');             Window = 'settings'; Settle = 1500; Bookmarks = $true },
     @{ Name = 'settings-about';         Args = @('--open-settings=about');                 Window = 'settings' },
     # The strip in the view Auto picks (By monitor with two monitors or
     # more), then in the Flat view.
@@ -254,6 +264,24 @@ foreach ($id in 'language_indicator', 'screen_dimmer', 'shortcut_detector') {
 }
 if ($UsageFile) {
     Copy-Item -LiteralPath $UsageFile -Destination (Join-Path $appdata 'WinCraft\palette_usage.json')
+}
+# The bookmarks of the scenes that show some, written into the scratch folder
+# before the scene starts and taken away for the others. One is the user's
+# pswds folder, one is an address, and one is a place that does not exist,
+# so the page shows its "not found" note.
+function Write-BookmarkSeed([bool]$present) {
+    $file = Join-Path $appdata 'WinCraft\bookmarks.json'
+    if (-not $present) {
+        Remove-Item -LiteralPath $file -ErrorAction SilentlyContinue
+        return
+    }
+    $list = @(
+        [ordered]@{ phrase = 'pswds';      target = 'D:\Windows_OneDrive\OneDrive\pswds_OneDrive'; created = 1760000000 },
+        [ordered]@{ phrase = 'docs';       target = 'https://example.com/docs';                    created = 1760000100 },
+        [ordered]@{ phrase = 'downloads';  target = (Join-Path $env:USERPROFILE 'Downloads');      created = 1760000200 },
+        [ordered]@{ phrase = 'old backup'; target = 'C:\No Such Folder\Backups\2024';              created = 1760000300 }
+    )
+    [IO.File]::WriteAllText($file, (ConvertTo-Json -InputObject $list), $utf8)
 }
 function Write-KeeperSettings([string]$view) {
     [IO.File]::WriteAllText((Join-Path $plugins 'layout_keeper.json'),
@@ -454,6 +482,7 @@ try {
             $began = Get-Date
             if ($scene.Helper -and -not $script:helper) { Start-Helper }
             if ($scene.Seed) { Write-LayoutSeed $scene.Seed }
+            Write-BookmarkSeed ([bool]$scene.Bookmarks)
             $view = 'auto'
             if ($scene.View) { $view = $scene.View }
             Write-KeeperSettings $view

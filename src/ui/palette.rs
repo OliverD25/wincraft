@@ -7,7 +7,7 @@ use egui::{
 };
 
 use crate::core::theme::{self, Tokens};
-use crate::core::ui_bridge::{HostChannel, HostRequest, Prompt, UiSnapshot};
+use crate::core::ui_bridge::{HostChannel, HostRequest, Prompt, UiSnapshot, SEARCH_PROMPT};
 use crate::search::icons::IconCache;
 use crate::search::{
     Action, Ask, Choice, Context, Glyph, IconRef, Reply, ResultItem, Results, Router, Tone,
@@ -34,9 +34,6 @@ const ICON_SIZE: f32 = 16.0;
 const TITLE_LINE: f32 = 20.0;
 const SUBTITLE_LINE: f32 = 16.0;
 const RISE: f32 = 4.0;
-/// A question from a search provider names its prompt `search:<provider>`; it
-/// is answered here, not by a plugin on the host thread.
-const SEARCH_PROMPT: &str = "search:";
 
 pub enum Outcome {
     Stay,
@@ -110,16 +107,7 @@ impl Palette {
 
     /// A search provider's question, such as the phrase for a bookmark.
     fn ask_for(&mut self, ask: Ask) {
-        self.ask(Prompt {
-            plugin: format!("{SEARCH_PROMPT}{}", ask.provider),
-            chip: ask.chip,
-            placeholder: ask.placeholder,
-            text: ask.text,
-            action: ask.action,
-            subtitle: ask.subtitle,
-            payload: ask.payload,
-            ..Default::default()
-        });
+        self.ask(Prompt::from_ask(ask));
     }
 
     /// The palette was hidden or WinCraft is closing: picks not saved yet

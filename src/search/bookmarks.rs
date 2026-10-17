@@ -90,6 +90,14 @@ pub enum Saved {
     Unchanged,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum EditError {
+    NoSuchBookmark,
+    /// The new phrase belongs to another bookmark.
+    PhraseTaken,
+    Empty,
+}
+
 #[derive(Default)]
 pub struct Store {
     /// None for a store that is never saved, as in tests.
@@ -200,6 +208,34 @@ impl Store {
             self.save();
         }
         removed
+    }
+
+    /// Changes the phrase and target of one bookmark, as the settings page does.
+    pub fn edit(&mut self, old_phrase: &str, phrase: &str, target: &str) -> Result<(), EditError> {
+        let phrase = clean_phrase(phrase);
+        let target = clean_target(target);
+        if phrase.is_empty() || target.is_empty() {
+            return Err(EditError::Empty);
+        }
+        let old = clean_phrase(old_phrase).to_lowercase();
+        let new = phrase.to_lowercase();
+        if new != old
+            && self
+                .items
+                .iter()
+                .any(|item| item.phrase.to_lowercase() == new)
+        {
+            return Err(EditError::PhraseTaken);
+        }
+        let item = self
+            .items
+            .iter_mut()
+            .find(|item| item.phrase.to_lowercase() == old)
+            .ok_or(EditError::NoSuchBookmark)?;
+        item.phrase = phrase;
+        item.target = target;
+        self.save();
+        Ok(())
     }
 
     fn save(&self) {
@@ -331,6 +367,24 @@ mod tests {
         assert!(!store.remove("a"));
         assert_eq!(store.items().len(), 1);
         assert_eq!(store.items()[0].phrase, "b");
+    }
+
+    #[test]
+    fn editing_changes_the_phrase_and_target_but_not_into_another_phrase() {
+        let mut store = Store::in_memory();
+        store.set("a", r"C:\a", 1);
+        store.set("b", r"C:\b", 1);
+        assert_eq!(store.edit("a", "B", r"C:\x"), Err(EditError::PhraseTaken));
+        assert_eq!(
+            store.edit("zzz", "z", r"C:\x"),
+            Err(EditError::NoSuchBookmark)
+        );
+        assert_eq!(store.edit("a", " ", r"C:\x"), Err(EditError::Empty));
+        assert_eq!(store.edit("a", "A", r"C:\a2"), Ok(()));
+        assert_eq!(store.find("a").unwrap().phrase, "A");
+        assert_eq!(store.find("a").unwrap().target, r"C:\a2");
+        assert_eq!(store.edit("b", "c", r"C:\b"), Ok(()));
+        assert!(store.find("b").is_none());
     }
 
     #[test]

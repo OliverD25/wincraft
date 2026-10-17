@@ -127,6 +127,8 @@ pub struct SceneFlags {
     pub ask_name: Option<isize>,
     /// Show LayoutKeeper's please-wait panel with sample progress.
     pub restore_panel: bool,
+    /// A folder, file or address to open the palette's bookmark box for.
+    pub ask_bookmark: Option<String>,
 }
 
 static DEMO_RESTORE_PANEL: AtomicBool = AtomicBool::new(false);
@@ -276,6 +278,11 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
                 },
             )
         });
+    }
+    if let Some(target) = flags.scene.ask_bookmark {
+        ask(Prompt::from_ask(
+            crate::search::providers::bookmarks::ask_for(&target),
+        ));
     }
     if let Some(hwnd) = flags.scene.ask_name {
         with_host(|host| host.arrange_action(NAMER_ID, &ArrangeAction::AskName(hwnd)));

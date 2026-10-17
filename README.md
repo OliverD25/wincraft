@@ -8,17 +8,20 @@ touching the Win32 plumbing or writing any UI code.
 
 Version 0.11 ships five plugins: **ScreenDimmer**, **ShortcutDetector**,
 **LayoutKeeper**, **LanguageIndicator** and **WindowNamer**, and a palette
-that also finds apps, open windows, folders, sums, web searches and terminal
-commands.
+that also finds apps, open windows, files and folders on every disk (through
+Everything), your own bookmarks, sums, web searches and terminal commands.
 
 ## What you get
 
 - **Command palette** — `Win+Alt+P` opens a search box on the monitor your
   pointer is on. Type a few letters, press Enter. It finds WinCraft's commands,
-  apps (Start menu, Store and installed) and open windows, and with a prefix it browses folders,
-  does sums and searches the web. See [Command palette](#command-palette).
-- **Settings window** — General, Plugins, Plugin Store and About, with a page
-  per plugin: its options, its hotkeys, its config file and its README.
+  apps (Start menu, Store and installed), open windows, files and folders
+  (through Everything) and your bookmarks, and with a prefix it browses
+  folders, does sums and searches the web. See
+  [Command palette](#command-palette).
+- **Settings window** — General, Plugins, Layout, Bookmarks, Plugin Store and
+  About, with a page per plugin: its options, its hotkeys, its config file
+  and its README.
 - **Plugin store** — what exists, what this copy has, and what needs a newer
   WinCraft.
 - **Tray icon** — open the palette, open settings, one main action per
@@ -145,10 +148,11 @@ makes it lose a window. [Full README](src/plugins/window_namer/README.md)
 
 ## Command palette
 
-Without a prefix, the palette searches three things at once and lists the best
+Without a prefix, the palette searches five things at once and lists the best
 matches first: WinCraft's own commands (every plugin action, every plugin
-on/off switch, the host's items), your apps, and the windows that are open on
-any virtual desktop. Apps come from three places, and a program found in
+on/off switch, the host's items), your apps, the windows that are open on
+any virtual desktop, your [bookmarks](#bookmarks) and the files and folders
+that [Everything](#files-and-folders-with-everything) finds. Apps come from three places, and a program found in
 more than one is listed once, from the first: the shortcuts in your Start menu,
 the Start menu's app list (this is where Store apps such as Windows Terminal
 are), and the programs Windows lists as installed that have no shortcut. The
@@ -164,6 +168,8 @@ a chip before the search box; Backspace in the empty box removes it.
 | none | Commands, apps and open windows | Run, open or switch to | | Put the title in the box; on a File Explorer window, browse its folder under `/` |
 | `<` | Open windows only, the ones Alt+Tab shows, by title or program; a window renamed with WindowNamer by its name or its app's own title | Switch to it, restoring it if minimized | | Put the title in the box; on a File Explorer window, browse its folder under `/` |
 | `/` | Drives, then one folder at a time: `/C:\Users\` | Open the file or folder | Show it in Explorer, selected | Go into the folder |
+| `.` | Files and folders on every disk, through Everything: `.pswds` | Open it | Show it in Explorer, selected (Ctrl+Enter copies the path) | Go into the folder under `/` |
+| `'` | Your bookmarks, all of them when nothing is typed | Open it | Show it in Explorer, selected (Ctrl+Enter copies the target) | Go into the folder under `/` |
 | `=` | A sum: `+ - * / ^ %` and brackets; `×` and `÷` work too | Copy the answer | | Put the answer in the box |
 | `>` | A command for the terminal shell chosen in settings (WSL bash unless you change it), then your earlier commands | Run it here, with its output in the palette | | Put the earlier command in the box |
 | `?` | Alone: this list of prefixes. With words: a web search | Pick the prefix, or search in your default browser | | Pick the prefix |
@@ -185,7 +191,52 @@ them.
 
 The keys: ↑ ↓ move, Enter runs, Shift+Enter does the second action, Tab
 completes, Esc closes. The footer always shows what Enter, Shift+Enter,
-Ctrl+Enter and Tab do on the selected row.
+Ctrl+Enter and Tab do on the selected row. On a folder or file row Ctrl+B
+bookmarks it, and Ctrl+Delete removes a bookmark.
+
+### Files and folders with Everything
+
+WinCraft does not index your disks. [Everything](https://www.voidtools.com)
+(voidtools, free) already does, and answers in a few milliseconds, so WinCraft
+asks it. Start Everything (version 1.4 or newer; the separate message
+interface of the 1.5 alpha is not used yet) and type part of a name: without a prefix the palette adds up to six
+rows, folders first, then files. After `.` the list is only files and
+folders, up to 50 rows, with the best name match first. A name that equals
+what you typed leads, then names that start with it, then the rest; rows
+you pick often move up. Everything's own search words work too, such as
+`ext:pdf invoice` or `*.log`.
+
+Searches go out 120 ms after you stop typing, from a thread of their own, so
+a slow Everything never freezes the palette. A search needs two letters.
+Rows from the recycle bin and the Recent shortcuts folder are left out. If
+Everything is not running, `.` says so in one row, and the blended list
+stays silent. **Search files with Everything** in Settings → General
+switches all of it off.
+
+### Bookmarks
+
+A bookmark is a short phrase for a folder, a file or a web address. Type the
+phrase and its bookmark leads the list, above everything else; a phrase that
+starts with what you typed comes before ordinary matches. `'` alone lists all
+of them.
+
+- **Add one:** press Ctrl+B on a folder or file row (from `/`, `.`, the
+  blended list, or an open File Explorer window in the `<` list) or on a full
+  web address typed after `?`. The palette asks for the phrase, with the name
+  in lower case already filled in; Enter saves. A phrase that already opens
+  something else asks you to press Enter again before it is replaced.
+- **Add by hand:** the palette command **Add bookmark…** (type `add book`)
+  asks for the place first, with the folder of the File Explorer window that
+  was in front, then for the phrase. The Bookmarks page in the settings
+  window has a form for it too, and lists every bookmark with Open, Edit and
+  Delete. A place that does not exist is saved with a warning.
+- **Use one:** Enter opens it, Shift+Enter shows it in Explorer, Ctrl+Enter
+  copies its target, Tab goes into a folder bookmark under `/`.
+- **Remove one:** Ctrl+Delete on it, then Ctrl+Delete again within five
+  seconds. Any other key cancels.
+
+They are kept in `bookmarks.json`, a plain list of `phrase`, `target` and
+`created`.
 
 ### Terminal commands with `>`
 
@@ -223,6 +274,7 @@ Everything is under `%LOCALAPPDATA%\WinCraft`, which is
 ```
 config.json            the host's own settings
 palette_usage.json     how often each palette result was picked
+bookmarks.json         your palette bookmarks
 plugins\
   screen_dimmer.json   one file per plugin
   shortcut_detector.json
@@ -251,12 +303,13 @@ in the log.
   "theme": "system",
   "palette_hotkey": "Win+Alt+P",
   "search": {
-    "prefixes": { "calc": "=", "paths": "/", "terminal": ">", "web": "?", "windows": "<" },
+    "prefixes": { "bookmarks": "'", "calc": "=", "files": ".", "paths": "/", "terminal": ">", "web": "?", "windows": "<" },
     "web_url": "https://www.google.com/search?q={query}",
     "terminal_shell": "WSL bash",
     "terminal_custom": "",
     "terminal_history": true,
-    "rank_by_use": true
+    "rank_by_use": true,
+    "everything": true
   }
 }
 ```
@@ -272,6 +325,7 @@ in the log.
 | `search.terminal_custom` | For `Custom`: a command line with `{cmd}` where the command goes and optionally `{cwd}` for the folder, such as `C:\msys64\usr\bin\bash.exe -lc {cmd}`. Without `{cmd}` WSL bash is used. |
 | `search.terminal_history` | Whether commands run from the palette are remembered. |
 | `search.rank_by_use` | Whether results you pick often move up, and picks are counted in `palette_usage.json`. |
+| `search.everything` | Whether files and folders are searched with Everything, in the blended list and after `.`. |
 
 The prefixes are read when WinCraft starts, so restart it after changing
 them. The other `search` keys are also on the General page of the settings

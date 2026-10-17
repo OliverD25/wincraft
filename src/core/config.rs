@@ -110,6 +110,7 @@ fn default_prefixes() -> BTreeMap<String, String> {
         ("windows", "<"),
         ("paths", "/"),
         ("files", "."),
+        ("bookmarks", "'"),
         ("calc", "="),
         ("terminal", ">"),
         ("web", "?"),

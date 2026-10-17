@@ -216,6 +216,7 @@ fn scene_flags(
                 | "--theme"
                 | "--rename-window"
                 | "--ask-name"
+                | "--ask-bookmark"
         ) {
             continue;
         }
@@ -246,6 +247,10 @@ fn scene_flags(
                 scene.rename = window_and_name(value);
                 scene.rename.is_some()
             }
+            "--ask-bookmark" => {
+                scene.ask_bookmark = Some(value.trim().to_string()).filter(|text| !text.is_empty());
+                scene.ask_bookmark.is_some()
+            }
             "--ask-name" => {
                 scene.ask_name = window_handle(value);
                 scene.ask_name.is_some()
@@ -262,7 +267,7 @@ fn scene_flags(
     (scene, theme, notes)
 }
 
-/// "general", "plugins", "store", "about", or "plugin:<id>".
+/// "general", "plugins", "layout", "bookmarks", "store", "about", or "plugin:<id>".
 fn settings_target(value: &str) -> Option<SettingsTarget> {
     let value = value.trim();
     if let Some(id) = value.strip_prefix("plugin:") {
@@ -273,6 +278,7 @@ fn settings_target(value: &str) -> Option<SettingsTarget> {
         "general" => Page::General,
         "plugins" => Page::Plugins,
         "layout" => Page::Layout,
+        "bookmarks" => Page::Bookmarks,
         "store" => Page::Store,
         "about" => Page::About,
         _ => return None,
@@ -480,6 +486,10 @@ mod tests {
             Some(SettingsTarget::Page(Page::Layout))
         );
         assert_eq!(
+            settings_target("Bookmarks"),
+            Some(SettingsTarget::Page(Page::Bookmarks))
+        );
+        assert_eq!(
             settings_target("store"),
             Some(SettingsTarget::Page(Page::Store))
         );
@@ -492,6 +502,20 @@ mod tests {
             Some(SettingsTarget::Plugin("screen_dimmer".to_string()))
         );
         assert_eq!(settings_target(""), None);
+    }
+
+    #[test]
+    fn the_bookmark_box_is_asked_for_a_place() {
+        let place = r"D:\Docs\pswds_OneDrive";
+        let list = args(&["wincraft.exe", &format!("--ask-bookmark={place}")]);
+        let (scene, _, notes) = scene_flags(&list, true);
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(scene.ask_bookmark.as_deref(), Some(place));
+        let (scene, _, notes) = scene_flags(&list, false);
+        assert_eq!(scene, SceneFlags::default());
+        assert_eq!(notes.len(), 1);
+        let (_, _, notes) = scene_flags(&args(&["wincraft.exe", "--ask-bookmark="]), true);
+        assert_eq!(notes.len(), 1, "an empty place is noted and skipped");
     }
 
     #[test]
