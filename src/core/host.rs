@@ -259,6 +259,9 @@ thread_local! {
     static PROMPT: RefCell<Option<Prompt>> = const { RefCell::new(None) };
     static ARRANGE_STALE: Cell<bool> = const { Cell::new(false) };
     static RETRY: RefCell<Vec<(u32, WPARAM, LPARAM)>> = const { RefCell::new(Vec::new()) };
+    /// The message the WndProc is working on, so the log can name a message
+    /// that found the host busy.
+    static CURRENT_MESSAGE: Cell<Option<(u32, WPARAM)>> = const { Cell::new(None) };
 }
 
 pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: StartupFlags) {
@@ -1800,16 +1803,39 @@ fn open_in_notepad(path: &std::path::Path) {
 
 /// Skips the work instead of panicking when the host is already borrowed.
 /// Creating a window inside a callback lets Windows send other messages to the
-/// host window before the first call has returned; dropping those is right,
-/// crashing the tray program is not.
+/// host window before the first call has returned. For a message that cannot
+/// wait or carries a pointer, dropping it is right and crashing the tray
+/// program is not; the others go through `with_host_or_later`.
 fn with_host<R>(f: impl FnOnce(&mut Host) -> R) -> Option<R> {
     HOST.with(|cell| match cell.try_borrow_mut() {
         Ok(mut borrowed) => borrowed.as_mut().map(f),
         Err(_) => {
-            log::warn!("host message arrived while the host was busy, ignored");
+            let name = CURRENT_MESSAGE.with(|current| current.get()).map_or_else(
+                || "call".to_string(),
+                |(msg, wparam)| message_name(msg, wparam),
+            );
+            log::warn!("host message {name} arrived while the host was busy; ignored");
             None
         }
     })
+}
+
+fn host_is_busy() -> bool {
+    HOST.with(|cell| cell.try_borrow_mut().is_err())
+}
+
+/// Runs `f` on what the cell holds, unless the cell is borrowed already.
+/// Returns true when it was borrowed and `f` did not run.
+fn run_unless_busy<T>(cell: &RefCell<Option<T>>, f: impl FnOnce(&mut T)) -> bool {
+    match cell.try_borrow_mut() {
+        Ok(mut borrowed) => {
+            if let Some(value) = borrowed.as_mut() {
+                f(value);
+            }
+            false
+        }
+        Err(_) => true,
+    }
 }
 
 /// Like `with_host`, but a message that finds the host busy is delivered
@@ -1818,7 +1844,8 @@ fn with_host<R>(f: impl FnOnce(&mut Host) -> R) -> Option<R> {
 /// window, as when LayoutKeeper moves windows while a monitor powers up,
 /// and a dropped one leaves ScreenDimmer on the old layout. Only for messages
 /// whose parameters are plain values: a pointer in one would be stale by
-/// then.
+/// then. Anything `f` takes out of a queue must be taken inside `f`, which
+/// runs only when the host is free, or it is lost with the first attempt.
 fn with_host_or_later(
     hwnd: HWND,
     msg: u32,
@@ -1826,42 +1853,88 @@ fn with_host_or_later(
     lparam: LPARAM,
     f: impl FnOnce(&mut Host),
 ) {
-    let busy = HOST.with(|cell| match cell.try_borrow_mut() {
-        Ok(mut borrowed) => {
-            if let Some(host) = borrowed.as_mut() {
-                f(host);
-            }
-            false
-        }
-        Err(_) => true,
-    });
-    if busy {
-        log::info!(
-            "{} arrived while the host was busy; it is delivered again in {RETRY_MS} ms",
-            message_name(msg)
-        );
-        RETRY.with(|queue| queue_again(&mut queue.borrow_mut(), msg, wparam, lparam));
-        unsafe { SetTimer(hwnd, RETRY_TIMER, RETRY_MS, None) };
+    if HOST.with(|cell| run_unless_busy(cell, f)) {
+        deliver_later(hwnd, msg, wparam, lparam);
     }
 }
 
+fn deliver_later(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) {
+    log::info!(
+        "host message {} arrived while the host was busy; delivering it again in {RETRY_MS} ms",
+        message_name(msg, wparam)
+    );
+    RETRY.with(|queue| queue_again(&mut queue.borrow_mut(), msg, wparam, lparam));
+    unsafe { SetTimer(hwnd, RETRY_TIMER, RETRY_MS, None) };
+}
+
 /// Only the newest display change is kept: each one describes the whole
-/// layout, and running an old one after a newer one would be wrong.
+/// layout, and running an old one after a newer one would be wrong. A plugin
+/// request is kept once, because the notices and the other things it asks for
+/// wait in their own queues, not in the message; and it is kept past the
+/// limit, because losing it would lose what those queues hold.
 fn queue_again(queue: &mut Vec<(u32, WPARAM, LPARAM)>, msg: u32, wparam: WPARAM, lparam: LPARAM) {
     if msg == WM_DISPLAYCHANGE {
         queue.retain(|(queued, _, _)| *queued != WM_DISPLAYCHANGE);
+    }
+    if msg == WM_APP_PLUGIN {
+        if !queue.iter().any(|(queued, _, _)| *queued == WM_APP_PLUGIN) {
+            queue.push((msg, wparam, lparam));
+        }
+        return;
     }
     if queue.len() < RETRY_LIMIT {
         queue.push((msg, wparam, lparam));
     }
 }
 
-fn message_name(msg: u32) -> String {
+fn message_name(msg: u32, wparam: WPARAM) -> String {
+    if msg != 0 && msg == TASKBAR_CREATED.with(|cell| cell.get()) {
+        return "TaskbarCreated".to_string();
+    }
     match msg {
         WM_DISPLAYCHANGE => "WM_DISPLAYCHANGE".to_string(),
         WM_HOTKEY => "WM_HOTKEY".to_string(),
-        WM_APP_UI => "a request from the UI thread".to_string(),
-        other => format!("message 0x{other:04X}"),
+        WM_TRAY_CALLBACK => "WM_TRAY_CALLBACK (tray icon)".to_string(),
+        WM_APP_UI => "WM_APP_UI (request from the UI thread)".to_string(),
+        WM_APP_PLUGIN => "WM_APP_PLUGIN (plugin request)".to_string(),
+        WM_APP_UPDATE => "WM_APP_UPDATE (update result)".to_string(),
+        WM_APP_NOTICE_CLICK => "WM_APP_NOTICE_CLICK (click on the update notice)".to_string(),
+        WM_SETTINGCHANGE => "WM_SETTINGCHANGE".to_string(),
+        WM_POWERBROADCAST => "WM_POWERBROADCAST".to_string(),
+        WM_QUERYENDSESSION => "WM_QUERYENDSESSION".to_string(),
+        WM_ENDSESSION => "WM_ENDSESSION".to_string(),
+        WM_DESTROY => "WM_DESTROY".to_string(),
+        WM_TIMER => match wparam {
+            UPDATE_TIMER => "WM_TIMER (update check)".to_string(),
+            HEALTHY_TIMER => "WM_TIMER (healthy report)".to_string(),
+            NOTICE_TIMER => "WM_TIMER (update notice)".to_string(),
+            RETRY_TIMER => "WM_TIMER (redelivery)".to_string(),
+            other => format!("WM_TIMER 0x{other:X}"),
+        },
+        other => format!("0x{other:04X}"),
+    }
+}
+
+/// What plugins asked the host for through `notify`, `set_tray_tip`, `ask`,
+/// `open_arrange` and `refresh_arrange`. Taking it empties the queues, so it
+/// is taken only once the host is free to act on it.
+struct PluginRequests {
+    notices: Vec<(String, String)>,
+    tip: Option<Option<String>>,
+    arrange: bool,
+    stale: bool,
+    prompt: Option<Prompt>,
+}
+
+impl PluginRequests {
+    fn take() -> Self {
+        PluginRequests {
+            notices: NOTICES.with(|queue| std::mem::take(&mut *queue.borrow_mut())),
+            tip: TRAY_TIP.with(|cell| cell.borrow_mut().take()),
+            arrange: ARRANGE_WANTED.with(|cell| cell.replace(false)),
+            stale: ARRANGE_STALE.with(|cell| cell.replace(false)),
+            prompt: PROMPT.with(|cell| cell.borrow_mut().take()),
+        }
     }
 }
 
@@ -1940,9 +2013,16 @@ unsafe extern "system" fn wnd_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
+    let outer = CURRENT_MESSAGE.with(|current| current.replace(Some((msg, wparam))));
+    let result = dispatch(hwnd, msg, wparam, lparam);
+    CURRENT_MESSAGE.with(|current| current.set(outer));
+    result
+}
+
+fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     let taskbar_created = TASKBAR_CREATED.with(|cell| cell.get());
     if taskbar_created != 0 && msg == taskbar_created {
-        with_host(|host| host.tray.add());
+        with_host_or_later(hwnd, msg, wparam, lparam, |host| host.tray.add());
         return 0;
     }
 
@@ -1950,7 +2030,11 @@ unsafe extern "system" fn wnd_proc(
         WM_HOTKEY => {
             let global_id = wparam as i32;
             if global_id == PALETTE_HOTKEY_ID {
-                show_palette();
+                if host_is_busy() {
+                    deliver_later(hwnd, msg, wparam, lparam);
+                } else {
+                    show_palette();
+                }
                 return 0;
             }
             with_host_or_later(hwnd, msg, wparam, lparam, |host| {
@@ -1973,6 +2057,10 @@ unsafe extern "system" fn wnd_proc(
             0
         }
         WM_TRAY_CALLBACK => {
+            if host_is_busy() {
+                deliver_later(hwnd, msg, wparam, lparam);
+                return 0;
+            }
             let event = (lparam as u32) & 0xFFFF;
             if event == NIN_BALLOONUSERCLICK {
                 match with_host(|host| host.balloon_click) {
@@ -1999,32 +2087,28 @@ unsafe extern "system" fn wnd_proc(
             0
         }
         WM_APP_PLUGIN => {
-            let notices = NOTICES.with(|queue| std::mem::take(&mut *queue.borrow_mut()));
-            let arrange = ARRANGE_WANTED.with(|cell| cell.replace(false));
-            let stale = ARRANGE_STALE.with(|cell| cell.replace(false));
-            let prompt = PROMPT.with(|cell| cell.borrow_mut().take());
-            let tip = TRAY_TIP.with(|cell| cell.borrow_mut().take());
-            let palette = with_host(|host| {
-                if let Some(tip) = &tip {
+            let mut palette = None;
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| {
+                let requests = PluginRequests::take();
+                if let Some(tip) = &requests.tip {
                     host.tray.set_tip(tip.as_deref());
                 }
-                for (title, text) in &notices {
+                for (title, text) in &requests.notices {
                     host.balloon_click = BalloonClick::Nothing;
                     host.tray.balloon(title, text);
                 }
-                if arrange {
+                if requests.arrange {
                     host.send_arrange(true);
-                } else if stale {
+                } else if requests.stale {
                     host.send_arrange(false);
                 }
                 host.publish();
-                prompt.map(|prompt| {
+                if let Some(prompt) = requests.prompt {
                     host.to_ui
                         .send(UiCommand::ShowPrompt(prompt, cursor_monitor()));
-                    host.palette_hwnd
-                })
-            })
-            .flatten();
+                    palette = Some(host.palette_hwnd);
+                }
+            });
             if let Some(hwnd) = palette {
                 bring_to_front(hwnd);
             }
@@ -2140,6 +2224,83 @@ mod tests {
             queue_again(&mut queue, WM_HOTKEY, 1, 0);
         }
         assert_eq!(queue.len(), RETRY_LIMIT);
+    }
+
+    #[test]
+    fn a_plugin_request_is_queued_once_and_survives_a_full_queue() {
+        let mut queue = Vec::new();
+        for _ in 0..RETRY_LIMIT * 2 {
+            queue_again(&mut queue, WM_HOTKEY, 1, 0);
+        }
+        queue_again(&mut queue, WM_APP_PLUGIN, 0, 0);
+        queue_again(&mut queue, WM_APP_PLUGIN, 0, 0);
+        assert_eq!(queue.len(), RETRY_LIMIT + 1);
+        assert_eq!(queue.last(), Some(&(WM_APP_PLUGIN, 0, 0)));
+        let mut queue = Vec::new();
+        queue_again(&mut queue, WM_APP_PLUGIN, 0, 0);
+        queue_again(&mut queue, WM_HOTKEY, 3, 0);
+        queue_again(&mut queue, WM_APP_PLUGIN, 0, 0);
+        assert_eq!(queue, [(WM_APP_PLUGIN, 0, 0), (WM_HOTKEY, 3, 0)]);
+    }
+
+    /// The host stands in as a list of the notices it showed. The handler
+    /// takes the notices inside the closure, as WM_APP_PLUGIN does.
+    fn deliver_plugin_requests(host: &RefCell<Option<Vec<(String, String)>>>) -> bool {
+        run_unless_busy(host, |shown| shown.extend(PluginRequests::take().notices))
+    }
+
+    #[test]
+    fn a_notice_that_finds_the_host_busy_is_shown_once_after_it_is_free() {
+        let host = RefCell::new(Some(Vec::new()));
+        NOTICES.with(|queue| {
+            let mut queue = queue.borrow_mut();
+            queue.push(("first".to_string(), "1".to_string()));
+            queue.push(("second".to_string(), "2".to_string()));
+        });
+        let mut retry = Vec::new();
+
+        let busy_guard = host.borrow_mut();
+        assert!(deliver_plugin_requests(&host));
+        queue_again(&mut retry, WM_APP_PLUGIN, 0, 0);
+        assert_eq!(NOTICES.with(|queue| queue.borrow().len()), 2);
+        drop(busy_guard);
+
+        // A third notice and its message arrive while the first two wait.
+        NOTICES.with(|queue| {
+            queue
+                .borrow_mut()
+                .push(("third".to_string(), "3".to_string()))
+        });
+        queue_again(&mut retry, WM_APP_PLUGIN, 0, 0);
+        assert_eq!(retry.len(), 1);
+
+        for _ in std::mem::take(&mut retry) {
+            assert!(!deliver_plugin_requests(&host));
+        }
+        // The fresh message the third notice posted finds nothing left.
+        assert!(!deliver_plugin_requests(&host));
+        let titles: Vec<String> = host
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|(title, _)| title.clone())
+            .collect();
+        assert_eq!(titles, ["first", "second", "third"]);
+    }
+
+    #[test]
+    fn a_tooltip_and_a_prompt_wait_for_a_free_host_too() {
+        let host: RefCell<Option<Vec<(String, String)>>> = RefCell::new(Some(Vec::new()));
+        TRAY_TIP.with(|cell| *cell.borrow_mut() = Some(Some("tip".to_string())));
+        ARRANGE_WANTED.with(|cell| cell.set(true));
+        let busy_guard = host.borrow_mut();
+        assert!(deliver_plugin_requests(&host));
+        drop(busy_guard);
+        let requests = PluginRequests::take();
+        assert_eq!(requests.tip, Some(Some("tip".to_string())));
+        assert!(requests.arrange);
+        assert!(PluginRequests::take().tip.is_none());
     }
 
     #[test]
