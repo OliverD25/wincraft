@@ -19,6 +19,8 @@ pub enum Page {
     #[default]
     General,
     Plugins,
+    /// The windows LayoutKeeper has saved.
+    Layout,
     Store,
     About,
 }
@@ -35,6 +37,7 @@ pub enum HostCommand {
     OpenSettings,
     OpenStore,
     OpenAbout,
+    OpenLayout,
     OpenLog,
     OpenConfig,
     TogglePlugin(usize),
@@ -158,6 +161,69 @@ impl ArrangeAction {
     }
 }
 
+/// A saved window, named by its place in the plugin's list. `title` is the
+/// saved title, checked before an edit so a stale list cannot change the
+/// wrong window.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LayoutRef {
+    pub exe: String,
+    pub index: usize,
+    pub title: String,
+}
+
+/// One saved window on the Layout page.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LayoutEntry {
+    pub entry: LayoutRef,
+    /// What the window is called: its WindowNamer name when open and named.
+    pub title: String,
+    /// The saved desktop's id, as the registry spells it; empty when the
+    /// window was not on a desktop of its own.
+    pub desktop: String,
+    /// The saved desktop no longer exists.
+    pub desktop_removed: bool,
+    pub monitor: Option<String>,
+    /// The window handle when the window is open now.
+    pub hwnd: Option<isize>,
+    /// The day the window was last seen open, when it is closed.
+    pub closed_since: Option<String>,
+}
+
+/// The saved windows of one taskbar group.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LayoutApp {
+    pub key: String,
+    pub label: String,
+    pub windows: Vec<LayoutEntry>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LayoutSnapshot {
+    pub plugin: String,
+    /// "14:05", when this session saved at all.
+    pub last_saved: Option<String>,
+    pub desktops: Vec<ArrangeDesktop>,
+    pub apps: Vec<LayoutApp>,
+    /// WindowNamer is on, so an open window can be given a name.
+    pub can_rename: bool,
+}
+
+/// What the Layout page asks the plugin to do.
+#[derive(Clone, Debug, PartialEq)]
+pub enum LayoutAction {
+    /// Save another desktop for the window and, when it is open (`hwnd`),
+    /// move it there now.
+    SetDesktop {
+        entry: LayoutRef,
+        desktop: String,
+        hwnd: Option<isize>,
+    },
+    /// Drop a closed window from the saved layout.
+    Forget(LayoutRef),
+    RestoreNow,
+    SaveNow,
+}
+
 /// A question the palette asks for a plugin: one line of text, handed back
 /// to the plugin's `on_prompt_answer` when the user presses Enter.
 #[derive(Clone, Debug, PartialEq)]
@@ -209,6 +275,8 @@ pub enum UiCommand {
     ShowArrange(ArrangeSnapshot),
     /// A fresh list for the Arrange window, if it is still open.
     ArrangeUpdate(ArrangeSnapshot),
+    /// The Layout page's data; None when no plugin keeps a layout.
+    LayoutUpdate(Option<LayoutSnapshot>),
     HideAll,
     Snapshot(Box<UiSnapshot>),
     ThemeChanged,
@@ -248,6 +316,12 @@ pub enum HostRequest {
     Arrange {
         plugin: String,
         action: ArrangeAction,
+    },
+    /// The Layout page wants fresh data.
+    LayoutRefresh,
+    Layout {
+        plugin: String,
+        action: LayoutAction,
     },
     /// The strip's own window, which only the host thread may bring forward
     /// right after the hotkey that opened it.

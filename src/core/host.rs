@@ -632,6 +632,7 @@ impl Host {
         for (command, label) in [
             (HostCommand::OpenSettings, "Open settings"),
             (HostCommand::OpenStore, "Plugin store"),
+            (HostCommand::OpenLayout, "Saved window layout"),
             (HostCommand::OpenAbout, "About WinCraft"),
             (HostCommand::OpenConfig, "Open the config file"),
             (HostCommand::OpenLog, "Open the log file"),
@@ -827,6 +828,25 @@ impl Host {
         }
     }
 
+    /// Asks the first enabled plugin that keeps a layout for its saved
+    /// windows and sends them to the Layout page.
+    fn send_layout(&mut self) {
+        let can_rename = self
+            .index_of(NAMER_ID)
+            .is_some_and(|index| self.slots[index].enabled);
+        let snapshot = self.slots.iter_mut().find_map(|slot| {
+            if !slot.enabled {
+                return None;
+            }
+            slot.plugin.layout_snapshot()
+        });
+        self.to_ui
+            .send(UiCommand::LayoutUpdate(snapshot.map(|mut s| {
+                s.can_rename = can_rename;
+                s
+            })));
+    }
+
     fn index_of(&self, id: &str) -> Option<usize> {
         self.slots
             .iter()
@@ -840,6 +860,9 @@ impl Host {
             }
             CommandId::Host(HostCommand::OpenStore) => {
                 self.to_ui.send(UiCommand::ShowSettings(Page::Store))
+            }
+            CommandId::Host(HostCommand::OpenLayout) => {
+                self.to_ui.send(UiCommand::ShowSettings(Page::Layout))
             }
             CommandId::Host(HostCommand::OpenAbout) => {
                 self.to_ui.send(UiCommand::ShowSettings(Page::About))
@@ -908,6 +931,16 @@ impl Host {
                 if !matches!(action, ArrangeAction::Activate(_)) {
                     self.send_arrange(false);
                 }
+            }
+            HostRequest::LayoutRefresh => self.send_layout(),
+            HostRequest::Layout { plugin, action } => {
+                match self.index_of(&plugin) {
+                    Some(index) if self.slots[index].enabled => {
+                        self.slots[index].plugin.on_layout_action(&action)
+                    }
+                    _ => log::info!("{plugin} is off; the Layout page's request was dropped"),
+                }
+                self.send_layout();
             }
             HostRequest::FocusWindow(hwnd) => bring_to_front(hwnd as HWND),
             HostRequest::ClearPaletteUsage => self.to_ui.send(UiCommand::ClearPaletteUsage),

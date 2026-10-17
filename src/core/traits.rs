@@ -1,6 +1,8 @@
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 
-use crate::core::ui_bridge::{ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup};
+use crate::core::ui_bridge::{
+    ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, LayoutAction, LayoutSnapshot,
+};
 use crate::search::SearchProvider;
 
 pub struct PluginMetadata {
@@ -198,6 +200,17 @@ pub trait WinCraftPlugin {
 
     /// The strip asked for something to be done with one window.
     fn on_arrange_action(&mut self, action: &ArrangeAction) {
+        let _ = action;
+    }
+
+    /// The saved windows for the Layout page, for a plugin that keeps a
+    /// layout. The host asks while the page is open.
+    fn layout_snapshot(&mut self) -> Option<LayoutSnapshot> {
+        None
+    }
+
+    /// The Layout page asked for something to be done.
+    fn on_layout_action(&mut self, action: &LayoutAction) {
         let _ = action;
     }
 

@@ -1,5 +1,6 @@
 mod about;
 mod general;
+mod layout;
 mod plugins;
 mod store;
 
@@ -17,7 +18,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{EnumThreadWindows, GetWindowTe
 use crate::core::hotkeys;
 use crate::core::theme::{self, Tokens};
 use crate::core::traits::Hotkey;
-use crate::core::ui_bridge::{HostChannel, Page, UiSnapshot};
+use crate::core::ui_bridge::{HostChannel, LayoutSnapshot, Page, UiSnapshot};
 use crate::plugins::shortcut_detector::probe::{self, Status};
 use crate::ui::widgets::capture::{self, Verdict};
 use crate::ui::widgets::{focus, hotkey_capture, row, text};
@@ -214,6 +215,10 @@ pub struct SettingsState {
     pub update: about::Update,
     /// When "Clear usage history" was last clicked, for its "Cleared" note.
     pub usage_cleared: Option<std::time::Instant>,
+    /// The saved windows the Layout page shows, as LayoutKeeper last sent
+    /// them, and when the page last asked for them.
+    pub layout: Option<LayoutSnapshot>,
+    pub layout_asked: Option<std::time::Instant>,
 }
 
 impl SettingsState {
@@ -331,6 +336,12 @@ impl Settings {
     pub fn set_snapshot(&self, snapshot: UiSnapshot) {
         if let Ok(mut shared) = self.shared.lock() {
             shared.snapshot = snapshot;
+        }
+    }
+
+    pub fn set_layout(&self, layout: Option<LayoutSnapshot>) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.state.layout = layout;
         }
     }
 
@@ -469,6 +480,7 @@ impl Settings {
                 .show(ui, |ui| match state.page {
                     Page::General => general::show(ui, snapshot, state, to_host),
                     Page::Plugins => plugins::show(ui, snapshot, state, to_host),
+                    Page::Layout => layout::show(ui, state, to_host),
                     Page::Store => store::show(ui, snapshot, state, to_host),
                     Page::About => about::show(ui, snapshot, state),
                 });
@@ -483,6 +495,7 @@ impl Settings {
 const PAGES: &[(Page, &str)] = &[
     (Page::General, "General"),
     (Page::Plugins, "Plugins"),
+    (Page::Layout, "Layout"),
     (Page::Store, "Plugin Store"),
     (Page::About, "About"),
 ];

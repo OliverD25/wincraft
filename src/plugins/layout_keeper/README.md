@@ -132,6 +132,30 @@ saves keep its saved windows, so the scrambled windows of a fresh start never
 overwrite the layout they are about to be put back into. Everything else is
 saved as normal.
 
+## The Layout page
+
+**Layout** in the settings window (or **Saved window layout** in the
+palette) lists everything LayoutKeeper has saved, grouped by app with the
+same names as the Arrange strip. For each saved window it shows:
+
+- its title (the WindowNamer name, when an open window has one),
+- whether it is **open now**, or **closed since** the last day it was seen
+  open,
+- the monitor chip (Left, Right) when it is not on the main monitor,
+- the virtual desktop it comes back to, in a dropdown, and
+- **Forget**, for a closed window. An open window is saved again at once, so
+  forgetting it would do nothing; the button is off for it.
+
+Choosing another desktop saves it at once and applies at the next restore. If
+the window is open, it also moves there now, the same way **Move to desktop**
+does in the strip. A window saved on a desktop that has since been removed
+shows **desktop removed** in amber. A restore leaves such a window where it
+is, and says so in the log; pick a desktop to fix the entry.
+
+The header has **Restore now** (the same as `Win+Alt+L`), **Save now** (the
+same as `Win+Alt+J`) and the time of the last save. The list refreshes every
+two seconds while the page is open.
+
 ## Naming windows
 
 Chrome can give a window a name: right-click the tab strip and choose

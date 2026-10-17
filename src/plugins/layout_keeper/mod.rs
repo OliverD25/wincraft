@@ -26,7 +26,8 @@ use crate::core::traits::{
     TrayAction, WinCraftPlugin, WindowGroups,
 };
 use crate::core::ui_bridge::{
-    ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeWindow,
+    ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeWindow, LayoutAction,
+    LayoutApp, LayoutEntry, LayoutRef, LayoutSnapshot,
 };
 use crate::core::{appid, clock, host, instance, wide, window_names};
 use desktops::{Desktop, DesktopId};
@@ -316,12 +317,93 @@ impl LayoutKeeper {
             .unwrap_or_else(|| key.to_string())
     }
 
+    /// What the Layout page calls a saved group. A group seen live this
+    /// session has its label already; the others are named from the Start
+    /// menu entry of their app ID, else from the program.
+    fn saved_label(&mut self, exe: &str, group: &str) -> String {
+        if let Some(label) = self.labels.get(group) {
+            return label.clone();
+        }
+        let has_id = !group.contains('\\');
+        let name = has_id.then(|| appid::registered_name(group)).flatten();
+        let label = match browser_name(exe) {
+            Some(browser) => appid::group_label(browser, name.as_deref(), group, ""),
+            None => app_label(name.as_deref(), None, exe),
+        };
+        self.labels.insert(group.to_string(), label.clone());
+        label
+    }
+
+    /// For each saved window of `exe`, in the saved order, the handle of the
+    /// open window it matches.
+    fn open_matches(
+        exe: &str,
+        program: &ProgramState,
+        live: &[windows::LiveWindow],
+    ) -> Vec<Option<isize>> {
+        let saved_ids: Vec<identity::WindowIdentity> = program
+            .windows
+            .iter()
+            .map(|window| window.identity(exe))
+            .collect();
+        let mine: Vec<&windows::LiveWindow> = live
+            .iter()
+            .filter(|window| window.identity.exe == exe)
+            .collect();
+        let live_ids: Vec<identity::WindowIdentity> =
+            mine.iter().map(|window| window.identity.clone()).collect();
+        let matching = identity::match_windows(&saved_ids, &live_ids);
+        (0..program.windows.len())
+            .map(|index| {
+                matching
+                    .pairs
+                    .iter()
+                    .find(|(saved, _)| *saved == index)
+                    .map(|(_, l)| mine[*l].hwnd as isize)
+            })
+            .collect()
+    }
+
+    /// Changes one saved window and writes the file at once. `change` gets
+    /// the window if `entry` still names it (same place, same title).
+    fn edit_saved(
+        &mut self,
+        entry: &LayoutRef,
+        what: &str,
+        change: impl FnOnce(&mut Programs, &LayoutRef),
+    ) {
+        let Some(mut programs) = self.writer.last().cloned() else {
+            return;
+        };
+        let current = programs
+            .get(&entry.exe)
+            .and_then(|program| program.windows.get(entry.index))
+            .is_some_and(|window| window.title == entry.title);
+        if !current {
+            log::info!("the saved list changed under the Layout page; {what} skipped");
+            return;
+        }
+        change(&mut programs, entry);
+        match self.writer.write(
+            programs,
+            "layout page",
+            clock::local_iso(SystemTime::now()),
+            true,
+        ) {
+            Ok(_) => log::info!("{what}"),
+            Err(err) => log::error!("could not save the layout: {err}"),
+        }
+    }
+
     /// The watched programs' windows as they are now, each program's list in
     /// taskbar order. `z_index` counts across all programs, so the order
     /// between apps can be put back too.
     fn capture(&self, live: &[windows::LiveWindow]) -> Programs {
         let desktops = desktops::list();
         let monitors = monitors::list();
+        let today = clock::local_iso(SystemTime::now())
+            .get(..10)
+            .map(str::to_string);
         let mut programs = Programs::new();
         let mut exes: Vec<&str> = Vec::new();
         for window in live {
@@ -358,6 +440,7 @@ impl LayoutKeeper {
                             .unwrap_or(z_index),
                         z_index,
                         monitor: monitors::of_rect(window.identity.rect, &monitors),
+                        seen: today.clone(),
                     }
                 })
                 .collect();
@@ -760,6 +843,17 @@ impl LayoutKeeper {
                             .iter()
                             .find(|(_, live)| *live == l && !kept)
                             .and_then(|(s, _)| windows[*s].desktop.as_deref());
+                        if !late {
+                            let gone = saved_desktop
+                                .and_then(DesktopId::parse)
+                                .filter(|id| *id != DesktopId::ALL && !known.contains(id));
+                            if let Some(gone) = gone {
+                                log::info!(
+                                    "\"{}\" was saved on desktop {gone}, which no longer exists; it stays where it is",
+                                    window.identity.label()
+                                );
+                            }
+                        }
                         if let Some(target) = desktop_target(before[l], saved_desktop, &known) {
                             if late && !kept && Some(target) != before[l] {
                                 moved_late += 1;
@@ -1698,6 +1792,160 @@ impl WinCraftPlugin for LayoutKeeper {
         }
     }
 
+    fn layout_snapshot(&mut self) -> Option<LayoutSnapshot> {
+        let saved = self.writer.last().cloned().unwrap_or_default();
+        let live = self.live_windows();
+        let registry = desktops::list();
+        let current = desktops::current();
+        let monitors = monitors::list();
+
+        let mut apps: BTreeMap<String, LayoutApp> = BTreeMap::new();
+        for (exe, program) in &saved {
+            if !self.watch.covers(exe) {
+                continue;
+            }
+            let open = Self::open_matches(exe, program, &live);
+            for (index, window) in program.windows.iter().enumerate() {
+                let key = if window.group.is_empty() {
+                    exe.clone()
+                } else {
+                    window.group.clone()
+                };
+                if !apps.contains_key(&key) {
+                    let label = self.saved_label(exe, &window.group);
+                    apps.insert(
+                        key.clone(),
+                        LayoutApp {
+                            key: key.clone(),
+                            label,
+                            windows: Vec::new(),
+                        },
+                    );
+                }
+                let hwnd = open[index];
+                let title = match hwnd {
+                    Some(hwnd) => window_names::display_title(hwnd as HWND),
+                    None => window.label().to_string(),
+                };
+                let desktop = window.desktop.clone().unwrap_or_default();
+                let desktop_removed = DesktopId::parse(&desktop)
+                    .is_some_and(|id| id != DesktopId::ALL && !registry.iter().any(|d| d.id == id));
+                if let Some(app) = apps.get_mut(&key) {
+                    app.windows.push(LayoutEntry {
+                        entry: LayoutRef {
+                            exe: exe.clone(),
+                            index,
+                            title: window.title.clone(),
+                        },
+                        title,
+                        desktop,
+                        desktop_removed,
+                        monitor: monitors::strip_label(window.rect, &monitors),
+                        hwnd,
+                        closed_since: if hwnd.is_none() {
+                            window.seen.clone()
+                        } else {
+                            None
+                        },
+                    });
+                }
+            }
+        }
+        let mut apps: Vec<LayoutApp> = apps.into_values().collect();
+        apps.sort_by(|a, b| {
+            b.windows
+                .len()
+                .cmp(&a.windows.len())
+                .then_with(|| a.label.to_lowercase().cmp(&b.label.to_lowercase()))
+        });
+        Some(LayoutSnapshot {
+            plugin: "layout_keeper".to_string(),
+            last_saved: self.last_saved.clone(),
+            desktops: registry
+                .iter()
+                .map(|desktop| ArrangeDesktop {
+                    id: desktop.id.to_string(),
+                    name: desktop.name.clone(),
+                    current: Some(desktop.id) == current,
+                })
+                .collect(),
+            apps,
+            can_rename: false,
+        })
+    }
+
+    fn on_layout_action(&mut self, action: &LayoutAction) {
+        match action {
+            LayoutAction::RestoreNow => self.start_restore(),
+            LayoutAction::SaveNow => self.save_now(),
+            LayoutAction::SetDesktop {
+                entry,
+                desktop,
+                hwnd,
+            } => {
+                let Some(target) = DesktopId::parse(desktop) else {
+                    return;
+                };
+                let registry = desktops::list();
+                let name = desktops::name_of(&registry, target);
+                let label = entry.title.clone();
+                self.edit_saved(
+                    entry,
+                    &format!("saved \"{label}\" for desktop {desktop}"),
+                    |programs, entry| {
+                        if let Some(window) = programs
+                            .get_mut(&entry.exe)
+                            .and_then(|program| program.windows.get_mut(entry.index))
+                        {
+                            window.desktop = Some(target.to_string());
+                            window.desktop_name = name;
+                        }
+                    },
+                );
+                // An open window goes there now, the way the strip moves it.
+                let open = hwnd.filter(|hwnd| {
+                    self.live_windows()
+                        .iter()
+                        .any(|window| window.hwnd as isize == *hwnd)
+                });
+                if let Some(hwnd) = open {
+                    self.on_arrange_action(&ArrangeAction::MoveToDesktop {
+                        hwnd,
+                        desktop: target.to_string(),
+                    });
+                }
+            }
+            LayoutAction::Forget(entry) => {
+                let live = self.live_windows();
+                let open = self
+                    .writer
+                    .last()
+                    .and_then(|programs| programs.get(&entry.exe))
+                    .map(|program| Self::open_matches(&entry.exe, program, &live))
+                    .and_then(|open| open.get(entry.index).copied().flatten());
+                if open.is_some() {
+                    log::info!(
+                        "\"{}\" is open, so it is saved again at once; not forgotten",
+                        entry.title
+                    );
+                    return;
+                }
+                self.edit_saved(
+                    entry,
+                    &format!("forgot the saved window \"{}\"", entry.title),
+                    |programs, entry| {
+                        if let Some(program) = programs.get_mut(&entry.exe) {
+                            program.windows.remove(entry.index);
+                            if program.windows.is_empty() {
+                                programs.remove(&entry.exe);
+                            }
+                        }
+                    },
+                );
+            }
+        }
+    }
+
     fn palette_commands(&self) -> Vec<PaletteCommand> {
         vec![PaletteCommand {
             id: COMMAND_OPEN_STATE,
@@ -1874,6 +2122,7 @@ mod tests {
             taskbar_index: 0,
             z_index: 0,
             monitor: None,
+            seen: None,
         }
     }
 
@@ -2070,6 +2319,190 @@ mod tests {
         applied.apply_settings(&keeper.default_settings());
         assert_eq!(applied.restore.settle_seconds, 15);
         assert_eq!(applied.restore.give_up_seconds, 30 * 60);
+    }
+
+    fn saved_window(title: &str, group: &str, desktop: &str, seen: Option<&str>) -> SavedWindow {
+        SavedWindow {
+            title: title.to_string(),
+            name: None,
+            desktop: Some(desktop.to_string()),
+            seen: seen.map(str::to_string),
+            ..saved(group)
+        }
+    }
+
+    const DESKTOP_A: &str = "{11111111-1111-1111-1111-111111111111}";
+    const DESKTOP_B: &str = "{22222222-2222-2222-2222-222222222222}";
+
+    fn layout_file() -> Programs {
+        let mut programs = Programs::new();
+        programs.insert(
+            "chrome.exe".to_string(),
+            ProgramState {
+                windows: vec![
+                    saved_window(
+                        "Inbox - Google Chrome",
+                        "Chrome",
+                        DESKTOP_A,
+                        Some("2026-10-12"),
+                    ),
+                    saved_window("Docs - Google Chrome", "Chrome", DESKTOP_B, None),
+                ],
+            },
+        );
+        programs.insert(
+            "viber.exe".to_string(),
+            ProgramState {
+                windows: vec![saved_window("Viber", "Viber.Desktop", DESKTOP_A, None)],
+            },
+        );
+        programs
+    }
+
+    /// A keeper whose saved layout lives in its own scratch file.
+    fn keeper_with(programs: Programs, name: &str) -> (LayoutKeeper, std::path::PathBuf) {
+        let path = std::env::temp_dir().join(format!(
+            "wincraft-test-layout-{name}-{}.json",
+            std::process::id()
+        ));
+        let mut keeper = LayoutKeeper {
+            watch: Watch::new("*", ""),
+            ..LayoutKeeper::default()
+        };
+        keeper.writer = state::Writer::new(path.clone(), Some(programs));
+        (keeper, path)
+    }
+
+    fn entry_of(keeper: &mut LayoutKeeper, title: &str) -> LayoutRef {
+        let snapshot = keeper.layout_snapshot().unwrap();
+        snapshot
+            .apps
+            .iter()
+            .flat_map(|app| &app.windows)
+            .find(|window| window.entry.title == title)
+            .map(|window| window.entry.clone())
+            .unwrap()
+    }
+
+    #[test]
+    fn the_layout_page_lists_saved_windows_by_app_with_their_state() {
+        let (mut keeper, _) = keeper_with(layout_file(), "list");
+        let snapshot = keeper.layout_snapshot().unwrap();
+        // The busiest app comes first.
+        assert_eq!(snapshot.apps.len(), 2);
+        assert_eq!(snapshot.apps[0].windows.len(), 2);
+        assert_eq!(snapshot.apps[1].windows.len(), 1);
+        let inbox = &snapshot.apps[0].windows[0];
+        assert_eq!(inbox.title, "Inbox - Google Chrome");
+        assert_eq!(inbox.hwnd, None, "no such window is open");
+        assert_eq!(inbox.closed_since.as_deref(), Some("2026-10-12"));
+        assert_eq!(snapshot.apps[0].windows[1].closed_since, None);
+        // The desktops in the file are not the PC's own, so they count as gone.
+        assert!(inbox.desktop_removed);
+        assert_eq!(inbox.desktop, DESKTOP_A);
+    }
+
+    #[test]
+    fn a_saved_window_is_matched_to_the_open_one_it_names() {
+        let program = ProgramState {
+            windows: vec![saved_window("Docs", "Chrome", DESKTOP_A, None)],
+        };
+        assert_eq!(
+            LayoutKeeper::open_matches("chrome.exe", &program, &[]),
+            [None]
+        );
+        let live = windows::LiveWindow {
+            hwnd: 4242 as HWND,
+            identity: identity::WindowIdentity::new("chrome.exe", "Docs", [0, 0, 800, 600], false)
+                .in_group("Chrome"),
+            group: "Chrome".to_string(),
+            app_name: None,
+            exe_path: r"c:\chrome.exe".to_string(),
+        };
+        assert_eq!(
+            LayoutKeeper::open_matches("chrome.exe", &program, &[live]),
+            [Some(4242)]
+        );
+    }
+
+    #[test]
+    fn a_new_desktop_is_saved_in_the_file() {
+        let (mut keeper, path) = keeper_with(layout_file(), "desktop");
+        let entry = entry_of(&mut keeper, "Docs - Google Chrome");
+        // Desktop ids need to exist on this PC to be saved, so use the
+        // saved id the file already has: the write itself is what is tested.
+        keeper.on_layout_action(&LayoutAction::SetDesktop {
+            entry: entry.clone(),
+            desktop: DESKTOP_A.to_string(),
+            hwnd: None,
+        });
+        let text = std::fs::read_to_string(&path).unwrap();
+        let file: state::StateFile = serde_json::from_str(&text).unwrap();
+        let docs = &file.programs["chrome.exe"].windows[1];
+        assert_eq!(docs.desktop.as_deref(), Some(DESKTOP_A));
+        assert_eq!(file.reason, "layout page");
+        assert_eq!(keeper.writer.last(), Some(&file.programs));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn an_edit_from_a_stale_list_is_ignored() {
+        let (mut keeper, path) = keeper_with(layout_file(), "stale");
+        let mut entry = entry_of(&mut keeper, "Docs - Google Chrome");
+        entry.title = "Something else".to_string();
+        keeper.on_layout_action(&LayoutAction::Forget(entry.clone()));
+        keeper.on_layout_action(&LayoutAction::SetDesktop {
+            entry,
+            desktop: DESKTOP_A.to_string(),
+            hwnd: None,
+        });
+        assert!(!path.exists(), "nothing was written");
+        assert_eq!(keeper.writer.last(), Some(&layout_file()));
+    }
+
+    #[test]
+    fn a_closed_window_can_be_forgotten_and_an_empty_app_goes_with_it() {
+        let (mut keeper, path) = keeper_with(layout_file(), "forget");
+        let docs = entry_of(&mut keeper, "Docs - Google Chrome");
+        keeper.on_layout_action(&LayoutAction::Forget(docs));
+        let text = std::fs::read_to_string(&path).unwrap();
+        let file: state::StateFile = serde_json::from_str(&text).unwrap();
+        assert_eq!(file.programs["chrome.exe"].windows.len(), 1);
+        assert_eq!(
+            file.programs["chrome.exe"].windows[0].title,
+            "Inbox - Google Chrome"
+        );
+
+        let viber = entry_of(&mut keeper, "Viber");
+        keeper.on_layout_action(&LayoutAction::Forget(viber));
+        assert!(!keeper.writer.last().unwrap().contains_key("viber.exe"));
+        // A forgotten window is no longer waited for by a restore.
+        assert_eq!(keeper.saved_groups(), ["Chrome"]);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn the_seen_day_round_trips_and_older_files_have_none() {
+        let window = saved_window("A", "G", DESKTOP_A, Some("2026-10-17"));
+        let text = serde_json::to_string(&window).unwrap();
+        assert!(text.contains(r#""seen":"2026-10-17""#), "{text}");
+        let back: SavedWindow = serde_json::from_str(&text).unwrap();
+        assert_eq!(back, window);
+        let none = serde_json::to_string(&saved_window("A", "G", DESKTOP_A, None)).unwrap();
+        assert!(!none.contains("seen"), "{none}");
+    }
+
+    #[test]
+    fn a_saved_group_without_a_live_window_still_gets_a_name() {
+        let (mut keeper, _) = keeper_with(Programs::new(), "label");
+        assert_eq!(
+            keeper.saved_label("chrome.exe", "Chrome.UserData.Profile3"),
+            "Chrome \u{b7} Profile3"
+        );
+        assert_eq!(
+            keeper.saved_label("charmap.exe", r"c:\windows\charmap.exe"),
+            "Charmap"
+        );
     }
 
     #[test]

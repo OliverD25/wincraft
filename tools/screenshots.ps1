@@ -162,6 +162,8 @@ $scenes = @(
     @{ Name = 'settings-general';       Args = @('--open-settings=general');               Window = 'settings' },
     @{ Name = 'settings-plugins';       Args = @('--open-settings=plugins');               Window = 'settings' },
     @{ Name = 'settings-layout-keeper'; Args = @('--open-settings=plugin:layout_keeper');  Window = 'settings' },
+    # The Layout page over a made-up saved layout (see Write-LayoutSeed).
+    @{ Name = 'settings-layout';        Args = @('--open-settings=layout');                Window = 'settings'; Settle = 2500; Seed = $true; Helper = $true },
     @{ Name = 'settings-about';         Args = @('--open-settings=about');                 Window = 'settings' },
     @{ Name = 'strip';                  Args = @('--open-arrange=0');                      Window = 'strip';    Settle = 1200 },
     @{ Name = 'strip-peek';             Args = @('--open-arrange=0', '--peek-card=chip');  Window = 'peek';     Settle = 1500 },
@@ -347,6 +349,55 @@ function Expand-SceneArgument([string]$argument) {
     $argument
 }
 
+# The virtual desktops of this PC, as LayoutKeeper writes their ids.
+function Get-DesktopIds {
+    $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VirtualDesktops'
+    $bytes = (Get-ItemProperty -Path $key -ErrorAction SilentlyContinue).VirtualDesktopIDs
+    $ids = @()
+    if ($bytes) {
+        for ($i = 0; $i + 16 -le $bytes.Length; $i += 16) {
+            $ids += ([guid]::new([byte[]]$bytes[$i..($i + 15)])).ToString('B').ToUpper()
+        }
+    }
+    $ids
+}
+
+# A saved layout for the Layout page, written into the scratch folder before
+# a scene starts. The programs are made up so that nothing real matches
+# them, except the harness's own helper window (a PowerShell form titled
+# "build.log - Notepad"), which shows as open. Desktop ids are this PC's
+# own, and one is a desktop that does not exist.
+function Write-LayoutSeed {
+    $ids = @(Get-DesktopIds)
+    $one = if ($ids.Count -gt 0) { $ids[0] } else { '{00000000-0000-0000-0000-000000000001}' }
+    $two = if ($ids.Count -gt 1) { $ids[1] } else { $one }
+    $gone = '{DEAD0000-0000-0000-0000-00000000BEEF}'
+    $helperGroup = if ($script:helper) { $script:helper.Group } else { 'powershell' }
+    function Win([string]$title, [string]$group, [string]$desktop, [int]$index, [string]$seen) {
+        $window = [ordered]@{
+            title = $title; rect = @(0, 0, 1200, 800); maximized = $false; desktop = $desktop
+            group = $group; taskbar_index = $index; z_index = $index
+        }
+        if ($seen) { $window.seen = $seen }
+        $window
+    }
+    $programs = [ordered]@{
+        'browser.exe'    = @{ windows = @(
+            (Win 'Inbox - Mail' 'Browser' $one 0 '2026-10-17'),
+            (Win 'Project plan - Docs' 'Browser' $one 1 '2026-10-17'),
+            (Win 'Build dashboard' 'Browser' $two 2 '2026-10-17'),
+            (Win 'Release notes' 'Browser' $gone 3 '2026-10-14')) }
+        'chat.exe'       = @{ windows = @((Win 'Team chat' 'Chat' $two 0 '2026-10-16')) }
+        'editor.exe'     = @{ windows = @(
+            (Win 'main.rs - Editor' 'Editor' $one 0 '2026-10-12'),
+            (Win 'notes.md - Editor' 'Editor' $two 1 $null)) }
+        'powershell.exe' = @{ windows = @((Win 'build.log - Notepad' $helperGroup $one 0 '2026-10-17')) }
+    }
+    $file = [ordered]@{ version = 3; saved = (Get-Date -Format 'yyyy-MM-ddTHH:mm:sszzz'); reason = 'timer'; programs = $programs }
+    $json = $file | ConvertTo-Json -Depth 8
+    [IO.File]::WriteAllText((Join-Path $plugins 'layout_keeper.state.json'), $json, $utf8)
+}
+
 function Stop-TestInstance {
     $quit = Start-Process -FilePath $Exe -ArgumentList '--quit' -PassThru -Wait -WindowStyle Hidden
     if ($script:current -and -not $script:current.HasExited) {
@@ -382,6 +433,7 @@ try {
             Test-StillAway "before scene $n" $n
             $began = Get-Date
             if ($scene.Helper -and -not $script:helper) { Start-Helper }
+            if ($scene.Seed) { Write-LayoutSeed }
             $arguments = @("--theme=$theme") + @($scene.Args | ForEach-Object { Expand-SceneArgument $_ })
             $script:current = Start-Process -FilePath $Exe -ArgumentList $arguments -PassThru
             $target = $null

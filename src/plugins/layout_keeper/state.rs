@@ -53,6 +53,10 @@ pub struct SavedWindow {
     /// Recorded for grouping by monitor later; nothing reads it yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub monitor: Option<SavedMonitor>,
+    /// The day, "2026-10-17", this window was last seen open. Only the day,
+    /// so an unchanged layout is still not written again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seen: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -295,6 +299,7 @@ mod tests {
             taskbar_index: index,
             z_index: index,
             monitor: None,
+            seen: None,
         }
     }
 

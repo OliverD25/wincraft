@@ -226,6 +226,7 @@ fn settings_target(value: &str) -> Option<SettingsTarget> {
     let page = match value.to_ascii_lowercase().as_str() {
         "general" => Page::General,
         "plugins" => Page::Plugins,
+        "layout" => Page::Layout,
         "store" => Page::Store,
         "about" => Page::About,
         _ => return None,
@@ -427,6 +428,10 @@ mod tests {
         assert_eq!(
             settings_target("PLUGINS"),
             Some(SettingsTarget::Page(Page::Plugins))
+        );
+        assert_eq!(
+            settings_target("Layout"),
+            Some(SettingsTarget::Page(Page::Layout))
         );
         assert_eq!(
             settings_target("store"),

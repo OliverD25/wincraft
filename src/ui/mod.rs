@@ -210,6 +210,10 @@ impl App {
                     self.arrange.update(snapshot);
                     ctx.request_repaint_of(arrange::viewport_id());
                 }
+                UiCommand::LayoutUpdate(layout) => {
+                    self.settings.set_layout(layout);
+                    ctx.request_repaint_of(settings::viewport_id());
+                }
                 UiCommand::ShowPluginPage(id) => {
                     self.settings.open_plugin(&id);
                     self.settings_open = true;
