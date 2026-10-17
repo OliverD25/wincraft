@@ -55,9 +55,8 @@ fn open(write: bool) -> Option<HKEY> {
     }
 }
 
-fn write_run_value() -> Result<(), String> {
+fn write_run_value(exe: &Path) -> Result<(), String> {
     let key = open(true).ok_or_else(|| "cannot open the Run registry key".to_string())?;
-    let exe = std::env::current_exe().map_err(|e| format!("cannot find own path: {e}"))?;
     let command = wide(&format!("\"{}\"", exe.display()));
     let status = unsafe {
         RegSetValueExW(
@@ -271,7 +270,7 @@ fn check(queried: Option<&str>, exe: &Path) -> Check {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum Installed {
+pub enum Installed {
     Task,
     RunKey,
 }
@@ -300,12 +299,44 @@ fn install_with(
 
 fn install() -> Result<Installed, String> {
     let exe = std::env::current_exe().map_err(|e| format!("cannot find own path: {e}"))?;
+    point_at(&exe)
+}
+
+/// Makes Windows start `exe` at sign-in: the logon task, or the Run key when
+/// no task can be made. `--install` uses it for the copy it just made.
+pub fn point_at(exe: &Path) -> Result<Installed, String> {
     let name = task_name();
     install_with(
-        || create_task(&name, &exe),
-        write_run_value,
+        || create_task(&name, exe),
+        || write_run_value(exe),
         || remove_run_value().unwrap_or(false),
     )
+}
+
+/// This instance's logon task: `WinCraft`, or `WinCraft.<suffix>` in a test
+/// instance.
+pub fn task_label() -> String {
+    task_name()
+}
+
+pub fn task_exists_now() -> bool {
+    task_exists(&task_name())
+}
+
+/// Starts the logon task now. Task Scheduler starts WinCraft as it would at
+/// sign-in, so it is nobody's child: not the terminal's, not a package's.
+pub fn run_task() -> Result<(), String> {
+    let name = task_name();
+    let ran = run_schtasks(&["/Run", "/TN", &name])?;
+    if ran.code == 0 {
+        Ok(())
+    } else {
+        Err(format!(
+            "schtasks /Run exited with {}: {}",
+            ran.code,
+            ran.text.trim()
+        ))
+    }
 }
 
 fn remove() -> Result<(), String> {

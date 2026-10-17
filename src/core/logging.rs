@@ -1,5 +1,6 @@
 use std::fs::{self, File};
 use std::io::Write;
+use std::path::Path;
 use std::sync::Mutex;
 
 use log::{Level, Metadata, Record};
@@ -57,16 +58,21 @@ fn now() -> String {
 }
 
 pub fn init() {
+    init_to(&config::log_path());
+}
+
+/// Logs to `path`, emptied first. `--install` writes its own file, because
+/// the WinCraft it starts empties wincraft.log a moment later.
+pub fn init_to(path: &Path) {
     let debug = std::env::var("WINCRAFT_DEBUG")
         .map(|v| v == "1")
         .unwrap_or(false);
     let level = if debug { Level::Debug } else { Level::Info };
 
-    let path = config::log_path();
     let file = path
         .parent()
         .and_then(|dir| fs::create_dir_all(dir).ok())
-        .and_then(|()| File::create(&path).ok());
+        .and_then(|()| File::create(path).ok());
 
     let logger = FileLogger {
         file: Mutex::new(file),

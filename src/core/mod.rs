@@ -7,6 +7,7 @@ pub mod config;
 pub mod desktop_manager;
 pub mod host;
 pub mod hotkeys;
+pub mod install;
 pub mod instance;
 pub mod layered;
 pub mod log_tail;

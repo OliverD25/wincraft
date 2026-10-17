@@ -18,7 +18,7 @@ use windows_sys::Win32::UI::HiDpi::{
 use crate::core::config::{Config, ThemeChoice};
 use crate::core::host::SceneFlags;
 use crate::core::ui_bridge::{Page, PeekCard, SettingsTarget};
-use crate::core::{autostart, config, host, instance, logging, package, quit, wide};
+use crate::core::{autostart, config, host, install, instance, logging, package, quit, wide};
 
 const SINGLE_INSTANCE_MUTEX: &str = r"Local\WinCraft.SingleInstance";
 
@@ -80,6 +80,15 @@ fn main() {
         // Nobody may be reading: a closed pipe must not turn into a panic.
         let _ = writeln!(std::io::stdout(), "{}", outcome.message());
         std::process::exit(outcome.exit_code());
+    }
+
+    // Before the single-instance guard, because they close the WinCraft
+    // that holds it, and before logging::init, which would empty its log.
+    if has_flag(&args, "--install") {
+        std::process::exit(install::run());
+    }
+    if has_flag(&args, "--uninstall") {
+        std::process::exit(install::uninstall());
     }
 
     // A supervised check of DDC/CI on real monitors, which turns one of them
