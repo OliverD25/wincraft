@@ -19,6 +19,7 @@ pub mod theme;
 pub mod traits;
 pub mod tray;
 pub mod ui_bridge;
+pub mod version_info;
 pub mod window_names;
 pub mod windows_list;
 
@@ -32,6 +33,34 @@ pub fn wide(s: &str) -> Vec<u16> {
         .encode_wide()
         .chain(std::iter::once(0))
         .collect()
+}
+
+/// `%NAME%` replaced by the environment variable, when there is one.
+pub fn expand_env(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    loop {
+        let Some(start) = rest.find('%') else {
+            out.push_str(rest);
+            return out;
+        };
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        let Some(end) = after.find('%') else {
+            out.push_str(&rest[start..]);
+            return out;
+        };
+        match std::env::var(&after[..end]) {
+            Ok(value) if end > 0 => {
+                out.push_str(&value);
+                rest = &after[end + 1..];
+            }
+            _ => {
+                out.push('%');
+                rest = after;
+            }
+        }
+    }
 }
 
 /// A NUL-terminated UTF-16 string that Windows handed out, as a String;
@@ -85,6 +114,18 @@ pub fn decode_console(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn variables_in_a_path_are_expanded_when_they_exist() {
+        std::env::set_var("WINCRAFT_TEST_DIR", r"C:\Tools");
+        assert_eq!(expand_env(r"%WINCRAFT_TEST_DIR%\a.exe"), r"C:\Tools\a.exe");
+        assert_eq!(
+            expand_env(r"%NO_SUCH_VARIABLE_X%\a.exe"),
+            r"%NO_SUCH_VARIABLE_X%\a.exe"
+        );
+        assert_eq!(expand_env("100% sure"), "100% sure");
+        assert_eq!(expand_env("plain"), "plain");
+    }
+
     use super::*;
 
     #[test]

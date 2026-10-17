@@ -1,8 +1,18 @@
 use std::collections::HashSet;
+use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use windows_sys::core::{IUnknown_Vtbl, GUID, HRESULT, PCWSTR, PWSTR};
+use windows_sys::Win32::Storage::FileSystem::WIN32_FIND_DATAW;
+use windows_sys::Win32::System::Com::{
+    CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+};
+
+use super::apps_folder;
+use crate::core::appid;
+use crate::core::com::{self, ComPtr};
 use crate::search::{
     Action, Choice, Completion, Context, IconRef, Query, ResultItem, SearchProvider,
 };
@@ -12,46 +22,241 @@ const REINDEX_EVERY: Duration = Duration::from_secs(10 * 60);
 /// Start menu folders are shallow; this only stops a folder loop.
 const MAX_DEPTH: usize = 8;
 
+const CLSID_SHELL_LINK: GUID = GUID::from_u128(0x00021401_0000_0000_c000_000000000046);
+const IID_ISHELL_LINK_W: GUID = GUID::from_u128(0x000214f9_0000_0000_c000_000000000046);
+const IID_IPERSIST_FILE: GUID = GUID::from_u128(0x0000010b_0000_0000_c000_000000000046);
+const IID_IPROPERTY_STORE: GUID = GUID::from_u128(0x886d8eeb_8cf2_4446_8d02_cdba1dbdcf99);
+
+#[repr(C)]
+struct IShellLinkWVtbl {
+    _base: IUnknown_Vtbl,
+    get_path:
+        unsafe extern "system" fn(*mut c_void, PWSTR, i32, *mut WIN32_FIND_DATAW, u32) -> HRESULT,
+}
+
+#[repr(C)]
+struct IPersistFileVtbl {
+    _base: IUnknown_Vtbl,
+    _get_class_id: unsafe extern "system" fn(),
+    _is_dirty: unsafe extern "system" fn(),
+    load: unsafe extern "system" fn(*mut c_void, PCWSTR, u32) -> HRESULT,
+}
+
+/// Where a row came from. A program found by more than one is listed once,
+/// from the first of these.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Source {
+    /// A shortcut in a Start menu folder.
+    StartMenu,
+    /// The shell's `shell:AppsFolder`: Store apps, and desktop apps known
+    /// by an app ID.
+    AppsFolder,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct App {
     pub name: String,
-    pub shortcut: PathBuf,
-    /// Where it sits in the Start menu, for the row's second line.
-    pub folder: String,
+    /// What Enter opens: a shortcut, `shell:AppsFolder\<id>` or a program.
+    pub target: PathBuf,
+    /// Whose icon the row shows.
+    pub icon: PathBuf,
+    /// The row's second line: where it sits in the Start menu, or what kind
+    /// of program it is.
+    pub subtitle: String,
+    /// Stays the same for the same thing, so picks keep their rank.
+    pub usage_key: String,
+    pub source: Source,
+    /// The program it starts, lower case, when known: how the same program
+    /// from two sources is told.
+    pub exe: Option<String>,
+    /// The app ID, lower case, when it has one.
+    pub aumid: Option<String>,
 }
 
-/// Programs from the Start menu shortcuts of this user and of all users.
+/// Programs from the Start menu shortcuts of this user and of all users,
+/// and the shell's app list (Store apps among them).
 pub struct Apps {
     index: Arc<Mutex<Arc<Vec<App>>>>,
 }
 
 impl Apps {
-    /// Starts the indexing thread. Reading the folders takes tens of
-    /// milliseconds, too long for the UI thread, and runs again every ten
-    /// minutes so newly installed programs show up.
+    /// Starts the indexing thread. Reading the folders and the shell takes
+    /// tens to hundreds of milliseconds, too long for the UI thread, and
+    /// runs again every ten minutes so newly installed programs show up.
     pub fn new() -> Self {
         let index = Arc::new(Mutex::new(Arc::new(Vec::new())));
         let shared = Arc::clone(&index);
         let started = std::thread::Builder::new()
             .name("wincraft-apps".to_string())
-            .spawn(move || loop {
-                let began = Instant::now();
-                let apps = scan(&start_menu_roots());
-                log::info!(
-                    "indexed {} Start menu shortcuts in {} ms",
-                    apps.len(),
-                    began.elapsed().as_millis()
-                );
-                if let Ok(mut guard) = shared.lock() {
-                    *guard = Arc::new(apps);
+            .spawn(move || {
+                // The shell's namespace and shortcuts are apartment COM.
+                unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) };
+                loop {
+                    let began = Instant::now();
+                    let (apps, counts) = build_index(&start_menu_roots());
+                    log::info!(
+                        "indexed {} apps in {} ms: {} Start menu shortcuts, {} from the app list ({} duplicates left out)",
+                        apps.len(),
+                        began.elapsed().as_millis(),
+                        counts.start_menu,
+                        counts.apps_folder,
+                        counts.duplicates
+                    );
+                    if let Ok(mut guard) = shared.lock() {
+                        *guard = Arc::new(apps);
+                    }
+                    std::thread::sleep(REINDEX_EVERY);
                 }
-                std::thread::sleep(REINDEX_EVERY);
             });
         if let Err(err) = started {
             log::warn!("could not start the app index thread: {err}");
         }
         Self { index }
     }
+}
+
+/// How many entries each source gave, before and after the duplicates.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Counts {
+    pub start_menu: usize,
+    pub apps_folder: usize,
+    pub duplicates: usize,
+}
+
+/// Every source, merged. Needs COM on this thread.
+pub fn build_index(roots: &[PathBuf]) -> (Vec<App>, Counts) {
+    let mut start = scan(roots);
+    for app in &mut start {
+        if app
+            .target
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("lnk"))
+        {
+            let (exe, aumid) = resolve_shortcut(&app.target);
+            app.exe = exe;
+            app.aumid = aumid;
+        }
+    }
+    let folder = apps_folder_apps();
+    let mut counts = Counts {
+        start_menu: start.len(),
+        apps_folder: folder.len(),
+        duplicates: 0,
+    };
+    let merged = merge(start, folder);
+    counts.duplicates = counts.start_menu + counts.apps_folder - merged.len();
+    (merged, counts)
+}
+
+fn apps_folder_apps() -> Vec<App> {
+    apps_folder::enumerate()
+        .into_iter()
+        .filter(|item| !item.name.to_lowercase().starts_with("uninstall"))
+        .map(|item| {
+            let launch = PathBuf::from(item.launch());
+            App {
+                subtitle: if item.is_package() {
+                    "Store app".to_string()
+                } else {
+                    "Start menu".to_string()
+                },
+                usage_key: launch.to_string_lossy().to_lowercase(),
+                exe: item.exe(),
+                aumid: item.aumid(),
+                name: item.name,
+                icon: launch.clone(),
+                target: launch,
+                source: Source::AppsFolder,
+            }
+        })
+        .collect()
+}
+
+/// Puts the sources together in priority order: Start menu shortcuts, then
+/// the app list. A later entry is left out when an earlier one has the same
+/// program, the same app ID or the same name.
+pub fn merge(start: Vec<App>, folder: Vec<App>) -> Vec<App> {
+    let mut seen = Seen::default();
+    let mut all = start;
+    for app in &all {
+        seen.add(app);
+    }
+    for app in folder {
+        if !seen.has(&app) {
+            seen.add(&app);
+            all.push(app);
+        }
+    }
+    all.sort_by_key(|app| app.name.to_lowercase());
+    all
+}
+
+/// What the entries kept so far stand for.
+#[derive(Default)]
+struct Seen {
+    exes: HashSet<String>,
+    ids: HashSet<String>,
+    names: HashSet<String>,
+}
+
+impl Seen {
+    fn add(&mut self, app: &App) {
+        self.exes.extend(app.exe.clone());
+        self.ids.extend(app.aumid.clone());
+        self.names.insert(app.name.trim().to_lowercase());
+    }
+
+    fn has(&self, app: &App) -> bool {
+        app.exe.as_ref().is_some_and(|exe| self.exes.contains(exe))
+            || app.aumid.as_ref().is_some_and(|id| self.ids.contains(id))
+            || self.names.contains(&app.name.trim().to_lowercase())
+    }
+}
+
+/// The program and app ID a shortcut points at. A shortcut to a Store app
+/// has an app ID and no path.
+fn resolve_shortcut(path: &Path) -> (Option<String>, Option<String>) {
+    let Ok(link) = ComPtr::create(&CLSID_SHELL_LINK, &IID_ISHELL_LINK_W, CLSCTX_INPROC_SERVER)
+    else {
+        return (None, None);
+    };
+    let Some(file) = link.query(&IID_IPERSIST_FILE) else {
+        return (None, None);
+    };
+    let loaded = unsafe {
+        (file.vtable::<IPersistFileVtbl>().load)(
+            file.as_raw(),
+            crate::core::wide(&path.to_string_lossy()).as_ptr(),
+            0,
+        )
+    };
+    if !com::ok(loaded) {
+        return (None, None);
+    }
+    let mut buffer = [0u16; 1024];
+    let got = unsafe {
+        (link.vtable::<IShellLinkWVtbl>().get_path)(
+            link.as_raw(),
+            buffer.as_mut_ptr(),
+            buffer.len() as i32,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    let exe = if com::ok(got) {
+        let len = buffer.iter().position(|unit| *unit == 0).unwrap_or(0);
+        let target =
+            crate::core::expand_env(&String::from_utf16_lossy(&buffer[..len])).to_lowercase();
+        target.ends_with(".exe").then_some(target)
+    } else {
+        None
+    };
+    let aumid = link
+        .query(&IID_IPROPERTY_STORE)
+        .and_then(|store| appid::string_value(&store, &appid::PKEY_APP_USER_MODEL_ID))
+        .filter(|id| !id.is_empty())
+        .map(|id| id.to_lowercase());
+    (exe, aumid)
 }
 
 impl SearchProvider for Apps {
@@ -64,7 +269,7 @@ impl SearchProvider for Apps {
     }
 
     fn description(&self) -> &'static str {
-        "Programs in the Start menu"
+        "Programs and Store apps"
     }
 
     fn blended(&self) -> bool {
@@ -95,15 +300,15 @@ pub fn search(apps: &[App], text: &str, limit: usize) -> Vec<ResultItem> {
         .map(|(score, app)| ResultItem {
             group: "Apps".to_string(),
             title: app.name.clone(),
-            subtitle: app.folder.clone(),
-            icon: IconRef::Path(app.shortcut.clone()),
+            subtitle: app.subtitle.clone(),
+            icon: IconRef::Path(app.icon.clone()),
             score,
             enter: Some(Choice {
                 label: "Open".to_string(),
-                action: Action::Open(app.shortcut.clone()),
+                action: Action::Open(app.target.clone()),
             }),
             tab: Some(Completion::quiet(&app.name)),
-            usage_key: Some(app.shortcut.to_string_lossy().to_lowercase()),
+            usage_key: Some(app.usage_key.clone()),
             ..Default::default()
         })
         .collect()
@@ -177,14 +382,33 @@ fn app_from(root: &Path, path: &Path) -> Option<App> {
     };
     Some(App {
         name,
-        shortcut: path.to_path_buf(),
-        folder,
+        target: path.to_path_buf(),
+        icon: path.to_path_buf(),
+        subtitle: folder,
+        usage_key: path.to_string_lossy().to_lowercase(),
+        source: Source::StartMenu,
+        exe: None,
+        aumid: None,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn app(name: &str, source: Source, exe: Option<&str>, aumid: Option<&str>) -> App {
+        let target = PathBuf::from(format!(r"C:\Start\{name}.lnk"));
+        App {
+            name: name.to_string(),
+            icon: target.clone(),
+            usage_key: target.to_string_lossy().to_lowercase(),
+            target,
+            subtitle: "Start menu".to_string(),
+            source,
+            exe: exe.map(str::to_string),
+            aumid: aumid.map(str::to_string),
+        }
+    }
 
     fn fake_apps(count: usize) -> Vec<App> {
         let words = [
@@ -212,11 +436,7 @@ mod tests {
                     words[index % words.len()],
                     words[(index / words.len()) % words.len()]
                 );
-                App {
-                    shortcut: PathBuf::from(format!(r"C:\Start\{name}.lnk")),
-                    folder: "Start menu".to_string(),
-                    name,
-                }
+                app(&name, Source::StartMenu, None, None)
             })
             .collect()
     }
@@ -261,8 +481,103 @@ mod tests {
         let apps = scan(&[user.clone(), common]);
         assert_eq!(apps.len(), 1);
         assert_eq!(apps[0].name, "Notepad");
-        assert_eq!(apps[0].folder, r"Start menu\Tools");
-        assert_eq!(apps[0].shortcut, user.join("Tools").join("Notepad.lnk"));
+        assert_eq!(apps[0].subtitle, r"Start menu\Tools");
+        assert_eq!(apps[0].target, user.join("Tools").join("Notepad.lnk"));
+        // The key picks were recorded under before other sources existed.
+        assert_eq!(
+            apps[0].usage_key,
+            user.join("Tools")
+                .join("Notepad.lnk")
+                .to_string_lossy()
+                .to_lowercase()
+        );
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_program_from_two_sources_is_listed_once_from_the_stronger() {
+        let start = vec![app(
+            "Notepad",
+            Source::StartMenu,
+            Some(r"c:\win\notepad.exe"),
+            None,
+        )];
+        let folder = vec![
+            // Same program under another name.
+            app(
+                "Editor",
+                Source::AppsFolder,
+                Some(r"c:\win\notepad.exe"),
+                None,
+            ),
+            app("Terminal", Source::AppsFolder, None, Some("terminal!app")),
+            // The same Store app, listed again by its ID.
+            app(
+                "Windows Terminal",
+                Source::AppsFolder,
+                None,
+                Some("terminal!app"),
+            ),
+            app("Calculator", Source::AppsFolder, None, Some("calc!app")),
+        ];
+        let merged = merge(start, folder);
+        let names: Vec<(&str, Source)> = merged
+            .iter()
+            .map(|app| (app.name.as_str(), app.source))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("Calculator", Source::AppsFolder),
+                ("Notepad", Source::StartMenu),
+                ("Terminal", Source::AppsFolder),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_same_program_path_is_one_app() {
+        let start = vec![app(
+            "Tool",
+            Source::StartMenu,
+            Some(r"c:\apps\tool.exe"),
+            None,
+        )];
+        let folder = vec![app(
+            "Tool 2",
+            Source::AppsFolder,
+            Some(r"c:\apps\tool.exe"),
+            None,
+        )];
+        assert_eq!(merge(start, folder).len(), 1);
+    }
+
+    #[test]
+    fn the_same_name_is_one_app_and_the_stronger_source_keeps_it() {
+        let start = vec![app("Telegram", Source::StartMenu, None, None)];
+        let folder = vec![app("telegram ", Source::AppsFolder, None, Some("tg!app"))];
+        let merged = merge(start, folder);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].source, Source::StartMenu);
+        // Two shortcuts to one program are both kept: the user made both.
+        let twins = vec![
+            app("A", Source::StartMenu, Some("x.exe"), None),
+            app("B", Source::StartMenu, Some("x.exe"), None),
+        ];
+        assert_eq!(merge(twins, Vec::new()).len(), 2);
+    }
+
+    #[test]
+    fn rows_say_where_they_come_from_and_what_enter_opens() {
+        let mut store = app("Claude", Source::AppsFolder, None, Some("claude!app"));
+        store.target = PathBuf::from(r"shell:AppsFolder\Claude!App");
+        store.subtitle = "Store app".to_string();
+        let found = search(&[store], "claude", 5);
+        assert_eq!(found[0].subtitle, "Store app");
+        let enter = found[0].enter.as_ref().unwrap();
+        assert_eq!(
+            enter.action,
+            Action::Open(PathBuf::from(r"shell:AppsFolder\Claude!App"))
+        );
     }
 }

@@ -1,4 +1,5 @@
 mod apps;
+mod apps_folder;
 mod calc;
 mod commands;
 mod danger;

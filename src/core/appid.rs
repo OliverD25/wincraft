@@ -16,7 +16,7 @@ use crate::core::{from_wide_ptr, wide};
 const IID_IPROPERTY_STORE: GUID = GUID::from_u128(0x886d8eeb_8cf2_4446_8d02_cdba1dbdcf99);
 const IID_ISHELL_ITEM: GUID = GUID::from_u128(0x43826d1e_e718_42ee_bc55_a1e261c37bfe);
 const APP_USER_MODEL: GUID = GUID::from_u128(0x9f4c2855_9f79_4b39_a8d0_e1d42de1d5f3);
-const PKEY_APP_USER_MODEL_ID: PROPERTYKEY = PROPERTYKEY {
+pub const PKEY_APP_USER_MODEL_ID: PROPERTYKEY = PROPERTYKEY {
     fmtid: APP_USER_MODEL,
     pid: 5,
 };
@@ -68,7 +68,7 @@ pub fn read(hwnd: HWND) -> AppId {
     }
 }
 
-fn string_value(store: &ComPtr, key: &PROPERTYKEY) -> Option<String> {
+pub fn string_value(store: &ComPtr, key: &PROPERTYKEY) -> Option<String> {
     let mut value = PROPVARIANT::default();
     let hr = unsafe {
         (store.vtable::<IPropertyStoreVtbl>().get_value)(store.as_raw(), key, &mut value)

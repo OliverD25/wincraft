@@ -10,7 +10,10 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES;
 use windows_sys::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
-use windows_sys::Win32::UI::Shell::{SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON};
+use windows_sys::Win32::UI::Shell::{
+    ILFree, SHGetFileInfoW, SHParseDisplayName, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON,
+    SHGFI_PIDL,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     DestroyIcon, GetClassLongPtrW, GetIconInfo, SendMessageTimeoutW, GCLP_HICON, GCLP_HICONSM,
     HICON, ICONINFO, ICON_BIG, SMTO_ABORTIFHUNG, WM_GETICON,
@@ -104,14 +107,44 @@ fn load(icon: &IconRef) -> Option<Pixels> {
 /// 100 % thanks to mipmaps, where the 16 px icon would blur at 150 %.
 fn shell_icon(path: &Path) -> Option<Pixels> {
     let mut info: SHFILEINFOW = unsafe { std::mem::zeroed() };
-    let found = unsafe {
-        SHGetFileInfoW(
-            wide(&path.to_string_lossy()).as_ptr(),
-            0 as FILE_FLAGS_AND_ATTRIBUTES,
-            &mut info,
-            std::mem::size_of::<SHFILEINFOW>() as u32,
-            SHGFI_ICON | SHGFI_LARGEICON,
-        )
+    let text = path.to_string_lossy();
+    let found = if text.starts_with("shell:") {
+        // A Store app has no file; the shell finds its picture from its
+        // place in the apps folder.
+        let mut pidl = std::ptr::null_mut();
+        let hr = unsafe {
+            SHParseDisplayName(
+                wide(&text).as_ptr(),
+                std::ptr::null_mut(),
+                &mut pidl,
+                0,
+                std::ptr::null_mut(),
+            )
+        };
+        if hr < 0 || pidl.is_null() {
+            return None;
+        }
+        let found = unsafe {
+            SHGetFileInfoW(
+                pidl as *const u16,
+                0 as FILE_FLAGS_AND_ATTRIBUTES,
+                &mut info,
+                std::mem::size_of::<SHFILEINFOW>() as u32,
+                SHGFI_PIDL | SHGFI_ICON | SHGFI_LARGEICON,
+            )
+        };
+        unsafe { ILFree(pidl) };
+        found
+    } else {
+        unsafe {
+            SHGetFileInfoW(
+                wide(&text).as_ptr(),
+                0 as FILE_FLAGS_AND_ATTRIBUTES,
+                &mut info,
+                std::mem::size_of::<SHFILEINFOW>() as u32,
+                SHGFI_ICON | SHGFI_LARGEICON,
+            )
+        }
     };
     if found == 0 || info.hIcon.is_null() {
         return None;

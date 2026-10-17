@@ -222,15 +222,24 @@ fn same_app_with(
     group_key: &str,
     folder: &dyn Fn(&str) -> Option<String>,
 ) -> bool {
-    let id = strip_prefix(taskbar_id);
-    let expanded = match id.find('}') {
+    let expanded = expand_with(strip_prefix(taskbar_id), folder);
+    expanded.to_lowercase() == group_key.to_lowercase()
+}
+
+/// A path that may start with a known folder written as its GUID, with the
+/// folder's real path put in its place.
+pub fn expand_known_folder(id: &str) -> String {
+    expand_with(id, &known_folder)
+}
+
+fn expand_with(id: &str, folder: &dyn Fn(&str) -> Option<String>) -> String {
+    match id.find('}') {
         Some(end) if id.starts_with('{') => match folder(&id[..=end]) {
             Some(path) => format!("{path}{}", &id[end + 1..]),
             None => id.to_string(),
         },
         _ => id.to_string(),
-    };
-    expanded.to_lowercase() == group_key.to_lowercase()
+    }
 }
 
 fn known_folder(guid: &str) -> Option<String> {
