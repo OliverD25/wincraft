@@ -78,6 +78,38 @@ pub struct App {
     pub install_dir: String,
 }
 
+/// The newest index, for the programs that name an app by its app ID or its
+/// program file but not the way the Start menu does. None until the first
+/// index is built.
+static PUBLISHED: Mutex<Option<Arc<Vec<App>>>> = Mutex::new(None);
+
+/// The newest index, or None while the first one is being built.
+pub fn published() -> Option<Arc<Vec<App>>> {
+    PUBLISHED.lock().ok()?.clone()
+}
+
+/// What the Start menu or the app list calls the app with this group key: an
+/// app ID, or the lower-case path of a program. None when no entry has that
+/// ID or program. The first entry wins (the index is in priority order:
+/// Start menu shortcuts, then the app list, then installed programs).
+pub fn name_in(apps: &[App], key: &str) -> Option<String> {
+    let key = key.trim().to_lowercase();
+    if key.is_empty() {
+        return None;
+    }
+    let by_path = key.contains('\\');
+    apps.iter()
+        .find(|app| {
+            if by_path {
+                app.exe.as_deref() == Some(key.as_str())
+            } else {
+                app.aumid.as_deref() == Some(key.as_str())
+            }
+        })
+        .map(|app| app.name.trim().to_string())
+        .filter(|name| !name.is_empty())
+}
+
 /// Programs from the Start menu shortcuts of this user and of all users,
 /// the shell's app list (Store apps among them) and the installed programs
 /// of the registry.
@@ -109,8 +141,12 @@ impl Apps {
                         counts.installed,
                         counts.duplicates
                     );
+                    let apps = Arc::new(apps);
+                    if let Ok(mut published) = PUBLISHED.lock() {
+                        *published = Some(Arc::clone(&apps));
+                    }
                     if let Ok(mut guard) = shared.lock() {
-                        *guard = Arc::new(apps);
+                        *guard = apps;
                     }
                     std::thread::sleep(REINDEX_EVERY);
                 }
@@ -765,5 +801,73 @@ mod tests {
         let start = vec![app("A", Source::StartMenu, Some(r"c:\x\a.exe"), None)];
         let folder = vec![app("B", Source::AppsFolder, Some(r"c:\x\b.exe"), None)];
         assert_eq!(merge(start, folder, Vec::new()).len(), 2);
+    }
+
+    #[test]
+    fn a_group_key_is_named_by_the_entry_with_its_app_id() {
+        let apps = vec![
+            app(
+                "Terminal",
+                Source::AppsFolder,
+                None,
+                Some("microsoft.windowsterminal_8wekyb3d8bbwe!app"),
+            ),
+            app(
+                "WulfScreen",
+                Source::StartMenu,
+                None,
+                Some("com.codewulf.wulfscreen"),
+            ),
+        ];
+        // The key is the app ID as the window gave it, in any case.
+        assert_eq!(
+            name_in(&apps, "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App").as_deref(),
+            Some("Terminal")
+        );
+        assert_eq!(
+            name_in(&apps, "Com.Codewulf.WulfScreen").as_deref(),
+            Some("WulfScreen")
+        );
+        assert_eq!(name_in(&apps, "Some.Other.App"), None);
+    }
+
+    #[test]
+    fn a_path_key_is_named_by_the_entry_with_that_program() {
+        let apps = vec![
+            app(
+                "Lightroom",
+                Source::StartMenu,
+                Some(r"c:\adobe\lightroom.exe"),
+                None,
+            ),
+            app(
+                "Lightroom (installed)",
+                Source::Installed,
+                Some(r"c:\adobe\lightroom.exe"),
+                None,
+            ),
+            app(
+                "Notepad",
+                Source::StartMenu,
+                Some(r"c:\windows\notepad.exe"),
+                None,
+            ),
+        ];
+        assert_eq!(
+            name_in(&apps, r"C:\Adobe\Lightroom.exe").as_deref(),
+            Some("Lightroom"),
+            "the first entry, the stronger source, names it"
+        );
+        assert_eq!(name_in(&apps, r"c:\other\tool.exe"), None);
+        // An app ID never matches a program path or the other way round.
+        assert_eq!(name_in(&apps, "lightroom"), None);
+    }
+
+    #[test]
+    fn nothing_names_an_empty_key_or_an_entry_without_a_name() {
+        let apps = vec![app("  ", Source::StartMenu, Some(r"c:\x.exe"), None)];
+        assert_eq!(name_in(&apps, ""), None);
+        assert_eq!(name_in(&apps, "   "), None);
+        assert_eq!(name_in(&apps, r"c:\x.exe"), None);
     }
 }

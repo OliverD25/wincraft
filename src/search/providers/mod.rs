@@ -1,4 +1,4 @@
-mod apps;
+pub mod apps;
 mod apps_folder;
 pub mod bookmarks;
 mod calc;

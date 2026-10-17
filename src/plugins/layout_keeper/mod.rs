@@ -31,6 +31,7 @@ use crate::core::ui_bridge::{
     LayoutAction, LayoutApp, LayoutEntry, LayoutRef, LayoutSnapshot,
 };
 use crate::core::{appid, clock, host, instance, session, wide, window_names};
+use crate::search::providers::apps;
 use desktops::{Desktop, DesktopId};
 use order::{Handle, OrderModel};
 use restore::Restore;
@@ -133,6 +134,9 @@ pub struct LayoutKeeper {
     /// by AppUserModelID, or by program path when a window names none.
     groups: BTreeMap<String, OrderModel>,
     labels: BTreeMap<String, String>,
+    /// Groups labelled before the apps index was ready, from the program
+    /// file's own words; they get their Start menu name once it is.
+    unresolved: BTreeSet<String>,
     taskbar: Option<order::Taskbar>,
     mover: Mover,
     restore: Restore,
@@ -192,6 +196,7 @@ impl Default for LayoutKeeper {
             writer: state::Writer::default(),
             groups: BTreeMap::new(),
             labels: BTreeMap::new(),
+            unresolved: BTreeSet::new(),
             taskbar: None,
             mover: Mover::Untried,
             restore: Restore::new(DEFAULT_SETTLE_SECONDS, DEFAULT_RESTORE_MINUTES * 60),
@@ -306,7 +311,7 @@ impl LayoutKeeper {
 
     /// Gives a group its name the first time one of its windows is seen.
     fn remember_label(&mut self, window: &windows::LiveWindow) {
-        if self.labels.contains_key(&window.group) {
+        if self.labels.contains_key(&window.group) && !self.unresolved.contains(&window.group) {
             return;
         }
         let has_id = window.group != window.exe_path.to_lowercase();
@@ -316,7 +321,18 @@ impl LayoutKeeper {
                 .flatten()
         });
         let exe = &window.identity.exe;
-        let label = match browser_name(exe) {
+        let browser = browser_name(exe);
+        let (name, resolved) = if browser.is_some() {
+            (name, true)
+        } else {
+            with_start_menu_name(name, &window.group)
+        };
+        if resolved {
+            self.unresolved.remove(&window.group);
+        } else {
+            self.unresolved.insert(window.group.clone());
+        }
+        let label = match browser {
             Some(browser) => {
                 appid::group_label(browser, name.as_deref(), &window.group, &window.exe_path)
             }
@@ -371,11 +387,20 @@ impl LayoutKeeper {
         }
         let has_id = !group.contains('\\');
         let name = has_id.then(|| appid::registered_name(group)).flatten();
+        let mut resolved = true;
         let label = match browser_name(exe) {
             Some(browser) => appid::group_label(browser, name.as_deref(), group, ""),
-            None => app_label(name.as_deref(), None, exe),
+            None => {
+                let (name, done) = with_start_menu_name(name, group);
+                resolved = done;
+                app_label(name.as_deref(), None, exe)
+            }
         };
-        self.labels.insert(group.to_string(), label.clone());
+        // Not remembered while the apps index is still being built: the next
+        // ask may find it ready.
+        if resolved {
+            self.labels.insert(group.to_string(), label.clone());
+        }
         label
     }
 
@@ -1401,6 +1426,35 @@ fn friendly_key(key: &str) -> String {
         .to_string()
 }
 
+/// The name an app gets when it gives none of its own: the name of its Start
+/// menu entry or app list entry, found by app ID or program file in the apps
+/// index the palette keeps. Without a match the label stays what the
+/// program file says ("Windows Terminal Host"). The flag says whether the
+/// answer is final: it is not while the index is still being built.
+fn with_start_menu_name(name: Option<String>, group: &str) -> (Option<String>, bool) {
+    match apps::published() {
+        Some(index) => start_menu_name(name, group, Some(&|key: &str| apps::name_in(&index, key))),
+        None => start_menu_name(name, group, None),
+    }
+}
+
+type NameLookup<'a> = dyn Fn(&str) -> Option<String> + 'a;
+
+/// `lookup` is None while the index is not built yet.
+fn start_menu_name(
+    name: Option<String>,
+    group: &str,
+    lookup: Option<&NameLookup<'_>>,
+) -> (Option<String>, bool) {
+    if name.is_some() {
+        return (name, true);
+    }
+    match lookup {
+        Some(lookup) => (lookup(group), true),
+        None => (None, false),
+    }
+}
+
 /// Whether this start is the one that follows the user signing in. Any
 /// other start (a manual restart, an update, Windows starting WinCraft again
 /// after an installer closed it) restores nothing, because the windows are
@@ -1620,7 +1674,7 @@ impl WinCraftPlugin for LayoutKeeper {
             name: "LayoutKeeper",
             description: "Remembers which desktop and monitor each window is on, the taskbar thumbnail order and which window is in front, and restores them after a reboot.",
             author: "community",
-            version: "1.2.0",
+            version: "1.2.1",
             readme: include_str!("README.md"),
         }
     }
@@ -3034,5 +3088,74 @@ mod tests {
         let settings = serde_json::json!({ "off": false });
         assert!(!flag(&settings, "off"));
         assert!(flag(&settings, "missing"));
+    }
+
+    #[test]
+    fn an_app_that_gives_no_name_gets_its_start_menu_name() {
+        let lookup = |key: &str| match key {
+            "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App" => Some("Terminal".to_string()),
+            "Com.Codewulf.WulfScreen" => Some("WulfScreen".to_string()),
+            _ => None,
+        };
+        let (name, done) = start_menu_name(
+            None,
+            "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App",
+            Some(&lookup),
+        );
+        assert!(done);
+        // The Start menu name beats the program file's description.
+        assert_eq!(
+            app_label(
+                name.as_deref(),
+                Some("Windows Terminal Host"),
+                "openconsole.exe"
+            ),
+            "Terminal"
+        );
+        let (name, _) = start_menu_name(None, "Com.Codewulf.WulfScreen", Some(&lookup));
+        assert_eq!(
+            app_label(name.as_deref(), Some("Com.Codewulf.WulfScreen"), "wulf.exe"),
+            "WulfScreen"
+        );
+    }
+
+    #[test]
+    fn a_name_the_app_gave_itself_is_kept() {
+        let lookup = |_: &str| Some("From the index".to_string());
+        let (name, done) = start_menu_name(Some("Mine".to_string()), "any", Some(&lookup));
+        assert_eq!((name.as_deref(), done), (Some("Mine"), true));
+        // Not even asked while the index is missing.
+        assert_eq!(
+            start_menu_name(Some("Mine".to_string()), "any", None),
+            (Some("Mine".to_string()), true)
+        );
+    }
+
+    #[test]
+    fn with_no_match_the_old_label_stays_and_a_missing_index_is_not_final() {
+        let none = |_: &str| None;
+        let (name, done) = start_menu_name(None, "Some.App", Some(&none));
+        assert_eq!(
+            (name.clone(), done),
+            (None, true),
+            "an answer: there is none"
+        );
+        assert_eq!(
+            app_label(name.as_deref(), Some("Windows Terminal Host"), "x.exe"),
+            "Windows Terminal Host"
+        );
+        // The index is still being built: the label is made again later.
+        assert_eq!(start_menu_name(None, "Some.App", None), (None, false));
+    }
+
+    #[test]
+    fn a_label_made_before_the_index_was_ready_is_made_again_when_it_is() {
+        let (mut keeper, _) = keeper_with(Programs::new(), "unresolved");
+        let mut window = live_window(7, "Host", "Some.Unlisted.App");
+        window.identity.exe = "unlisted.exe".to_string();
+        keeper.remember_label(&window);
+        // Nothing builds the index in a test, so it is not final.
+        assert!(keeper.unresolved.contains("Some.Unlisted.App"));
+        assert!(keeper.labels.contains_key("Some.Unlisted.App"));
     }
 }

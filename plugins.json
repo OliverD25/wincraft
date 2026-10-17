@@ -1,5 +1,5 @@
 {
-  "wincraft_version": "0.16.1",
+  "wincraft_version": "0.16.2",
   "plugins": [
     {
       "id": "screen_dimmer",
@@ -20,7 +20,7 @@
     {
       "id": "layout_keeper",
       "name": "LayoutKeeper",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "author": "community",
       "description": "Remembers which desktop and monitor each window is on, the taskbar thumbnail order and which window is in front, and restores them after a reboot.",
       "readme": "src/plugins/layout_keeper/README.md"
