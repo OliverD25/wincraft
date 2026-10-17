@@ -44,6 +44,8 @@ pub struct Config {
     pub palette_hotkey: String,
     #[serde(default)]
     pub search: SearchConfig,
+    #[serde(default)]
+    pub updates: UpdateConfig,
 }
 
 impl Default for Config {
@@ -53,6 +55,32 @@ impl Default for Config {
             theme: ThemeChoice::System,
             palette_hotkey: DEFAULT_PALETTE_HOTKEY.to_string(),
             search: SearchConfig::default(),
+            updates: UpdateConfig::default(),
+        }
+    }
+}
+
+/// The update check. Nothing is downloaded until the user clicks Update now.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateConfig {
+    /// Whether GitHub is asked once a day for a newer release.
+    #[serde(default = "enabled_by_default")]
+    pub check_daily: bool,
+    /// When GitHub last answered, in seconds since 1970; 0 for never.
+    #[serde(default)]
+    pub last_check: u64,
+    /// The newest release tag seen. The tray says once per new tag that an
+    /// update is there.
+    #[serde(default)]
+    pub latest: String,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            check_daily: true,
+            last_check: 0,
+            latest: String::new(),
         }
     }
 }
@@ -555,6 +583,18 @@ mod tests {
         );
         let (config, _) = Config::parse(r#"{"search":{"everything":false}}"#).unwrap();
         assert!(!config.search.everything);
+    }
+
+    #[test]
+    fn the_daily_update_check_is_on_until_the_file_says_otherwise() {
+        let (config, _) = Config::parse("{}").unwrap();
+        assert_eq!(config.updates, UpdateConfig::default());
+        assert!(config.updates.check_daily);
+        let (config, _) =
+            Config::parse(r#"{"updates":{"check_daily":false,"last_check":5}}"#).unwrap();
+        assert!(!config.updates.check_daily);
+        assert_eq!(config.updates.last_check, 5);
+        assert_eq!(config.updates.latest, "");
     }
 
     #[test]

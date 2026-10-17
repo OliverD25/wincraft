@@ -1,73 +1,29 @@
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
 
 use crate::core::theme::{self, Tokens};
 use crate::core::traits::FieldKind;
-use crate::core::ui_bridge::UiSnapshot;
+use crate::core::ui_bridge::{
+    HostChannel, HostRequest, HostSetting, NewRelease, UiSnapshot, UpdateStatus, UpdateView,
+};
 use crate::store::github;
-use crate::ui::settings::{self as page, SettingsState};
+use crate::ui::settings::{self as page, Readme, SettingsState};
 use crate::ui::widgets::button::{self, Kind};
 use crate::ui::widgets::row::{settings_row, RowText};
-use crate::ui::widgets::{keycap, text};
+use crate::ui::widgets::{keycap, text, toggle};
 
-#[derive(Clone, Debug, PartialEq)]
-enum UpdateState {
-    Idle,
-    Checking,
-    UpToDate,
-    Available(String),
-    NoRelease,
-    Failed,
-}
-
+/// The release notes of a newer version, drawn like a plugin's README.
+#[derive(Default)]
 pub struct Update {
-    state: UpdateState,
-    tx: Sender<UpdateState>,
-    rx: Receiver<UpdateState>,
+    notes: Readme,
 }
 
-impl Default for Update {
-    fn default() -> Self {
-        let (tx, rx) = channel();
-        Self {
-            state: UpdateState::Idle,
-            tx,
-            rx,
-        }
-    }
-}
-
-impl Update {
-    fn check(&mut self, ctx: &egui::Context, current: String) {
-        if self.state == UpdateState::Checking {
-            return;
-        }
-        self.state = UpdateState::Checking;
-        let tx = self.tx.clone();
-        let ctx = ctx.clone();
-        std::thread::spawn(move || {
-            let state = match github::latest_release_tag() {
-                Ok(tag) if github::is_newer(&tag, &current) => UpdateState::Available(tag),
-                Ok(_) => UpdateState::UpToDate,
-                // GitHub answers 404 until the first release is published, which
-                // is a different fact from being offline.
-                Err(err) if err.contains("404") => UpdateState::NoRelease,
-                Err(_) => UpdateState::Failed,
-            };
-            let _ = tx.send(state);
-            ctx.request_repaint_of(super::viewport_id());
-        });
-    }
-
-    fn drain(&mut self) {
-        while let Ok(state) = self.rx.try_recv() {
-            self.state = state;
-        }
-    }
-}
-
-pub fn show(ui: &mut egui::Ui, snapshot: &UiSnapshot, state: &mut SettingsState) {
+pub fn show(
+    ui: &mut egui::Ui,
+    snapshot: &UiSnapshot,
+    state: &mut SettingsState,
+    to_host: &Arc<HostChannel>,
+) {
     let tokens = Tokens::get(ui.ctx());
-    state.update.drain();
 
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
@@ -102,23 +58,43 @@ pub fn show(ui: &mut egui::Ui, snapshot: &UiSnapshot, state: &mut SettingsState)
                 }
             });
 
-            let current = snapshot.version.clone();
+            let update = &snapshot.update;
             settings_row(
                 ui,
                 "updates",
                 RowText::new("Updates").desc(
-                    "Checks GitHub releases once, when you ask.",
+                    "Checks GitHub releases once a day, and when you ask.",
                     tokens.text_secondary,
                 ),
                 false,
                 |ui| {
-                    update_status(ui, &state.update.state);
+                    update_status(ui, update);
                     if button::button(ui, "Check for updates", Kind::Primary).clicked() {
-                        let ctx = ui.ctx().clone();
-                        state.update.check(&ctx, current);
+                        to_host.send(HostRequest::CheckForUpdates);
                     }
                 },
             );
+            settings_row(
+                ui,
+                "check-daily",
+                RowText::new("Check for updates daily").desc(
+                    "Only tells you. Nothing changes until you click Update now.",
+                    tokens.text_secondary,
+                ),
+                false,
+                |ui| {
+                    let mut on = update.check_daily;
+                    if toggle::toggle(ui, &mut on).changed() {
+                        to_host.send(HostRequest::SetHostSetting(HostSetting::CheckUpdatesDaily(
+                            on,
+                        )));
+                    }
+                },
+            );
+            if let Some(release) = &update.available {
+                new_release(ui, release, &mut state.update);
+                ui.spacing_mut().item_spacing.y = 0.0;
+            }
 
             settings_row(
                 ui,
@@ -207,28 +183,51 @@ fn hotkey_rows(snapshot: &UiSnapshot) -> Vec<HotkeyRow> {
 
 /// The result sits in the status text beside the button; the button itself
 /// never changes, so it is always where the user left it.
-fn update_status(ui: &mut egui::Ui, state: &UpdateState) {
+fn update_status(ui: &mut egui::Ui, update: &UpdateView) {
     let tokens = Tokens::get(ui.ctx());
-    match state {
-        UpdateState::Idle => {}
-        UpdateState::Checking => {
-            text::secondary(ui, "Checking\u{2026}", tokens.text_disabled);
-        }
-        UpdateState::UpToDate => {
-            text::secondary(ui, "Up to date", tokens.success);
-        }
-        UpdateState::Available(tag) => {
-            if text::link(ui, &format!("{tag} available \u{2014} Open release")).clicked() {
-                ui.ctx()
-                    .open_url(egui::OpenUrl::new_tab(github::release_url(tag)));
+    match &update.status {
+        UpdateStatus::Idle => {
+            if let Some(release) = &update.available {
+                text::secondary(ui, &format!("{} available", release.tag), tokens.accent);
             }
         }
-        UpdateState::NoRelease => {
+        UpdateStatus::Checking => {
+            text::secondary(ui, "Checking\u{2026}", tokens.text_disabled);
+        }
+        UpdateStatus::UpToDate => {
+            text::secondary(ui, "Up to date", tokens.success);
+        }
+        UpdateStatus::NoRelease => {
             text::secondary(ui, "No release published yet", tokens.text_secondary);
         }
-        UpdateState::Failed => {
+        UpdateStatus::Offline => {
             text::secondary(ui, "Could not check \u{2014} offline", tokens.warning);
         }
+    }
+}
+
+/// The newer version: its name, a link to its page and its release notes.
+fn new_release(ui: &mut egui::Ui, release: &NewRelease, update: &mut Update) {
+    let tokens = Tokens::get(ui.ctx());
+    let version = release.tag.trim_start_matches(['v', 'V']);
+    page::section_header(ui, &format!("WinCraft {version} is available"));
+    ui.spacing_mut().item_spacing.y = 0.0;
+    settings_row(
+        ui,
+        "new-release",
+        RowText::new(&release.tag).desc("Published on GitHub", tokens.text_secondary),
+        false,
+        |ui| {
+            if button::button(ui, "Release page", Kind::Secondary).clicked() {
+                ui.ctx()
+                    .open_url(egui::OpenUrl::new_tab(release.page.clone()));
+            }
+        },
+    );
+    if !release.notes.trim().is_empty() {
+        ui.add_space(12.0);
+        ui.spacing_mut().item_spacing.y = 8.0;
+        update.notes.boxed(ui, &release.notes);
     }
 }
 

@@ -1,7 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
@@ -33,11 +33,14 @@ use crate::core::traits::{HostContext, Hotkey, WinCraftPlugin};
 use crate::core::tray::{show_menu, MenuItem, Tray, WM_TRAY_CALLBACK};
 use crate::core::ui_bridge::{
     self, ActionKind, ArrangeAction, ArrangeGroup, ArrangeSnapshot, CommandId, FieldInfo,
-    HostCommand, HostRequest, HostSetting, HotkeyInfo, MonitorRect, Page, PaletteEntry, PeekCard,
-    PluginInfo, Prompt, SettingsTarget, UiChannel, UiCommand, UiSnapshot, WM_APP_UI,
+    HostCommand, HostRequest, HostSetting, HotkeyInfo, MonitorRect, NewRelease, Page, PaletteEntry,
+    PeekCard, PluginInfo, Prompt, SettingsTarget, UiChannel, UiCommand, UiSnapshot, UpdateStatus,
+    UpdateView, WM_APP_UI,
 };
+use crate::core::update::{self, Checked};
 use crate::core::{autostart, config, hotkeys, instance, taskbar, theme, wide};
 use crate::search::{self, Router, SearchProvider};
+use crate::store::github::Release;
 use crate::ui;
 
 /// The host window's class, which `--quit` looks for; see instance::name.
@@ -46,6 +49,7 @@ pub const CLASS_NAME: &str = "WinCraftHost";
 const MENU_QUIT: u32 = 5;
 const MENU_PALETTE: u32 = 6;
 const MENU_SETTINGS: u32 = 7;
+const MENU_UPDATE: u32 = 8;
 const MENU_PLUGIN_ACTION_BASE: u32 = 1000;
 
 const DETECTOR_ID: &str = "shortcut_detector";
@@ -67,6 +71,16 @@ const WM_APP_PLUGIN: u32 = WM_APP + 21;
 const RETRY_TIMER: usize = 0x5743_0001;
 const RETRY_MS: u32 = 50;
 const RETRY_LIMIT: usize = 64;
+
+/// Posted by the update threads once they have put their result in the
+/// host's channel.
+const WM_APP_UPDATE: u32 = WM_APP + 22;
+/// The first update check waits a while after start, when the network may
+/// not be up yet and the other programs are starting too; then the timer
+/// comes round every hour and asks GitHub once a day.
+const UPDATE_TIMER: usize = 0x5743_0002;
+const FIRST_CHECK_MS: u32 = 2 * 60 * 1000;
+const CHECK_TIMER_MS: u32 = 60 * 60 * 1000;
 
 struct RegisteredHotkey {
     action_id: u32,
@@ -94,12 +108,50 @@ struct Host {
     to_ui: Arc<UiChannel>,
     host_rx: Receiver<HostRequest>,
     palette_hwnd: HWND,
-    /// Clicking a "hotkey is taken" balloon opens ShortcutDetector; clicking
-    /// a plugin's own notice must not.
-    balloon_opens_detector: bool,
+    balloon_click: BalloonClick,
     /// A test scene's group and peek for the next time the strip opens.
     arrange_focus: Option<String>,
     peek_card: Option<PeekCard>,
+    updates: Updates,
+}
+
+/// What clicking the last balloon opens: a "hotkey is taken" balloon opens
+/// ShortcutDetector, an "update available" one the About page, and a
+/// plugin's own notice nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BalloonClick {
+    Detector,
+    About,
+    Nothing,
+}
+
+enum UpdateEvent {
+    Checked(Result<Checked, String>),
+}
+
+struct Updates {
+    checking: bool,
+    /// The check running now was asked for in About, so its failure is
+    /// shown; a daily check stays silent when offline.
+    manual: bool,
+    status: UpdateStatus,
+    newer: Option<Release>,
+    tx: Sender<UpdateEvent>,
+    rx: Receiver<UpdateEvent>,
+}
+
+impl Default for Updates {
+    fn default() -> Self {
+        let (tx, rx) = channel();
+        Self {
+            checking: false,
+            manual: false,
+            status: UpdateStatus::Idle,
+            newer: None,
+            tx,
+            rx,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -216,9 +268,10 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         to_ui: Arc::clone(&bridge.to_ui),
         host_rx: bridge.host_rx,
         palette_hwnd: std::ptr::null_mut(),
-        balloon_opens_detector: true,
+        balloon_click: BalloonClick::Detector,
         arrange_focus: flags.scene.arrange_focus.clone(),
         peek_card: flags.scene.peek_card,
+        updates: Updates::default(),
     };
     HOST_WINDOW.with(|cell| cell.set(hwnd));
     // Notices queued before the window existed have nobody to post them.
@@ -252,6 +305,9 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
 
     host.tray.add();
     log::info!("WinCraft {} is running", env!("CARGO_PKG_VERSION"));
+    if update::automatic_checks_allowed() {
+        unsafe { SetTimer(hwnd, UPDATE_TIMER, FIRST_CHECK_MS, None) };
+    }
 
     HOST.with(|cell| *cell.borrow_mut() = Some(host));
 
@@ -372,7 +428,7 @@ impl Host {
             log::info!("registered {keys} for host.palette");
         } else {
             log::warn!("could not register {keys} for host.palette; another app holds it");
-            self.balloon_opens_detector = true;
+            self.balloon_click = BalloonClick::Detector;
             self.tray
                 .balloon("WinCraft", &format!("{keys} is used by another app"));
         }
@@ -422,7 +478,7 @@ impl Host {
         };
         if let Err(err) = init_result {
             log::error!("{}: init failed: {err}", meta.id);
-            self.balloon_opens_detector = true;
+            self.balloon_click = BalloonClick::Detector;
             self.tray
                 .balloon("WinCraft", &format!("{} failed to start: {err}", meta.name));
             return;
@@ -449,7 +505,7 @@ impl Host {
                     "could not register {keys} for {}.{name}; another app holds it",
                     meta.id
                 );
-                self.balloon_opens_detector = true;
+                self.balloon_click = BalloonClick::Detector;
                 self.tray
                     .balloon("WinCraft", &format!("{keys} is used by another app"));
             }
@@ -506,8 +562,11 @@ impl Host {
         let mut items = vec![
             entry(MENU_PALETTE, "Open palette"),
             entry(MENU_SETTINGS, "Settings\u{2026}"),
-            MenuItem::Separator,
         ];
+        if let Some(release) = &self.updates.newer {
+            items.push(entry(MENU_UPDATE, &format!("Update to {}", release.tag)));
+        }
+        items.push(MenuItem::Separator);
         let primary: Vec<MenuItem> = self
             .slots
             .iter()
@@ -612,7 +671,118 @@ impl Host {
             commands: self.palette_entries(&plugins),
             plugins,
             search: self.config.search.clone(),
+            update: self.update_view(),
         }
+    }
+
+    fn update_view(&self) -> UpdateView {
+        UpdateView {
+            check_daily: self.config.updates.check_daily,
+            status: self.updates.status.clone(),
+            available: self.updates.newer.as_ref().map(|release| NewRelease {
+                tag: release.tag.clone(),
+                notes: release.notes.clone(),
+                page: release.page.clone(),
+            }),
+        }
+    }
+
+    /// On its own thread: GitHub can take seconds to answer, or never.
+    fn check_for_updates(&mut self, manual: bool) {
+        if manual {
+            self.updates.manual = true;
+            self.updates.status = UpdateStatus::Checking;
+            self.publish();
+        }
+        if self.updates.checking {
+            return;
+        }
+        self.updates.checking = true;
+        let tx = self.updates.tx.clone();
+        let hwnd = self.hwnd as isize;
+        let started = std::thread::Builder::new()
+            .name("wincraft-update-check".to_string())
+            .spawn(move || {
+                let result = update::check(env!("CARGO_PKG_VERSION"));
+                if tx.send(UpdateEvent::Checked(result)).is_ok() {
+                    unsafe { PostMessageW(hwnd as HWND, WM_APP_UPDATE, 0, 0) };
+                }
+            });
+        if let Err(err) = started {
+            log::warn!("could not start the update check: {err}");
+            self.updates.checking = false;
+        }
+    }
+
+    /// The hourly timer: asks GitHub when a day has passed since it last
+    /// answered.
+    fn daily_check(&mut self) {
+        unsafe { SetTimer(self.hwnd, UPDATE_TIMER, CHECK_TIMER_MS, None) };
+        let updates = &self.config.updates;
+        if update::check_due(update::now_secs(), updates.last_check, updates.check_daily) {
+            self.check_for_updates(false);
+        }
+    }
+
+    /// A balloon that opens About when clicked. A test instance only logs
+    /// it: a fake release must never put a notice on the user's screen.
+    fn update_notice(&mut self, text: &str) {
+        log::info!("update notice: {text}");
+        if !instance::is_test() {
+            self.balloon_click = BalloonClick::About;
+            self.tray.balloon("WinCraft", text);
+        }
+    }
+
+    fn update_events(&mut self) {
+        while let Ok(event) = self.updates.rx.try_recv() {
+            match event {
+                UpdateEvent::Checked(result) => self.checked(result),
+            }
+        }
+        self.publish();
+    }
+
+    fn checked(&mut self, result: Result<Checked, String>) {
+        self.updates.checking = false;
+        let manual = std::mem::take(&mut self.updates.manual);
+        let checked = match result {
+            Ok(checked) => checked,
+            Err(err) => {
+                log::info!("update check failed: {err}");
+                if manual {
+                    self.updates.status = UpdateStatus::Offline;
+                }
+                return;
+            }
+        };
+        self.config.updates.last_check = update::now_secs();
+        match checked {
+            Checked::NoRelease => {
+                log::info!("update check: no release is published yet");
+                self.updates.status = UpdateStatus::NoRelease;
+                self.updates.newer = None;
+            }
+            Checked::UpToDate(tag) => {
+                log::info!("update check: {tag} is the newest release, nothing to update");
+                self.updates.status = UpdateStatus::UpToDate;
+                self.updates.newer = None;
+                self.config.updates.latest = tag;
+            }
+            Checked::Newer(release) => {
+                log::info!("update check: {} is available", release.tag);
+                self.updates.status = UpdateStatus::Idle;
+                if self.config.updates.latest != release.tag {
+                    self.update_notice(&format!(
+                        "WinCraft {} is available \u{2014} open About to update",
+                        release.tag.trim_start_matches(['v', 'V'])
+                    ));
+                    self.config.updates.latest = release.tag.clone();
+                }
+                self.updates.newer = Some(release);
+            }
+        }
+        self.save_config();
     }
 
     fn palette_entries(&self, plugins: &[PluginInfo]) -> Vec<PaletteEntry> {
@@ -955,6 +1125,7 @@ impl Host {
             }
             HostRequest::ResetPlugin(id) => self.reset_plugin(&id),
             HostRequest::SetHostSetting(setting) => self.set_host_setting(setting),
+            HostRequest::CheckForUpdates => self.check_for_updates(true),
             HostRequest::OpenPath(path) => open_in_notepad(&path),
             HostRequest::Exit => self.shutdown(),
         }
@@ -1056,6 +1227,10 @@ impl Host {
                 Err(err) => log::error!("could not change autostart: {err}"),
             },
             HostSetting::Search(search) => self.config.search = search,
+            HostSetting::CheckUpdatesDaily(on) => {
+                self.config.updates.check_daily = on;
+                log::info!("check for updates daily: {on}");
+            }
             HostSetting::Theme(choice) => {
                 self.config.theme = choice;
                 theme::set_current(choice);
@@ -1402,6 +1577,9 @@ fn handle_menu_choice(choice: u32) {
         MENU_SETTINGS => {
             with_host(|host| host.to_ui.send(UiCommand::ShowSettings(Page::General)));
         }
+        MENU_UPDATE => {
+            with_host(|host| host.to_ui.send(UiCommand::ShowSettings(Page::About)));
+        }
         MENU_QUIT => {
             with_host(|host| host.shutdown());
         }
@@ -1500,9 +1678,12 @@ unsafe extern "system" fn wnd_proc(
         WM_TRAY_CALLBACK => {
             let event = (lparam as u32) & 0xFFFF;
             if event == NIN_BALLOONUSERCLICK {
-                let opens = with_host(|host| host.balloon_opens_detector).unwrap_or(false);
-                if opens {
-                    open_shortcut_detector();
+                match with_host(|host| host.balloon_click) {
+                    Some(BalloonClick::Detector) => open_shortcut_detector(),
+                    Some(BalloonClick::About) => {
+                        with_host(|host| host.to_ui.send(UiCommand::ShowSettings(Page::About)));
+                    }
+                    _ => {}
                 }
                 return 0;
             }
@@ -1531,7 +1712,7 @@ unsafe extern "system" fn wnd_proc(
                     host.tray.set_tip(tip.as_deref());
                 }
                 for (title, text) in &notices {
-                    host.balloon_opens_detector = false;
+                    host.balloon_click = BalloonClick::Nothing;
                     host.tray.balloon(title, text);
                 }
                 if arrange {
@@ -1558,6 +1739,14 @@ unsafe extern "system" fn wnd_proc(
                     host.handle_request(request);
                 }
             });
+            0
+        }
+        WM_APP_UPDATE => {
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| host.update_events());
+            0
+        }
+        WM_TIMER if wparam == UPDATE_TIMER => {
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| host.daily_check());
             0
         }
         WM_TIMER if wparam == RETRY_TIMER => {

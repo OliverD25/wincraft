@@ -20,6 +20,7 @@ pub mod theme;
 pub mod traits;
 pub mod tray;
 pub mod ui_bridge;
+pub mod update;
 pub mod version_info;
 pub mod window_names;
 pub mod windows_list;

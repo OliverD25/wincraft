@@ -63,6 +63,7 @@ pub enum HostSetting {
     PaletteHotkey(String),
     /// The palette search settings, sent whole after one of them changed.
     Search(SearchConfig),
+    CheckUpdatesDaily(bool),
 }
 
 /// One window in the Arrange strip.
@@ -447,6 +448,8 @@ pub enum HostRequest {
     },
     ResetPlugin(String),
     SetHostSetting(HostSetting),
+    /// About's "Check for updates".
+    CheckForUpdates,
     OpenPath(PathBuf),
     Exit,
 }
@@ -514,6 +517,35 @@ pub struct UiSnapshot {
     pub plugins: Vec<PluginInfo>,
     pub commands: Vec<PaletteEntry>,
     pub search: SearchConfig,
+    pub update: UpdateView,
+}
+
+/// What the About page and the tray menu know about updates.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UpdateView {
+    pub check_daily: bool,
+    pub status: UpdateStatus,
+    /// A release newer than the running version.
+    pub available: Option<NewRelease>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewRelease {
+    pub tag: String,
+    /// Markdown.
+    pub notes: String,
+    pub page: String,
+}
+
+/// The line beside About's "Check for updates".
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum UpdateStatus {
+    #[default]
+    Idle,
+    Checking,
+    UpToDate,
+    NoRelease,
+    Offline,
 }
 
 /// Host → UI. The egui context arrives once the UI thread is up; until then

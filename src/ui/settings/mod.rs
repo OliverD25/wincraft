@@ -488,7 +488,7 @@ impl Settings {
                     Page::Layout => layout::show(ui, snapshot, state, to_host),
                     Page::Bookmarks => bookmarks::show(ui, state, to_host),
                     Page::Store => store::show(ui, snapshot, state, to_host),
-                    Page::About => about::show(ui, snapshot, state),
+                    Page::About => about::show(ui, snapshot, state, to_host),
                 });
 
             if ui.ctx().input(|i| i.viewport().close_requested()) {

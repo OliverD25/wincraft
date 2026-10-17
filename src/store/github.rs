@@ -1,8 +1,13 @@
 use std::time::Duration;
 
+use crate::core::instance;
+
 const RAW_BASE: &str = "https://raw.githubusercontent.com/OliverD25/wincraft/main";
 const RELEASES_LATEST: &str = "https://api.github.com/repos/OliverD25/wincraft/releases/latest";
 const TIMEOUT: Duration = Duration::from_secs(5);
+/// Points a test instance's update check at a local fake of the releases
+/// API. Ignored without `WINCRAFT_INSTANCE`.
+pub const RELEASES_ENV: &str = "WINCRAFT_RELEASES_URL";
 
 pub fn index_url() -> String {
     // Pointing this at a host that does not resolve is how the offline path
@@ -46,17 +51,79 @@ pub fn get(url: &str) -> Result<String, String> {
         .map_err(|err| format!("{err}"))
 }
 
-/// Reads `tag_name` out of the releases API without a JSON model, because one
-/// field is not worth a struct that has to track GitHub's schema.
-pub fn latest_release_tag() -> Result<String, String> {
-    let body = get(RELEASES_LATEST)?;
+/// A test instance's fake releases API, when it names one.
+pub fn releases_override() -> Option<String> {
+    let url = std::env::var(RELEASES_ENV).ok()?;
+    (instance::is_test() && !url.trim().is_empty()).then(|| url.trim().to_string())
+}
+
+/// The newest published release, as much of it as the updater uses.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Release {
+    pub tag: String,
+    /// The release notes, Markdown.
+    pub notes: String,
+    /// The release's page on GitHub.
+    pub page: String,
+    pub assets: Vec<Asset>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Asset {
+    pub name: String,
+    pub url: String,
+}
+
+/// None while the repository has no release: GitHub answers 404 until the
+/// first one is published, which is a different fact from being offline.
+pub fn latest_release() -> Result<Option<Release>, String> {
+    let url = releases_override().unwrap_or_else(|| RELEASES_LATEST.to_string());
+    match get(&url) {
+        Ok(body) => parse_release(&body).map(Some),
+        Err(err) if err.contains("404") => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
+/// Read without a full JSON model, because a handful of fields is not worth
+/// a struct that has to track GitHub's schema.
+pub fn parse_release(body: &str) -> Result<Release, String> {
     let value: serde_json::Value =
-        serde_json::from_str(&body).map_err(|err| format!("unexpected reply: {err}"))?;
-    value
-        .get("tag_name")
-        .and_then(|tag| tag.as_str())
-        .map(|tag| tag.to_string())
-        .ok_or_else(|| "the reply had no tag_name".to_string())
+        serde_json::from_str(body).map_err(|err| format!("unexpected reply: {err}"))?;
+    let text = |value: &serde_json::Value, key: &str| {
+        value
+            .get(key)
+            .and_then(|field| field.as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
+    let tag = text(&value, "tag_name");
+    if tag.is_empty() {
+        return Err("the reply had no tag_name".to_string());
+    }
+    let assets = value
+        .get("assets")
+        .and_then(|assets| assets.as_array())
+        .map(|assets| {
+            assets
+                .iter()
+                .map(|asset| Asset {
+                    name: text(asset, "name"),
+                    url: text(asset, "browser_download_url"),
+                })
+                .filter(|asset| !asset.name.is_empty() && !asset.url.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    let page = Some(text(&value, "html_url"))
+        .filter(|page| !page.is_empty())
+        .unwrap_or_else(|| release_url(&tag));
+    Ok(Release {
+        notes: text(&value, "body"),
+        page,
+        assets,
+        tag,
+    })
 }
 
 /// True when `latest` is a higher version than `current`. Both may carry a
@@ -107,6 +174,35 @@ mod tests {
     #[test]
     fn a_suffix_on_the_patch_number_still_compares() {
         assert!(is_newer("v0.4.0-beta.1", "0.3.0"));
+    }
+
+    #[test]
+    fn a_release_reply_gives_its_tag_notes_page_and_assets() {
+        let body = r#"{
+            "tag_name": "v0.16.0",
+            "html_url": "https://github.com/OliverD25/wincraft/releases/tag/v0.16.0",
+            "body": "**Changes**\n* Updates",
+            "assets": [
+                {"name": "wincraft.exe", "browser_download_url": "https://github.com/OliverD25/wincraft/releases/download/v0.16.0/wincraft.exe"},
+                {"name": "SHA256SUMS.txt", "browser_download_url": "https://github.com/OliverD25/wincraft/releases/download/v0.16.0/SHA256SUMS.txt"},
+                {"name": "no-url.txt"}
+            ]
+        }"#;
+        let release = parse_release(body).unwrap();
+        assert_eq!(release.tag, "v0.16.0");
+        assert_eq!(release.notes, "**Changes**\n* Updates");
+        assert!(release.page.ends_with("/releases/tag/v0.16.0"));
+        let names: Vec<&str> = release.assets.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["wincraft.exe", "SHA256SUMS.txt"]);
+    }
+
+    #[test]
+    fn a_reply_without_a_tag_is_an_error_and_missing_parts_are_empty() {
+        assert!(parse_release(r#"{"name": "x"}"#).is_err());
+        assert!(parse_release("not json").is_err());
+        let release = parse_release(r#"{"tag_name": "v1.0.0"}"#).unwrap();
+        assert!(release.notes.is_empty() && release.assets.is_empty());
+        assert_eq!(release.page, release_url("v1.0.0"));
     }
 
     #[test]
