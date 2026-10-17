@@ -7,14 +7,18 @@
 //! appears. The group is restored once its window count has held still for
 //! `settle_seconds`, or `GROUP_LIMIT_SECONDS` after that first window if the
 //! count never held still. A group that opens nothing is dropped
-//! `give_up_seconds` after the start. An app opened after all that is left
-//! where the user put it.
+//! `give_up_seconds` after the start. After its restore a group is watched for
+//! `SECOND_PASS_SECONDS` more: windows that arrive late and then hold still
+//! are restored in a second pass. An app opened after all that is left where
+//! the user put it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// How long a group's window count may keep changing after its first window
 /// before the group is restored with what is there.
 pub const GROUP_LIMIT_SECONDS: u64 = 240;
+/// How long a restored group is watched for late windows.
+pub const SECOND_PASS_SECONDS: u64 = 300;
 
 /// Why a group is restored now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,6 +27,9 @@ pub enum Pass {
     Settled,
     /// First restore: the count never held still, so the time limit forced it.
     Limit,
+    /// Second restore: windows came late and held still, or the watch ended
+    /// while they were still arriving.
+    Late,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -56,11 +63,22 @@ struct Waiting {
     first_seen: Option<u64>,
 }
 
+/// A group that was restored and may still get late windows.
+#[derive(Clone, Copy, Debug)]
+struct Watching {
+    /// The window count when the group was restored.
+    baseline: usize,
+    count: usize,
+    stable_since: u64,
+    until: u64,
+}
+
 #[derive(Clone, Debug)]
 pub struct Restore {
     started: Option<u64>,
     deadline_passed: bool,
     waiting: BTreeMap<String, Waiting>,
+    watching: BTreeMap<String, Watching>,
     by_limit: Vec<String>,
     restored: usize,
     pub settle_seconds: u64,
@@ -73,6 +91,7 @@ impl Restore {
             started: None,
             deadline_passed: false,
             waiting: BTreeMap::new(),
+            watching: BTreeMap::new(),
             by_limit: Vec::new(),
             restored: 0,
             settle_seconds,
@@ -86,6 +105,7 @@ impl Restore {
         self.deadline_passed = false;
         self.restored = 0;
         self.by_limit.clear();
+        self.watching.clear();
         self.waiting = groups
             .into_iter()
             .map(|group| {
@@ -101,15 +121,17 @@ impl Restore {
             .collect();
     }
 
-    /// True while any group is still waited for.
+    /// True while any group is still waited for or watched for late windows.
     pub fn is_running(&self) -> bool {
         self.started.is_some()
     }
 
-    /// The groups not restored yet, whose saved windows must not be
-    /// overwritten by the scrambled ones on screen.
+    /// The groups whose saved windows must not be overwritten by the
+    /// scrambled ones on screen: those not restored yet and those still
+    /// watched for late windows.
     pub fn pending(&self) -> Vec<String> {
-        self.waiting.keys().cloned().collect()
+        let all: BTreeSet<&String> = self.waiting.keys().chain(self.watching.keys()).collect();
+        all.into_iter().cloned().collect()
     }
 
     /// How many groups have not had their first restore yet.
@@ -151,6 +173,39 @@ impl Restore {
             }
         }
 
+        let mut finished = Vec::new();
+        for (group, watch) in self.watching.iter_mut() {
+            if tick >= watch.until {
+                // Judged by the last tick's count: a window that appears
+                // only now is too late.
+                if watch.count > watch.baseline {
+                    step.due.push(Due {
+                        group: group.clone(),
+                        pass: Pass::Late,
+                    });
+                }
+                finished.push(group.clone());
+                continue;
+            }
+            let count = count_of(group);
+            if count != watch.count {
+                watch.count = count;
+                watch.stable_since = tick;
+            }
+            let settled = count > watch.baseline
+                && tick.saturating_sub(watch.stable_since) >= self.settle_seconds;
+            if settled {
+                step.due.push(Due {
+                    group: group.clone(),
+                    pass: Pass::Late,
+                });
+                finished.push(group.clone());
+            }
+        }
+        for group in &finished {
+            self.watching.remove(group);
+        }
+
         let mut closed_again = Vec::new();
         let mut restored_now = Vec::new();
         for (group, watch) in self.waiting.iter_mut() {
@@ -170,7 +225,7 @@ impl Restore {
                 count > 0 && tick.saturating_sub(watch.stable_since) >= self.settle_seconds;
             if settled || (count > 0 && past_limit) {
                 let pass = if settled { Pass::Settled } else { Pass::Limit };
-                restored_now.push((group.clone(), pass));
+                restored_now.push((group.clone(), pass, count));
             } else if past_limit {
                 closed_again.push(group.clone());
             }
@@ -178,8 +233,17 @@ impl Restore {
         for group in closed_again {
             self.waiting.remove(&group);
         }
-        for (group, pass) in restored_now {
+        for (group, pass, count) in restored_now {
             self.waiting.remove(&group);
+            self.watching.insert(
+                group.clone(),
+                Watching {
+                    baseline: count,
+                    count,
+                    stable_since: tick,
+                    until: tick + SECOND_PASS_SECONDS,
+                },
+            );
             if pass == Pass::Limit {
                 self.by_limit.push(group.clone());
             }
@@ -187,7 +251,7 @@ impl Restore {
             step.due.push(Due { group, pass });
         }
 
-        if self.waiting.is_empty() {
+        if self.waiting.is_empty() && self.watching.is_empty() {
             self.started = None;
         }
         step
@@ -266,7 +330,7 @@ mod tests {
             due(&[("Chrome", Pass::Settled)])
         );
         assert!(restore.is_running());
-        assert_eq!(restore.pending(), ["Telegram"]);
+        assert_eq!(restore.waiting_count(), 1);
 
         // Telegram starts half a minute later.
         assert_eq!(
@@ -279,7 +343,8 @@ mod tests {
         );
         assert_eq!(restore.restored(), 2);
         assert_eq!(restore.waiting_count(), 0);
-        assert!(!restore.is_running());
+        // Both are still watched for late windows, so the run goes on.
+        assert!(restore.is_running());
     }
 
     #[test]
@@ -317,8 +382,7 @@ mod tests {
                 by_limit: Vec::new(),
             })
         );
-        assert!(restore.pending().is_empty());
-        assert!(!restore.is_running());
+        assert_eq!(restore.pending(), ["Chrome"]);
         assert_eq!(
             restore.step(200, &counts(&[("Telegram", 1)])),
             Step::default()
@@ -365,7 +429,8 @@ mod tests {
         // The last window opened at 199 s; 15 s of no change later it is time.
         let events = drive(&mut restore, 214..=215, at);
         assert_eq!(events, [(214, due(&[("Chrome", Pass::Settled)]))]);
-        assert_eq!(restore.pending(), ["Telegram"]);
+        // Chrome is still protected (second-pass watch), and so is Telegram.
+        assert_eq!(restore.pending(), ["Chrome", "Telegram"]);
         assert_eq!(restore.waiting_count(), 1);
     }
 
@@ -388,6 +453,7 @@ mod tests {
             })
         );
         assert!(!restore.pending().contains(&"Ghost".to_string()));
+        // Chrome's second-pass watch ended long ago, so the run is over.
         assert!(!restore.is_running());
     }
 
@@ -422,17 +488,68 @@ mod tests {
         assert!(events.is_empty());
         assert_eq!(restore.step(250, &at(250)), due(&[("Chrome", Pass::Limit)]));
 
+        // Still growing when the 5-minute watch ends: restored once more.
         let events = drive(&mut restore, 251..=600, at);
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].0, 600);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0], (550, due(&[("Chrome", Pass::Late)])));
+        assert_eq!(events[1].0, 600);
         assert_eq!(
-            events[0].1.timed_out,
+            events[1].1.timed_out,
             Some(TimedOut {
                 never_opened: vec!["Ghost".into()],
                 by_limit: vec!["Chrome".into()],
             })
         );
         assert!(!restore.is_running());
+    }
+
+    #[test]
+    fn a_window_two_minutes_after_the_restore_gets_a_second_pass() {
+        let mut restore = Restore::new(15, 1800);
+        restore.start(0, vec!["Chrome".into()]);
+        let at = |tick: u64| counts(&[("Chrome", if tick >= 136 { 6 } else { 5 })]);
+        // Count 5 from the first tick: restored at 15 (stable since 1).
+        assert_eq!(
+            drive(&mut restore, 1..=135, at),
+            [(16, due(&[("Chrome", Pass::Settled)]))]
+        );
+        assert_eq!(restore.pending(), ["Chrome"]);
+
+        // The late window arrives at 136; 15 s later the group is done again.
+        assert!(drive(&mut restore, 136..=150, at).is_empty());
+        assert_eq!(
+            drive(&mut restore, 151..=152, at),
+            [(151, due(&[("Chrome", Pass::Late)]))]
+        );
+        assert!(restore.pending().is_empty());
+        assert!(!restore.is_running());
+    }
+
+    #[test]
+    fn a_window_after_the_second_pass_watch_is_left_alone() {
+        let mut restore = Restore::new(15, 1800);
+        restore.start(0, vec!["Chrome".into()]);
+        // The watch started at 16 and ends at 316.
+        let at = |tick: u64| counts(&[("Chrome", if tick >= 316 { 6 } else { 5 })]);
+        let events = drive(&mut restore, 1..=400, at);
+        assert_eq!(events, [(16, due(&[("Chrome", Pass::Settled)]))]);
+        assert!(restore.pending().is_empty());
+        assert!(!restore.is_running());
+    }
+
+    #[test]
+    fn windows_still_arriving_when_the_watch_ends_are_restored_then() {
+        let mut restore = Restore::new(15, 1800);
+        restore.start(0, vec!["Chrome".into()]);
+        let at = |tick: u64| counts(&[("Chrome", if tick >= 315 { 6 } else { 5 })]);
+        let events = drive(&mut restore, 1..=400, at);
+        assert_eq!(
+            events,
+            [
+                (16, due(&[("Chrome", Pass::Settled)])),
+                (316, due(&[("Chrome", Pass::Late)])),
+            ]
+        );
     }
 
     #[test]
@@ -456,11 +573,15 @@ mod tests {
         // Settling.
         drive(&mut restore, 100..=114, at);
         assert_eq!(restore.pending(), ["Chrome"]);
-        // Restored at 115.
+        // Restored at 115, now in the second-pass watch until 415.
         assert_eq!(
             restore.step(115, &at(115)),
             due(&[("Chrome", Pass::Settled)])
         );
+        drive(&mut restore, 116..=414, at);
+        assert_eq!(restore.pending(), ["Chrome"]);
+        // The watch has ended.
+        drive(&mut restore, 415..=416, at);
         assert!(restore.pending().is_empty());
     }
 

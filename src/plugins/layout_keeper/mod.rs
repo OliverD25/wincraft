@@ -125,6 +125,9 @@ pub struct LayoutKeeper {
     /// Every window this restore run has put back, with its saved place in
     /// the front-to-back order, so each later group raises them all again.
     restored_stack: Vec<(usize, HWND)>,
+    /// The windows this restore run has already placed. A second pass leaves
+    /// them where they are now, in case the person has moved them since.
+    placed: BTreeSet<Handle>,
     /// This run has already shown its one balloon.
     announced: bool,
     /// Groups to rebuild again on the next tick, after a desktop move that
@@ -163,6 +166,7 @@ impl Default for LayoutKeeper {
             restore: Restore::new(DEFAULT_SETTLE_SECONDS, DEFAULT_RESTORE_MINUTES * 60),
             finishing: None,
             restored_stack: Vec::new(),
+            placed: BTreeSet::new(),
             announced: false,
             reapply: Vec::new(),
             arrange_stale: false,
@@ -616,13 +620,15 @@ impl LayoutKeeper {
             return;
         }
         log::info!(
-            "restore watches {} saved taskbar groups for {} minutes; each is put back once its windows have held still for {} s (at the latest {} minutes after its first window)",
+            "restore watches {} saved taskbar groups for {} minutes; each is put back once its windows have held still for {} s (at the latest {} minutes after its first window), and is then watched {} minutes for late windows",
             groups.len(),
             self.restore.give_up_seconds / 60,
             self.restore.settle_seconds,
-            restore::GROUP_LIMIT_SECONDS / 60
+            restore::GROUP_LIMIT_SECONDS / 60,
+            restore::SECOND_PASS_SECONDS / 60
         );
         self.restored_stack.clear();
+        self.placed.clear();
         self.announced = false;
         self.restore.start(self.ticks, groups);
     }
@@ -634,6 +640,11 @@ impl LayoutKeeper {
     /// Without the desktop mover only the windows already on this desktop
     /// are re-added. The current desktop and the foreground window are left
     /// as they are.
+    ///
+    /// A group in its second pass (`Pass::Late`) has windows that came after
+    /// its first restore. Windows already placed by this run stay on the
+    /// desktop they are on now, and nothing is raised, so a person who has
+    /// started working is not disturbed.
     fn restore_groups(&mut self, due: Vec<restore::Due>) {
         let Some(saved) = self.writer.last().cloned() else {
             return;
@@ -645,6 +656,7 @@ impl LayoutKeeper {
         let foreground = unsafe { GetForegroundWindow() };
         let mut moves: Vec<(HWND, DesktopId, String)> = Vec::new();
         let mut parts: Vec<String> = Vec::new();
+        let mut late_parts: Vec<String> = Vec::new();
         let mut missing = 0;
 
         let exes: Vec<String> = saved
@@ -682,6 +694,7 @@ impl LayoutKeeper {
                 .filter(|entry| live_groups.contains(&entry.group))
             {
                 let key = &entry.group;
+                let late = entry.pass == restore::Pass::Late;
                 let members = state::saved_for_group(&windows, &matching, &live_groups, key);
                 let ids = members.iter().map(|s| saved_ids[*s].clone()).collect();
                 let mut model = OrderModel::from_saved(ids);
@@ -689,6 +702,7 @@ impl LayoutKeeper {
                 self.groups.insert(key.clone(), model);
                 self.apply_group(key, can_move);
 
+                let mut moved_late = 0;
                 let pairs: Vec<(usize, usize)> = matching
                     .pairs
                     .iter()
@@ -700,21 +714,35 @@ impl LayoutKeeper {
                         if live_groups[l] != *key {
                             continue;
                         }
+                        let kept = late && self.placed.contains(&(window.hwnd as Handle));
                         let saved_desktop = pairs
                             .iter()
-                            .find(|(_, live)| *live == l)
+                            .find(|(_, live)| *live == l && !kept)
                             .and_then(|(s, _)| windows[*s].desktop.as_deref());
                         if let Some(target) = desktop_target(before[l], saved_desktop, &known) {
+                            if late && !kept && Some(target) != before[l] {
+                                moved_late += 1;
+                            }
                             moves.push((window.hwnd, target, window.identity.label().to_string()));
                         }
                     }
                 }
                 for (s, l) in &pairs {
-                    self.restored_stack
-                        .push((windows[*s].z_index, mine[*l].hwnd));
+                    self.placed.insert(mine[*l].hwnd as Handle);
+                    if !late {
+                        self.restored_stack
+                            .push((windows[*s].z_index, mine[*l].hwnd));
+                    }
                 }
 
                 let label = self.label_of(key);
+                if late {
+                    log::info!("second pass: moved {moved_late} late {label} windows");
+                    late_parts.push(format!(
+                        "second pass: moved {moved_late} late {label} windows"
+                    ));
+                    continue;
+                }
                 let lost: Vec<&str> = members
                     .iter()
                     .filter(|s| !pairs.iter().any(|(paired, _)| paired == *s))
@@ -737,20 +765,29 @@ impl LayoutKeeper {
             }
         }
 
-        if parts.is_empty() {
+        if parts.is_empty() && late_parts.is_empty() {
             return;
         }
-        let mut summary = format!("Restored {}", parts.join(", "));
-        if missing > 0 {
-            summary.push_str(&format!(" ({missing} not found)"));
+        let mut sentences = Vec::new();
+        if !parts.is_empty() {
+            let mut summary = format!("Restored {}", parts.join(", "));
+            if missing > 0 {
+                summary.push_str(&format!(" ({missing} not found)"));
+            }
+            sentences.push(summary);
         }
-        let announce = !self.announced;
-        self.announced = true;
+        sentences.extend(late_parts);
+        let announce = !parts.is_empty() && !self.announced;
+        self.announced |= announce;
         self.finishing = Some(Finish {
             moves,
-            stack: self.restored_stack.clone(),
+            stack: if parts.is_empty() {
+                Vec::new()
+            } else {
+                self.restored_stack.clone()
+            },
             foreground,
-            summary,
+            summary: sentences.join("; "),
             announce,
         });
     }

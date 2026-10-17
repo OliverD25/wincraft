@@ -81,6 +81,13 @@ after its first window with the windows that are open then.
 - A group that has opened no window is waited for 30 minutes after WinCraft
   starts. Chrome is the usual reason: Windows can start it without a window,
   and it opens its windows only when you first open it.
+- After a group is restored it is watched for 5 more minutes. If more of its
+  windows come in during that time and their number holds still, the group is
+  restored a second time. The second pass moves the new windows to their
+  saved desktops and rebuilds the taskbar order. Windows the first pass
+  already placed stay on the desktop they are on then, so a window you moved
+  yourself is not taken back, and the front-to-back order is not touched.
+  Then the group is left alone.
 - An app you open later than that is left where you put it. Apps with
   nothing saved are not touched.
 
@@ -93,8 +100,8 @@ For each group, LayoutKeeper:
 The desktop you are on and the window you are using stay as they are. A
 notification says how many windows were found, and the log lists the ones
 that were not. There is one notification for each restore run, for its first
-restored group; the other groups are in the log and in the status line on
-this page. The log also says which apps never opened a
+restored group; the other groups and the second passes are in the log and in
+the status line on this page. The log also says which apps never opened a
 window and which were restored only because of the 4-minute limit.
 **Restore layout** runs the same steps at any time.
 
@@ -102,7 +109,8 @@ window and which were restored only because of the 4-minute limit.
 window Windows does not place on any desktop (WhatsApp's, for example). They
 still get their place in the taskbar.
 
-While a group waits for its restore, saves keep its saved windows, so the scrambled windows of a fresh start never
+While a group waits for its restore, and during the 5 minutes after it,
+saves keep its saved windows, so the scrambled windows of a fresh start never
 overwrite the layout they are about to be put back into. Everything else is
 saved as normal.
 
