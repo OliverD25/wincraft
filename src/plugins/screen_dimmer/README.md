@@ -1,20 +1,48 @@
 # ScreenDimmer
 
-Blacks out a monitor with an overlay you can click straight through.
+Turns a monitor off, the way its power button does, without Windows treating
+it as unplugged: your windows stay where they are. A monitor that cannot be
+turned off this way is dimmed to brightness 0 or covered with a black
+overlay instead.
 
-Useful when one screen is showing something you do not want to look at, or do
-not want other people to look at, but you still want the windows on it running.
+Useful when one screen is showing something you do not want to look at, or
+do not want other people to look at, but you still want the windows on it
+running.
 
 ## What it does
 
-Press the hotkey for a monitor and it goes black. Press it again and it comes
-back. The overlay never takes keyboard focus, so whatever you were typing in
-stays active, and clicks go through to the windows underneath as if the overlay
-were not there.
+Press the hotkey for a monitor and it goes dark. Press it again and it comes
+back. What "dark" means depends on the monitor:
 
-When your mouse pointer moves onto a blacked-out monitor the overlay becomes
-partly see-through, so you can still find things on it. Move the pointer away
-and it goes fully black again.
+| Mode | What happens |
+|---|---|
+| **Off** | WinCraft asks the monitor for standby over DDC/CI, the command channel inside the monitor cable. The screen goes dark like with its power button. A black overlay stays underneath, so nothing shows if the monitor wakes by itself. |
+| **Dim** | A black overlay, and the monitor's brightness set to 0. The old brightness comes back when you press the hotkey again. |
+| **Cover** | Only the black overlay. The monitor keeps running. |
+
+Each monitor's mode is **Auto** until you choose another one in the
+settings. The first time an Auto monitor goes dark, WinCraft asks it for
+standby and watches its answer for 2 seconds. If it went into standby, it is
+Off from then on. If it keeps saying it is on, nothing more is sent and it is
+dimmed instead, or only covered when its brightness cannot be set either. A
+monitor that does not answer DDC/CI at all is covered. WinCraft remembers
+what it found; **Test monitors again** on the plugin's page makes it check
+each monitor again the next time it goes dark.
+
+While a monitor is off, the mouse pointer cannot go onto it: it would be
+lost where you cannot see it. Bring the monitor back with its hotkey or with
+`Win+Alt+F12`; moving the mouse does not wake it. If every monitor is off,
+the pointer stays on the primary one.
+
+Waking can take a few seconds: some monitors do not answer at all while they
+start up. WinCraft asks again every second for up to 8 seconds and removes
+the overlay once the monitor says it is on.
+
+The overlay never takes keyboard focus, so whatever you were typing in stays
+active, and clicks go through to the windows underneath. On a covered or
+dimmed monitor the overlay becomes partly see-through while your mouse
+pointer is on it, so you can still find things there. On a monitor that is
+off it stays solid.
 
 ## Hotkeys
 
@@ -26,7 +54,8 @@ and it goes fully black again.
 | Wake all monitors | `Win+Alt+F12` |
 
 Monitors are numbered in the order Windows enumerates them. Monitor 1 is
-normally your primary display.
+normally your primary display. The palette shows each monitor's state and
+place under its toggle command, such as "off (standby) · left".
 
 ## Settings
 
@@ -34,13 +63,32 @@ normally your primary display.
 |---|---|
 | `idle_opacity` | How solid the overlay is normally. `1.0` is fully black. |
 | `hover_opacity` | How solid it is while your pointer is on that monitor. `0.7` lets a little through. |
+| `monitors.<name>.mode` | Auto, Off, Dim or Cover for one monitor. The plugin's page has a choice per connected monitor and says what testing found. |
 
-Both take effect immediately — you do not have to restart WinCraft.
+A monitor's name is the one it reports itself, such as `PHL 323E7`. Two
+monitors of the same model get their number from the left after it.
+Settings take effect immediately; a new mode applies the next time the
+monitor goes dark.
+
+## Quitting and crashes
+
+When WinCraft quits, when you switch ScreenDimmer off and when Windows shuts
+down, every monitor WinCraft turned off is asked back on and every dimmed one
+gets its brightness back. WinCraft writes down that a monitor is in standby,
+or what its brightness was, before it changes anything, in
+`plugins\screen_dimmer.state.json`. So if WinCraft is stopped without a
+chance to clean up, the next start wakes the monitor and restores the
+brightness.
 
 ## Notes
 
-If you change your display layout or unplug a monitor while a screen is dimmed,
-the overlays are rebuilt and the ones that were dimmed come back dimmed.
+WinCraft only ever asks for standby (power mode 4), never for "off" (power
+mode 5): after mode 5 some monitors stop listening to DDC/CI until you press
+their power button.
 
-The overlay is a layered, click-through, no-activate window per monitor. It
-covers the whole monitor rectangle in physical pixels, so mixed-DPI setups work.
+DDC/CI can be switched off in a monitor's own menu. A monitor connected
+through some docks, adapters or KVM switches does not get the commands
+either; such a monitor is covered.
+
+If you change your display layout or unplug a monitor while a screen is
+dark, the overlays are rebuilt and each monitor keeps its state.

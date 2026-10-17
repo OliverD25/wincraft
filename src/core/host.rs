@@ -587,35 +587,9 @@ impl Host {
                     enabled: slot.enabled,
                     config_path: config::plugin_path(meta.id),
                     hotkeys: self.hotkey_infos(index),
-                    fields: slot
-                        .plugin
-                        .settings_fields()
-                        .into_iter()
-                        .map(|field| FieldInfo {
-                            key: field.key.to_string(),
-                            label: field.label.to_string(),
-                            help: field.help.to_string(),
-                            kind: field.kind,
-                            value: settings.get(field.key).cloned().unwrap_or(Value::Null),
-                        })
-                        .collect(),
+                    fields: field_infos(slot.plugin.as_ref(), &settings),
                     status: slot.plugin.status(),
-                    page_action: slot.plugin.page_action().and_then(|action| {
-                        slot.plugin
-                            .hotkey_actions()
-                            .into_iter()
-                            .find(|hotkey| hotkey.id == action)
-                            .map(|hotkey| {
-                                (
-                                    hotkey.label.to_string(),
-                                    CommandId::Plugin {
-                                        index,
-                                        kind: ActionKind::Hotkey,
-                                        action,
-                                    },
-                                )
-                            })
-                    }),
+                    page_action: page_button(slot.plugin.as_ref(), index),
                 }
             })
             .collect();
@@ -1020,7 +994,9 @@ impl Host {
             if !plugin.settings.is_object() {
                 plugin.settings = serde_json::json!({});
             }
-            if let Some(object) = plugin.settings.as_object_mut() {
+            if key.starts_with('/') {
+                config::set_pointer(&mut plugin.settings, key, value);
+            } else if let Some(object) = plugin.settings.as_object_mut() {
                 object.insert(key.to_string(), value);
             }
         }
@@ -1124,6 +1100,52 @@ impl Host {
         self.tray.remove();
         unsafe { PostQuitMessage(0) };
     }
+}
+
+fn field_infos(plugin: &dyn WinCraftPlugin, settings: &Value) -> Vec<FieldInfo> {
+    let fixed = plugin.settings_fields().into_iter().map(|field| FieldInfo {
+        key: field.key.to_string(),
+        label: field.label.to_string(),
+        help: field.help.to_string(),
+        kind: field.kind,
+        value: settings.get(field.key).cloned().unwrap_or(Value::Null),
+    });
+    let dynamic = plugin.dynamic_fields().into_iter().map(|field| FieldInfo {
+        key: field.key,
+        label: field.label,
+        help: field.help,
+        kind: field.kind,
+        value: field.value,
+    });
+    fixed.chain(dynamic).collect()
+}
+
+/// The button under a plugin's status line: one of its hotkey actions, or
+/// failing that one of its palette commands.
+fn page_button(plugin: &dyn WinCraftPlugin, index: usize) -> Option<(String, CommandId)> {
+    let action = plugin.page_action()?;
+    let hotkey = plugin
+        .hotkey_actions()
+        .into_iter()
+        .find(|hotkey| hotkey.id == action)
+        .map(|hotkey| (hotkey.label, ActionKind::Hotkey));
+    let found = hotkey.or_else(|| {
+        plugin
+            .palette_commands()
+            .into_iter()
+            .find(|command| command.id == action)
+            .map(|command| (command.label, ActionKind::Palette))
+    });
+    found.map(|(label, kind)| {
+        (
+            label.to_string(),
+            CommandId::Plugin {
+                index,
+                kind,
+                action,
+            },
+        )
+    })
 }
 
 /// Shows a tray balloon for a plugin. Safe to call from any plugin callback.

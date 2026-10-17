@@ -380,9 +380,64 @@ impl PluginConfig {
     }
 }
 
+/// One step of a JSON pointer, with "~" and "/" escaped as RFC 6901 says,
+/// so a monitor named "A/B" stays one step.
+pub fn pointer_token(text: &str) -> String {
+    text.replace('~', "~0").replace('/', "~1")
+}
+
+/// Sets the value a JSON pointer ("/monitors/PHL 323E7/mode") names,
+/// making the objects on the way and replacing anything on the way that is
+/// not an object.
+pub fn set_pointer(target: &mut Value, pointer: &str, value: Value) {
+    let tokens: Vec<String> = pointer
+        .split('/')
+        .skip(1)
+        .map(|token| token.replace("~1", "/").replace("~0", "~"))
+        .collect();
+    let Some((last, path)) = tokens.split_last() else {
+        *target = value;
+        return;
+    };
+    let mut at = target;
+    for token in path {
+        if !at.is_object() {
+            *at = empty_object();
+        }
+        at = at
+            .as_object_mut()
+            .expect("just made an object")
+            .entry(token.clone())
+            .or_insert_with(empty_object);
+    }
+    if !at.is_object() {
+        *at = empty_object();
+    }
+    at.as_object_mut()
+        .expect("just made an object")
+        .insert(last.clone(), value);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pointer_sets_a_nested_value_and_keeps_its_neighbours() {
+        let mut settings = serde_json::json!({ "idle_opacity": 1.0, "monitors": {} });
+        let key = format!("/monitors/{}/mode", pointer_token("PHL 323E7"));
+        set_pointer(&mut settings, &key, Value::String("Off".to_string()));
+        let other = format!("/monitors/{}/mode", pointer_token("A/B~C"));
+        set_pointer(&mut settings, &other, Value::String("Dim".to_string()));
+        assert_eq!(settings["monitors"]["PHL 323E7"]["mode"], "Off");
+        assert_eq!(settings["monitors"]["A/B~C"]["mode"], "Dim");
+        assert_eq!(settings["idle_opacity"], 1.0);
+        assert_eq!(settings.pointer(&key), Some(&Value::String("Off".into())));
+        // Something in the way that is not an object is replaced.
+        let mut broken = serde_json::json!({ "monitors": 3 });
+        set_pointer(&mut broken, &key, Value::String("Cover".to_string()));
+        assert_eq!(broken["monitors"]["PHL 323E7"]["mode"], "Cover");
+    }
 
     const V02_CONFIG: &str = r#"{
       "start_with_windows": true,

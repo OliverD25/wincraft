@@ -122,6 +122,7 @@ The About page lists the kinds the build you are running can draw.
 | `default_settings` | At startup, to fill missing keys in your config file. |
 | `migrate_settings(settings)` | At startup, right after missing keys were filled in, to rewrite values an older version stored. The host saves the file afterwards. |
 | `settings_fields` | When drawing your settings page. |
+| `dynamic_fields` | When drawing your settings page, after `settings_fields`. For settings that depend on what the plugin sees, such as one per connected monitor: the key is a JSON pointer into your settings (`/monitors/PHL 323E7/mode`, each step made with `config::pointer_token`), and you give the current value. The host writes the chosen value at that place. |
 | `init` | When the plugin is switched on. Return `Err` and the host logs it, shows a tray notification and leaves the plugin off. |
 | `on_settings_changed` | After the user changes one of your settings. |
 | `hotkey_actions` | To register your hotkeys, and to list them in the palette and on your page. |
@@ -132,7 +133,7 @@ The About page lists the kinds the build you are running can draw.
 | `on_palette_command(id)` | When one of those is chosen. |
 | `search_providers` | Once at startup, whether the plugin is on or not. Extra sources of palette results; see below. |
 | `status` | When building your page. One line under your description; call `host::plugin_changed()` when it changes. |
-| `page_action` | When building your page. One of your hotkey actions, shown as a button under the status line. |
+| `page_action` | When building your page. One of your hotkey actions, or failing that one of your palette commands, shown as a button under the status line. |
 | `palette_subtitle(kind, id)` | Each time the palette's list is rebuilt. A second line under one of your palette entries, such as the state the command would change; `kind` says whether `id` is a hotkey, tray or palette id, because those numbers can overlap. Return `None` for no subtitle, and call `host::plugin_changed()` when the answer changes. |
 | `window_groups` | When the Arrange strip opens (`host::open_arrange()`) and after every change made in it. Only for plugins that keep a window order. |
 | `on_arrange_action(action)` | When the user does something in the Arrange strip: activates a window, drags windows into a new order inside a taskbar group, moves a window to another desktop, or closes it. Rename and Clear name on a card go to WindowNamer instead, whichever plugin draws the strip. |
@@ -372,6 +373,7 @@ it is a separate instance:
   | `--theme=light` or `dark` | That theme for this run. |
   | `--ask-name=<hwnd>` | The palette's rename box for that window (WindowNamer). Nothing is renamed without Enter. |
   | `--show-restore-panel` | LayoutKeeper's please-wait panel with sample progress, and nothing else. A flag without a value. |
+  | `--ddc-test=<what>` | ScreenDimmer's DDC/CI check on real monitors, printed step by step, then exit; no tray icon, no plugins. `list` only reads each monitor's power mode and brightness. `left`, `centre` or `right` turns that monitor off the way Auto does, keeps it so for 10 s and brings it back; `wake-left` and so on only wakes it. Run it only with the person at the PC: it really turns a screen off. |
   | `--rename-window=<hwnd>:<name>` | Renames that window through WindowNamer at start, for a live test on a window the test owns. Never point it at a window you did not create. |
 
   A test instance's WindowNamer renames only on request and puts saved
@@ -428,6 +430,8 @@ Three separate numbering spaces, all local to your plugin:
 
 - **Hotkey action ids** (`HotkeyAction::id`) — any `u32`. ScreenDimmer uses
   1, 2, 3 for the monitors and 100 for "wake all", leaving room to add more.
+  A `page_action` id is looked up among these first, then among the palette
+  command ids, so give a page button a number no hotkey action uses.
 - **Tray action ids** (`TrayAction::id`) — must be **below 100**. The host
   packs them into menu item ids with the plugin's position in the list.
 - **Palette command ids** (`PaletteCommand::id`) — any `u32`.

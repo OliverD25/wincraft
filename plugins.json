@@ -1,12 +1,12 @@
 {
-  "wincraft_version": "0.13.0",
+  "wincraft_version": "0.14.0",
   "plugins": [
     {
       "id": "screen_dimmer",
       "name": "ScreenDimmer",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "author": "community",
-      "description": "Dim or blank monitors with click-through overlays.",
+      "description": "Turn monitors off over DDC/CI, or dim or cover them.",
       "readme": "src/plugins/screen_dimmer/README.md"
     },
     {

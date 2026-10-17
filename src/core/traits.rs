@@ -84,6 +84,18 @@ pub struct SettingField {
     pub kind: FieldKind,
 }
 
+/// A setting whose key and text are only known while the plugin runs, such
+/// as one per connected monitor. The key is a JSON pointer into the
+/// plugin's settings ("/monitors/PHL 323E7/mode", each step made with
+/// `config::pointer_token`), and the plugin says the current value itself.
+pub struct DynamicField {
+    pub key: String,
+    pub label: String,
+    pub help: String,
+    pub kind: FieldKind,
+    pub value: serde_json::Value,
+}
+
 pub struct PaletteCommand {
     pub id: u32,
     pub label: &'static str,
@@ -148,6 +160,12 @@ pub trait WinCraftPlugin {
         Vec::new()
     }
 
+    /// Settings drawn after `settings_fields`, built from what the plugin
+    /// sees now. Asked each time the settings window gets fresh data.
+    fn dynamic_fields(&self) -> Vec<DynamicField> {
+        Vec::new()
+    }
+
     /// Called with the whole settings object after the user changes one value.
     /// Return true if the change was applied live; returning false tells the
     /// host to stop and start the plugin instead.
@@ -189,7 +207,8 @@ pub trait WinCraftPlugin {
         None
     }
 
-    /// One of the plugin's hotkey actions, shown as a button on its page.
+    /// One of the plugin's hotkey actions, or failing that one of its
+    /// palette commands, shown as a button on its page.
     fn page_action(&self) -> Option<u32> {
         None
     }

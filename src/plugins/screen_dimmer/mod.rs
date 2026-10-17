@@ -18,12 +18,12 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     KillTimer, PostMessageW, SetTimer, WM_DISPLAYCHANGE, WM_ENDSESSION, WM_TIMER,
 };
 
-use crate::core::host;
 use crate::core::traits::{
-    FieldKind, HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata, SettingField,
-    TrayAction, WinCraftPlugin,
+    DynamicField, FieldKind, HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata,
+    SettingField, TrayAction, WinCraftPlugin,
 };
 use crate::core::ui_bridge::ActionKind;
+use crate::core::{config, host};
 use ddc::{Job, Opener, Outcome, Physical, Report, Woke, Worker};
 use machine::{Look, Machine, Mode};
 use overlay::Overlay;
@@ -445,7 +445,9 @@ fn alpha_from(settings: &serde_json::Value, key: &str, fallback: f64) -> u8 {
     (value.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
-/// `monitors.<id>.mode` for each monitor that has one.
+/// `monitors.<id>.mode` for each monitor that has one. The settings page
+/// writes "Auto", "Off", "Dim" or "Cover"; the lower-case words and
+/// "overlay" are read too.
 fn modes_from(settings: &serde_json::Value) -> BTreeMap<String, Mode> {
     settings
         .get("monitors")
@@ -467,9 +469,9 @@ impl WinCraftPlugin for ScreenDimmer {
         PluginMetadata {
             id: "screen_dimmer",
             name: "ScreenDimmer",
-            description: "Dim or blank monitors with click-through overlays.",
+            description: "Turn monitors off over DDC/CI, or dim or cover them.",
             author: "community",
-            version: "1.1.0",
+            version: "1.2.0",
             readme: include_str!("README.md"),
         }
     }
@@ -501,6 +503,34 @@ impl WinCraftPlugin for ScreenDimmer {
                 },
             },
         ]
+    }
+
+    /// One mode choice per connected monitor, keyed by its id.
+    fn dynamic_fields(&self) -> Vec<DynamicField> {
+        self.screens
+            .iter()
+            .map(|screen| {
+                let found = self
+                    .machines
+                    .get(&screen.id)
+                    .map_or("not tested yet", Machine::capability);
+                let label = match &screen.place {
+                    Some(place) => format!("{} monitor", capitalised(place)),
+                    None => "Monitor".to_string(),
+                };
+                DynamicField {
+                    key: format!("/monitors/{}/mode", config::pointer_token(&screen.id)),
+                    label,
+                    help: format!(
+                        "{}: {found}. Auto turns it off when standby works, dims it when \
+                         only its brightness can be set, and covers it otherwise.",
+                        screen.id
+                    ),
+                    kind: FieldKind::Choice(Mode::CHOICES),
+                    value: serde_json::Value::String(self.mode_of(&screen.id).label().to_string()),
+                }
+            })
+            .collect()
     }
 
     fn on_settings_changed(&mut self, settings: &serde_json::Value) -> bool {
@@ -623,6 +653,10 @@ impl WinCraftPlugin for ScreenDimmer {
         }
     }
 
+    fn page_action(&self) -> Option<u32> {
+        Some(PALETTE_TEST_AGAIN)
+    }
+
     fn status(&self) -> Option<String> {
         let parts: Vec<String> = self
             .screens
@@ -667,9 +701,45 @@ pub fn run_ddc_test(value: &str) -> i32 {
     ddc_test::run(value)
 }
 
+fn capitalised(word: &str) -> String {
+    let mut chars = word.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
 fn win_alt(vk: u32) -> Hotkey {
     Hotkey {
         modifiers: MOD_NOREPEAT | MOD_WIN | MOD_ALT,
         vk,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::{pointer_token, set_pointer};
+
+    #[test]
+    fn a_mode_chosen_on_the_page_is_read_back_by_monitor() {
+        let mut settings = ScreenDimmer::new().default_settings();
+        for (id, mode) in [("PHL 323E7", "Off"), ("LG SDQHD", "Cover")] {
+            let key = format!("/monitors/{}/mode", pointer_token(id));
+            set_pointer(&mut settings, &key, serde_json::Value::String(mode.into()));
+        }
+        settings["monitors"]["AORUS FV43U"] = serde_json::json!({ "mode": "dim" });
+        let modes = modes_from(&settings);
+        assert_eq!(modes.get("PHL 323E7"), Some(&Mode::Off));
+        assert_eq!(modes.get("LG SDQHD"), Some(&Mode::Cover));
+        assert_eq!(modes.get("AORUS FV43U"), Some(&Mode::Dim));
+        assert_eq!(modes.len(), 3);
+        assert!(modes_from(&serde_json::json!({})).is_empty());
+    }
+
+    #[test]
+    fn place_words_start_with_a_capital() {
+        assert_eq!(capitalised("left"), "Left");
+        assert_eq!(capitalised(""), "");
     }
 }
