@@ -232,6 +232,7 @@ pub fn wake(monitor: &mut dyn Monitor) -> Woke {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Job {
     Detect,
+    Standby,
     Wake,
     ReadBrightness,
     SetBrightness(u32),
@@ -240,6 +241,7 @@ pub enum Job {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
     Detected(Detected),
+    StandbySent(bool),
     Woke(Woke),
     Brightness(Option<Reading>),
     BrightnessSet(bool),
@@ -250,6 +252,7 @@ pub enum Outcome {
 pub fn run(monitor: &mut dyn Monitor, job: Job) -> Outcome {
     match job {
         Job::Detect => Outcome::Detected(detect_standby(monitor)),
+        Job::Standby => Outcome::StandbySent(monitor.write(Write::Power(Power::Standby))),
         Job::Wake => Outcome::Woke(wake(monitor)),
         Job::ReadBrightness => Outcome::Brightness(monitor.read(BRIGHTNESS)),
         Job::SetBrightness(value) => {
@@ -515,6 +518,7 @@ mod tests {
         // on each write that 5 never reaches code 0xD6.
         let jobs = [
             Job::Detect,
+            Job::Standby,
             Job::Wake,
             Job::ReadBrightness,
             Job::SetBrightness(0),
@@ -754,7 +758,7 @@ mod tests {
         let (reports, results) = mpsc::channel();
         let open: Opener = Box::new(|_stop| None);
         let mut worker = Worker::spawn("right", open, reports, Arc::new(|| {})).unwrap();
-        worker.send(Job::Detect);
+        worker.send(Job::Standby);
         worker.stop(None);
         assert!(wait_all(
             vec![worker],

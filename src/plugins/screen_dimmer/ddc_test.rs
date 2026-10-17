@@ -4,15 +4,18 @@
 //!
 //! - `list` reads the power mode and brightness of every monitor and
 //!   writes nothing;
-//! - `left`, `centre` or `right` runs the automatic choice on that monitor,
-//!   keeps it off (or dimmed) for 10 s and brings it back;
+//! - `left`, `centre` or `right` turns that monitor off the way the Auto
+//!   mode does (standby, or brightness 0 when it ignores standby), keeps
+//!   it so for 10 s and brings it back;
 //! - `wake-left` and so on only wakes that monitor.
 
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use super::ddc::{self, Detected, Job, Monitor, Opener, Outcome, Physical, Reading, Worker, Write};
+use super::ddc::{self, Job, Monitor, Opener, Outcome, Physical, Reading, Worker, Write};
+use super::machine::{Look, Machine, Mode};
+use super::saved::Saved;
 use super::screens::{self, Screen};
 
 const HOLD: Duration = Duration::from_secs(10);
@@ -108,6 +111,7 @@ fn reading(value: Option<Reading>) -> String {
 }
 
 /// The test itself, against any monitor, so it can be tried on a fake one.
+/// The plugin's own state machine decides every step.
 pub fn drive(
     id: &str,
     open: Opener,
@@ -121,61 +125,76 @@ pub fn drive(
         out("could not start the DDC/CI thread");
         return 1;
     };
-    let job = |job: Job, out: &mut dyn FnMut(&str)| -> Option<Outcome> {
-        out(&format!("job {job:?}"));
-        worker.send(job);
-        let outcome = wait(&results, printed, out);
-        match outcome {
-            Some(outcome) => out(&format!("  -> {outcome:?}")),
-            None => out("  -> no report in time"),
-        }
-        outcome
-    };
-    let code = if wake_only {
-        match job(Job::Wake, out) {
-            Some(Outcome::Woke(ddc::Woke::On(_))) => 0,
-            _ => 1,
-        }
+    let mut machine = Machine::new(Saved {
+        left_in_standby: wake_only,
+        ..Saved::default()
+    });
+    let first = if wake_only {
+        out("waking it");
+        machine.recover()
     } else {
-        match job(Job::Detect, out) {
-            Some(Outcome::Detected(Detected::Works)) => {
-                out(&format!("standby works; keeping it off for {hold:?}"));
-                std::thread::sleep(hold);
-                match job(Job::Wake, out) {
-                    Some(Outcome::Woke(ddc::Woke::On(_))) => 0,
-                    _ => 1,
-                }
-            }
-            Some(Outcome::Detected(Detected::Ignored)) => {
-                out("standby ignored; dimming instead");
-                match job(Job::ReadBrightness, out) {
-                    Some(Outcome::Brightness(Some(old))) => {
-                        job(Job::SetBrightness(0), out);
-                        out(&format!("dimmed; keeping it for {hold:?}"));
-                        std::thread::sleep(hold);
-                        match job(Job::SetBrightness(old.current), out) {
-                            Some(Outcome::BrightnessSet(true)) => 0,
-                            _ => 1,
-                        }
-                    }
-                    _ => {
-                        out("no brightness either; the plugin would only cover it");
-                        0
-                    }
-                }
-            }
-            _ => {
-                out("nothing was changed; the plugin would only cover it");
-                0
-            }
-        }
+        out("turning it off the way Auto does");
+        machine.toggle(Mode::Auto)
     };
+    let mut ok = settle(&worker, &results, printed, &mut machine, first, out);
+    if ok && !wake_only {
+        match machine.look() {
+            Look::Off | Look::Dimmed => {
+                out(&format!("keeping it {} for {hold:?}", machine.describe()));
+                std::thread::sleep(hold);
+                out("bringing it back");
+                let job = machine.toggle(Mode::Auto);
+                ok = settle(&worker, &results, printed, &mut machine, job, out);
+            }
+            Look::Covered => {
+                out("the plugin would only cover this monitor; nothing was changed");
+                machine.toggle(Mode::Auto);
+            }
+            Look::On => {}
+        }
+    }
     worker.stop(None);
     ddc::wait_all(vec![worker], Instant::now() + Duration::from_secs(2));
     for line in printed.try_iter() {
         out(&line);
     }
-    code
+    let back = machine.look() == Look::On
+        && !machine.saved.left_in_standby
+        && machine.saved.dimmed_from.is_none();
+    out(&format!(
+        "done: {} ({}); {}",
+        machine.describe(),
+        machine.capability(),
+        if back {
+            "back as it was"
+        } else {
+            "NOT back as it was"
+        }
+    ));
+    i32::from(!(ok && back))
+}
+
+/// Runs the machine's jobs one by one until it asks for no more. False when
+/// a job got no report in time.
+fn settle(
+    worker: &Worker,
+    results: &Receiver<ddc::Report>,
+    printed: &Receiver<String>,
+    machine: &mut Machine,
+    mut job: Option<Job>,
+    out: &mut dyn FnMut(&str),
+) -> bool {
+    while let Some(next) = job {
+        out(&format!("job {next:?}"));
+        worker.send(next);
+        let Some(outcome) = wait(results, printed, out) else {
+            out("  -> no report in time");
+            return false;
+        };
+        job = machine.report(outcome);
+        out(&format!("  -> {outcome:?}; now {}", machine.describe()));
+    }
+    true
 }
 
 fn wait(
@@ -285,7 +304,10 @@ mod tests {
         assert!(output
             .iter()
             .any(|line| line.contains("write D6 = 4 -> ok")));
-        assert!(output.iter().any(|line| line.starts_with("standby works")));
+        assert!(output
+            .iter()
+            .any(|line| line.starts_with("keeping it off (standby)")));
+        assert!(output.last().unwrap().ends_with("back as it was"));
     }
 
     #[test]
@@ -304,6 +326,7 @@ mod tests {
     fn a_monitor_without_ddc_is_left_alone() {
         let (code, output, fake) = test(Style::Silent, false);
         assert_eq!(code, 0, "{output:#?}");
+        assert!(output.iter().any(|line| line.contains("only cover")));
         assert!(fake.lock().unwrap().writes.is_empty());
     }
 

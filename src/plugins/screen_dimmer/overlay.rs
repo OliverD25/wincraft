@@ -2,8 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    EnumDisplayMonitors, GetMonitorInfoW, GetStockObject, MonitorFromPoint, BLACK_BRUSH, HBRUSH,
-    HDC, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONULL,
+    GetStockObject, MonitorFromPoint, BLACK_BRUSH, HBRUSH, HMONITOR, MONITOR_DEFAULTTONULL,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -27,34 +26,6 @@ static CLASS_REGISTERED: AtomicBool = AtomicBool::new(false);
 pub struct Overlay {
     hwnd: HWND,
     pub visible: bool,
-}
-
-pub fn monitors() -> Vec<(HMONITOR, RECT)> {
-    let mut found: Vec<(HMONITOR, RECT)> = Vec::new();
-    unsafe {
-        EnumDisplayMonitors(
-            std::ptr::null_mut(),
-            std::ptr::null(),
-            Some(collect_monitor),
-            &mut found as *mut Vec<(HMONITOR, RECT)> as LPARAM,
-        )
-    };
-    found
-}
-
-unsafe extern "system" fn collect_monitor(
-    monitor: HMONITOR,
-    _hdc: HDC,
-    _clip: *mut RECT,
-    data: LPARAM,
-) -> i32 {
-    let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
-    info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-    if unsafe { GetMonitorInfoW(monitor, &mut info) } != 0 {
-        let found = unsafe { &mut *(data as *mut Vec<(HMONITOR, RECT)>) };
-        found.push((monitor, info.rcMonitor));
-    }
-    1
 }
 
 impl Overlay {

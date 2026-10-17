@@ -18,11 +18,12 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, SetFocus, 
 use windows_sys::Win32::UI::Shell::{ShellExecuteW, NIN_BALLOONUSERCLICK};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetCursorPos, GetForegroundWindow,
-    GetMessageW, GetWindowThreadProcessId, PostMessageW, PostQuitMessage, RegisterClassW,
-    RegisterWindowMessageW, SetForegroundWindow, TranslateMessage, ENDSESSION_CLOSEAPP,
-    ENDSESSION_CRITICAL, ENDSESSION_LOGOFF, MSG, SW_SHOWNORMAL, WM_APP, WM_CONTEXTMENU, WM_DESTROY,
-    WM_DISPLAYCHANGE, WM_ENDSESSION, WM_HOTKEY, WM_LBUTTONUP, WM_POWERBROADCAST,
-    WM_QUERYENDSESSION, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
+    GetMessageW, GetWindowThreadProcessId, KillTimer, PostMessageW, PostQuitMessage,
+    RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, SetTimer, TranslateMessage,
+    ENDSESSION_CLOSEAPP, ENDSESSION_CRITICAL, ENDSESSION_LOGOFF, MSG, SW_SHOWNORMAL, WM_APP,
+    WM_CONTEXTMENU, WM_DESTROY, WM_DISPLAYCHANGE, WM_ENDSESSION, WM_HOTKEY, WM_LBUTTONUP,
+    WM_POWERBROADCAST, WM_QUERYENDSESSION, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW,
+    WS_OVERLAPPED,
 };
 
 use serde_json::Value;
@@ -60,6 +61,12 @@ const UI_STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
 /// Posted by `notify` and `plugin_changed`, which plugins call while the host
 /// is busy calling them; the work happens when the message comes round.
 const WM_APP_PLUGIN: u32 = WM_APP + 21;
+
+/// Delivers again the messages that found the host busy; see
+/// `with_host_or_later`.
+const RETRY_TIMER: usize = 0x5743_0001;
+const RETRY_MS: u32 = 50;
+const RETRY_LIMIT: usize = 64;
 
 struct RegisteredHotkey {
     action_id: u32,
@@ -144,6 +151,7 @@ thread_local! {
     static ARRANGE_WANTED: Cell<bool> = const { Cell::new(false) };
     static PROMPT: RefCell<Option<Prompt>> = const { RefCell::new(None) };
     static ARRANGE_STALE: Cell<bool> = const { Cell::new(false) };
+    static RETRY: RefCell<Vec<(u32, WPARAM, LPARAM)>> = const { RefCell::new(Vec::new()) };
 }
 
 pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: StartupFlags) {
@@ -1306,6 +1314,59 @@ fn with_host<R>(f: impl FnOnce(&mut Host) -> R) -> Option<R> {
     })
 }
 
+/// Like `with_host`, but a message that finds the host busy is delivered
+/// again a moment later instead of being dropped. Windows sends
+/// WM_DISPLAYCHANGE while the host thread waits on another program's
+/// window, as when LayoutKeeper moves windows while a monitor powers up,
+/// and a dropped one leaves ScreenDimmer on the old layout. Only for messages
+/// whose parameters are plain values: a pointer in one would be stale by
+/// then.
+fn with_host_or_later(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    f: impl FnOnce(&mut Host),
+) {
+    let busy = HOST.with(|cell| match cell.try_borrow_mut() {
+        Ok(mut borrowed) => {
+            if let Some(host) = borrowed.as_mut() {
+                f(host);
+            }
+            false
+        }
+        Err(_) => true,
+    });
+    if busy {
+        log::info!(
+            "{} arrived while the host was busy; it is delivered again in {RETRY_MS} ms",
+            message_name(msg)
+        );
+        RETRY.with(|queue| queue_again(&mut queue.borrow_mut(), msg, wparam, lparam));
+        unsafe { SetTimer(hwnd, RETRY_TIMER, RETRY_MS, None) };
+    }
+}
+
+/// Only the newest display change is kept: each one describes the whole
+/// layout, and running an old one after a newer one would be wrong.
+fn queue_again(queue: &mut Vec<(u32, WPARAM, LPARAM)>, msg: u32, wparam: WPARAM, lparam: LPARAM) {
+    if msg == WM_DISPLAYCHANGE {
+        queue.retain(|(queued, _, _)| *queued != WM_DISPLAYCHANGE);
+    }
+    if queue.len() < RETRY_LIMIT {
+        queue.push((msg, wparam, lparam));
+    }
+}
+
+fn message_name(msg: u32) -> String {
+    match msg {
+        WM_DISPLAYCHANGE => "WM_DISPLAYCHANGE".to_string(),
+        WM_HOTKEY => "WM_HOTKEY".to_string(),
+        WM_APP_UI => "a request from the UI thread".to_string(),
+        other => format!("message 0x{other:04X}"),
+    }
+}
+
 fn handle_menu_choice(choice: u32) {
     match choice {
         MENU_PALETTE => show_palette(),
@@ -1388,7 +1449,7 @@ unsafe extern "system" fn wnd_proc(
                 show_palette();
                 return 0;
             }
-            with_host(|host| {
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| {
                 let target = host.slots.iter().enumerate().find_map(|(index, slot)| {
                     slot.registered
                         .iter()
@@ -1463,24 +1524,38 @@ unsafe extern "system" fn wnd_proc(
             0
         }
         WM_APP_UI => {
-            with_host(|host| {
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| {
                 while let Ok(request) = host.host_rx.try_recv() {
                     host.handle_request(request);
                 }
             });
             0
         }
-        WM_DISPLAYCHANGE | WM_SETTINGCHANGE | WM_POWERBROADCAST | WM_TIMER => {
+        WM_TIMER if wparam == RETRY_TIMER => {
+            unsafe { KillTimer(hwnd, RETRY_TIMER) };
+            let queued = RETRY.with(|queue| std::mem::take(&mut *queue.borrow_mut()));
+            for (msg, wparam, lparam) in queued {
+                unsafe { wnd_proc(hwnd, msg, wparam, lparam) };
+            }
+            0
+        }
+        WM_DISPLAYCHANGE => {
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| {
+                // The palette was placed against a monitor layout that no
+                // longer exists, so it is hidden rather than left stranded.
+                host.to_ui.send(UiCommand::HideAll);
+                for slot in host.slots.iter_mut().filter(|slot| slot.enabled) {
+                    slot.plugin.on_windows_message(msg, wparam, lparam);
+                }
+            });
+            0
+        }
+        WM_SETTINGCHANGE | WM_POWERBROADCAST | WM_TIMER => {
             if msg == WM_SETTINGCHANGE && is_colour_change(lparam) {
                 with_host(|host| {
                     host.tray.refresh_icon();
                     host.to_ui.send(UiCommand::ThemeChanged);
                 });
-            }
-            if msg == WM_DISPLAYCHANGE {
-                // The palette was placed against a monitor layout that no
-                // longer exists, so it is hidden rather than left stranded.
-                with_host(|host| host.to_ui.send(UiCommand::HideAll));
             }
             with_host(|host| {
                 for slot in host.slots.iter_mut().filter(|slot| slot.enabled) {
@@ -1523,6 +1598,19 @@ unsafe extern "system" fn wnd_proc(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_busy_host_keeps_only_the_newest_display_change() {
+        let mut queue = Vec::new();
+        queue_again(&mut queue, WM_DISPLAYCHANGE, 32, 1);
+        queue_again(&mut queue, WM_HOTKEY, 3, 0);
+        queue_again(&mut queue, WM_DISPLAYCHANGE, 32, 2);
+        assert_eq!(queue, [(WM_HOTKEY, 3, 0), (WM_DISPLAYCHANGE, 32, 2)]);
+        for _ in 0..RETRY_LIMIT * 2 {
+            queue_again(&mut queue, WM_HOTKEY, 1, 0);
+        }
+        assert_eq!(queue.len(), RETRY_LIMIT);
+    }
 
     #[test]
     fn no_flags_means_a_shutdown_or_restart() {

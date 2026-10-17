@@ -1,30 +1,62 @@
 mod ddc;
 mod ddc_test;
+mod machine;
 mod overlay;
+mod saved;
 mod screens;
 
-use windows_sys::Win32::Foundation::{LPARAM, WPARAM};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
-use windows_sys::Win32::UI::WindowsAndMessaging::WM_DISPLAYCHANGE;
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Arc;
 
+use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    KillTimer, PostMessageW, SetTimer, WM_DISPLAYCHANGE, WM_TIMER,
+};
+
+use crate::core::host;
 use crate::core::traits::{
-    FieldKind, HostContext, Hotkey, HotkeyAction, PluginMetadata, SettingField, TrayAction,
-    WinCraftPlugin,
+    FieldKind, HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata, SettingField,
+    TrayAction, WinCraftPlugin,
 };
 use crate::core::ui_bridge::ActionKind;
-use crate::core::{host, monitors};
+use ddc::{Job, Opener, Outcome, Physical, Report, Woke, Worker};
+use machine::{Look, Machine, Mode};
 use overlay::Overlay;
+use saved::StateFile;
+use screens::Screen;
 
 const ACTION_TOGGLE_BASE: u32 = 1;
 const MONITOR_ACTIONS: u32 = 3;
 const ACTION_WAKE_ALL: u32 = 100;
 const TRAY_WAKE_ALL: u32 = 1;
+const PALETTE_TEST_AGAIN: u32 = 200;
+
+/// While a monitor is off or a DDC/CI job is out: reads the workers'
+/// reports.
+const TICK_TIMER: usize = 0x5344_0001;
+const TICK_MS: u32 = 100;
+/// Posted by a worker after each report, so it is read at once.
+const NUDGE_TIMER: usize = 0x5344_0002;
 
 #[derive(Default)]
 pub struct ScreenDimmer {
-    overlays: Vec<Overlay>,
-    /// Where each overlay's monitor sits, for the palette: "left" and so on.
-    positions: Vec<Option<String>>,
+    host_hwnd: Option<HWND>,
+    /// In the order Windows lists them, which is the order of the hotkeys.
+    screens: Vec<Screen>,
+    /// One per screen, at the same place in the list.
+    overlays: Vec<Option<Overlay>>,
+    /// By monitor id, so they outlive a change of the monitor layout; ids
+    /// from the state file whose monitor is unplugged keep theirs too.
+    machines: BTreeMap<String, Machine>,
+    workers: BTreeMap<String, Worker>,
+    reports: Option<(Sender<Report>, Receiver<Report>)>,
+    modes: BTreeMap<String, Mode>,
+    state_path: PathBuf,
+    written: StateFile,
+    ticking: bool,
     idle_alpha: u8,
     hover_alpha: u8,
 }
@@ -34,54 +66,295 @@ impl ScreenDimmer {
         Self::default()
     }
 
-    fn build_overlays(&mut self, dimmed: &[bool]) {
-        let monitors = overlay::monitors();
-        let lefts: Vec<i32> = monitors.iter().map(|(_, rect)| rect.left).collect();
-        self.positions = monitors::position_names(&lefts)
-            .into_iter()
-            .map(|name| name.map(|name| name.to_lowercase()))
-            .collect();
-        for (index, (monitor, rect)) in monitors.into_iter().enumerate() {
-            let Some(mut item) = Overlay::create(monitor, rect, self.idle_alpha, self.hover_alpha)
-            else {
-                continue;
-            };
-            if dimmed.get(index).copied().unwrap_or(false) {
-                item.show();
-            }
-            self.overlays.push(item);
+    fn build(&mut self) {
+        self.screens = screens::list();
+        for screen in &self.screens {
+            self.machines
+                .entry(screen.id.clone())
+                .or_insert_with(|| Machine::new(Default::default()));
         }
-        log::info!("screen_dimmer covers {} monitor(s)", self.overlays.len());
+        self.overlays = self
+            .screens
+            .iter()
+            .map(|screen| {
+                Overlay::create(
+                    screen.handle,
+                    screen.rect,
+                    self.idle_alpha,
+                    self.hover_alpha,
+                )
+            })
+            .collect();
+        for index in 0..self.screens.len() {
+            self.sync_overlay(index);
+        }
+        let names: Vec<&str> = self
+            .screens
+            .iter()
+            .map(|screen| screen.id.as_str())
+            .collect();
+        log::info!(
+            "screen_dimmer covers {} monitor(s): {}",
+            self.overlays.iter().flatten().count(),
+            names.join(", ")
+        );
     }
 
     fn destroy_overlays(&mut self) {
-        for item in &mut self.overlays {
+        for item in self.overlays.iter_mut().flatten() {
             item.destroy();
         }
         self.overlays.clear();
     }
 
-    fn toggle(&mut self, index: usize) {
-        match self.overlays.get_mut(index) {
-            Some(item) => {
-                if item.visible {
-                    item.hide();
-                    log::info!("monitor {} back to normal", index + 1);
-                } else {
-                    item.show();
-                    log::info!("monitor {} dimmed", index + 1);
-                }
-            }
-            None => log::info!("no monitor {} to toggle", index + 1),
+    /// Monitor handles and rectangles are stale after a layout change, and
+    /// so are the DDC/CI handles: everything is built again, while each
+    /// monitor keeps its state by id. A worker still busy with a job
+    /// finishes it and reports as usual.
+    fn rebuild(&mut self) {
+        self.destroy_overlays();
+        self.workers.clear();
+        self.build();
+        self.recover();
+    }
+
+    /// Whether Windows' monitor list differs from the one the overlays were
+    /// built for. Checked before each toggle, so a display change that never
+    /// reached the plugin cannot leave it working on the old layout.
+    fn layout_changed(&self) -> bool {
+        let now = screens::list();
+        now.len() != self.screens.len()
+            || now.iter().zip(&self.screens).any(|(a, b)| {
+                a.handle != b.handle
+                    || a.id != b.id
+                    || (a.rect.left, a.rect.top, a.rect.right, a.rect.bottom)
+                        != (b.rect.left, b.rect.top, b.rect.right, b.rect.bottom)
+            })
+    }
+
+    fn recover(&mut self) {
+        let ids: Vec<String> = self
+            .screens
+            .iter()
+            .filter(|screen| {
+                self.machines
+                    .get(&screen.id)
+                    .is_some_and(Machine::needs_recovery)
+            })
+            .map(|screen| screen.id.clone())
+            .collect();
+        for id in ids {
+            log::info!("{id} was left in standby or dimmed; putting it back");
+            let job = self.machines.get_mut(&id).and_then(Machine::recover);
+            self.apply(&id, job);
         }
+    }
+
+    fn mode_of(&self, id: &str) -> Mode {
+        self.modes.get(id).copied().unwrap_or_default()
+    }
+
+    fn index_of(&self, id: &str) -> Option<usize> {
+        self.screens.iter().position(|screen| screen.id == id)
+    }
+
+    /// Shows the overlay as the monitor's state asks: solid while it is
+    /// off, so nothing shows if it wakes by itself, and see-through under
+    /// the pointer while it is only covered or dimmed.
+    fn sync_overlay(&mut self, index: usize) {
+        let look = self
+            .screens
+            .get(index)
+            .and_then(|screen| self.machines.get(&screen.id))
+            .map_or(Look::On, Machine::look);
+        let (idle, hover) = (self.idle_alpha, self.hover_alpha);
+        let Some(Some(item)) = self.overlays.get_mut(index) else {
+            return;
+        };
+        match look {
+            Look::On => item.hide(),
+            Look::Off => {
+                item.set_alphas(u8::MAX, u8::MAX);
+                item.show();
+            }
+            Look::Covered | Look::Dimmed => {
+                item.set_alphas(idle, hover);
+                item.show();
+            }
+        }
+    }
+
+    /// Sends the machine's next job, then brings the overlay, the state
+    /// file, the timer and the palette up to date. The file is written
+    /// before the job goes out too: a crash right after a standby request
+    /// must find the record of it at the next start.
+    fn apply(&mut self, id: &str, job: Option<Job>) {
+        if let Some(job) = job {
+            self.write_state();
+            self.send(id, job);
+        }
+        if let Some(index) = self.index_of(id) {
+            self.sync_overlay(index);
+        }
+        self.write_state();
+        self.update_timer();
         host::plugin_changed();
     }
 
-    fn wake_all(&mut self) {
-        for item in &mut self.overlays {
-            item.hide();
+    fn send(&mut self, id: &str, job: Job) {
+        if !self.workers.contains_key(id) {
+            match self.spawn_worker(id) {
+                Some(worker) => {
+                    self.workers.insert(id.to_string(), worker);
+                }
+                None => {
+                    log::warn!("{id}: no DDC/CI thread for {job:?}");
+                    if let Some(machine) = self.machines.get_mut(id) {
+                        machine.report(Outcome::NoMonitor);
+                    }
+                    return;
+                }
+            }
         }
-        log::info!("all monitors back to normal");
+        log::info!("{id}: {job:?}");
+        if let Some(worker) = self.workers.get(id) {
+            worker.send(job);
+        }
+    }
+
+    fn spawn_worker(&self, id: &str) -> Option<Worker> {
+        let handle = self
+            .screens
+            .iter()
+            .find(|screen| screen.id == id)
+            .map(|screen| screen.handle as isize)?;
+        let (reports, _) = self.reports.as_ref()?;
+        let host = self.host_hwnd.map_or(0, |hwnd| hwnd as isize);
+        let nudge: ddc::Nudge = Arc::new(move || {
+            if host != 0 {
+                unsafe { PostMessageW(host as HWND, WM_TIMER, NUDGE_TIMER, 0) };
+            }
+        });
+        let open: Opener = Box::new(move |stop| {
+            Physical::open(handle, stop).map(|monitor| Box::new(monitor) as Box<dyn ddc::Monitor>)
+        });
+        Worker::spawn(id, open, reports.clone(), nudge)
+    }
+
+    fn drain(&mut self) {
+        let reports: Vec<Report> = match &self.reports {
+            Some((_, results)) => results.try_iter().collect(),
+            None => return,
+        };
+        for report in reports {
+            let Some(machine) = self.machines.get_mut(&report.monitor) else {
+                continue;
+            };
+            let next = machine.report(report.outcome);
+            let now = machine.describe();
+            match report.outcome {
+                Outcome::Woke(Woke::TimedOut) => log::warn!(
+                    "{} did not report on within {:?}; overlay removed anyway",
+                    report.monitor,
+                    ddc::WAKE_FOR
+                ),
+                Outcome::StandbySent(false) | Outcome::BrightnessSet(false) => {
+                    log::warn!("{}: {:?} failed; now {now}", report.monitor, report.job)
+                }
+                Outcome::NoMonitor => log::warn!(
+                    "{}: Windows gave no DDC/CI handle; now {now}",
+                    report.monitor
+                ),
+                outcome => log::info!(
+                    "{}: {:?} gave {outcome:?}; now {now}",
+                    report.monitor,
+                    report.job
+                ),
+            }
+            self.apply(&report.monitor.clone(), next);
+        }
+    }
+
+    fn write_state(&mut self) {
+        let file = StateFile {
+            monitors: self
+                .machines
+                .iter()
+                .filter(|(_, machine)| !machine.saved.is_empty())
+                .map(|(id, machine)| (id.clone(), machine.saved.clone()))
+                .collect(),
+        };
+        if file == self.written {
+            return;
+        }
+        match saved::save(&self.state_path, &file) {
+            Ok(()) => self.written = file,
+            Err(err) => log::error!("{err}"),
+        }
+    }
+
+    /// The timer runs only while there is something to watch.
+    fn update_timer(&mut self) {
+        let Some(hwnd) = self.host_hwnd else {
+            return;
+        };
+        let wanted = self
+            .machines
+            .values()
+            .any(|machine| machine.busy() || machine.look() == Look::Off);
+        if wanted && !self.ticking {
+            self.ticking = unsafe { SetTimer(hwnd, TICK_TIMER, TICK_MS, None) } != 0;
+        } else if !wanted && self.ticking {
+            unsafe { KillTimer(hwnd, TICK_TIMER) };
+            self.ticking = false;
+        }
+    }
+
+    fn toggle(&mut self, index: usize) {
+        if self.layout_changed() {
+            log::info!("the monitor layout changed since the overlays were built");
+            self.rebuild();
+        }
+        let Some(id) = self.screens.get(index).map(|screen| screen.id.clone()) else {
+            log::info!("no monitor {} to toggle", index + 1);
+            return;
+        };
+        let mode = self.mode_of(&id);
+        let job = self
+            .machines
+            .get_mut(&id)
+            .and_then(|machine| machine.toggle(mode));
+        if let Some(machine) = self.machines.get(&id) {
+            log::info!(
+                "monitor {} ({id}, mode {}) toggled: {}",
+                index + 1,
+                mode.label(),
+                machine.describe()
+            );
+        }
+        self.apply(&id, job);
+    }
+
+    fn wake_all(&mut self) {
+        let ids: Vec<String> = self
+            .screens
+            .iter()
+            .map(|screen| screen.id.clone())
+            .collect();
+        for id in ids {
+            let job = self.machines.get_mut(&id).and_then(Machine::wake);
+            self.apply(&id, job);
+        }
+        log::info!("all monitors asked back on");
+    }
+
+    /// Auto tests each monitor again the next time it goes off.
+    fn test_again(&mut self) {
+        for machine in self.machines.values_mut() {
+            machine.forget_tests();
+        }
+        self.write_state();
+        log::info!("screen_dimmer forgot what testing the monitors found");
         host::plugin_changed();
     }
 }
@@ -92,6 +365,23 @@ fn alpha_from(settings: &serde_json::Value, key: &str, fallback: f64) -> u8 {
         .and_then(|v| v.as_f64())
         .unwrap_or(fallback);
     (value.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+/// `monitors.<id>.mode` for each monitor that has one.
+fn modes_from(settings: &serde_json::Value) -> BTreeMap<String, Mode> {
+    settings
+        .get("monitors")
+        .and_then(serde_json::Value::as_object)
+        .map(|monitors| {
+            monitors
+                .iter()
+                .filter_map(|(id, monitor)| {
+                    let mode = monitor.get("mode")?.as_str()?;
+                    Some((id.clone(), Mode::parse(mode)))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 impl WinCraftPlugin for ScreenDimmer {
@@ -107,7 +397,7 @@ impl WinCraftPlugin for ScreenDimmer {
     }
 
     fn default_settings(&self) -> serde_json::Value {
-        serde_json::json!({ "idle_opacity": 1.0, "hover_opacity": 0.7 })
+        serde_json::json!({ "idle_opacity": 1.0, "hover_opacity": 0.7, "monitors": {} })
     }
 
     fn settings_fields(&self) -> Vec<SettingField> {
@@ -138,8 +428,9 @@ impl WinCraftPlugin for ScreenDimmer {
     fn on_settings_changed(&mut self, settings: &serde_json::Value) -> bool {
         self.idle_alpha = alpha_from(settings, "idle_opacity", 1.0);
         self.hover_alpha = alpha_from(settings, "hover_opacity", 0.7);
-        for item in &mut self.overlays {
-            item.set_alphas(self.idle_alpha, self.hover_alpha);
+        self.modes = modes_from(settings);
+        for index in 0..self.screens.len() {
+            self.sync_overlay(index);
         }
         true
     }
@@ -148,12 +439,26 @@ impl WinCraftPlugin for ScreenDimmer {
         // WM_DISPLAYCHANGE reaches this plugin only through the host window, so
         // its handle is worth having in the log when message routing misbehaves.
         log::debug!("screen_dimmer attached to host window {:p}", ctx.hwnd);
+        self.host_hwnd = Some(ctx.hwnd);
         self.idle_alpha = alpha_from(ctx.settings, "idle_opacity", 1.0);
         self.hover_alpha = alpha_from(ctx.settings, "hover_opacity", 0.7);
-        self.build_overlays(&[]);
-        if self.overlays.is_empty() {
+        self.modes = modes_from(ctx.settings);
+        self.reports = Some(mpsc::channel());
+        if self.state_path.as_os_str().is_empty() {
+            self.state_path = saved::default_path();
+        }
+        self.written = saved::load(&self.state_path);
+        self.machines = self
+            .written
+            .monitors
+            .iter()
+            .map(|(id, saved)| (id.clone(), Machine::new(saved.clone())))
+            .collect();
+        self.build();
+        if self.overlays.iter().flatten().next().is_none() {
             return Err("no monitors could be covered".to_string());
         }
+        self.recover();
         Ok(())
     }
 
@@ -195,15 +500,12 @@ impl WinCraftPlugin for ScreenDimmer {
         }
     }
 
-    fn on_windows_message(&mut self, msg: u32, _wparam: WPARAM, _lparam: LPARAM) {
-        if msg != WM_DISPLAYCHANGE {
-            return;
+    fn on_windows_message(&mut self, msg: u32, wparam: WPARAM, _lparam: LPARAM) {
+        match msg {
+            WM_DISPLAYCHANGE => self.rebuild(),
+            WM_TIMER if wparam == TICK_TIMER || wparam == NUDGE_TIMER => self.drain(),
+            _ => {}
         }
-        // Monitor handles and rectangles are stale after a layout change, so the
-        // overlays are rebuilt and the ones that were dimmed come back dimmed.
-        let dimmed: Vec<bool> = self.overlays.iter().map(|item| item.visible).collect();
-        self.destroy_overlays();
-        self.build_overlays(&dimmed);
     }
 
     fn tray_actions(&self) -> Vec<TrayAction> {
@@ -219,21 +521,56 @@ impl WinCraftPlugin for ScreenDimmer {
         }
     }
 
+    fn palette_commands(&self) -> Vec<PaletteCommand> {
+        vec![PaletteCommand {
+            id: PALETTE_TEST_AGAIN,
+            label: "Test monitors again",
+            hint: "Auto checks standby again the next time each monitor goes off",
+        }]
+    }
+
+    fn on_palette_command(&mut self, id: u32) {
+        if id == PALETTE_TEST_AGAIN {
+            self.test_again();
+        }
+    }
+
+    fn status(&self) -> Option<String> {
+        let parts: Vec<String> = self
+            .screens
+            .iter()
+            .filter_map(|screen| {
+                let machine = self.machines.get(&screen.id)?;
+                Some(format!("{}: {}", screen.id, machine.describe()))
+            })
+            .collect();
+        (!parts.is_empty()).then(|| parts.join(" \u{b7} "))
+    }
+
     fn palette_subtitle(&self, kind: ActionKind, action_id: u32) -> Option<String> {
         if kind != ActionKind::Hotkey || action_id < ACTION_TOGGLE_BASE {
             return None;
         }
-        let index = (action_id - ACTION_TOGGLE_BASE) as usize;
-        let overlay = self.overlays.get(index)?;
-        let state = if overlay.visible { "dimmed" } else { "on" };
-        Some(match self.positions.get(index).cloned().flatten() {
-            Some(position) => format!("{state} \u{b7} {position}"),
+        let screen = self
+            .screens
+            .get((action_id - ACTION_TOGGLE_BASE) as usize)?;
+        let state = self.machines.get(&screen.id)?.describe();
+        Some(match &screen.place {
+            Some(place) => format!("{state} \u{b7} {place}"),
             None => state.to_string(),
         })
     }
 
     fn teardown(&mut self) {
+        if let Some(hwnd) = self.host_hwnd.take() {
+            if self.ticking {
+                unsafe { KillTimer(hwnd, TICK_TIMER) };
+                self.ticking = false;
+            }
+        }
+        self.workers.clear();
         self.destroy_overlays();
+        self.screens.clear();
     }
 }
 
