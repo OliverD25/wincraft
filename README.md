@@ -15,7 +15,7 @@ commands.
 
 - **Command palette** — `Win+Alt+P` opens a search box on the monitor your
   pointer is on. Type a few letters, press Enter. It finds WinCraft's commands,
-  Start menu apps and open windows, and with a prefix it browses folders,
+  apps (Start menu, Store and installed) and open windows, and with a prefix it browses folders,
   does sums and searches the web. See [Command palette](#command-palette).
 - **Settings window** — General, Plugins, Plugin Store and About, with a page
   per plugin: its options, its hotkeys, its config file and its README.
@@ -141,8 +141,14 @@ makes it lose a window. [Full README](src/plugins/window_namer/README.md)
 
 Without a prefix, the palette searches three things at once and lists the best
 matches first: WinCraft's own commands (every plugin action, every plugin
-on/off switch, the host's items), the programs in your Start menu, and the
-windows that are open on any virtual desktop.
+on/off switch, the host's items), your apps, and the windows that are open on
+any virtual desktop. Apps come from three places, and a program found in
+more than one is listed once, from the first: the shortcuts in your Start menu,
+the Start menu's app list (this is where Store apps such as Windows Terminal
+are), and the programs Windows lists as installed that have no shortcut. The
+second line of a row says which: the Start menu folder, "Store app" or
+"Installed program". For a program with no shortcut, WinCraft picks its file
+from the install folder, skipping uninstallers, updaters and helper programs.
 
 A prefix typed at the start sends the search to one source only. It turns into
 a chip before the search box; Backspace in the empty box removes it.

@@ -5,6 +5,7 @@ mod commands;
 mod danger;
 mod drives;
 mod explorer;
+mod installed;
 mod paths;
 mod process;
 pub mod shell;

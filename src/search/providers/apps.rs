@@ -10,7 +10,7 @@ use windows_sys::Win32::System::Com::{
     CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
 };
 
-use super::apps_folder;
+use super::{apps_folder, installed};
 use crate::core::appid;
 use crate::core::com::{self, ComPtr};
 use crate::search::{
@@ -51,6 +51,8 @@ pub enum Source {
     /// The shell's `shell:AppsFolder`: Store apps, and desktop apps known
     /// by an app ID.
     AppsFolder,
+    /// A registry Uninstall entry with no shortcut of its own.
+    Installed,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -74,7 +76,8 @@ pub struct App {
 }
 
 /// Programs from the Start menu shortcuts of this user and of all users,
-/// and the shell's app list (Store apps among them).
+/// the shell's app list (Store apps among them) and the installed programs
+/// of the registry.
 pub struct Apps {
     index: Arc<Mutex<Arc<Vec<App>>>>,
 }
@@ -95,11 +98,12 @@ impl Apps {
                     let began = Instant::now();
                     let (apps, counts) = build_index(&start_menu_roots());
                     log::info!(
-                        "indexed {} apps in {} ms: {} Start menu shortcuts, {} from the app list ({} duplicates left out)",
+                        "indexed {} apps in {} ms: {} Start menu shortcuts, {} from the app list, {} installed programs ({} duplicates left out)",
                         apps.len(),
                         began.elapsed().as_millis(),
                         counts.start_menu,
                         counts.apps_folder,
+                        counts.installed,
                         counts.duplicates
                     );
                     if let Ok(mut guard) = shared.lock() {
@@ -120,6 +124,7 @@ impl Apps {
 pub struct Counts {
     pub start_menu: usize,
     pub apps_folder: usize,
+    pub installed: usize,
     pub duplicates: usize,
 }
 
@@ -138,13 +143,21 @@ pub fn build_index(roots: &[PathBuf]) -> (Vec<App>, Counts) {
         }
     }
     let folder = apps_folder_apps();
+    let known: HashSet<String> = start
+        .iter()
+        .chain(&folder)
+        .map(|app| app.name.trim().to_lowercase())
+        .collect();
+    // An entry something else already lists by name needs no file search.
+    let installed = installed_apps(&|name| known.contains(&name.trim().to_lowercase()));
     let mut counts = Counts {
         start_menu: start.len(),
         apps_folder: folder.len(),
+        installed: installed.len(),
         duplicates: 0,
     };
-    let merged = merge(start, folder);
-    counts.duplicates = counts.start_menu + counts.apps_folder - merged.len();
+    let merged = merge(start, folder, installed);
+    counts.duplicates = counts.start_menu + counts.apps_folder + counts.installed - merged.len();
     (merged, counts)
 }
 
@@ -172,16 +185,35 @@ fn apps_folder_apps() -> Vec<App> {
         .collect()
 }
 
+fn installed_apps(skip: &dyn Fn(&str) -> bool) -> Vec<App> {
+    installed::programs(skip)
+        .into_iter()
+        .map(|program| {
+            let exe = PathBuf::from(&program.exe);
+            App {
+                name: program.name,
+                usage_key: program.exe.to_lowercase(),
+                exe: Some(program.exe.to_lowercase()),
+                aumid: None,
+                subtitle: "Installed program".to_string(),
+                icon: exe.clone(),
+                target: exe,
+                source: Source::Installed,
+            }
+        })
+        .collect()
+}
+
 /// Puts the sources together in priority order: Start menu shortcuts, then
-/// the app list. A later entry is left out when an earlier one has the same
-/// program, the same app ID or the same name.
-pub fn merge(start: Vec<App>, folder: Vec<App>) -> Vec<App> {
+/// the app list, then installed programs. A later entry is left out when an
+/// earlier one has the same program, the same app ID or the same name.
+pub fn merge(start: Vec<App>, folder: Vec<App>, installed: Vec<App>) -> Vec<App> {
     let mut seen = Seen::default();
     let mut all = start;
     for app in &all {
         seen.add(app);
     }
-    for app in folder {
+    for app in folder.into_iter().chain(installed) {
         if !seen.has(&app) {
             seen.add(&app);
             all.push(app);
@@ -269,7 +301,7 @@ impl SearchProvider for Apps {
     }
 
     fn description(&self) -> &'static str {
-        "Programs and Store apps"
+        "Programs, Store apps and installed programs"
     }
 
     fn blended(&self) -> bool {
@@ -511,16 +543,23 @@ mod tests {
                 None,
             ),
             app("Terminal", Source::AppsFolder, None, Some("terminal!app")),
-            // The same Store app, listed again by its ID.
+        ];
+        let installed = vec![
+            // The same Store app, found again by its ID.
             app(
                 "Windows Terminal",
-                Source::AppsFolder,
+                Source::Installed,
                 None,
                 Some("terminal!app"),
             ),
-            app("Calculator", Source::AppsFolder, None, Some("calc!app")),
+            app(
+                "Lightroom",
+                Source::Installed,
+                Some(r"d:\lr\lightroom.exe"),
+                None,
+            ),
         ];
-        let merged = merge(start, folder);
+        let merged = merge(start, folder, installed);
         let names: Vec<(&str, Source)> = merged
             .iter()
             .map(|app| (app.name.as_str(), app.source))
@@ -528,7 +567,7 @@ mod tests {
         assert_eq!(
             names,
             [
-                ("Calculator", Source::AppsFolder),
+                ("Lightroom", Source::Installed),
                 ("Notepad", Source::StartMenu),
                 ("Terminal", Source::AppsFolder),
             ]
@@ -543,20 +582,20 @@ mod tests {
             Some(r"c:\apps\tool.exe"),
             None,
         )];
-        let folder = vec![app(
+        let installed = vec![app(
             "Tool 2",
-            Source::AppsFolder,
+            Source::Installed,
             Some(r"c:\apps\tool.exe"),
             None,
         )];
-        assert_eq!(merge(start, folder).len(), 1);
+        assert_eq!(merge(start, Vec::new(), installed).len(), 1);
     }
 
     #[test]
     fn the_same_name_is_one_app_and_the_stronger_source_keeps_it() {
         let start = vec![app("Telegram", Source::StartMenu, None, None)];
         let folder = vec![app("telegram ", Source::AppsFolder, None, Some("tg!app"))];
-        let merged = merge(start, folder);
+        let merged = merge(start, folder, Vec::new());
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].source, Source::StartMenu);
         // Two shortcuts to one program are both kept: the user made both.
@@ -564,7 +603,7 @@ mod tests {
             app("A", Source::StartMenu, Some("x.exe"), None),
             app("B", Source::StartMenu, Some("x.exe"), None),
         ];
-        assert_eq!(merge(twins, Vec::new()).len(), 2);
+        assert_eq!(merge(twins, Vec::new(), Vec::new()).len(), 2);
     }
 
     #[test]
