@@ -167,7 +167,10 @@ $scenes = @(
     # The same page with few windows, so Recent activity shows under them.
     @{ Name = 'settings-layout-log';    Args = @('--open-settings=layout');                Window = 'settings'; Settle = 2500; Seed = 'small'; Helper = $true },
     @{ Name = 'settings-about';         Args = @('--open-settings=about');                 Window = 'settings' },
+    # The strip in the view Auto picks (By monitor with two monitors or
+    # more), then in the Flat view.
     @{ Name = 'strip';                  Args = @('--open-arrange=0');                      Window = 'strip';    Settle = 1200 },
+    @{ Name = 'strip-flat';             Args = @('--open-arrange=0');                      Window = 'strip';    Settle = 1200; View = 'flat' },
     @{ Name = 'strip-peek';             Args = @('--open-arrange=0', '--peek-card=chip');  Window = 'peek';     Settle = 1500 },
     # The rename box for the window that was in front; nothing is renamed.
     @{ Name = 'palette-rename';         Args = @('--ask-name={front}');                    Window = 'palette' },
@@ -252,8 +255,11 @@ foreach ($id in 'language_indicator', 'screen_dimmer', 'shortcut_detector') {
 if ($UsageFile) {
     Copy-Item -LiteralPath $UsageFile -Destination (Join-Path $appdata 'WinCraft\palette_usage.json')
 }
-[IO.File]::WriteAllText((Join-Path $plugins 'layout_keeper.json'),
-    '{"enabled": true, "settings": {"restore_on_start": false, "snapshot_interval_seconds": 600}}', $utf8)
+function Write-KeeperSettings([string]$view) {
+    [IO.File]::WriteAllText((Join-Path $plugins 'layout_keeper.json'),
+        ('{"enabled": true, "settings": {"restore_on_start": false, "snapshot_interval_seconds": 600, "arrange_view": "' + $view + '"}}'), $utf8)
+}
+Write-KeeperSettings 'auto'
 # On for the rename scenes. Its hotkey moves to a combination nobody presses;
 # a test instance names only the window a scene asks for.
 [IO.File]::WriteAllText((Join-Path $plugins 'window_namer.json'),
@@ -448,6 +454,9 @@ try {
             $began = Get-Date
             if ($scene.Helper -and -not $script:helper) { Start-Helper }
             if ($scene.Seed) { Write-LayoutSeed $scene.Seed }
+            $view = 'auto'
+            if ($scene.View) { $view = $scene.View }
+            Write-KeeperSettings $view
             $arguments = @("--theme=$theme") + @($scene.Args | ForEach-Object { Expand-SceneArgument $_ })
             $script:current = Start-Process -FilePath $Exe -ArgumentList $arguments -PassThru
             $target = $null

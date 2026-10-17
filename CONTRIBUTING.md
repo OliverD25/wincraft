@@ -368,7 +368,7 @@ it is a separate instance:
   | `--open-palette=<query>` | The palette with the query typed in, prefix and all: `/`, `=2+2*3`, `<chrome`, `?`. Nothing runs. |
   | `--open-settings=<page>` | `general`, `plugins`, `layout`, `store`, `about`, or a plugin's page: `plugin:layout_keeper`. |
   | `--open-arrange=<group>` | The Arrange strip on a group, by its place (`0` is the first) or its key. |
-  | `--peek-card=<n>` | The strip with the hover peek on card `n` (from 0), or `chip` for the first card with a monitor chip. |
+  | `--peek-card=<n>` | The strip with the hover peek on card `n` (from 0), or `chip` for the first card of a window that is not on the primary monitor. |
   | `--theme=light` or `dark` | That theme for this run. |
   | `--ask-name=<hwnd>` | The palette's rename box for that window (WindowNamer). Nothing is renamed without Enter. |
   | `--show-restore-panel` | LayoutKeeper's please-wait panel with sample progress, and nothing else. A flag without a value. |
@@ -389,8 +389,8 @@ it is a separate instance:
 
 `tools\screenshots.ps1` takes a PNG of every scene (the palette empty and
 with `/`, `=2+2*3`, `<` and `?`; settings General, Plugins, LayoutKeeper's
-page and About; the strip; the strip with a peek on a card with a monitor
-chip; WindowNamer's rename box for the window that was in front; the strip
+page and About; the strip in the view Auto picks and in the Flat view; the
+strip with a peek on a card of a window off the primary monitor; WindowNamer's rename box for the window that was in front; the strip
 with a renamed window, which is a minimized window the harness opens
 itself and closes at the end), in the dark and the light theme, from test
 instances only. It is

@@ -1535,9 +1535,9 @@ impl WinCraftPlugin for LayoutKeeper {
         PluginMetadata {
             id: "layout_keeper",
             name: "LayoutKeeper",
-            description: "Remembers which desktop each window is on, the taskbar thumbnail order and which window is in front, and restores them after a reboot.",
+            description: "Remembers which desktop and monitor each window is on, the taskbar thumbnail order and which window is in front, and restores them after a reboot.",
             author: "community",
-            version: "1.1.0",
+            version: "1.2.0",
             readme: include_str!("README.md"),
         }
     }

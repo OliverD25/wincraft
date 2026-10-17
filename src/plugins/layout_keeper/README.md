@@ -93,9 +93,14 @@ after its first window with the windows that are open then.
 
 For each group, LayoutKeeper:
 
-1. puts the taskbar thumbnails back in the saved order,
-2. moves every window back to its saved virtual desktop,
-3. puts the restored windows back in their saved front-to-back order.
+1. moves every window back to its saved monitor (see **Monitors** below),
+2. puts the taskbar thumbnails back in the saved order,
+3. moves every window back to its saved virtual desktop,
+4. puts the restored windows back in their saved front-to-back order.
+
+The monitors come first: with taskbar buttons shown on the taskbar of the
+monitor a window is on, moving the window moves its button too, so the
+order is rebuilt after that.
 
 The desktop you are on and the window you are using stay as they are. A
 notification says how many windows were found, and the log lists the ones
@@ -126,6 +131,27 @@ tooltip, and the balloon stays.
 **Never moved between desktops:** a window pinned to all desktops, and a
 window Windows does not place on any desktop (WhatsApp's, for example). They
 still get their place in the taskbar.
+
+### Monitors
+
+A window that comes back on another monitor than the one it was saved on is
+moved back, at the same size and place relative to the screen: a window
+that covered the left half of the big monitor covers the left half of it
+again, whatever the scale of each monitor. A maximized window is maximized
+on its monitor again; a minimized one stays minimized and comes back on its
+monitor when you open it. Nothing is brought to the front for this.
+
+A monitor is recognised by the name it gives itself (such as "DELL
+U2720Q"). Windows numbers its monitors (`\\.\DISPLAY1` and so on) anew when
+they are plugged in again, so the number only decides between two monitors
+of the same model, and then their place from the left. A monitor without a
+name, like many laptop panels, is recognised by its number.
+
+When the saved monitor is not connected, the window stays where it is: it is
+not piled onto the main monitor. Saves keep its saved monitor while that
+monitor is unplugged, so the next restore with it plugged in again puts the
+window back. Putting the window on another monitor in the Arrange strip
+replaces the saved monitor. **Restore monitors** turns the step off.
 
 While a group waits for its restore, and during the 5 minutes after it,
 saves keep its saved windows, so the scrambled windows of a fresh start never
@@ -227,19 +253,59 @@ the taskbar with a live picture of every window in one app's taskbar group,
 whatever the app, like the taskbar's own thumbnails. It opens on the app
 whose taskbar button is under the mouse, on any monitor's taskbar, else on
 the active window's app: point at a button and press the hotkey to arrange
-that app without switching to it first. A list at
-the top switches to every other app that has windows, most windows first. There is one row per virtual
-desktop: this desktop first, then the others under their names. The pictures
-are drawn by Windows itself (DWM thumbnails) and stay live while the strip
-is open; windows on other desktops have pictures too. A window Windows
-cannot picture shows its name instead. A window that is not on the primary
-monitor has a small label above its picture saying which monitor it is on
-("Left", "Right"; "Monitor 4" and so on with four or more).
+that app without switching to it first. The list at the top left switches
+to every other app that has windows, most windows first; the right end of
+the toolbar counts the monitors, desktops and the app's windows. The
+pictures are drawn by Windows itself (DWM thumbnails) and stay live while
+the strip is open; windows on other desktops have pictures too. A window
+Windows cannot picture shows its name instead.
 
-The pictures are small (16:9, about the size of the taskbar's own), and a
-desktop with many windows wraps onto more lines instead of running off the
-screen. The strip takes at most 90 % of the screen's width and 60 % of its
-height; beyond that the mouse wheel scrolls it.
+The switch next to the app list picks one of two views, and the strip keeps
+the one you picked last (`arrange_view` in the settings file). Until you
+pick one, it is **By monitor** with two or more monitors and **Flat** with
+one.
+
+**By monitor** is a map of your desk. There is one band per virtual
+desktop: this desktop first, its name in the accent colour, then the others
+in Task View order, slightly faded. A desktop with none of the app's windows
+is just its header. Inside a band there is one column per monitor, from left
+to right as the monitors stand, each as wide as its monitor is next to the
+others (never narrower than 240 pixels; if the columns still do not fit, that
+band scrolls sideways). Monitors stacked one above the other get a row of
+columns each. A column's label gives the monitor's place ("Left",
+"Centre", "Right"; "Monitor 4" and so on with four or more), its resolution,
+a **Primary** chip for the main monitor and how many windows it has; the
+monitor's own name is its tooltip. A column with no windows shows a dashed
+box to drop a window into.
+
+- **Drag** a picture to another monitor's column to move the window there
+  now, at the same size and place relative to the screen (a maximized
+  window is maximized there). Dropping it in another desktop's band moves
+  it to that desktop too. A 2-pixel accent bar shows where it will land, and
+  the order goes to the taskbar and is saved at once.
+- A window that is on another monitor than in the last saved layout has a
+  **Moved** chip in its title line: you moved it since the last save (saves
+  run every 30 seconds), or a restore has not put it back yet.
+- A monitor that is unplugged but still has saved windows of the app keeps
+  its column, marked **(disconnected)**, with those windows faded; they are
+  on another monitor until it is back. Drag one to another column to give it
+  a new place.
+- **Keyboard:** ↑ and ↓ pick a window, across columns and desktops; ← and →
+  move it within its column; Shift+← and Shift+→ move it to the end of the
+  next monitor's column; Shift+↑ and Shift+↓ move it to the next desktop, on
+  the same monitor (or the main one when its own is unplugged). Enter
+  switches to the window, Esc closes the strip. The footer lists the keys.
+
+**Flat** is the strip as it was before WinCraft 0.13: one row per virtual
+desktop, this desktop first, then the others under their names. A window
+that is not on the primary monitor has a small label above its picture
+saying which monitor it is on ("Left", "Right").
+
+The pictures are small (about the size of the taskbar's own; By monitor
+crops each window to the shape of its card, showing the top of a tall one),
+and a desktop with many windows wraps onto more lines instead of running off
+the screen. The strip takes at most 90 % of the screen's width and 60 % of
+its height; beyond that the mouse wheel scrolls it. In both views:
 
 - **Rest the mouse** on a picture for a quarter of a second to see that
   window where it really is: its monitor goes dark and the window's live
@@ -252,9 +318,9 @@ height; beyond that the mouse wheel scrolls it.
   that desktop.
 - **Right-click** for **Close window** and **Move to desktop**. Closing is
   only offered here, never on a key.
-- **Keyboard:** ← and → pick a window, Ctrl+← and Ctrl+→ move it, Enter
-  switches to it, Esc closes the strip. The strip also closes when you click
-  elsewhere.
+- **Keyboard (Flat):** ← and → pick a window, Ctrl+← and Ctrl+→ move it,
+  Enter switches to it, Esc closes the strip. The strip also closes when you
+  click elsewhere.
 
 The taskbar only shows the current desktop's buttons, and Windows cannot
 rebuild a button without bringing its window to the current desktop. So a
@@ -307,4 +373,5 @@ saved order.
 | Save every (seconds) | 30 | How often the layout is saved when it changed. |
 | Show restore progress | on | The please-wait panel and the tray tooltip while windows are put back. |
 | Restore which window is in front | on | Also restore the front-to-back order. |
+| Restore monitors | on | Also move each window back to its saved monitor; a window whose monitor is not connected stays where it is. |
 | Preview window on hover | on | Resting the mouse on a picture in the Arrange strip shows that window on its monitor. |

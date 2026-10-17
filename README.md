@@ -75,9 +75,10 @@ injecting code into every running process, and the window says so.
 
 ### LayoutKeeper
 
-Remembers which virtual desktop each window is on, the order of the
-thumbnails in its taskbar group and which window is in front, and puts all
-three back after a reboot. It works for any app (Chrome, Claude, Telegram,
+Remembers which virtual desktop and which monitor each window is on, the
+order of the thumbnails in its taskbar group and which window is in front,
+and puts them all back after a reboot. A window whose monitor is unplugged
+stays where it is. It works for any app (Chrome, Claude, Telegram,
 anything with a window); the **Never touch** setting leaves chosen apps
 alone. Windows pinned to all desktops and windows Windows places on no
 desktop are never moved between desktops. While it puts windows back after a
@@ -93,7 +94,7 @@ are marked, because a restore cannot tell them apart.
 | `Win+Alt+J` | Save the layout now |
 | `Win+Alt+[` | Move the front window one place left in its taskbar group |
 | `Win+Alt+]` | Move the front window one place right in its taskbar group |
-| `Win+Alt+A` | Open the Arrange strip: live pictures of an app's windows, drag them into order. It opens on the app whose taskbar button is under the mouse, else on the active window's app |
+| `Win+Alt+A` | Open the Arrange strip: live pictures of an app's windows by desktop and monitor, a map of your desk. Drag them into order, to another desktop or to another monitor. It opens on the app whose taskbar button is under the mouse, else on the active window's app |
 
 Moving windows between desktops uses undocumented Windows interfaces, ported
 from [MScholtes' VirtualDesktop](https://github.com/MScholtes/VirtualDesktop)
