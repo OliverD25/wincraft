@@ -35,10 +35,12 @@ $covTarget = if ($env:WINCRAFT_COV_TARGET) { $env:WINCRAFT_COV_TARGET } else { '
 $total = [Diagnostics.Stopwatch]::StartNew()
 $failed = $false
 
-# Runs one step. $Env holds the environment changes for it; $null removes a
-# variable. The previous values come back afterwards.
+# Runs one step as a command line. $Env holds the environment changes for it;
+# $null removes a variable. The previous values come back afterwards. The
+# output goes to a file through cmd, not through PowerShell's pipeline: a
+# process a test leaves running would hold the pipeline open until it ends.
 function Invoke-Step {
-    param([string]$Name, [scriptblock]$Run, [hashtable]$Env = @{})
+    param([string]$Name, [string]$Command, [hashtable]$Env = @{})
     if ($script:failed) { return }
     $saved = @{}
     foreach ($key in $Env.Keys) {
@@ -49,7 +51,7 @@ function Invoke-Step {
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $code = 1
     try {
-        & $Run *> $log
+        cmd /c "$Command > `"$log`" 2>&1"
         $code = $LASTEXITCODE
         if ($null -eq $code) { $code = 0 }
     } catch {
@@ -64,7 +66,7 @@ function Invoke-Step {
         Write-Host ("ok    {0,-12} {1,6}s" -f $Name, $seconds)
     } else {
         Write-Host ("FAIL  {0,-12} {1,6}s  (exit {2})" -f $Name, $seconds, $code)
-        Get-Content -Path $log -Tail 40 | ForEach-Object { Write-Host "      $_" }
+        Get-Content -Path $log -Tail 12 | ForEach-Object { Write-Host "      $_" }
         $script:failed = $true
     }
 }
@@ -77,26 +79,26 @@ function Skip-Step {
 $floorFile = Join-Path $PSScriptRoot 'coverage-floor.txt'
 $floor = (Get-Content -Path $floorFile -Raw).Trim()
 
-Invoke-Step 'fmt' { cargo fmt --check }
+Invoke-Step 'fmt' 'cargo fmt --check'
 
 # A shell that still has WINCRAFT_INSTANCE set would make some tests see a
 # test instance; the scratch LOCALAPPDATA keeps the tests off the real profile.
 $testEnv = @{ WINCRAFT_INSTANCE = $null; LOCALAPPDATA = $scratch }
-Invoke-Step 'test' { cargo test } $testEnv
+Invoke-Step 'test' 'cargo test' $testEnv
 
-Invoke-Step 'clippy' { cargo clippy --all-targets -- -D warnings }
+Invoke-Step 'clippy' 'cargo clippy --all-targets -- -D warnings'
 
 if ($Quick) {
     Skip-Step 'release' '-Quick'
     Skip-Step 'coverage' '-Quick'
 } else {
-    Invoke-Step 'release' { cargo build --release --locked } @{
+    Invoke-Step 'release' 'cargo build --release --locked' @{
         RUSTFLAGS = '-D warnings'
         CARGO_TARGET_DIR = 'target\verify'
     }
     cargo llvm-cov --version *> $null
     if ($LASTEXITCODE -eq 0) {
-        Invoke-Step 'coverage' { cargo llvm-cov --summary-only --fail-under-lines $floor } @{
+        Invoke-Step 'coverage' "cargo llvm-cov --summary-only --fail-under-lines $floor" @{
             CARGO_TARGET_DIR = $covTarget
             WINCRAFT_INSTANCE = $null
             LOCALAPPDATA = $scratch
@@ -107,7 +109,7 @@ if ($Quick) {
 }
 
 if ($Smoke) {
-    Invoke-Step 'smoke' { & (Join-Path $PSScriptRoot 'smoke.ps1') }
+    Invoke-Step 'smoke' "powershell -NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $PSScriptRoot 'smoke.ps1')`""
 }
 
 Write-Host ("total {0:N1}s" -f $total.Elapsed.TotalSeconds)
