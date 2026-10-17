@@ -23,9 +23,9 @@ use crate::core::wide;
 use crate::search::IconRef;
 
 /// An icon as straight-alpha RGBA, square.
-struct Pixels {
-    side: usize,
-    rgba: Vec<u8>,
+pub struct Pixels {
+    pub side: usize,
+    pub rgba: Vec<u8>,
 }
 
 /// Shell icons, turned into egui textures once per path. Asking the shell
@@ -183,7 +183,7 @@ fn window_icon(hwnd: HWND) -> Option<Pixels> {
     icon_pixels(icon as HICON)
 }
 
-fn icon_pixels(icon: HICON) -> Option<Pixels> {
+pub fn icon_pixels(icon: HICON) -> Option<Pixels> {
     let mut info: ICONINFO = unsafe { std::mem::zeroed() };
     if unsafe { GetIconInfo(icon, &mut info) } == 0 {
         return None;

@@ -12,14 +12,28 @@ use windows_sys::Win32::Graphics::Gdi::{
     CreateCompatibleDC, DeleteDC, DeleteObject, GetMonitorInfoW, GetTextExtentPoint32W,
     MonitorFromPoint, SelectObject, HFONT, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
 };
+use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    DestroyIcon, LoadImageW, HICON, IMAGE_ICON, LR_DEFAULTCOLOR,
+};
 
 use super::restore::{Phase, Progress};
 use crate::core::layered::{compose, faces, font, text_mask, utf16, Image, Layered, Run};
 use crate::core::theme;
+use crate::search::icons;
 
 const CLASS_NAME: &str = "WinCraftRestoreNotice";
-const TITLE: &str = "Putting your windows back \u{2014} please wait";
+/// Every line the panel shows starts with who is speaking: it is a small
+/// window of its own, and the person should know which program it is.
+const TITLE: &str = "WinCraft \u{b7} Putting your windows back \u{2014} please wait";
+const FINAL_PREFIX: &str = "WinCraft \u{b7} ";
+/// A line is cut to this many characters, and the panel is never wider than
+/// `MAX_WIDTH` logical pixels whatever the lines say.
+const MAX_LINE_CHARS: usize = 60;
+const MAX_WIDTH: f32 = 560.0;
+const ICON_SIZE: f32 = 18.0;
+const ICON_GAP: f32 = 8.0;
 /// Apps listed before "+N more".
 const MAX_LINES: usize = 5;
 /// The final line stays this many seconds before it fades.
@@ -93,20 +107,7 @@ pub fn active_content(progress: &[Progress], label: &dyn Fn(&str) -> String) -> 
         .take(MAX_LINES)
         .map(|entry| {
             let name = label(&entry.group);
-            match entry.phase {
-                Phase::Moving => format!("{name}: moving {}", windows(entry.count)),
-                Phase::LateWindows => {
-                    format!("{name}: {} now, waiting for the rest", windows(entry.count))
-                }
-                _ if entry.expected > entry.count => format!(
-                    "{name}: {} of {} opened, waiting for the rest",
-                    entry.count, entry.expected
-                ),
-                _ => format!(
-                    "{name}: {} opened, waiting for the rest",
-                    windows(entry.count)
-                ),
-            }
+            fit(&line_for(entry, &name), MAX_LINE_CHARS)
         })
         .collect();
     if active.len() > MAX_LINES {
@@ -136,6 +137,28 @@ pub fn active_content(progress: &[Progress], label: &dyn Fn(&str) -> String) -> 
     })
 }
 
+/// What one active app's line says. "Waiting for the rest" only when the
+/// saved layout has more windows than are open.
+fn line_for(entry: &Progress, name: &str) -> String {
+    match entry.phase {
+        Phase::Moving => format!("{name}: moving {}", windows(entry.count)),
+        Phase::LateWindows => format!("{name}: {} now, waiting for the rest", windows(entry.count)),
+        _ if entry.expected == 0 => format!(
+            "{name}: {} open, waiting for them to settle",
+            windows(entry.count)
+        ),
+        _ if entry.count < entry.expected => format!(
+            "{name}: {} of {} opened, waiting for the rest",
+            entry.count, entry.expected
+        ),
+        _ if entry.count == entry.expected => format!(
+            "{name}: {} of {} opened, placing them",
+            entry.count, entry.expected
+        ),
+        _ => format!("{name}: {} open, placing them", windows(entry.count)),
+    }
+}
+
 /// The line shown for a few seconds when nothing is active any more, or None
 /// when no app was restored.
 pub fn final_line(progress: &[Progress], label: &dyn Fn(&str) -> String) -> Option<String> {
@@ -151,7 +174,10 @@ pub fn final_line(progress: &[Progress], label: &dyn Fn(&str) -> String) -> Opti
         .filter(|entry| entry.phase == Phase::Skipped)
         .count();
     if skipped > 0 {
-        return Some(format!("Layout restored, {} skipped", apps(skipped)));
+        return Some(format!(
+            "{FINAL_PREFIX}Layout restored, {} skipped",
+            apps(skipped)
+        ));
     }
     done.sort_by(|a, b| {
         b.count
@@ -163,11 +189,17 @@ pub fn final_line(progress: &[Progress], label: &dyn Fn(&str) -> String) -> Opti
         1 => format!("1 {name} window"),
         count => format!("{count} {name} windows"),
     };
-    Some(if done.len() == 1 {
-        format!("Layout restored: {biggest}")
-    } else {
-        format!("Layout restored: {biggest}, {}", apps(done.len()))
-    })
+    Some(fit(
+        &if done.len() == 1 {
+            format!("{FINAL_PREFIX}Layout restored: {biggest}")
+        } else {
+            format!(
+                "{FINAL_PREFIX}Layout restored: {biggest}, {}",
+                apps(done.len())
+            )
+        },
+        MAX_LINE_CHARS + FINAL_PREFIX.chars().count(),
+    ))
 }
 
 /// Cuts `text` to `max` characters, ending in an ellipsis when it was cut.
@@ -358,6 +390,88 @@ impl Notice {
     }
 }
 
+/// `text`, shortened with an ellipsis until `measure` says it fits in `max`
+/// pixels. Cuts by characters, from the end.
+fn ellipsize(text: &str, max: i32, measure: &dyn Fn(&str) -> i32) -> String {
+    if measure(text) <= max {
+        return text.to_string();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    // The longest start of the text that fits together with the ellipsis.
+    let (mut low, mut high) = (0usize, chars.len());
+    while low < high {
+        let middle = (low + high).div_ceil(2);
+        let candidate: String = chars[..middle].iter().collect::<String>() + "\u{2026}";
+        if measure(&candidate) <= max {
+            low = middle;
+        } else {
+            high = middle - 1;
+        }
+    }
+    let cut: String = chars[..low].iter().collect();
+    format!("{}\u{2026}", cut.trim_end())
+}
+
+/// The app's icon at `side` pixels, as straight-alpha RGBA.
+fn app_icon(side: i32) -> Option<icons::Pixels> {
+    // The exe's first icon resource, the one the tray's colour icon is.
+    let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
+    let icon = unsafe {
+        LoadImageW(
+            hinstance,
+            1usize as *const u16,
+            IMAGE_ICON,
+            side,
+            side,
+            LR_DEFAULTCOLOR,
+        )
+    };
+    if icon.is_null() {
+        return None;
+    }
+    let pixels = icons::icon_pixels(icon as HICON);
+    unsafe { DestroyIcon(icon as HICON) };
+    pixels
+}
+
+/// Lays a straight-alpha icon over premultiplied BGRA pixels with its top
+/// left corner at (x0, y0); what falls outside the image is left out.
+fn blend_icon(pixels: &mut [u32], width: i32, height: i32, x0: i32, y0: i32, icon: &icons::Pixels) {
+    let side = icon.side as i32;
+    for iy in 0..side {
+        for ix in 0..side {
+            let (x, y) = (x0 + ix, y0 + iy);
+            if x < 0 || y < 0 || x >= width || y >= height {
+                continue;
+            }
+            let at = (iy as usize * icon.side + ix as usize) * 4;
+            let alpha = f32::from(icon.rgba[at + 3]) / 255.0;
+            if alpha == 0.0 {
+                continue;
+            }
+            let below = &mut pixels[(y * width + x) as usize];
+            let (below_a, below_r, below_g, below_b) = (
+                f32::from((*below >> 24) as u8),
+                f32::from((*below >> 16) as u8),
+                f32::from((*below >> 8) as u8),
+                f32::from(*below as u8),
+            );
+            let over = |source: u8, under: f32| {
+                (f32::from(source) * alpha + under * (1.0 - alpha))
+                    .round()
+                    .clamp(0.0, 255.0) as u32
+            };
+            let out_a = (alpha * 255.0 + below_a * (1.0 - alpha))
+                .round()
+                .clamp(0.0, 255.0) as u32;
+            *below = (out_a << 24)
+                | (over(icon.rgba[at], below_r) << 16)
+                | (over(icon.rgba[at + 1], below_g) << 8)
+                | over(icon.rgba[at + 2], below_b);
+        }
+    }
+}
+
 fn render(content: &Content, scale: f32, tokens: &theme::Tokens) -> Option<Image> {
     let px = |logical: f32| (logical * scale).round() as i32;
     let [(semi_face, semi_weight), (face, weight)] = *faces();
@@ -376,36 +490,67 @@ fn render(content: &Content, scale: f32, tokens: &theme::Tokens) -> Option<Image
         size
     };
 
-    // (text, colour, font) in reading order, with the gap above each.
-    let mut rows: Vec<(Vec<u16>, Color32, usize, i32)> = Vec::new();
-    rows.push((utf16(&content.title), tokens.text_primary, 0, 0));
+    // The title sits beside the app's icon; every row is cut to what fits
+    // inside the widest the panel may be.
+    let icon = app_icon(px(ICON_SIZE));
+    let icon_room = icon.as_ref().map_or(0, |_| px(ICON_SIZE + ICON_GAP));
+    let inner = px(MAX_WIDTH) - 2 * px(PAD_X);
+
+    // (text, colour, font, gap above, left offset) in reading order.
+    let mut rows: Vec<(String, Color32, usize, i32, i32)> =
+        vec![(content.title.clone(), tokens.text_primary, 0, 0, icon_room)];
     for (index, line) in content.lines.iter().enumerate() {
         let gap = if index == 0 { SECTION_GAP } else { LINE_GAP };
-        rows.push((utf16(line), tokens.text_primary, 1, px(gap)));
+        rows.push((line.clone(), tokens.text_primary, 1, px(gap), 0));
     }
     if let Some(footer) = &content.footer {
-        rows.push((utf16(footer), tokens.text_secondary, 2, px(SECTION_GAP)));
+        rows.push((footer.clone(), tokens.text_secondary, 2, px(SECTION_GAP), 0));
     }
+    let rows: Vec<(Vec<u16>, Color32, usize, i32, i32)> = rows
+        .into_iter()
+        .map(|(text, colour, font, gap, left)| {
+            let fitted = ellipsize(&text, inner - left, &|candidate| {
+                measure(&utf16(candidate), fonts[font]).cx
+            });
+            (utf16(&fitted), colour, font, gap, left)
+        })
+        .collect();
     let sizes: Vec<SIZE> = rows
         .iter()
-        .map(|(text, _, font, _)| measure(text, fonts[*font]))
+        .map(|(text, _, font, _, _)| measure(text, fonts[*font]))
         .collect();
-    let text_width = sizes.iter().map(|size| size.cx).max().unwrap_or(0);
-    let width = (text_width + 2 * px(PAD_X)).max(px(MIN_WIDTH));
+    let text_width = rows
+        .iter()
+        .zip(&sizes)
+        .map(|((_, _, _, _, left), size)| left + size.cx)
+        .max()
+        .unwrap_or(0);
+    let width = (text_width + 2 * px(PAD_X)).clamp(px(MIN_WIDTH), px(MAX_WIDTH));
     let mut y = px(PAD_Y);
     let mut runs = Vec::new();
-    for ((text, colour, font, gap), size) in rows.into_iter().zip(&sizes) {
+    let mut icon_at = (px(PAD_X), y);
+    for (index, ((text, colour, font, gap, left), size)) in rows.into_iter().zip(&sizes).enumerate()
+    {
         y += gap;
+        // The title row is as tall as the icon beside it.
+        let row_height = if index == 0 && icon.is_some() {
+            size.cy.max(px(ICON_SIZE))
+        } else {
+            size.cy
+        };
+        if index == 0 {
+            icon_at = (px(PAD_X), y + (row_height - px(ICON_SIZE)) / 2);
+        }
         runs.push(Run {
             text,
             colour,
-            x: px(PAD_X),
-            y,
+            x: px(PAD_X) + left,
+            y: y + (row_height - size.cy) / 2,
             width: size.cx,
             height: size.cy,
             font,
         });
-        y += size.cy;
+        y += row_height;
     }
     let height = y + px(PAD_Y);
 
@@ -417,7 +562,7 @@ fn render(content: &Content, scale: f32, tokens: &theme::Tokens) -> Option<Image
         }
     }
     let mask = mask?;
-    let pixels = compose(
+    let mut pixels = compose(
         width,
         height,
         RADIUS * scale,
@@ -436,6 +581,9 @@ fn render(content: &Content, scale: f32, tokens: &theme::Tokens) -> Option<Image
             (coverage, colour)
         },
     );
+    if let Some(icon) = &icon {
+        blend_icon(&mut pixels, width, height, icon_at.0, icon_at.1, icon);
+    }
     Some(Image {
         width,
         height,
@@ -510,14 +658,14 @@ mod tests {
         let content = active_content(&list, &name).unwrap();
         assert_eq!(
             content.title,
-            "Putting your windows back \u{2014} please wait"
+            "WinCraft \u{b7} Putting your windows back \u{2014} please wait"
         );
         assert_eq!(
             content.lines,
             [
                 "Claude: moving 4 windows",
                 "Chrome: 12 of 22 opened, waiting for the rest",
-                "Notes: 1 window opened, waiting for the rest",
+                "Notes: 1 window open, waiting for them to settle",
             ]
         );
         assert_eq!(content.footer.as_deref(), Some("Done: Terminal, Code, +1"));
@@ -554,15 +702,15 @@ mod tests {
         ];
         assert_eq!(
             final_line(&list, &name).as_deref(),
-            Some("Layout restored: 22 Chrome windows, 3 apps")
+            Some("WinCraft \u{b7} Layout restored: 22 Chrome windows, 3 apps")
         );
         assert_eq!(
             final_line(&[progress("Chrome", Phase::Done, 1, 1)], &name).as_deref(),
-            Some("Layout restored: 1 Chrome window")
+            Some("WinCraft \u{b7} Layout restored: 1 Chrome window")
         );
         assert_eq!(
             final_line(&[progress("Chrome", Phase::Done, 22, 22)], &name).as_deref(),
-            Some("Layout restored: 22 Chrome windows")
+            Some("WinCraft \u{b7} Layout restored: 22 Chrome windows")
         );
         assert_eq!(final_line(&[], &name), None);
         assert_eq!(
@@ -580,7 +728,7 @@ mod tests {
         ];
         assert_eq!(
             final_line(&list, &name).as_deref(),
-            Some("Layout restored, 2 apps skipped")
+            Some("WinCraft \u{b7} Layout restored, 2 apps skipped")
         );
         assert_eq!(
             tooltip(&list, &name).as_deref(),
@@ -707,5 +855,121 @@ mod tests {
         // The middle of the panel is translucent but not empty.
         let centre = image.pixels[(image.height / 2 * image.width + 2) as usize];
         assert_ne!(centre >> 24, 0);
+    }
+
+    #[test]
+    fn the_wording_follows_how_many_windows_the_saved_layout_expects() {
+        let line = |count, expected| {
+            let list = [progress("Chrome", Phase::Settling, count, expected)];
+            active_content(&list, &name).unwrap().lines.remove(0)
+        };
+        assert_eq!(
+            line(12, 22),
+            "Chrome: 12 of 22 opened, waiting for the rest"
+        );
+        // All of them are there: nothing is being waited for.
+        assert_eq!(line(22, 22), "Chrome: 22 of 22 opened, placing them");
+        assert_eq!(line(23, 22), "Chrome: 23 windows open, placing them");
+        // The saved layout says nothing about this app.
+        assert_eq!(
+            line(5, 0),
+            "Chrome: 5 windows open, waiting for them to settle"
+        );
+        assert_eq!(
+            line(1, 0),
+            "Chrome: 1 window open, waiting for them to settle"
+        );
+        let moving = [progress("Chrome", Phase::Moving, 22, 22)];
+        assert_eq!(
+            active_content(&moving, &name).unwrap().lines,
+            ["Chrome: moving 22 windows"]
+        );
+    }
+
+    #[test]
+    fn a_long_name_is_cut_with_an_ellipsis() {
+        let long = "x".repeat(200);
+        let list = [progress(&long, Phase::Settling, 3, 9)];
+        let lines = active_content(&list, &name).unwrap().lines;
+        assert_eq!(lines[0].chars().count(), MAX_LINE_CHARS);
+        assert!(lines[0].ends_with('\u{2026}'));
+        let final_line = final_line(&[progress(&long, Phase::Done, 3, 3)], &name).unwrap();
+        assert!(final_line.starts_with("WinCraft \u{b7} Layout restored: "));
+        assert!(final_line.chars().count() <= MAX_LINE_CHARS + FINAL_PREFIX.chars().count());
+    }
+
+    #[test]
+    fn text_is_cut_to_the_pixels_there_are() {
+        // Seven pixels a character.
+        let measure = |text: &str| text.chars().count() as i32 * 7;
+        assert_eq!(ellipsize("short", 100, &measure), "short");
+        let cut = ellipsize("a rather long line of text", 70, &measure);
+        assert_eq!(cut, "a rather\u{2026}");
+        assert!(measure(&cut) <= 70);
+        // Nothing fits but the ellipsis.
+        assert_eq!(ellipsize("abc", 3, &measure), "\u{2026}");
+        assert_eq!(ellipsize("", 0, &measure), "");
+    }
+
+    #[test]
+    fn the_panel_never_passes_its_widest() {
+        let tokens = theme::Tokens::for_choice(ThemeChoice::Dark);
+        let long = "a very long app name ".repeat(20);
+        let content = Content {
+            title: TITLE.to_string(),
+            lines: vec![long.clone()],
+            footer: Some(long),
+        };
+        for scale in [1.0, 1.5, 2.0] {
+            let image = render(&content, scale, &tokens).expect("GDI draws the panel");
+            assert!(
+                image.width <= (MAX_WIDTH * scale).round() as i32,
+                "{scale}: {}",
+                image.width
+            );
+        }
+    }
+
+    #[test]
+    fn the_icon_is_laid_over_the_panel_with_its_alpha() {
+        // A 2x2 panel pixel row, premultiplied: opaque grey.
+        let grey = 0xFF80_8080u32;
+        let mut pixels = vec![grey; 4];
+        let icon = icons::Pixels {
+            side: 2,
+            rgba: vec![
+                255, 0, 0, 255, // opaque red
+                0, 255, 0, 0, // clear
+                0, 0, 255, 128, // half blue
+                0, 0, 0, 0, // clear
+            ],
+        };
+        blend_icon(&mut pixels, 2, 2, 0, 0, &icon);
+        assert_eq!(pixels[0], 0xFFFF_0000);
+        assert_eq!(pixels[1], grey);
+        let half = pixels[2];
+        assert_eq!(half >> 24, 0xFF);
+        assert!((half & 0xFF) > 0xB0, "blue is mostly there: {half:08x}");
+        assert!(
+            ((half >> 16) & 0xFF) < 0x50,
+            "red is mostly gone: {half:08x}"
+        );
+        assert_eq!(pixels[3], grey);
+        // An icon hanging off the edge only draws what is inside.
+        let mut edge = vec![grey; 4];
+        blend_icon(&mut edge, 2, 2, 1, 1, &icon);
+        assert_eq!(edge[3], 0xFFFF_0000);
+        assert_eq!(edge[0], grey);
+    }
+
+    #[test]
+    fn the_panel_has_the_app_icon_beside_its_title() {
+        // The exe in a test run has no icon resource, so the panel is drawn
+        // without it, and the same code path is exercised either way.
+        let tokens = theme::Tokens::for_choice(ThemeChoice::Light);
+        let content = active_content(&sample(), &same_label).unwrap();
+        let image = render(&content, 1.0, &tokens).expect("GDI draws the panel");
+        assert!(image.width >= MIN_WIDTH as i32);
+        assert!(content.title.starts_with("WinCraft"));
     }
 }

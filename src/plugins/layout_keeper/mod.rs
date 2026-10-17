@@ -284,30 +284,7 @@ impl LayoutKeeper {
             if !keys.contains(&window.group) {
                 keys.push(window.group.clone());
             }
-            if !self.labels.contains_key(&window.group) {
-                let has_id = window.group != window.exe_path.to_lowercase();
-                let name = window.app_name.clone().or_else(|| {
-                    has_id
-                        .then(|| appid::registered_name(&window.group))
-                        .flatten()
-                });
-                let exe = &window.identity.exe;
-                let label = match browser_name(exe) {
-                    Some(browser) => appid::group_label(
-                        browser,
-                        name.as_deref(),
-                        &window.group,
-                        &window.exe_path,
-                    ),
-                    None => app_label(
-                        name.as_deref(),
-                        windows::file_description(&window.exe_path).as_deref(),
-                        exe,
-                    ),
-                };
-                log::debug!("new taskbar group {} labelled \"{label}\"", window.group);
-                self.labels.insert(window.group.clone(), label);
-            }
+            self.remember_label(window);
         }
         let known: Vec<String> = self.groups.keys().cloned().collect();
         for key in known {
@@ -324,6 +301,57 @@ impl LayoutKeeper {
         }
         self.groups.retain(|_, group| !group.is_empty());
         live
+    }
+
+    /// Gives a group its name the first time one of its windows is seen.
+    fn remember_label(&mut self, window: &windows::LiveWindow) {
+        if self.labels.contains_key(&window.group) {
+            return;
+        }
+        let has_id = window.group != window.exe_path.to_lowercase();
+        let name = window.app_name.clone().or_else(|| {
+            has_id
+                .then(|| appid::registered_name(&window.group))
+                .flatten()
+        });
+        let exe = &window.identity.exe;
+        let label = match browser_name(exe) {
+            Some(browser) => {
+                appid::group_label(browser, name.as_deref(), &window.group, &window.exe_path)
+            }
+            None => app_label(
+                name.as_deref(),
+                windows::file_description(&window.exe_path).as_deref(),
+                exe,
+            ),
+        };
+        log::debug!("new taskbar group {} labelled \"{label}\"", window.group);
+        self.labels.insert(window.group.clone(), label);
+    }
+
+    /// A name a person knows for a group, for words on screen: the label of
+    /// a window seen, else one made from the program the saved layout names
+    /// for it. Never a path or an app ID.
+    fn group_name(&mut self, group: &str) -> String {
+        if let Some(label) = self.labels.get(group) {
+            return label.clone();
+        }
+        let exe = self
+            .writer
+            .last()
+            .into_iter()
+            .flatten()
+            .find_map(|(exe, program)| {
+                program
+                    .windows
+                    .iter()
+                    .any(|window| window.group == group)
+                    .then(|| exe.clone())
+            });
+        match exe {
+            Some(exe) => self.saved_label(&exe, group),
+            None => friendly_key(group),
+        }
     }
 
     fn label_of(&self, key: &str) -> String {
@@ -1179,6 +1207,7 @@ impl LayoutKeeper {
         if self.restore.is_running() || self.notice_ctl.is_visible() || self.tray_tip.is_some() {
             let mut counts: BTreeMap<String, usize> = BTreeMap::new();
             for window in self.live_windows() {
+                self.remember_label(&window);
                 *counts.entry(window.group).or_default() += 1;
             }
             let step = self.restore.step(self.ticks, &counts);
@@ -1246,8 +1275,17 @@ impl LayoutKeeper {
     /// Brings the please-wait notice and the tray tooltip up to date.
     fn update_progress(&mut self, counts: &BTreeMap<String, usize>) {
         let progress = self.restore.progress(self.ticks, counts, &self.expected);
+        let names: BTreeMap<String, String> = progress
+            .iter()
+            .map(|entry| (entry.group.clone(), self.group_name(&entry.group)))
+            .collect();
         let (tip, active, last) = {
-            let label = |group: &str| self.label_of(group);
+            let label = |group: &str| {
+                names
+                    .get(group)
+                    .cloned()
+                    .unwrap_or_else(|| friendly_key(group))
+            };
             // Once the run is over the tooltip goes back to the plain name,
             // however many apps never opened.
             let showing =
@@ -1348,6 +1386,18 @@ impl LayoutKeeper {
             )
         };
     }
+}
+
+/// A readable name for a group key when nothing better is known: the program
+/// file of a path key, else the last word of an app ID. Never the key whole.
+fn friendly_key(key: &str) -> String {
+    if key.contains('\\') {
+        return program_name(&windows::file_name(key));
+    }
+    key.rsplit(['.', '!', '_'])
+        .find(|part| !part.is_empty())
+        .unwrap_or(key)
+        .to_string()
 }
 
 fn handles_in(live: &[windows::LiveWindow], key: &str) -> Vec<(Handle, identity::WindowIdentity)> {
@@ -2825,6 +2875,65 @@ mod tests {
         assert!(!keeper.show_progress);
         keeper.apply_settings(&LayoutKeeper::default().default_settings());
         assert!(keeper.show_progress);
+    }
+
+    #[test]
+    fn a_group_without_a_window_still_has_a_readable_name() {
+        let mut programs = Programs::new();
+        programs.insert(
+            "claude.exe".to_string(),
+            ProgramState {
+                windows: vec![saved_window(
+                    "Claude",
+                    r"d:\windowsapps\claude_2.4_x64__pzs8sxrjxfjjc\app\claude.exe",
+                    DESKTOP_A,
+                    None,
+                )],
+            },
+        );
+        programs.insert(
+            "chrome.exe".to_string(),
+            ProgramState {
+                windows: vec![saved_window(
+                    "Inbox",
+                    "Chrome.UserData.Profile3",
+                    DESKTOP_A,
+                    None,
+                )],
+            },
+        );
+        let (mut keeper, _) = keeper_with(programs, "names");
+        assert_eq!(
+            keeper.group_name(r"d:\windowsapps\claude_2.4_x64__pzs8sxrjxfjjc\app\claude.exe"),
+            "Claude"
+        );
+        assert_eq!(
+            keeper.group_name("Chrome.UserData.Profile3"),
+            "Chrome \u{b7} Profile3"
+        );
+        // A group the layout does not know is still not shown as a path.
+        assert_eq!(
+            keeper.group_name(r"c:\program files\windowsapps\x\windowsterminal.exe"),
+            "Windowsterminal"
+        );
+        assert_eq!(
+            keeper.group_name("Telegram.TelegramDesktop"),
+            "TelegramDesktop"
+        );
+        assert_eq!(friendly_key("Pkg_8wekyb!App"), "App");
+    }
+
+    #[test]
+    fn a_label_seen_on_a_live_window_is_used_for_the_panel() {
+        let (mut keeper, _) = keeper_with(Programs::new(), "seen");
+        let mut window = live_window(7, "Docs", "Chrome.UserData.Profile3");
+        window.identity.exe = "chrome.exe".to_string();
+        window.app_name = Some("Dmytro (Oliver) - Chrome".to_string());
+        keeper.remember_label(&window);
+        assert_eq!(
+            keeper.group_name("Chrome.UserData.Profile3"),
+            "Chrome \u{b7} Dmytro (Oliver)"
+        );
     }
 
     #[test]
