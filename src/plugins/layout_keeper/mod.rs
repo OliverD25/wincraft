@@ -116,6 +116,11 @@ pub struct LayoutKeeper {
     snapshot_seconds: u64,
     restore_on_start: bool,
     front_order: bool,
+    /// "Restore monitors": a restore moves windows back to their monitor.
+    restore_monitors: bool,
+    /// Windows the user put on a monitor in the strip since the last save,
+    /// which therefore no longer belong on an unplugged one.
+    released: BTreeSet<Handle>,
     preview_on_hover: bool,
     /// The strip's view, as the user last picked it there.
     arrange_view: ArrangeView,
@@ -176,6 +181,8 @@ impl Default for LayoutKeeper {
             snapshot_seconds: DEFAULT_SNAPSHOT_SECONDS,
             restore_on_start: true,
             front_order: true,
+            restore_monitors: true,
+            released: BTreeSet::new(),
             preview_on_hover: true,
             arrange_view: ArrangeView::Auto,
             ticks: 0,
@@ -241,6 +248,7 @@ impl LayoutKeeper {
             .unwrap_or(DEFAULT_SNAPSHOT_SECONDS);
         self.restore_on_start = flag(settings, "restore_on_start");
         self.front_order = flag(settings, "restore_front_order");
+        self.restore_monitors = flag(settings, "restore_monitors");
         self.preview_on_hover = flag(settings, "preview_on_hover");
         self.arrange_view = ArrangeView::from_setting(&text("arrange_view", "auto"));
         self.show_progress = flag(settings, "show_restore_progress");
@@ -409,6 +417,7 @@ impl LayoutKeeper {
     fn capture(&self, live: &[windows::LiveWindow]) -> Programs {
         let desktops = desktops::list();
         let monitors = monitors::list();
+        let connected = monitors::saved_names(&monitors);
         let today = clock::local_iso(SystemTime::now())
             .get(..10)
             .map(str::to_string);
@@ -452,6 +461,13 @@ impl LayoutKeeper {
                     }
                 })
                 .collect();
+            if let Some(before) = self.writer.last().and_then(|programs| programs.get(exe)) {
+                let released: Vec<bool> = mine
+                    .iter()
+                    .map(|(_, window)| self.released.contains(&(window.hwnd as Handle)))
+                    .collect();
+                monitors::keep_unplugged(exe, &before.windows, &mut saved, &released, &connected);
+            }
             saved.sort_by_key(|window| window.taskbar_index);
             programs.insert(exe.to_string(), ProgramState { windows: saved });
         }
@@ -591,6 +607,7 @@ impl LayoutKeeper {
         let wrote =
             self.writer
                 .write(merged, reason, clock::local_iso(SystemTime::now()), force)?;
+        self.released.clear();
         if backup {
             self.guard.wrote(timer);
         }
@@ -828,6 +845,7 @@ impl LayoutKeeper {
         let registry = desktops::list();
         let known: Vec<DesktopId> = registry.iter().map(|desktop| desktop.id).collect();
         let can_move = self.ensure_mover(&registry);
+        let monitors = monitors::list();
         let foreground = unsafe { GetForegroundWindow() };
         let mut moves: Vec<(HWND, DesktopId, String)> = Vec::new();
         let mut parts: Vec<String> = Vec::new();
@@ -875,15 +893,27 @@ impl LayoutKeeper {
                 let mut model = OrderModel::from_saved(ids);
                 model.refresh(&handles_in(&live, key), self.ticks, self.snapshot_seconds);
                 self.groups.insert(key.clone(), model);
-                self.apply_group(key, can_move);
-
-                let mut moved_late = 0;
                 let pairs: Vec<(usize, usize)> = matching
                     .pairs
                     .iter()
                     .filter(|(s, l)| members.contains(s) && live_groups[*l] == *key)
                     .copied()
                     .collect();
+                // Before the taskbar order: with buttons on the taskbar of
+                // the window's own monitor, a move to another monitor moves
+                // its button too, and the order is rebuilt after that.
+                if self.restore_monitors {
+                    for (s, l) in &pairs {
+                        let window = mine[*l];
+                        if late && self.placed.contains(&(window.hwnd as Handle)) {
+                            continue;
+                        }
+                        self.return_to_monitor(window, windows[*s].monitor.as_ref(), &monitors);
+                    }
+                }
+                self.apply_group(key, can_move);
+
+                let mut moved_late = 0;
                 if can_move {
                     for (l, window) in mine.iter().enumerate() {
                         if live_groups[l] != *key {
@@ -1058,6 +1088,46 @@ impl LayoutKeeper {
         match mover.move_to(hwnd, target) {
             Ok(()) => log::info!("moved \"{label}\" to {name}"),
             Err(err) => log::warn!("could not move \"{label}\" to {name}: {err}"),
+        }
+    }
+
+    /// Puts a restored window back on the monitor it was saved on.
+    fn return_to_monitor(
+        &mut self,
+        window: &windows::LiveWindow,
+        saved: Option<&state::SavedMonitor>,
+        monitors: &[monitors::Monitor],
+    ) {
+        let now = monitors::index_of(window.identity.rect, monitors);
+        let label = window.identity.label();
+        match monitors::restore_target(saved, now, &monitors::saved_names(monitors)) {
+            monitors::Return::Stay => {}
+            monitors::Return::Unplugged => {
+                if let Some(saved) = saved {
+                    log::info!(
+                        "\"{label}\" was saved on monitor {} ({}), which is not connected; it stays where it is",
+                        saved.device,
+                        saved.name
+                    );
+                }
+            }
+            monitors::Return::To(target) => {
+                let (Some(now), false) = (now, self.refuses("monitor move")) else {
+                    return;
+                };
+                let device = &monitors[target].saved().device;
+                match monitors::move_window(
+                    window.hwnd,
+                    &monitors[now],
+                    &monitors[target],
+                    monitors,
+                ) {
+                    Ok(()) => log::info!("put \"{label}\" back on monitor {device}"),
+                    Err(err) => {
+                        log::warn!("could not put \"{label}\" back on monitor {device}: {err}")
+                    }
+                }
+            }
         }
     }
 
@@ -1481,6 +1551,7 @@ impl WinCraftPlugin for LayoutKeeper {
             "restore_window_minutes": DEFAULT_RESTORE_MINUTES,
             "snapshot_interval_seconds": DEFAULT_SNAPSHOT_SECONDS,
             "restore_front_order": true,
+            "restore_monitors": true,
             "show_restore_progress": true,
             "preview_on_hover": true,
             "arrange_view": ArrangeView::Auto.setting(),
@@ -1538,6 +1609,12 @@ impl WinCraftPlugin for LayoutKeeper {
                 key: "restore_front_order",
                 label: "Restore which window is in front",
                 help: "Also put the windows back in their front-to-back order on each desktop.",
+                kind: FieldKind::Toggle,
+            },
+            SettingField {
+                key: "restore_monitors",
+                label: "Restore monitors",
+                help: "Also move each window back to the monitor it was on, at the same size and place relative to the screen. A window whose monitor is not connected stays where it is.",
                 kind: FieldKind::Toggle,
             },
             SettingField {
@@ -1903,6 +1980,7 @@ impl WinCraftPlugin for LayoutKeeper {
             }
             ArrangeAction::MoveToMonitor { hwnd, monitor } => {
                 self.move_to_monitor(*hwnd as HWND, monitor);
+                self.released.insert(*hwnd as Handle);
                 self.save("manual");
                 self.arrange_stale = true;
             }
@@ -2453,6 +2531,23 @@ mod tests {
         applied.apply_settings(&keeper.default_settings());
         assert_eq!(applied.restore.settle_seconds, 15);
         assert_eq!(applied.restore.give_up_seconds, 30 * 60);
+    }
+
+    #[test]
+    fn monitors_are_restored_and_the_strip_view_is_automatic_by_default() {
+        let mut keeper = LayoutKeeper {
+            restore_monitors: false,
+            ..LayoutKeeper::default()
+        };
+        keeper.apply_settings(&LayoutKeeper::default().default_settings());
+        assert!(keeper.restore_monitors);
+        assert_eq!(keeper.arrange_view, ArrangeView::Auto);
+        keeper.apply_settings(&serde_json::json!({
+            "restore_monitors": false,
+            "arrange_view": "flat",
+        }));
+        assert!(!keeper.restore_monitors);
+        assert_eq!(keeper.arrange_view, ArrangeView::Flat);
     }
 
     fn saved_window(title: &str, group: &str, desktop: &str, seen: Option<&str>) -> SavedWindow {

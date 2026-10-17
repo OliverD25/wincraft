@@ -50,7 +50,8 @@ pub struct SavedWindow {
     /// version 3, among the program's own windows before.
     pub z_index: usize,
     /// The monitor the window is on (the one it returns to when minimized).
-    /// The Arrange strip groups windows by it.
+    /// The Arrange strip groups windows by it and a restore puts the window
+    /// back on it. While it is unplugged, saves keep it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub monitor: Option<SavedMonitor>,
     /// The day, "2026-10-17", this window was last seen open. Only the day,
