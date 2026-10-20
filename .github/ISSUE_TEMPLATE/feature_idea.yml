@@ -1,0 +1,34 @@
+name: Feature or plugin idea
+description: A new tool, or a change to an existing one.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        WinCraft's goal and principles are in
+        [CONSTITUTION.md](https://github.com/OliverD25/wincraft/blob/main/CONSTITUTION.md).
+        Most new tools fit best as a plugin.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does it solve?
+      description: What do you do today, and what is slow or missing?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What should WinCraft do?
+      description: How you would use it, and which hotkey or palette command you imagine.
+    validations:
+      required: true
+  - type: dropdown
+    id: build
+    attributes:
+      label: Would you like to build it yourself?
+      options:
+        - Yes, I want to write it
+        - Maybe, with some help
+        - No, just the idea
+    validations:
+      required: true

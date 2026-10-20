@@ -1,0 +1,44 @@
+name: Bug report
+description: Something in WinCraft does not work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting. Short answers are fine.
+  - type: input
+    id: version
+    attributes:
+      label: WinCraft version
+      description: Settings → About shows it, for example 0.17.1.
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: For example Windows 11 24H2. Run `winver` if you are not sure.
+  - type: textarea
+    id: steps
+    attributes:
+      label: What did you do?
+      description: The steps, one per line, so someone else can repeat them.
+      placeholder: |
+        1. Press Win+Alt+P
+        2. Type ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log (optional)
+      description: |
+        The end of %LOCALAPPDATA%\WinCraft\wincraft.log, from around the time
+        of the problem. Check it for anything private before you paste it.
+      render: text

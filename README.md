@@ -471,11 +471,21 @@ WinCraft keeps running, shows a tray notification and marks the hotkey
 
 Set `WINCRAFT_DEBUG=1` for a more detailed log.
 
-## Writing a plugin
+## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). A plugin is one folder, one trait
-implementation, a README, and one line in the plugin list. You describe your
-settings; WinCraft draws and saves them.
+WinCraft is open source, and contributions are welcome. Its goal and
+principles are in [CONSTITUTION.md](CONSTITUTION.md); the second one is that
+anyone should be able to add a useful feature in an afternoon.
+
+- **New here?** Pick an issue labelled
+  [good first issue](https://github.com/OliverD25/wincraft/labels/good%20first%20issue).
+- **Have an idea or found a bug?** Open an issue; the form asks only what is
+  needed.
+- **Writing a plugin?** See [CONTRIBUTING.md](CONTRIBUTING.md). A plugin is one
+  folder, one trait implementation, a README, and one line in the plugin list.
+  You describe your settings; WinCraft draws and saves them.
+
+Everyone follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Licence
 

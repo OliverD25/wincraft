@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: How to write a plugin
+    url: https://github.com/OliverD25/wincraft/blob/main/CONTRIBUTING.md
+    about: The step-by-step guide, the rules, and how to test.

@@ -1,5 +1,16 @@
 # Adding a plugin to WinCraft
 
+Before you start, read [CONSTITUTION.md](CONSTITUTION.md): one page with
+WinCraft's goal and seven principles. A change that fits them is easy to
+review and merge. A short path for a first contribution:
+
+1. Pick an issue labelled `good first issue`, or open one to describe your
+   idea first.
+2. Fork the repo, then turn on the pre-push check once:
+   `git config core.hooksPath .githooks`.
+3. Make the change, and run `tools\check.ps1` (or `tools/check.sh`).
+4. Open a pull request; its template lists what to check.
+
 Everything a feature needs — the tray icon, the hidden window, global hotkeys,
 config storage, logging, the settings page and the palette entries — already
 belongs to the host. A plugin says what it wants and gets called back. It never
