@@ -183,6 +183,8 @@ $scenes = @(
     @{ Name = 'palette-tip-bookmark';   Args = @('--show-tip=bookmark-ctrl-b', '--open-palette=/C:\Windows\'); Window = 'palette'; Settle = 1500 },
     @{ Name = 'palette-tip-saved';      Args = @('--show-tip=bookmark-saved', '--open-palette'); Window = 'palette'; Settle = 1000 },
     @{ Name = 'settings-about';         Args = @('--open-settings=about');                 Window = 'settings' },
+    # About half way through a sample download; nothing is downloaded.
+    @{ Name = 'settings-about-update';  Args = @('--open-settings=about', '--show-update-progress'); Window = 'settings' },
     # The strip in the view Auto picks (By monitor with two monitors or
     # more), then in the Flat view.
     @{ Name = 'strip';                  Args = @('--open-arrange=0');                      Window = 'strip';    Settle = 1200 },

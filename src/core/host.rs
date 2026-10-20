@@ -302,6 +302,9 @@ pub struct SceneFlags {
     pub update_now: bool,
     /// Show the "Updated to" notice, as after an update.
     pub update_notice: bool,
+    /// Show About's update progress bar half way through a sample download;
+    /// nothing is downloaded.
+    pub update_progress: bool,
 }
 
 static DEMO_RESTORE_PANEL: AtomicBool = AtomicBool::new(false);
@@ -664,6 +667,17 @@ impl Host {
         }
         if flags.scene.update_notice {
             self.show_updated_notice();
+        }
+        if flags.scene.update_progress {
+            self.updates.newer = Some(Release {
+                tag: "v9.9.9".to_string(),
+                notes: "A sample release: nothing is downloaded.".to_string(),
+                page: github::repo_url().to_string(),
+                assets: Vec::new(),
+            });
+            self.updates.busy = true;
+            self.updates.status = UpdateStatus::Downloading(Some(42));
+            self.publish();
         }
         if flags.scene.update_now {
             self.updates.auto_update = true;

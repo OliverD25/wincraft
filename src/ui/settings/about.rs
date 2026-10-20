@@ -292,6 +292,12 @@ fn new_release(
             }
         },
     );
+    if let Some((label, fraction)) = progress_step(&view.status) {
+        ui.add_space(8.0);
+        text::secondary(ui, &label, tokens.text_secondary);
+        ui.add_space(6.0);
+        progress_bar(ui, fraction);
+    }
     if let UpdateStatus::Error(err) = &view.status {
         ui.add_space(8.0);
         text::secondary(ui, err, tokens.warning);
@@ -300,6 +306,55 @@ fn new_release(
         ui.add_space(12.0);
         ui.spacing_mut().item_spacing.y = 8.0;
         update.notes.boxed(ui, &release.notes);
+    }
+}
+
+/// The line above the update's progress bar and how full the bar is: None
+/// for no update under way, and a None fraction when the server gave no size.
+fn progress_step(status: &UpdateStatus) -> Option<(String, Option<f32>)> {
+    match status {
+        // The checksum is checked once the last byte is in.
+        UpdateStatus::Downloading(Some(100)) => {
+            Some(("Checking the download\u{2026}".to_string(), Some(1.0)))
+        }
+        UpdateStatus::Downloading(Some(percent)) => Some((
+            format!("Step 1 of 2 \u{00B7} Downloading\u{2026} {percent}%"),
+            Some(f32::from(*percent) / 100.0),
+        )),
+        UpdateStatus::Downloading(None) => {
+            Some(("Step 1 of 2 \u{00B7} Downloading\u{2026}".to_string(), None))
+        }
+        UpdateStatus::Installing => Some((
+            "Step 2 of 2 \u{00B7} Installing \u{2014} WinCraft restarts in a moment".to_string(),
+            Some(1.0),
+        )),
+        _ => None,
+    }
+}
+
+/// A 4 px bar across the row: accent fill on a border-coloured track. With
+/// no size known, a short segment slides along so it still looks alive.
+fn progress_bar(ui: &mut egui::Ui, fraction: Option<f32>) {
+    let tokens = Tokens::get(ui.ctx());
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 4.0), egui::Sense::hover());
+    ui.painter().rect_filled(rect, 2.0, tokens.border);
+    let fill = match fraction {
+        Some(fraction) => {
+            let mut fill = rect;
+            fill.set_width(rect.width() * fraction.clamp(0.0, 1.0));
+            fill
+        }
+        None => {
+            let time = ui.input(|input| input.time) as f32;
+            let width = rect.width() * 0.25;
+            let left = rect.left() + (time * 0.6).fract() * (rect.width() + width) - width;
+            ui.ctx().request_repaint();
+            egui::Rect::from_x_y_ranges(left..=left + width, rect.y_range()).intersect(rect)
+        }
+    };
+    if fill.width() > 0.0 {
+        ui.painter().rect_filled(fill, 2.0, tokens.accent);
     }
 }
 
@@ -393,5 +448,25 @@ mod tests {
         ]
         .map(|(owner, binding, state)| (owner.to_string(), binding.to_string(), state));
         assert_eq!(rows, expected);
+    }
+
+    #[test]
+    fn the_progress_bar_follows_the_update_steps() {
+        assert_eq!(progress_step(&UpdateStatus::Idle), None);
+        assert_eq!(progress_step(&UpdateStatus::Checking), None);
+        assert_eq!(progress_step(&UpdateStatus::Error("x".into())), None);
+        let (label, fraction) = progress_step(&UpdateStatus::Downloading(Some(35))).unwrap();
+        assert!(
+            label.starts_with("Step 1 of 2") && label.ends_with("35%"),
+            "{label}"
+        );
+        assert_eq!(fraction, Some(0.35));
+        let (_, fraction) = progress_step(&UpdateStatus::Downloading(None)).unwrap();
+        assert_eq!(fraction, None);
+        let (label, fraction) = progress_step(&UpdateStatus::Downloading(Some(100))).unwrap();
+        assert!(label.starts_with("Checking the download"), "{label}");
+        assert_eq!(fraction, Some(1.0));
+        let (label, _) = progress_step(&UpdateStatus::Installing).unwrap();
+        assert!(label.starts_with("Step 2 of 2"), "{label}");
     }
 }

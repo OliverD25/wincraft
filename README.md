@@ -78,7 +78,9 @@ an "Update to …" item in the tray menu, and its release notes on the About
 page. Nothing changes until you click **Update now**.
 
 Update now downloads `wincraft.exe` and `SHA256SUMS.txt` from the release,
-checks the checksum, puts the new exe in place and restarts WinCraft. If the
+checks the checksum, puts the new exe in place and restarts WinCraft. A bar
+under the release on the About page shows how far it is: step 1 downloads,
+step 2 installs. If the
 new version does not run for 30 seconds without crashing, WinCraft ends it,
 puts the old exe back, starts the old version again and says "Update to …
 failed, kept …". Only the installed copy updates itself: a WinCraft run from

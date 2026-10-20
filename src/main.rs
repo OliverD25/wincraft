@@ -161,6 +161,7 @@ fn main() {
         "--show-restore-panel",
         "--update-now",
         "--show-update-notice",
+        "--show-update-progress",
     ] {
         if !has_flag(&args, flag) {
             continue;
@@ -173,6 +174,8 @@ fn main() {
             scene.update_now = true;
         } else if flag == "--show-update-notice" {
             scene.update_notice = true;
+        } else if flag == "--show-update-progress" {
+            scene.update_progress = true;
         } else {
             scene.restore_panel = true;
         }
