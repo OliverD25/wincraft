@@ -456,7 +456,7 @@ mod tests {
     /// the other thing this checks.
     #[test]
     fn the_index_answers_or_is_reported_unavailable() {
-        unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32) };
+        let started = unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32) };
         let sql = format!(
             "SELECT TOP 1 {COLUMNS} FROM SystemIndex WHERE SCOPE='file:' ORDER BY System.DateModified DESC"
         );
@@ -473,6 +473,8 @@ mod tests {
             Err(Failure::Unavailable(_)) => {}
             Err(other) => panic!("opening the index failed oddly: {other}"),
         }
-        unsafe { CoUninitialize() };
+        if com::ok(started) {
+            unsafe { CoUninitialize() };
+        }
     }
 }

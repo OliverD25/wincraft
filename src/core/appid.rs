@@ -10,7 +10,7 @@ use windows_sys::Win32::UI::Shell::{
     SHCreateItemFromParsingName, SHLoadIndirectString, SIGDN_NORMALDISPLAY,
 };
 
-use crate::core::com::ComPtr;
+use crate::core::com::{self, ComPtr};
 use crate::core::{from_wide_ptr, wide};
 
 const IID_IPROPERTY_STORE: GUID = GUID::from_u128(0x886d8eeb_8cf2_4446_8d02_cdba1dbdcf99);
@@ -54,7 +54,12 @@ pub struct AppId {
     pub name: Option<String>,
 }
 
+/// Nothing is read on a thread that has not started COM itself (see
+/// [`com::joined_apartment`]).
 pub fn read(hwnd: HWND) -> AppId {
+    if !com::joined_apartment() {
+        return AppId::default();
+    }
     let mut raw = std::ptr::null_mut();
     let hr = unsafe { SHGetPropertyStoreForWindow(hwnd, &IID_IPROPERTY_STORE, &mut raw) };
     let Some(store) = (hr >= 0).then(|| ComPtr::from_raw(raw)).flatten() else {
@@ -89,6 +94,9 @@ pub fn string_value(store: &ComPtr, key: &PROPERTYKEY) -> Option<String> {
 /// registered: Chrome gives installed web apps no relaunch name on their
 /// windows, but their shortcut is called "Gemini".
 pub fn registered_name(id: &str) -> Option<String> {
+    if !com::joined_apartment() {
+        return None;
+    }
     let path = wide(&format!("shell:AppsFolder\\{id}"));
     let mut raw = std::ptr::null_mut();
     let hr = unsafe {

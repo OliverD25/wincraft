@@ -5,13 +5,20 @@
 use std::ffi::c_void;
 
 use windows_sys::core::{IUnknown_Vtbl, BSTR, GUID, HRESULT};
-use windows_sys::Win32::Foundation::{SysFreeString, SysStringLen};
-use windows_sys::Win32::System::Com::CoCreateInstance;
+use windows_sys::Win32::Foundation::{SysFreeString, SysStringLen, CO_E_NOTINITIALIZED};
+use windows_sys::Win32::System::Com::{
+    CoCreateInstance, CoGetApartmentType, APTTYPEQUALIFIER_IMPLICIT_MTA,
+};
 
 pub struct ComPtr(*mut c_void);
 
 impl ComPtr {
+    /// Fails with `CO_E_NOTINITIALIZED` on a thread that has not started COM
+    /// itself; see [`joined_apartment`].
     pub fn create(clsid: &GUID, iid: &GUID, context: u32) -> Result<Self, HRESULT> {
+        if !joined_apartment() {
+            return Err(CO_E_NOTINITIALIZED);
+        }
         let mut raw = std::ptr::null_mut();
         let hr = unsafe { CoCreateInstance(clsid, std::ptr::null_mut(), context, iid, &mut raw) };
         check(hr)?;
@@ -46,6 +53,19 @@ impl Drop for ComPtr {
     fn drop(&mut self) {
         unsafe { (self.vtable::<IUnknown_Vtbl>().Release)(self.0) };
     }
+}
+
+/// Whether this thread started COM itself. A thread that did not can still
+/// create objects while some other thread keeps the multithreaded apartment
+/// open (the implicit MTA), but they belong to that thread's apartment: when
+/// it calls CoUninitialize, the apartment ends, in-process servers are
+/// unloaded, and the next call through such an object, Release included,
+/// jumps into unmapped memory.
+pub fn joined_apartment() -> bool {
+    let mut kind = 0;
+    let mut qualifier = 0;
+    let hr = unsafe { CoGetApartmentType(&mut kind, &mut qualifier) };
+    ok(hr) && qualifier != APTTYPEQUALIFIER_IMPLICIT_MTA
 }
 
 /// The text of a BSTR a COM method handed out, freeing it; None for a null
@@ -163,6 +183,46 @@ mod tests {
             Some("Folder\0with nul")
         );
         assert_eq!(unsafe { take_bstr(std::ptr::null()) }, None);
+    }
+
+    /// The crash this guards against: a test thread with no COM of its own
+    /// created a desktop manager while the index test kept the MTA open,
+    /// and released it after that test had called CoUninitialize.
+    #[test]
+    fn a_thread_without_com_of_its_own_creates_nothing_while_another_keeps_the_mta() {
+        use std::sync::mpsc::channel;
+        use windows_sys::Win32::System::Com::{
+            CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+            COINIT_MULTITHREADED,
+        };
+        let (started, ready) = channel();
+        let (finish, finished) = channel::<()>();
+        let keeper = std::thread::spawn(move || {
+            let hr = unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32) };
+            started.send((hr, joined_apartment())).unwrap();
+            let _ = finished.recv();
+            if ok(hr) {
+                unsafe { CoUninitialize() };
+            }
+        });
+        let (hr, keeper_joined) = ready.recv().unwrap();
+        let probe = std::thread::spawn(|| {
+            let bare = joined_apartment();
+            let created =
+                ComPtr::create(&guid(1, 2, 3, [4; 8]), &guid(5, 6, 7, [8; 8]), CLSCTX_ALL).err();
+            let hr = unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) };
+            let own = joined_apartment();
+            if ok(hr) {
+                unsafe { CoUninitialize() };
+            }
+            (bare, created, own)
+        })
+        .join()
+        .unwrap();
+        finish.send(()).unwrap();
+        keeper.join().unwrap();
+        assert!(ok(hr) && keeper_joined);
+        assert_eq!(probe, (false, Some(CO_E_NOTINITIALIZED), true));
     }
 
     #[test]
