@@ -18,7 +18,7 @@ use windows_sys::Win32::Storage::FileSystem::{
 use windows_sys::Win32::System::Com::{
     CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
 };
-use windows_sys::Win32::System::Threading::CREATE_BREAKAWAY_FROM_JOB;
+use windows_sys::Win32::System::Threading::{CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW};
 
 use crate::core::autostart::{self, Installed};
 use crate::core::com::{self, ComPtr};
@@ -143,9 +143,15 @@ pub fn start_detached(exe: &Path, args: &[String]) -> std::io::Result<Child> {
     if let Some(dir) = exe.parent() {
         command.current_dir(dir);
     }
-    match command.creation_flags(CREATE_BREAKAWAY_FROM_JOB).spawn() {
+    // WinCraft has no console, so this changes nothing for it; the tests
+    // start cmd and ping here, and without it each opened a terminal window
+    // that stayed for 30 s whenever a crashed run never killed its ping.
+    match command
+        .creation_flags(CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW)
+        .spawn()
+    {
         Ok(child) => Ok(child),
-        Err(_) => command.creation_flags(0).spawn(),
+        Err(_) => command.creation_flags(CREATE_NO_WINDOW).spawn(),
     }
 }
 
