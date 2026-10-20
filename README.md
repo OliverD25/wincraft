@@ -6,10 +6,16 @@ hotkeys, a command palette and a settings window. Features are written as
 **plugins** that plug into one Rust trait, so adding a feature never means
 touching the Win32 plumbing or writing any UI code.
 
-Version 0.11 ships five plugins: **ScreenDimmer**, **ShortcutDetector**,
+WinCraft ships five plugins: **ScreenDimmer**, **ShortcutDetector**,
 **LayoutKeeper**, **LanguageIndicator** and **WindowNamer**, and a palette
 that also finds apps, open windows, files and folders on every disk (through
 Everything), your own bookmarks, sums, web searches and terminal commands.
+The newest version is on the
+[Releases page](https://github.com/OliverD25/wincraft/releases/latest), and
+[wincraft.luminart.app](https://wincraft.luminart.app) shows it with
+screenshots.
+
+![The WinCraft command palette: a search box over WinCraft's own commands](docs/palette.png)
 
 ## What you get
 
@@ -27,25 +33,25 @@ Everything), your own bookmarks, sums, web searches and terminal commands.
 - **Tray icon** — open the palette, open settings, one main action per
   enabled plugin, and quit. Everything else is in the settings window.
 
-<!-- Screenshots: docs/palette.png, docs/settings.png -->
-
 ## Install
 
-No release is published yet, so for now you build WinCraft from source. You
-need [rustup](https://rustup.rs) and the Windows SDK (for `rc.exe`, which
-compiles the icon into the exe). The Rust version is pinned by
-`rust-toolchain.toml`, so cargo fetches the right compiler on first use:
+Download `wincraft.exe` from the
+[latest release](https://github.com/OliverD25/wincraft/releases/latest/download/wincraft.exe)
+and run it. There is no installer and nothing to unpack: it is a single file
+that writes its settings to `%LOCALAPPDATA%\WinCraft`. The release also has
+`SHA256SUMS.txt`, so you can check the download. WinCraft is not code-signed
+yet, so Windows SmartScreen asks once before the first start.
+
+To build it yourself instead, you need [rustup](https://rustup.rs) and the
+Windows SDK (for `rc.exe`, which compiles the icon into the exe). The Rust
+version is pinned by `rust-toolchain.toml`, so cargo fetches the right
+compiler on first use:
 
 ```powershell
 git clone https://github.com/OliverD25/wincraft; cd wincraft; cargo build --release
 ```
 
-The result is `target\release\wincraft.exe`. There is no installer and nothing
-to unpack — it is a single file that writes its settings to
-`%LOCALAPPDATA%\WinCraft`.
-
-Once a release is published, you can instead download `wincraft.exe` from the
-[Releases page](https://github.com/OliverD25/wincraft/releases) and run it.
+The result is `target\release\wincraft.exe`.
 
 ### Installing, once
 
