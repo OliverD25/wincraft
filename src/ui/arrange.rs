@@ -25,6 +25,7 @@ use crate::ui::widgets::empty_state::empty_state;
 use crate::ui::widgets::{choice, focus, text};
 
 mod by_monitor;
+mod hold;
 
 /// Unique, so the strip's window can be found among the UI thread's windows.
 const TITLE: &str = "WinCraft Arrange";
@@ -200,6 +201,8 @@ struct Drag {
 
 struct Shared {
     snapshot: Option<ArrangeSnapshot>,
+    /// Changes made here that the plugin's data has not caught up with yet.
+    holds: Vec<hold::Hold>,
     /// The taskbar group on screen.
     key: Option<String>,
     /// The card the arrow keys act on.
@@ -282,6 +285,7 @@ impl Arrange {
         Self {
             shared: Arc::new(Mutex::new(Shared {
                 snapshot: None,
+                holds: Vec::new(),
                 key: None,
                 cursor: None,
                 drag: None,
@@ -312,6 +316,7 @@ impl Arrange {
             .get(snapshot.focus)
             .map(|group| group.key.clone());
         shared.snapshot = Some(snapshot);
+        shared.holds.clear();
         shared.closed = false;
         shared.window = 0;
         shared.focused_once = false;
@@ -321,7 +326,7 @@ impl Arrange {
     }
 
     /// Takes fresh data and keeps the same taskbar group on screen.
-    pub fn update(&self, snapshot: ArrangeSnapshot) {
+    pub fn update(&self, mut snapshot: ArrangeSnapshot) {
         let Ok(mut shared) = self.shared.lock() else {
             return;
         };
@@ -335,6 +340,7 @@ impl Arrange {
                 .get(snapshot.focus)
                 .map(|group| group.key.clone());
         }
+        hold::filter(&mut shared.holds, &mut snapshot.groups, Instant::now());
         shared.snapshot = Some(snapshot);
     }
 
@@ -696,6 +702,7 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     for action in &actions {
         apply_locally(shared, action);
     }
+    hold_changes(shared, &actions);
     let moves_monitor = actions
         .iter()
         .any(|action| matches!(action, ArrangeAction::MoveToMonitor { .. }));
@@ -957,23 +964,14 @@ fn flat(
         if let Some(monitor) = &window.monitor {
             monitor_chip(&layer, rect, monitor);
         }
-        let area = picture_area(rect);
-        layer.rect(
-            area,
-            4,
-            tokens.panel_bg,
-            theme::stroke(&ctx, 1.0, tokens.accent),
-            StrokeKind::Inside,
+        float_picture(
+            &layer,
+            &mut frame,
+            window.hwnd,
+            picture_area(rect),
+            false,
+            menu_open,
         );
-        if !menu_open {
-            frame.pending.push(Pending {
-                hwnd: window.hwnd,
-                dest: area.shrink(1.0),
-                clip: Rect::EVERYTHING,
-                opacity: 204,
-                cover: false,
-            });
-        }
         frame.floating = Some(rect);
         ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
     }
@@ -1001,6 +999,36 @@ fn flat(
         keyboard(&ctx, shared, group, &rows, &flat, actions, activate);
     }
     frame
+}
+
+/// The live picture of the dragged window, slightly see-through inside an
+/// accent outline, drawn on the layer above everything. Both views use it
+/// for the card that follows the pointer.
+fn float_picture(
+    layer: &egui::Painter,
+    frame: &mut Frame,
+    hwnd: isize,
+    area: Rect,
+    cover: bool,
+    menu_open: bool,
+) {
+    let tokens = Tokens::get(layer.ctx());
+    layer.rect(
+        area,
+        4,
+        tokens.panel_bg,
+        theme::stroke(layer.ctx(), 1.0, tokens.accent),
+        StrokeKind::Inside,
+    );
+    if !menu_open {
+        frame.pending.push(Pending {
+            hwnd,
+            dest: area.shrink(1.0),
+            clip: Rect::EVERYTHING,
+            opacity: 204,
+            cover,
+        });
+    }
 }
 
 /// The card a test scene asked to peek at, from the cards in their order on
@@ -1176,8 +1204,25 @@ fn keyboard(
     }
 }
 
-/// Shows a change at once; the plugin's own data follows a moment later and
-/// replaces it.
+/// Keeps the moves and reorders in `actions` on screen until the plugin's
+/// data shows them too, so the steps the host is still doing do not flash by.
+fn hold_changes(shared: &mut Shared, actions: &[ArrangeAction]) {
+    let Some(snapshot) = shared.snapshot.as_ref() else {
+        return;
+    };
+    let Some(group) = shared.group() else {
+        return;
+    };
+    let place = |device: &str| snapshot.monitors.iter().position(|m| m.device == device);
+    let Some(new) = hold::Hold::new(group, actions, &place, Instant::now()) else {
+        return;
+    };
+    shared.holds.retain(|old| old.group() != new.group());
+    shared.holds.push(new);
+}
+
+/// Shows a change at once; the plugin's own data follows and replaces it
+/// (see `hold`).
 fn apply_locally(shared: &mut Shared, action: &ArrangeAction) {
     let Some(key) = shared.key.clone() else {
         return;

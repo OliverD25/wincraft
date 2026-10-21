@@ -6,7 +6,8 @@ use egui::text::TextWrapping;
 use egui::{pos2, vec2, Rect, Response, Sense, Shape, StrokeKind, Ui, UiBuilder, Vec2};
 
 use super::{
-    card_menu, name_card, thumbnail, Drag, Frame, Pending, Shared, SAME_TITLE_HINT, SLACK,
+    card_menu, float_picture, name_card, thumbnail, Drag, Frame, Pending, Shared, SAME_TITLE_HINT,
+    SLACK,
 };
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{
@@ -751,6 +752,17 @@ pub fn body(
     });
     shared.zones = std::mem::take(&mut draw.zones);
     frame.dragged = dragged.map(|m| group.windows[m].hwnd);
+    if let (Some(drag), Some(member), Some(pointer)) =
+        (shared.drag.as_ref(), dragged, ctx.pointer_latest_pos())
+    {
+        ghost(
+            &ctx,
+            &mut frame,
+            &group.windows[member],
+            pointer - drag.grab,
+            menu_open,
+        );
+    }
 
     footer(ui, panel);
 
@@ -758,6 +770,51 @@ pub fn body(
         keyboard(&ctx, shared, group, &model, &snapshot.monitors, &mut frame);
     }
     frame
+}
+
+/// The dragged card riding above everything at the pointer, grabbed where
+/// it was picked up. Its old place stays behind, faded, as the "from" mark.
+fn ghost(
+    ctx: &egui::Context,
+    frame: &mut Frame,
+    window: &ArrangeWindow,
+    at: egui::Pos2,
+    menu_open: bool,
+) {
+    let tokens = Tokens::get(ctx);
+    let rect = Rect::from_min_size(at, CARD);
+    let layer = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Tooltip,
+        egui::Id::new("arrange-drag"),
+    ));
+    layer.rect_filled(rect, 4, tokens.hover_bg);
+    let thumb = Rect::from_min_size(
+        rect.min + Vec2::splat(CARD_PAD),
+        vec2(CARD.x - 2.0 * CARD_PAD, THUMB_HEIGHT),
+    );
+    float_picture(&layer, frame, window.hwnd, thumb, true, menu_open);
+    let mut job = text::job(
+        &window.label,
+        theme::regular(13.0),
+        tokens.text_primary,
+        None,
+    );
+    job.wrap = TextWrapping {
+        max_width: CARD.x - 2.0 * CARD_PAD - 4.0,
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('\u{2026}'),
+    };
+    let galley = layer.layout_job(job);
+    layer.galley(
+        pos2(
+            rect.left() + CARD_PAD + 2.0,
+            thumb.bottom() + TITLE_GAP + (TITLE - galley.size().y) / 2.0,
+        ),
+        galley,
+        tokens.text_primary,
+    );
+    frame.floating = Some(rect);
 }
 
 impl Draw<'_> {
@@ -991,7 +1048,10 @@ impl Draw<'_> {
             StrokeKind::Inside,
         );
         let picture = thumb.shrink(1.0);
+        // The one live picture of a dragged window is the ghost's, so its
+        // old place shows the name instead.
         let has_picture = !self.menu_open
+            && self.dragged != Some(member)
             && thumbnail(shared, window.hwnd).is_some_and(|thumb| thumb.source_size().is_some());
         if has_picture {
             frame.pending.push(Pending {
