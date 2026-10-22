@@ -52,6 +52,11 @@ const TITLE_TEXT: f32 = 14.0;
 const BODY_TEXT: f32 = 13.0;
 const SMALL_TEXT: f32 = 12.0;
 const MIN_WIDTH: f32 = 300.0;
+/// The progress bar is this high, with fully rounded ends. Its words sit at
+/// the right end of the same row.
+const BAR_HEIGHT: f32 = 4.0;
+const BAR_GAP: f32 = 10.0;
+const BAR_MIN_WIDTH: f32 = 120.0;
 
 /// What the panel says.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,6 +64,50 @@ pub struct Content {
     pub title: String,
     pub lines: Vec<String>,
     pub footer: Option<String>,
+    pub bar: Option<Bar>,
+}
+
+/// The overall progress bar: windows put back out of windows expected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Bar {
+    pub done: usize,
+    pub total: usize,
+    /// The restore is over, so the bar is full and drawn in the success colour.
+    pub finished: bool,
+}
+
+impl Bar {
+    fn label(self) -> String {
+        format!("{} of {}", self.done, windows(self.total))
+    }
+}
+
+/// Windows put back and windows expected, summed over every app that is not
+/// skipped. An app that is restored counts in full, so the first number only
+/// grows as the run goes on; an app still opening counts the windows it has,
+/// never more than the saved layout holds. None when no window is expected.
+pub fn overall_progress(progress: &[Progress]) -> Option<(usize, usize)> {
+    let (mut done, mut total) = (0, 0);
+    for entry in progress {
+        if entry.phase == Phase::Skipped {
+            continue;
+        }
+        let all = entry.expected.max(entry.count);
+        total += all;
+        done += match entry.phase {
+            Phase::Moving | Phase::LateWindows | Phase::Done => all,
+            _ => entry.count.min(entry.expected),
+        };
+    }
+    (total > 0).then_some((done, total))
+}
+
+fn bar_for(progress: &[Progress]) -> Option<Bar> {
+    overall_progress(progress).map(|(done, total)| Bar {
+        done,
+        total,
+        finished: false,
+    })
 }
 
 fn windows(count: usize) -> String {
@@ -134,6 +183,7 @@ pub fn active_content(progress: &[Progress], label: &dyn Fn(&str) -> String) -> 
         title: TITLE.to_string(),
         lines,
         footer,
+        bar: bar_for(progress),
     })
 }
 
@@ -159,9 +209,24 @@ fn line_for(entry: &Progress, name: &str) -> String {
     }
 }
 
-/// The line shown for a few seconds when nothing is active any more, or None
-/// when no app was restored.
-pub fn final_line(progress: &[Progress], label: &dyn Fn(&str) -> String) -> Option<String> {
+/// What the panel shows for a few seconds when nothing is active any more:
+/// one line and a full bar. None when no app was restored.
+pub fn final_line(progress: &[Progress], label: &dyn Fn(&str) -> String) -> Option<Content> {
+    let title = final_title(progress, label)?;
+    let bar = overall_progress(progress).map(|(_, total)| Bar {
+        done: total,
+        total,
+        finished: true,
+    });
+    Some(Content {
+        title,
+        lines: Vec::new(),
+        footer: None,
+        bar,
+    })
+}
+
+fn final_title(progress: &[Progress], label: &dyn Fn(&str) -> String) -> Option<String> {
     let mut done: Vec<&Progress> = progress
         .iter()
         .filter(|entry| entry.phase == Phase::Done)
@@ -249,7 +314,13 @@ pub fn tooltip(progress: &[Progress], label: &dyn Fn(&str) -> String) -> Option<
         parts.push(format!("waiting for {} to open", apps(waiting)));
     }
     let text = if !active.is_empty() {
-        format!("WinCraft \u{2014} restoring layout: {}", parts.join("; "))
+        let count = overall_progress(progress)
+            .map(|(done, total)| format!(" ({done} of {})", windows(total)))
+            .unwrap_or_default();
+        format!(
+            "WinCraft \u{2014} restoring layout{count}: {}",
+            parts.join("; ")
+        )
     } else if !skipped.is_empty() {
         format!(
             "WinCraft \u{2014} layout restored; not opened: {}",
@@ -296,9 +367,9 @@ impl Controller {
         self.state != State::Hidden
     }
 
-    /// `active` is the panel's content while an app is active, `last` the
-    /// line to leave behind when the activity ends.
-    pub fn update(&mut self, tick: u64, active: Option<Content>, last: Option<String>) -> Command {
+    /// `active` is the panel's content while an app is active, `last` what
+    /// to leave behind when the activity ends.
+    pub fn update(&mut self, tick: u64, active: Option<Content>, last: Option<Content>) -> Command {
         match (&self.state, active) {
             (State::Active(shown), Some(content)) if *shown == content => Command::Nothing,
             (_, Some(content)) => {
@@ -306,15 +377,11 @@ impl Controller {
                 Command::Show(content)
             }
             (State::Active(_), None) => match last {
-                Some(line) => {
+                Some(content) => {
                     self.state = State::Final {
                         until: tick + FINAL_HOLD_SECONDS,
                     };
-                    Command::Show(Content {
-                        title: line,
-                        lines: Vec::new(),
-                        footer: None,
-                    })
+                    Command::Show(content)
                 }
                 None => {
                     self.state = State::Hidden;
@@ -485,6 +552,63 @@ fn blend_icon(pixels: &mut [u32], width: i32, height: i32, x0: i32, y0: i32, ico
     }
 }
 
+/// How much of the pixel at (x, y) a capsule covers: a line from the left
+/// end to the right end of the rectangle, as thick as it is high, with round
+/// ends.
+fn capsule_coverage(x: i32, y: i32, (left, top, length, thick): (i32, i32, i32, i32)) -> f32 {
+    let radius = thick as f32 / 2.0;
+    let centre_y = top as f32 + radius;
+    let from = left as f32 + radius;
+    let to = ((left + length) as f32 - radius).max(from);
+    let (cx, cy) = (x as f32 + 0.5, y as f32 + 0.5);
+    let dx = cx - cx.clamp(from, to);
+    let distance = (dx * dx + (cy - centre_y) * (cy - centre_y)).sqrt();
+    (radius + 0.5 - distance).clamp(0.0, 1.0)
+}
+
+/// Lays an opaque colour over a premultiplied pixel with `coverage` (0 to 1).
+fn blend_over(below: &mut u32, colour: Color32, coverage: f32) {
+    if coverage <= 0.0 {
+        return;
+    }
+    let channel = |shift: u32, source: u8| {
+        let under = f32::from((*below >> shift) as u8);
+        (f32::from(source) * coverage + under * (1.0 - coverage)).round() as u32
+    };
+    let alpha = (255.0 * coverage + f32::from((*below >> 24) as u8) * (1.0 - coverage)).round();
+    *below = ((alpha as u32) << 24)
+        | (channel(16, colour.r()) << 16)
+        | (channel(8, colour.g()) << 8)
+        | channel(0, colour.b());
+}
+
+/// The bar: a track with the fill over its left part. A fill that has started
+/// is at least as long as the bar is thick, so its ends stay round.
+fn draw_bar(
+    pixels: &mut [u32],
+    width: i32,
+    rect: (i32, i32, i32, i32),
+    bar: Bar,
+    fill: Color32,
+    track: Color32,
+) {
+    let (left, top, length, thick) = rect;
+    let share = bar.done.min(bar.total) as f32 / bar.total.max(1) as f32;
+    let filled = match (share * length as f32).round() as i32 {
+        0 => 0,
+        part => part.max(thick).min(length),
+    };
+    for y in top..top + thick {
+        for x in left..left + length {
+            let at = &mut pixels[(y * width + x) as usize];
+            blend_over(at, track, capsule_coverage(x, y, rect));
+            if filled > 0 {
+                blend_over(at, fill, capsule_coverage(x, y, (left, top, filled, thick)));
+            }
+        }
+    }
+}
+
 fn render(content: &Content, scale: f32, tokens: &theme::Tokens) -> Option<Image> {
     let px = |logical: f32| (logical * scale).round() as i32;
     let [(semi_face, semi_weight), (face, weight)] = *faces();
@@ -508,6 +632,8 @@ fn render(content: &Content, scale: f32, tokens: &theme::Tokens) -> Option<Image
     let icon = app_icon(px(ICON_SIZE));
     let icon_room = icon.as_ref().map_or(0, |_| px(ICON_SIZE + ICON_GAP));
     let inner = px(MAX_WIDTH) - 2 * px(PAD_X);
+    let bar_label = content.bar.map(|bar| utf16(&bar.label()));
+    let bar_label_size = bar_label.as_ref().map(|text| measure(text, fonts[2]));
 
     // (text, colour, font, gap above, left offset) in reading order.
     let mut rows: Vec<(String, Color32, usize, i32, i32)> =
@@ -538,9 +664,12 @@ fn render(content: &Content, scale: f32, tokens: &theme::Tokens) -> Option<Image
         .map(|((_, _, _, _, left), size)| left + size.cx)
         .max()
         .unwrap_or(0);
-    let width = (text_width + 2 * px(PAD_X)).clamp(px(MIN_WIDTH), px(MAX_WIDTH));
+    let bar_width = bar_label_size.map_or(0, |size| px(BAR_MIN_WIDTH) + px(BAR_GAP) + size.cx);
+    let width = (text_width.max(bar_width) + 2 * px(PAD_X)).clamp(px(MIN_WIDTH), px(MAX_WIDTH));
     let mut y = px(PAD_Y);
     let mut runs = Vec::new();
+    // Left, top, length and thickness of the bar's track.
+    let mut bar_rect = None;
     let mut icon_at = (px(PAD_X), y);
     for (index, ((text, colour, font, gap, left), size)) in rows.into_iter().zip(&sizes).enumerate()
     {
@@ -564,6 +693,27 @@ fn render(content: &Content, scale: f32, tokens: &theme::Tokens) -> Option<Image
             font,
         });
         y += row_height;
+        if let (0, Some(label), Some(size)) = (index, &bar_label, bar_label_size) {
+            y += px(SECTION_GAP);
+            let label_x = width - px(PAD_X) - size.cx;
+            let thick = px(BAR_HEIGHT);
+            bar_rect = Some((
+                px(PAD_X),
+                y + (size.cy - thick) / 2,
+                label_x - px(BAR_GAP) - px(PAD_X),
+                thick,
+            ));
+            runs.push(Run {
+                text: label.clone(),
+                colour: tokens.text_secondary,
+                x: label_x,
+                y,
+                width: size.cx,
+                height: size.cy,
+                font: 2,
+            });
+            y += size.cy;
+        }
     }
     let height = y + px(PAD_Y);
 
@@ -594,6 +744,14 @@ fn render(content: &Content, scale: f32, tokens: &theme::Tokens) -> Option<Image
             (coverage, colour)
         },
     );
+    if let (Some(bar), Some(rect)) = (content.bar, bar_rect) {
+        let fill = if bar.finished {
+            tokens.success
+        } else {
+            tokens.accent
+        };
+        draw_bar(&mut pixels, width, rect, bar, fill, tokens.border);
+    }
     if let Some(icon) = &icon {
         blend_icon(&mut pixels, width, height, icon_at.0, icon_at.1, icon);
     }
@@ -632,6 +790,10 @@ pub fn same_label(group: &str) -> String {
 mod tests {
     use super::*;
     use crate::core::config::ThemeChoice;
+
+    fn title_of(content: Option<Content>) -> Option<String> {
+        content.map(|content| content.title)
+    }
 
     fn progress(group: &str, phase: Phase, count: usize, expected: usize) -> Progress {
         Progress {
@@ -714,15 +876,19 @@ mod tests {
             progress("Notes", Phase::Done, 1, 1),
         ];
         assert_eq!(
-            final_line(&list, &name).as_deref(),
+            title_of(final_line(&list, &name)).as_deref(),
             Some("WinCraft \u{b7} Layout restored: 22 Chrome windows, 3 apps")
         );
         assert_eq!(
-            final_line(&[progress("Chrome", Phase::Done, 1, 1)], &name).as_deref(),
+            title_of(final_line(&[progress("Chrome", Phase::Done, 1, 1)], &name)).as_deref(),
             Some("WinCraft \u{b7} Layout restored: 1 Chrome window")
         );
         assert_eq!(
-            final_line(&[progress("Chrome", Phase::Done, 22, 22)], &name).as_deref(),
+            title_of(final_line(
+                &[progress("Chrome", Phase::Done, 22, 22)],
+                &name
+            ))
+            .as_deref(),
             Some("WinCraft \u{b7} Layout restored: 22 Chrome windows")
         );
         assert_eq!(final_line(&[], &name), None);
@@ -740,7 +906,7 @@ mod tests {
             progress("Zoom", Phase::Skipped, 0, 1),
         ];
         assert_eq!(
-            final_line(&list, &name).as_deref(),
+            title_of(final_line(&list, &name)).as_deref(),
             Some("WinCraft \u{b7} Layout restored, 2 apps skipped")
         );
         assert_eq!(
@@ -760,7 +926,7 @@ mod tests {
         assert_eq!(
             tooltip(&list, &name).as_deref(),
             Some(
-                "WinCraft \u{2014} restoring layout: Chrome 12/22 settling; waiting for 3 apps to open"
+                "WinCraft \u{2014} restoring layout (12 of 25 windows): Chrome 12/22 settling; waiting for 3 apps to open"
             )
         );
         let only_waiting = [
@@ -793,6 +959,7 @@ mod tests {
             title: "t".to_string(),
             lines: vec!["Chrome: moving 4 windows".to_string()],
             footer: None,
+            bar: None,
         }
     }
 
@@ -814,16 +981,14 @@ mod tests {
         );
 
         // Nothing active any more: the last line stays for four seconds.
-        let line = "Layout restored: 5 Chrome windows".to_string();
+        let line = Content {
+            title: "Layout restored: 5 Chrome windows".to_string(),
+            lines: Vec::new(),
+            footer: None,
+            bar: None,
+        };
         let shown = ctl.update(5, None, Some(line.clone()));
-        assert_eq!(
-            shown,
-            Command::Show(Content {
-                title: line.clone(),
-                lines: Vec::new(),
-                footer: None
-            })
-        );
+        assert_eq!(shown, Command::Show(line.clone()));
         assert_eq!(ctl.update(6, None, Some(line.clone())), Command::Nothing);
         assert_eq!(ctl.update(8, None, Some(line.clone())), Command::Nothing);
         assert_eq!(ctl.update(9, None, Some(line)), Command::Fade);
@@ -843,7 +1008,14 @@ mod tests {
     fn new_activity_during_the_last_line_brings_the_panel_back() {
         let mut ctl = Controller::default();
         ctl.update(1, Some(active()), None);
-        ctl.update(2, None, Some("done".to_string()));
+        ctl.update(
+            2,
+            None,
+            Some(Content {
+                title: "done".to_string(),
+                ..active()
+            }),
+        );
         assert_eq!(ctl.update(3, Some(active()), None), Command::Show(active()));
         ctl.reset();
         assert!(!ctl.is_visible());
@@ -906,7 +1078,9 @@ mod tests {
         let lines = active_content(&list, &name).unwrap().lines;
         assert_eq!(lines[0].chars().count(), MAX_LINE_CHARS);
         assert!(lines[0].ends_with('\u{2026}'));
-        let final_line = final_line(&[progress(&long, Phase::Done, 3, 3)], &name).unwrap();
+        let final_line = final_line(&[progress(&long, Phase::Done, 3, 3)], &name)
+            .unwrap()
+            .title;
         assert!(final_line.starts_with("WinCraft \u{b7} Layout restored: "));
         assert!(final_line.chars().count() <= MAX_LINE_CHARS + FINAL_PREFIX.chars().count());
     }
@@ -932,6 +1106,11 @@ mod tests {
             title: TITLE.to_string(),
             lines: vec![long.clone()],
             footer: Some(long),
+            bar: Some(Bar {
+                done: 3,
+                total: 10,
+                finished: false,
+            }),
         };
         for scale in [1.0, 1.5, 2.0] {
             let image = render(&content, scale, &tokens).expect("GDI draws the panel");
@@ -984,5 +1163,165 @@ mod tests {
         let image = render(&content, 1.0, &tokens).expect("GDI draws the panel");
         assert!(image.width >= MIN_WIDTH as i32);
         assert!(content.title.starts_with("WinCraft"));
+    }
+
+    #[test]
+    fn the_bar_sums_windows_over_all_apps_and_counts_finished_apps_in_full() {
+        let list = [
+            progress("Chrome", Phase::Settling, 12, 22),
+            progress("Claude", Phase::Moving, 4, 4),
+            progress("Telegram", Phase::Done, 1, 1),
+            progress("Viber", Phase::NotOpened, 0, 1),
+            progress("Zoom", Phase::Skipped, 0, 3),
+        ];
+        // Skipped windows are not expected any more: 12 + 4 + 1 + 0 of 22 + 4 + 1 + 1.
+        assert_eq!(overall_progress(&list), Some((17, 28)));
+        let content = active_content(&list, &name).unwrap();
+        assert_eq!(
+            content.bar,
+            Some(Bar {
+                done: 17,
+                total: 28,
+                finished: false
+            })
+        );
+    }
+
+    #[test]
+    fn the_bar_clamps_an_app_that_has_more_windows_than_saved() {
+        let list = [progress("Chrome", Phase::Settling, 30, 22)];
+        assert_eq!(overall_progress(&list), Some((22, 30)));
+        // An app with no saved count has nothing put back until it is restored.
+        let unknown = [progress("Notes", Phase::Settling, 2, 0)];
+        assert_eq!(overall_progress(&unknown), Some((0, 2)));
+        let late = [progress("Chrome", Phase::LateWindows, 23, 22)];
+        assert_eq!(overall_progress(&late), Some((23, 23)));
+    }
+
+    #[test]
+    fn there_is_no_bar_when_no_window_is_expected() {
+        assert_eq!(overall_progress(&[]), None);
+        let list = [
+            progress("Viber", Phase::Skipped, 0, 1),
+            progress("Zoom", Phase::NotOpened, 0, 0),
+        ];
+        assert_eq!(overall_progress(&list), None);
+    }
+
+    #[test]
+    fn the_first_number_only_grows_as_windows_open_and_apps_finish() {
+        let steps = [
+            [
+                progress("A", Phase::NotOpened, 0, 4),
+                progress("B", Phase::NotOpened, 0, 2),
+            ],
+            [
+                progress("A", Phase::Settling, 2, 4),
+                progress("B", Phase::NotOpened, 0, 2),
+            ],
+            [
+                progress("A", Phase::Moving, 4, 4),
+                progress("B", Phase::Settling, 1, 2),
+            ],
+            [
+                progress("A", Phase::Done, 4, 4),
+                progress("B", Phase::Done, 2, 2),
+            ],
+        ];
+        let done: Vec<usize> = steps
+            .iter()
+            .map(|step| overall_progress(step).unwrap().0)
+            .collect();
+        assert_eq!(done, [0, 2, 5, 6]);
+    }
+
+    #[test]
+    fn the_final_state_has_a_full_finished_bar_and_the_tooltip_counts_windows() {
+        let list = [
+            progress("Chrome", Phase::Done, 22, 22),
+            progress("Viber", Phase::Skipped, 0, 1),
+        ];
+        let last = final_line(&list, &name).unwrap();
+        assert_eq!(
+            last.bar,
+            Some(Bar {
+                done: 22,
+                total: 22,
+                finished: true
+            })
+        );
+        assert!(last.lines.is_empty());
+        assert_eq!(
+            Bar {
+                done: 1,
+                total: 1,
+                finished: false
+            }
+            .label(),
+            "1 of 1 window"
+        );
+        assert_eq!(
+            Bar {
+                done: 7,
+                total: 10,
+                finished: false
+            }
+            .label(),
+            "7 of 10 windows"
+        );
+    }
+
+    #[test]
+    fn the_bar_is_drawn_in_the_track_and_fill_colours() {
+        let tokens = theme::Tokens::for_choice(ThemeChoice::Dark);
+        let with = |bar| Content {
+            bar,
+            ..active_content(&sample(), &same_label).unwrap()
+        };
+        let bar = Bar {
+            done: 5,
+            total: 10,
+            finished: false,
+        };
+        let plain = render(&with(None), 1.0, &tokens).expect("GDI draws the panel");
+        let barred = render(&with(Some(bar)), 1.0, &tokens).expect("GDI draws the panel");
+        assert!(barred.height > plain.height);
+        assert_eq!(barred.pixels.len(), (barred.width * barred.height) as usize);
+
+        let mut pixels = vec![0u32; 40 * 6];
+        draw_bar(
+            &mut pixels,
+            40,
+            (4, 1, 32, 4),
+            bar,
+            tokens.accent,
+            tokens.border,
+        );
+        let at = |x: i32, y: i32| pixels[(y * 40 + x) as usize];
+        let rgb = |colour: Color32| {
+            (u32::from(colour.r()) << 16) | (u32::from(colour.g()) << 8) | u32::from(colour.b())
+        };
+        assert_eq!(at(10, 3) & 0xFF_FFFF, rgb(tokens.accent));
+        assert_eq!(at(30, 3) & 0xFF_FFFF, rgb(tokens.border));
+        // Outside the bar nothing is drawn, and the ends are rounded.
+        assert_eq!(at(10, 0), 0);
+        assert_eq!(at(10, 5), 0);
+        assert!(at(4, 1) >> 24 < 0xFF);
+        // A full bar is filled to the far end.
+        let mut full = vec![0u32; 40 * 6];
+        let done = Bar {
+            done: 10,
+            total: 10,
+            finished: true,
+        };
+        draw_bar(
+            &mut full,
+            40,
+            (4, 1, 32, 4),
+            done,
+            tokens.success,
+            tokens.border,
+        );
+        assert_eq!(full[3 * 40 + 30] & 0xFF_FFFF, rgb(tokens.success));
     }
 }

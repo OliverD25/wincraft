@@ -22,6 +22,7 @@ pub fn content(version: &str) -> Content {
         title: format!("WinCraft \u{b7} Updated to {version}"),
         lines: vec!["See what's new in Settings \u{2192} About".to_string()],
         footer: None,
+        bar: None,
     }
 }
 
