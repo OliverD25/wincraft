@@ -464,6 +464,23 @@ impl Settings {
                         );
                     });
                     ui.add_space(20.0);
+                    // Typing in a box or recording a hotkey keeps the arrows.
+                    let free = !ui.ctx().egui_wants_keyboard_input() && state.capture.is_none();
+                    let step = ui.ctx().input(|i| {
+                        if !free || i.modifiers.any() {
+                            0
+                        } else if i.key_pressed(egui::Key::ArrowDown) {
+                            1
+                        } else if i.key_pressed(egui::Key::ArrowUp) {
+                            -1
+                        } else {
+                            0
+                        }
+                    });
+                    if let Some(page) = next_page(state.page, step) {
+                        state.page = page;
+                        state.open_plugin = None;
+                    }
                     for (page, label) in PAGES {
                         if row::nav_item(ui, label, state.page == *page).clicked() {
                             state.page = *page;
@@ -509,9 +526,29 @@ const PAGES: &[(Page, &str)] = &[
     (Page::About, "About"),
 ];
 
+/// The page `step` places down (1) or up (-1) the side menu, stopping at
+/// either end; None when nothing changes.
+fn next_page(current: Page, step: i32) -> Option<Page> {
+    if step == 0 {
+        return None;
+    }
+    let at = PAGES.iter().position(|(page, _)| *page == current)? as i32;
+    let to = (at + step).clamp(0, PAGES.len() as i32 - 1);
+    (to != at).then(|| PAGES[to as usize].0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_arrows_walk_the_side_menu_and_stop_at_its_ends() {
+        assert_eq!(next_page(Page::General, 1), Some(Page::Plugins));
+        assert_eq!(next_page(Page::Plugins, -1), Some(Page::General));
+        assert_eq!(next_page(Page::General, -1), None);
+        assert_eq!(next_page(Page::About, 1), None);
+        assert_eq!(next_page(Page::Layout, 0), None);
+    }
 
     #[test]
     fn headings_split_out_and_code_fences_stay_whole() {
