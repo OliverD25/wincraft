@@ -49,17 +49,36 @@ const VIRTUAL_DESKTOPS: &str =
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DesktopId(pub u128);
 
+/// Ids that name no real desktop. Windows reports the first for every window
+/// of an app set to "Show windows from this app on all desktops" (Claude,
+/// Telegram and Obsidian read so on build 26200), and the second for a
+/// single window pinned that way. They are not in the desktop list, so
+/// before they were read as pinned such windows looked as if their desktop
+/// had been removed.
+const PINNED_IDS: [u128; 2] = [
+    0xBB64D5B7_4DE3_4AB2_A87C_DB7601AEA7DC,
+    0xC2DDEA68_66F2_4CF9_8264_1BFD00FBBBAC,
+];
+
 impl DesktopId {
     /// What Windows reports for a window pinned to every desktop.
     pub const ALL: DesktopId = DesktopId(0);
 
     pub fn from_guid(guid: &GUID) -> Self {
-        Self(
+        Self::pinned_as_all(
             (u128::from(guid.data1) << 96)
                 | (u128::from(guid.data2) << 80)
                 | (u128::from(guid.data3) << 64)
                 | u128::from(u64::from_be_bytes(guid.data4)),
         )
+    }
+
+    fn pinned_as_all(value: u128) -> Self {
+        if PINNED_IDS.contains(&value) {
+            Self::ALL
+        } else {
+            Self(value)
+        }
     }
 
     pub fn to_guid(self) -> GUID {
@@ -85,7 +104,7 @@ impl DesktopId {
         if hex.len() != 32 {
             return None;
         }
-        u128::from_str_radix(&hex, 16).ok().map(Self)
+        u128::from_str_radix(&hex, 16).ok().map(Self::pinned_as_all)
     }
 }
 
@@ -455,6 +474,20 @@ mod tests {
         assert_eq!(DesktopId::parse(&text), Some(id));
         assert_eq!(DesktopId::parse("nonsense"), None);
         assert_eq!(DesktopId::from_guid(&id.to_guid()), id);
+    }
+
+    #[test]
+    fn the_ids_windows_gives_pinned_apps_and_windows_read_as_all_desktops() {
+        let app = DesktopId::parse("{BB64D5B7-4DE3-4AB2-A87C-DB7601AEA7DC}");
+        assert_eq!(app, Some(DesktopId::ALL));
+        let window = GUID::from_u128(0xC2DDEA68_66F2_4CF9_8264_1BFD00FBBBAC);
+        assert_eq!(DesktopId::from_guid(&window), DesktopId::ALL);
+        assert_eq!(
+            name_of(&[], DesktopId::ALL).as_deref(),
+            Some("All desktops")
+        );
+        let real = GUID::from_u128(0x1150cf3a_755e_4731_b223_b07262115ad0);
+        assert_ne!(DesktopId::from_guid(&real), DesktopId::ALL);
     }
 
     #[test]

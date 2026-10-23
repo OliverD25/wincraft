@@ -141,9 +141,14 @@ apps to open". With **Show restore progress** on, the panel's last line takes
 the place of the notification balloon; with it off there is no panel and no
 tooltip, and the balloon stays.
 
-**Never moved between desktops:** a window pinned to all desktops, and a
-window Windows does not place on any desktop (WhatsApp's, for example). They
-still get their place in the taskbar.
+**Never moved between desktops:** a window pinned to all desktops, a window
+of an app set to show its windows on all desktops (in Task View, right-click
+the window, **Show windows from this app on all desktops**), and a window
+Windows does not place on any desktop (WhatsApp's, for example). They still
+get their place in the taskbar. Older versions saved the windows of such an
+app on desktop `{BB64D5B7-4DE3-4AB2-A87C-DB7601AEA7DC}`, the id
+Windows gives them, and a restore logged that this desktop "no longer
+exists"; such entries now read as "All desktops".
 
 ### Monitors
 
