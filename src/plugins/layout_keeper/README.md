@@ -265,6 +265,38 @@ each taskbar group and makes the taskbar match it. New windows join at the end, 
 Windows adds them; a window that stays closed for one save interval is
 dropped from the list.
 
+### When the saved order is not what the taskbar shows
+
+The saved order is that list, never a reading of the taskbar. With taskbar
+buttons shown only for the desktop you are on (the Windows default), what
+matters is the order inside each desktop, and the list keeps it as long as
+the buttons change only by windows opening and closing, which LayoutKeeper
+sees, and by WinCraft itself. The list and the taskbar differ in these
+cases, and a restore then puts back the list, not what was on screen:
+
+- **A window that comes back within one save interval** (30 seconds by
+  default), for example a Chrome window closed and reopened at once, or all
+  of Chrome's windows after a browser restart. Windows gives it a new button
+  at the end of the group; LayoutKeeper recognises it and keeps its old
+  place, on purpose, so a browser restart does not scramble the saved order.
+- **Several new windows at once.** LayoutKeeper adds them from the back
+  window to the front one; Windows adds them in the order they opened,
+  which cannot be read.
+- **A new order for another desktop, made in the Arrange strip.** It is
+  saved at once but reaches that desktop's buttons only at the next restore
+  (see **Arrange windows**).
+- **Explorer restarting**, which rebuilds every button in its own order, and
+  changes made inside Explorer by other tools, such as the Windhawk mod
+  "Taskbar Thumbnail Reorder".
+- **A window moved to another desktop without WinCraft**, in Task View for
+  example, if Windows gives it a new button there; this has not been
+  measured.
+
+After a restore the log lists, for each app and each desktop, the order that
+was put back and the windows on that desktop, so the next reboot shows
+whether a difference came from the order or from a window that did not
+reach its desktop.
+
 ### Groups
 
 Windows groups taskbar buttons by app, not by program: Chrome's installed web
