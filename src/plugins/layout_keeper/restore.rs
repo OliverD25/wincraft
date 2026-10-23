@@ -22,6 +22,10 @@ pub const SECOND_PASS_SECONDS: u64 = 300;
 /// How long a group counts as "being moved" after its restore: the buttons
 /// are re-added on the tick that decides, the windows move on the next.
 const MOVING_SECONDS: u64 = 2;
+/// The longest an app's line stays on the please-wait panel after its last
+/// new window: an app that opens some of its windows and then no more (or
+/// whose open window flickers) must not hold the panel.
+pub const LINE_CAP_SECONDS: u64 = 20;
 
 /// Why a group is restored now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,6 +74,9 @@ pub enum Phase {
     LateWindows,
     /// Restored; the watch for late windows may still be running.
     Done,
+    /// Has windows open but no new one for `LINE_CAP_SECONDS`, and is not
+    /// restored yet; it waits without a line on the panel.
+    Quiet,
     /// Dropped: it never opened a window, or lost the ones it had.
     Skipped,
 }
@@ -98,6 +105,10 @@ struct Waiting {
     stable_since: u64,
     /// When the count first became more than zero.
     first_seen: Option<u64>,
+    /// The most windows seen at once, and when that number last grew: a
+    /// window that closes and opens again is not a new one.
+    most: usize,
+    grew_at: Option<u64>,
 }
 
 /// A group that was restored and may still get late windows.
@@ -108,6 +119,23 @@ struct Watching {
     count: usize,
     stable_since: u64,
     until: u64,
+    /// The most windows seen above the baseline, and when that last grew.
+    most: usize,
+    grew_at: Option<u64>,
+}
+
+/// Keeps `most` and `grew_at` up to date with a new count.
+fn note_growth(most: &mut usize, grew_at: &mut Option<u64>, count: usize, tick: u64) {
+    if count > *most {
+        *most = count;
+        *grew_at = Some(tick);
+    }
+}
+
+/// Whether a line for a group whose window count last grew at `grew_at` may
+/// still be on the panel at `tick`.
+pub fn line_shown(grew_at: Option<u64>, tick: u64) -> bool {
+    grew_at.is_some_and(|at| tick.saturating_sub(at) < LINE_CAP_SECONDS)
 }
 
 #[derive(Clone, Debug)]
@@ -124,6 +152,9 @@ pub struct Restore {
     moved_at: BTreeMap<String, u64>,
     skipped: BTreeSet<String>,
     restored: usize,
+    /// Windows saved for each group. A group with all of them open is
+    /// restored at once, without waiting for its count to hold still.
+    expected: BTreeMap<String, usize>,
     pub settle_seconds: u64,
     pub give_up_seconds: u64,
 }
@@ -140,6 +171,7 @@ impl Restore {
             moved_at: BTreeMap::new(),
             skipped: BTreeSet::new(),
             restored: 0,
+            expected: BTreeMap::new(),
             settle_seconds,
             give_up_seconds,
         }
@@ -148,6 +180,7 @@ impl Restore {
     /// Starts waiting for `groups`, the ones with saved windows.
     pub fn start(&mut self, tick: u64, groups: Vec<String>) {
         self.started = Some(tick);
+        self.expected.clear();
         self.deadline_passed = false;
         self.restored = 0;
         self.by_limit.clear();
@@ -164,10 +197,17 @@ impl Restore {
                         count: 0,
                         stable_since: tick,
                         first_seen: None,
+                        most: 0,
+                        grew_at: None,
                     },
                 )
             })
             .collect();
+    }
+
+    /// How many windows are saved for each group, set after `start`.
+    pub fn expect(&mut self, expected: BTreeMap<String, usize>) {
+        self.expected = expected;
     }
 
     /// True while any group is still waited for or watched for late windows.
@@ -206,9 +246,12 @@ impl Restore {
         };
         let mut all = Vec::new();
         for (group, watch) in &self.waiting {
-            let (phase, count) = match watch.first_seen {
-                None => (Phase::NotOpened, 0),
-                Some(_) => (Phase::Settling, now(group)),
+            // An app with no window open has nothing to show, whether it
+            // never opened one or closed the one it had.
+            let (phase, count) = match now(group) {
+                0 => (Phase::NotOpened, 0),
+                count if line_shown(watch.grew_at, tick) => (Phase::Settling, count),
+                count => (Phase::Quiet, count),
             };
             all.push(Progress {
                 group: group.clone(),
@@ -220,7 +263,9 @@ impl Restore {
         for (group, restored_count) in &self.done {
             let (phase, count) = match self.watching.get(group) {
                 _ if just_moved(group) => (Phase::Moving, now(group).max(*restored_count)),
-                Some(watch) if now(group) > watch.baseline => (Phase::LateWindows, now(group)),
+                Some(watch) if now(group) > watch.baseline && line_shown(watch.grew_at, tick) => {
+                    (Phase::LateWindows, now(group))
+                }
                 _ => (Phase::Done, *restored_count),
             };
             all.push(Progress {
@@ -255,6 +300,7 @@ impl Restore {
             return Step::default();
         };
         let count_of = |group: &String| counts.get(group).copied().unwrap_or(0);
+        let deadline = started + self.give_up_seconds;
         let mut step = Step::default();
 
         if !self.deadline_passed && tick.saturating_sub(started) >= self.give_up_seconds {
@@ -298,6 +344,7 @@ impl Restore {
                 watch.count = count;
                 watch.stable_since = tick;
             }
+            note_growth(&mut watch.most, &mut watch.grew_at, count, tick);
             let settled = count > watch.baseline
                 && tick.saturating_sub(watch.stable_since) >= self.settle_seconds;
             if settled {
@@ -307,7 +354,12 @@ impl Restore {
                 });
                 self.done.insert(group.clone(), count);
                 self.moved_at.insert(group.clone(), tick);
-                finished.push(group.clone());
+                // Watched again from here, so windows that come later
+                // still get their order, but never past the run's deadline.
+                watch.baseline = count;
+                watch.most = count;
+                watch.grew_at = None;
+                watch.until = (tick + SECOND_PASS_SECONDS).min(deadline).max(tick + 1);
             }
         }
         for group in &finished {
@@ -325,12 +377,17 @@ impl Restore {
             if count > 0 && watch.first_seen.is_none() {
                 watch.first_seen = Some(tick);
             }
+            note_growth(&mut watch.most, &mut watch.grew_at, count, tick);
             let Some(first_seen) = watch.first_seen else {
                 continue;
             };
             let past_limit = tick.saturating_sub(first_seen) >= GROUP_LIMIT_SECONDS;
-            let settled =
-                count > 0 && tick.saturating_sub(watch.stable_since) >= self.settle_seconds;
+            let complete = self
+                .expected
+                .get(group)
+                .is_some_and(|expected| *expected > 0 && count >= *expected);
+            let settled = count > 0
+                && (complete || tick.saturating_sub(watch.stable_since) >= self.settle_seconds);
             if settled || (count > 0 && past_limit) {
                 let pass = if settled { Pass::Settled } else { Pass::Limit };
                 restored_now.push((group.clone(), pass, count));
@@ -351,6 +408,8 @@ impl Restore {
                     count,
                     stable_since: tick,
                     until: tick + SECOND_PASS_SECONDS,
+                    most: count,
+                    grew_at: None,
                 },
             );
             if pass == Pass::Limit {
@@ -632,8 +691,104 @@ mod tests {
             drive(&mut restore, 151..=152, at),
             [(151, due(&[("Chrome", Pass::Late)]))]
         );
+        // Watched 5 more minutes from the second pass, then left alone.
+        assert_eq!(restore.pending(), ["Chrome"]);
+        assert!(drive(&mut restore, 153..=451, at).is_empty());
         assert!(restore.pending().is_empty());
         assert!(!restore.is_running());
+    }
+
+    #[test]
+    fn every_batch_of_late_windows_gets_its_own_pass_until_the_deadline() {
+        let mut restore = Restore::new(3, 400);
+        restore.start(0, vec!["Chrome".into()]);
+        let at = |tick: u64| {
+            let count = match tick {
+                0..=49 => 5,
+                50..=99 => 6,
+                100..=389 => 8,
+                _ => 9,
+            };
+            counts(&[("Chrome", count)])
+        };
+        let events = drive(&mut restore, 1..=450, at);
+        assert_eq!(
+            events,
+            [
+                (4, due(&[("Chrome", Pass::Settled)])),
+                (53, due(&[("Chrome", Pass::Late)])),
+                (103, due(&[("Chrome", Pass::Late)])),
+                (393, due(&[("Chrome", Pass::Late)])),
+            ]
+        );
+        assert!(
+            !restore.is_running(),
+            "the watch ends at the run's deadline"
+        );
+    }
+
+    #[test]
+    fn a_group_with_all_its_saved_windows_open_is_restored_at_once() {
+        let mut restore = Restore::new(3, 1800);
+        restore.start(0, vec!["Chrome".into(), "Telegram".into()]);
+        restore.expect(counts(&[("Chrome", 3), ("Telegram", 1)]));
+        assert_eq!(restore.step(1, &counts(&[("Chrome", 2)])), Step::default());
+        assert_eq!(
+            restore.step(2, &counts(&[("Chrome", 3), ("Telegram", 1)])),
+            due(&[("Chrome", Pass::Settled), ("Telegram", Pass::Settled)])
+        );
+    }
+
+    #[test]
+    fn an_app_whose_window_never_matches_or_flickers_loses_its_line_after_the_cap() {
+        let mut restore = Restore::new(3, 1800);
+        restore.start(0, vec!["ShareX".into(), "Surfshark".into()]);
+        let saved = expected(&[("ShareX", 1), ("Surfshark", 1)]);
+        let phase = |restore: &Restore, tick: u64, now: &[(&str, usize)]| {
+            restore
+                .progress(tick, &counts(now), &saved)
+                .into_iter()
+                .map(|entry| (entry.group, entry.phase))
+                .collect::<Vec<_>>()
+        };
+        // Surfshark opens a window for one second and hides it again; ShareX's
+        // window comes and goes every other second, so it never holds still.
+        let at = |tick: u64| {
+            let mut now = vec![];
+            if tick.is_multiple_of(2) {
+                now.push(("ShareX", 1));
+            }
+            if tick == 5 {
+                now.push(("Surfshark", 1));
+            }
+            counts(&now)
+        };
+        drive(&mut restore, 1..=10, at);
+        assert_eq!(
+            phase(&restore, 10, &[("ShareX", 1)]),
+            [
+                ("ShareX".to_string(), Phase::Settling),
+                ("Surfshark".to_string(), Phase::NotOpened)
+            ]
+        );
+        drive(&mut restore, 11..=22, at);
+        assert_eq!(
+            phase(&restore, 22, &[("ShareX", 1)])[0],
+            ("ShareX".to_string(), Phase::Quiet),
+            "its window opened first at 2 and never grew in number"
+        );
+        assert!(restore
+            .progress(22, &at(22), &saved)
+            .iter()
+            .all(|e| !e.phase.is_active()));
+    }
+
+    #[test]
+    fn a_line_is_shown_only_for_a_while_after_the_last_new_window() {
+        assert!(!line_shown(None, 5));
+        assert!(line_shown(Some(5), 5));
+        assert!(line_shown(Some(5), 5 + LINE_CAP_SECONDS - 1));
+        assert!(!line_shown(Some(5), 5 + LINE_CAP_SECONDS));
     }
 
     #[test]

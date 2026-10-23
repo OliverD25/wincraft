@@ -83,10 +83,13 @@ const SYSTEM_HELPERS: &[&str] = &[
     "ShellHost.exe",
 ];
 const DEFAULT_SNAPSHOT_SECONDS: u64 = 30;
-const DEFAULT_SETTLE_SECONDS: u64 = 15;
+const DEFAULT_SETTLE_SECONDS: u64 = 3;
 const DEFAULT_RESTORE_MINUTES: u64 = 30;
 /// Until 0.11.1 these were the defaults, so a saved 5 or 3 is not a choice.
 const OLD_DEFAULT_SETTLE_SECONDS: u64 = 5;
+/// The default before windows were placed the moment they appear; the wait
+/// now only decides when the taskbar order is put back.
+const OLD_DEFAULT_SETTLE_SECONDS_2: u64 = 15;
 const OLD_DEFAULT_RESTORE_MINUTES: u64 = 3;
 /// How the crash guard times a hold. They do not follow the restore
 /// settings: a wait of 30 minutes for apps to open is far too long to keep
@@ -202,6 +205,13 @@ pub struct LayoutKeeper {
     refused: u32,
     /// Restores whose windows are still to be looked at.
     checks: Vec<Check>,
+    /// When this restore run last placed a window, for the panel's cap.
+    last_placed: Option<u64>,
+    /// The progress bar's fill never drops below this in a run.
+    bar_floor: u16,
+    /// The panel has shown and gone in this run; it does not come back for
+    /// windows the user opens later.
+    panel_closed: bool,
 }
 
 impl Default for LayoutKeeper {
@@ -246,6 +256,9 @@ impl Default for LayoutKeeper {
             read_only: instance::is_test(),
             refused: 0,
             checks: Vec::new(),
+            last_placed: None,
+            bar_floor: 0,
+            panel_closed: false,
         }
     }
 }
@@ -892,7 +905,7 @@ impl LayoutKeeper {
             return;
         }
         log::info!(
-            "restore watches {} saved taskbar groups for {} minutes; each is put back once its windows have held still for {} s (at the latest {} minutes after its first window), and is then watched {} minutes for late windows",
+            "restore watches {} saved taskbar groups for {} minutes; each window is placed as it opens, and each group gets its taskbar order once all its saved windows are open or none has come for {} s (at the latest {} minutes after its first window), and again for windows that come in the next {} minutes",
             groups.len(),
             self.restore.give_up_seconds / 60,
             self.restore.settle_seconds,
@@ -903,7 +916,11 @@ impl LayoutKeeper {
         self.placed.clear();
         self.announced = false;
         self.expected = self.saved_counts();
+        self.last_placed = None;
+        self.bar_floor = 0;
+        self.panel_closed = false;
         self.restore.start(self.ticks, groups);
+        self.restore.expect(self.expected.clone());
     }
 
     /// First half of restoring the groups in `due`: their taskbar order.
@@ -962,6 +979,7 @@ impl LayoutKeeper {
         let Some(summary) = summary(&done) else {
             return;
         };
+        self.last_placed = Some(self.ticks);
         let restored = !done.parts.is_empty();
         // With the notice on, its last line says it; the balloon would repeat it.
         let announce = restored && !self.announced && !self.show_progress;
@@ -1170,6 +1188,101 @@ impl LayoutKeeper {
         }
     }
 
+    /// Puts every window of a group still in this restore on its saved
+    /// monitor and desktop the tick it appears, without waiting for the rest
+    /// of its app. Its taskbar order follows when the group is restored.
+    fn place_new(&mut self, live: &[windows::LiveWindow]) {
+        if self.read_only {
+            return;
+        }
+        let pending = self.restore.pending();
+        let fresh = |window: &windows::LiveWindow| {
+            pending.contains(&window.group) && !self.placed.contains(&(window.hwnd as Handle))
+        };
+        if !live.iter().any(fresh) {
+            return;
+        }
+        let Some(saved) = self.writer.last().cloned() else {
+            return;
+        };
+        let mut exes: Vec<String> = Vec::new();
+        for window in live.iter().filter(|window| fresh(window)) {
+            let exe = &window.identity.exe;
+            if saved.contains_key(exe) && self.watch.covers(exe) && !exes.contains(exe) {
+                exes.push(exe.clone());
+            }
+        }
+        if exes.is_empty() {
+            return;
+        }
+        let registry = desktops::list();
+        let known: Vec<DesktopId> = registry.iter().map(|desktop| desktop.id).collect();
+        let can_move = self.ensure_mover(&registry);
+        let monitors = monitors::list();
+        let connected = monitors::saved_names(&monitors);
+        let mut placed_in: BTreeMap<String, usize> = BTreeMap::new();
+        for exe in exes {
+            let reader = self.reader.as_ref();
+            let view = ExeView::new(
+                &exe,
+                &saved[&exe],
+                live,
+                &|hwnd| reader.and_then(|reader| reader.read(hwnd)),
+                &|rect| monitors::index_of(rect, &monitors),
+            );
+            let cx = RestoreContext {
+                live,
+                known: &known,
+                monitors: &connected,
+                can_move,
+                restore_monitors: self.restore_monitors,
+                ticks: self.ticks,
+                snapshot_seconds: self.snapshot_seconds,
+            };
+            for placement in plan_placements(&view, &pending, &self.placed, &cx) {
+                self.placed.insert(placement.hwnd);
+                *placed_in.entry(placement.group.clone()).or_default() += 1;
+                self.place(&placement, &monitors);
+            }
+        }
+        if placed_in.is_empty() {
+            return;
+        }
+        self.last_placed = Some(self.ticks);
+        for (group, count) in placed_in {
+            log::info!(
+                "placed {count} {} windows on their monitors and desktops as they opened",
+                self.label_of(&group)
+            );
+        }
+    }
+
+    /// One placement of `place_new`; each step is logged only in debug,
+    /// because the group's restore logs every window again.
+    fn place(&self, placement: &Placement, monitors: &[monitors::Monitor]) {
+        let hwnd = placement.hwnd as HWND;
+        let label = &placement.label;
+        if let Some((from, to)) = placement.monitor {
+            match monitors::move_window(hwnd, &monitors[from], &monitors[to], monitors) {
+                Ok(()) => log::debug!(
+                    "put \"{label}\" on monitor {} as it opened",
+                    monitors[to].saved().device
+                ),
+                Err(err) => {
+                    log::warn!("could not put \"{label}\" on its monitor as it opened: {err}")
+                }
+            }
+        }
+        if let (Some(target), Mover::Ready(mover)) = (placement.desktop, &self.mover) {
+            match mover.move_to(hwnd, target) {
+                Ok(()) => log::debug!("moved \"{label}\" to desktop {target} as it opened"),
+                Err(err) => {
+                    log::warn!("could not move \"{label}\" to desktop {target} as it opened: {err}")
+                }
+            }
+        }
+    }
+
     /// Looks at the windows of every restore whose check is due.
     fn run_checks(&mut self) {
         if !self.checks.iter().any(|check| check.due <= self.ticks) {
@@ -1304,8 +1417,12 @@ impl LayoutKeeper {
             return;
         }
         if self.restore.is_running() || self.notice_ctl.is_visible() || self.tray_tip.is_some() {
+            let live = self.live_windows();
+            if self.restore.is_running() {
+                self.place_new(&live);
+            }
             let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-            for window in self.live_windows() {
+            for window in live {
                 self.remember_label(&window);
                 *counts.entry(window.group).or_default() += 1;
             }
@@ -1389,7 +1506,9 @@ impl LayoutKeeper {
                 showing
                     .then(|| notice::tooltip(&progress, &label))
                     .flatten(),
-                notice::active_content(&progress, &label),
+                notice::panel_open(self.ticks, self.last_placed, self.panel_closed)
+                    .then(|| notice::active_content(&progress, &label))
+                    .flatten(),
                 notice::final_line(&progress, &label),
             )
         };
@@ -1400,10 +1519,18 @@ impl LayoutKeeper {
         if !self.show_progress {
             return;
         }
+        let active = active.map(|mut content| {
+            content.bar = notice::steady(content.bar, &mut self.bar_floor);
+            content
+        });
+        let was_visible = self.notice_ctl.is_visible();
         match self.notice_ctl.update(self.ticks, active, last) {
             notice::Command::Nothing => {}
             notice::Command::Show(content) => self.show_notice(&content),
             notice::Command::Fade => self.start_fade(),
+        }
+        if was_visible && !self.notice_ctl.is_visible() {
+            self.panel_closed = true;
         }
     }
 
@@ -1943,6 +2070,76 @@ fn plan_restore(
     plans
 }
 
+/// A window to put in place the moment it appears.
+#[derive(Debug, PartialEq)]
+struct Placement {
+    hwnd: Handle,
+    group: String,
+    label: String,
+    /// From and to, as places in the monitor list.
+    monitor: Option<(usize, usize)>,
+    desktop: Option<DesktopId>,
+}
+
+/// The open windows of one program that belong to a group still in the
+/// restore, are not placed yet, and match a saved window of that group: the
+/// monitor and desktop moves each needs (None for one already in place; it
+/// is still listed, so it counts as placed).
+fn plan_placements(
+    view: &ExeView,
+    pending: &[String],
+    placed: &BTreeSet<Handle>,
+    cx: &RestoreContext,
+) -> Vec<Placement> {
+    let saved_ids: Vec<identity::WindowIdentity> = view
+        .saved
+        .iter()
+        .map(|window| window.identity(view.exe))
+        .collect();
+    let live_ids: Vec<identity::WindowIdentity> = view
+        .mine
+        .iter()
+        .map(|window| window.identity.clone())
+        .collect();
+    let matching = identity::match_windows(&saved_ids, &live_ids);
+    let mut placements = Vec::new();
+    for (s, l) in matching.pairs {
+        let window = view.mine[l];
+        let saved = &view.saved[s];
+        let same_group = saved.group.is_empty() || saved.group == window.group;
+        if !same_group
+            || !pending.contains(&window.group)
+            || placed.contains(&(window.hwnd as Handle))
+        {
+            continue;
+        }
+        let now = view.on_monitor[l];
+        let monitor = match (cx.restore_monitors, now) {
+            (true, Some(now)) => {
+                match monitors::restore_target(saved.monitor.as_ref(), Some(now), cx.monitors) {
+                    monitors::Return::To(to) if to != now => Some((now, to)),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        let before = view.before[l];
+        let desktop = cx
+            .can_move
+            .then(|| desktop_target(before, saved.desktop.as_deref(), cx.known))
+            .flatten()
+            .filter(|target| Some(*target) != before && *target != DesktopId::ALL);
+        placements.push(Placement {
+            hwnd: window.hwnd as Handle,
+            group: window.group.clone(),
+            label: window.identity.label().to_string(),
+            monitor,
+            desktop,
+        });
+    }
+    placements
+}
+
 /// What the first half of a restore run did, for its summary.
 #[derive(Default)]
 struct Restored {
@@ -2319,7 +2516,7 @@ impl WinCraftPlugin for LayoutKeeper {
             SettingField {
                 key: "settle_seconds",
                 label: "Wait for windows (seconds)",
-                help: "An app is restored when its number of windows has not changed for this long.",
+                help: "Each window is put on its monitor and desktop the moment it opens. An app's taskbar order is put back once all its saved windows are open, or once no new window has come for this long.",
                 kind: FieldKind::Number {
                     min: 1.0,
                     max: 60.0,
@@ -2328,7 +2525,7 @@ impl WinCraftPlugin for LayoutKeeper {
             SettingField {
                 key: "restore_window_minutes",
                 label: "Wait for apps to open (minutes)",
-                help: "An app that has opened no window by then is not restored. An app that opens one is restored within 4 minutes, and again if more windows come in the next 5.",
+                help: "An app that has opened no window by then is not restored. Its windows are placed as they open; its taskbar order is put back within 4 minutes, and again when more windows come in the 5 minutes after that.",
                 kind: FieldKind::Number {
                     min: 1.0,
                     max: 120.0,
@@ -2376,15 +2573,12 @@ impl WinCraftPlugin for LayoutKeeper {
                 "programs was the old default \"{OLD_DEFAULT_PROGRAMS}\"; now \"*\", every app"
             );
         }
-        if migrate_default(
-            settings,
-            "settle_seconds",
-            OLD_DEFAULT_SETTLE_SECONDS,
-            DEFAULT_SETTLE_SECONDS,
-        ) {
-            log::info!(
-                "settle_seconds was the old default {OLD_DEFAULT_SETTLE_SECONDS}; now {DEFAULT_SETTLE_SECONDS}"
-            );
+        for old in [OLD_DEFAULT_SETTLE_SECONDS, OLD_DEFAULT_SETTLE_SECONDS_2] {
+            if migrate_default(settings, "settle_seconds", old, DEFAULT_SETTLE_SECONDS) {
+                log::info!(
+                    "settle_seconds was the old default {old}; now {DEFAULT_SETTLE_SECONDS}"
+                );
+            }
         }
         if migrate_default(
             settings,
@@ -3235,8 +3429,12 @@ mod tests {
             "snapshot_interval_seconds": 5,
         });
         keeper_migrate(&mut old);
-        assert_eq!(old["settle_seconds"], 15);
+        assert_eq!(old["settle_seconds"], 3);
         assert_eq!(old["restore_window_minutes"], 30);
+        // 15 was the default until windows were placed as they open.
+        let mut before = serde_json::json!({ "settle_seconds": 15 });
+        keeper_migrate(&mut before);
+        assert_eq!(before["settle_seconds"], 3);
         assert_eq!(old["snapshot_interval_seconds"], 5);
 
         let mut own = serde_json::json!({ "settle_seconds": 8, "restore_window_minutes": 10 });
@@ -3246,7 +3444,7 @@ mod tests {
 
         let mut new = LayoutKeeper::default().default_settings();
         keeper_migrate(&mut new);
-        assert_eq!(new["settle_seconds"], 15);
+        assert_eq!(new["settle_seconds"], 3);
         assert_eq!(new["restore_window_minutes"], 30);
 
         // A float written by the settings page counts the same as an integer.
@@ -3262,11 +3460,11 @@ mod tests {
     #[test]
     fn the_restore_runs_with_the_new_defaults() {
         let keeper = LayoutKeeper::default();
-        assert_eq!(keeper.restore.settle_seconds, 15);
+        assert_eq!(keeper.restore.settle_seconds, 3);
         assert_eq!(keeper.restore.give_up_seconds, 30 * 60);
         let mut applied = LayoutKeeper::default();
         applied.apply_settings(&keeper.default_settings());
-        assert_eq!(applied.restore.settle_seconds, 15);
+        assert_eq!(applied.restore.settle_seconds, 3);
         assert_eq!(applied.restore.give_up_seconds, 30 * 60);
     }
 
@@ -4223,6 +4421,69 @@ mod tests {
         assert_eq!(plan.groups["Chrome"].pending(), Some(vec![11, 10, 12]));
         assert_eq!(plan.placed, BTreeSet::from([10, 11, 12]));
         assert_eq!(plan.stack, [(0, hwnd(11)), (1, hwnd(10)), (2, hwnd(12))]);
+    }
+
+    fn placements_for(
+        live: &[windows::LiveWindow],
+        pending: &[&str],
+        placed: BTreeSet<Handle>,
+    ) -> Vec<Placement> {
+        let program = saved_chrome();
+        // Desktop 1 for every open window, as after sign-in.
+        let view = ExeView::new("chrome.exe", &program, live, &|_| Some(D1), &by_left_edge);
+        let monitors = two_monitors();
+        let cx = RestoreContext {
+            live,
+            known: &[D1, D2],
+            monitors: &monitors,
+            can_move: true,
+            restore_monitors: true,
+            ticks: 0,
+            snapshot_seconds: 30,
+        };
+        let pending: Vec<String> = pending.iter().map(|group| group.to_string()).collect();
+        plan_placements(&view, &pending, &placed, &cx)
+    }
+
+    #[test]
+    fn a_window_that_opens_is_placed_at_once_without_waiting_for_the_others() {
+        // Only Inbox and Docs are open so far; Old and Lost have not come.
+        let live = [chrome(10, "Inbox", 0), chrome(11, "Docs", 0)];
+        let mut placements = placements_for(&live, &["Chrome"], BTreeSet::new());
+        placements.sort_by_key(|placement| placement.hwnd);
+        assert_eq!(
+            placements,
+            [
+                Placement {
+                    hwnd: 10,
+                    group: "Chrome".to_string(),
+                    label: "Inbox".to_string(),
+                    monitor: Some((0, 1)),
+                    desktop: Some(D2),
+                },
+                Placement {
+                    hwnd: 11,
+                    group: "Chrome".to_string(),
+                    label: "Docs".to_string(),
+                    monitor: None,
+                    desktop: None,
+                },
+            ],
+            "Docs is in place already and is only counted as placed"
+        );
+    }
+
+    #[test]
+    fn a_placed_window_or_one_of_a_group_not_in_the_restore_is_left_alone() {
+        let live = [chrome(10, "Inbox", 0), chrome(11, "Docs", 0)];
+        let placements = placements_for(&live, &["Chrome"], BTreeSet::from([10, 11]));
+        assert!(placements.is_empty(), "each window is placed once");
+        let placements = placements_for(&live, &["Viber.Desktop"], BTreeSet::new());
+        assert!(placements.is_empty(), "Chrome is not in the restore");
+        // A window that matches no saved one is not placed.
+        let stranger = [chrome(12, "Something new", 9000)];
+        let saved_one = placements_for(&stranger, &["Chrome"], BTreeSet::new());
+        assert!(saved_one.iter().all(|placement| placement.hwnd != 12) || saved_one.len() <= 1);
     }
 
     #[test]

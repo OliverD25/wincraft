@@ -84,23 +84,31 @@ never held. The log says when a hold starts and ends.
 
 ## Restoring
 
-Apps open their windows at their own pace after you sign in, so each app's
-taskbar group is restored on its own, and each group has its own clock. The
-clock starts when the group's first window appears, not when WinCraft
-starts. The group is restored once its number of windows has not changed for
-15 seconds. If the number keeps changing, the group is restored 4 minutes
-after its first window with the windows that are open then.
+Apps open their windows at their own pace after you sign in. **Each window
+is put on its saved monitor and desktop the moment it appears**, within a
+second, without waiting for the rest of its app; the log says "placed 5
+Chrome windows on their monitors and desktops as they opened". A window is
+placed once; after that it stays where you put it.
+
+The taskbar order, and the front-to-back order, are put back per taskbar
+group, because the order needs the whole group. Each group has its own
+clock, which starts when its first window appears, not when WinCraft starts.
+A group gets its order as soon as all its saved windows are open, or once no
+window has come or gone for 3 seconds (**Wait for windows**). If the number
+keeps changing, the group gets its order 4 minutes after its first window
+with the windows that are open then. Settings that still had the old
+defaults of 5 or 15 seconds are changed to 3.
 
 - A group that has opened no window is waited for 30 minutes after WinCraft
   starts. Chrome is the usual reason: Windows can start it without a window,
   and it opens its windows only when you first open it.
-- After a group is restored it is watched for 5 more minutes. If more of its
-  windows come in during that time and their number holds still, the group is
-  restored a second time. The second pass moves the new windows to their
-  saved desktops and rebuilds the taskbar order. Windows the first pass
-  already placed stay on the desktop they are on then, so a window you moved
-  yourself is not taken back, and the front-to-back order is not touched.
-  Then the group is left alone.
+- After a group is restored it is watched for 5 more minutes. Each time more
+  of its windows come in during that time and their number holds still, the
+  taskbar order is rebuilt again with them, and the group is watched 5
+  minutes more from then, but never past the 30-minute wait. The new windows
+  were already placed when they appeared; windows placed earlier stay on the
+  desktop they are on then, so a window you moved yourself is not taken
+  back, and the front-to-back order is not touched.
 - An app you open later than that is left where you put it. Apps with
   nothing saved are not touched.
 
@@ -137,17 +145,38 @@ window and which were restored only because of the 4-minute limit.
 
 While windows are being put back, a small panel at the bottom right of the
 main monitor asks you to wait, so you do not start moving windows at the same
-time. It lists each app that has opened windows and is not done yet ("Chrome:
+time. It lists each app that has windows open and is not done yet ("Chrome:
 12 of 22 opened, waiting for the rest", "Claude: moving 4 windows"), and
-which apps are done. It never stays for an app that has opened no window. It
-cannot be clicked and never takes the focus. When nothing is waiting any more
-it says "Layout restored: 22 Chrome windows, 6 apps" for 4 seconds and
-fades. If some apps never opened a window within the wait, it says
-"Layout restored, 2 apps skipped", and the tray icon's tooltip names them.
+which apps are done. It cannot be clicked and never takes the focus. When
+nothing is moving any more it says "Layout restored: 22 Chrome windows, 6
+apps" for 4 seconds and fades. If some apps never opened a window within the
+wait, it says "Layout restored, 2 apps skipped", and the tray icon's tooltip
+names them.
+
+The panel never waits for an app that is not opening windows:
+
+- An app with no window open has no line, whether it has not opened one yet
+  (Surfshark or ShareX, which start hidden in the tray) or closed the one it
+  had. If it opens its window later, the window is still placed, without
+  the panel.
+- An app's line goes away 20 seconds after its last new window, even if it
+  has fewer windows open than were saved, or a window that matches none of
+  the saved ones.
+- The whole panel closes at the latest 60 seconds after the last window was
+  placed.
+- It shows at most once per restore. Once it has faded, windows that open
+  later (Explorer, when you open a folder) are placed or left alone without
+  it.
+
+The bar counts the windows of the apps that have opened at least one, so it
+can reach its end while other apps stay in the tray. When another app opens
+its first window, the numbers grow, but the bar does not move back.
 
 While a restore runs, the tray icon's tooltip shows the same progress, for
 example "WinCraft - restoring layout: Chrome 12/22 settling; waiting for 3
-apps to open". With **Show restore progress** on, the panel's last line takes
+apps to open". When nothing is moving but some apps have not opened their
+windows yet, it says "WinCraft - layout restored; waiting for 3 apps to
+open" until the 30-minute wait ends. With **Show restore progress** on, the panel's last line takes
 the place of the notification balloon; with it off there is no panel and no
 tooltip, and the balloon stays.
 
@@ -430,7 +459,7 @@ saved order.
 | Programs | `*` | `*` for every app, or exe names separated by commas. |
 | Never touch | (empty) | Exe names to leave alone, separated by commas. Windows' helper processes are always left alone. |
 | Restore on start | on | After you sign in to Windows, restore once the windows have settled. Only a start within 15 minutes of signing in restores (the time is the logon time of your Windows session, so fast startup does not fool it). A later start, such as after an update or a restart of WinCraft, restores nothing and shows no panel; the log says why. **Restore now** and `Win+Alt+L` work at any time. |
-| Wait for windows (seconds) | 15 | How long a group's window count must hold still. |
+| Wait for windows (seconds) | 3 | How long a group's window count must hold still before its taskbar order is put back. Windows are placed on their monitor and desktop at once, whatever this says. |
 | Wait for apps to open (minutes) | 30 | How long to wait for an app that has opened no window yet. |
 | Save every (seconds) | 30 | How often the layout is saved when it changed. |
 | Show restore progress | on | The please-wait panel and the tray tooltip while windows are put back. |

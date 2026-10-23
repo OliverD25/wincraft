@@ -74,6 +74,34 @@ pub struct Bar {
     pub total: usize,
     /// The restore is over, so the bar is full and drawn in the success colour.
     pub finished: bool,
+    /// The fill never drops below this, in thousandths: the total grows when
+    /// another app opens its first window, and the bar must not run back.
+    /// The words always say the true numbers.
+    pub least: u16,
+}
+
+/// The longest the panel stays up after the last window was placed. Every
+/// line has its own cap too; this one makes sure nothing at all, not even a
+/// group stuck in some state, keeps the panel on screen.
+pub const PANEL_MAX_SECONDS: u64 = 60;
+
+/// Whether the panel may show activity at `tick`, given when a window was
+/// last placed (None: nothing placed yet in this run) and whether it has
+/// already shown and gone in this run. It shows at most once per restore:
+/// windows the user opens later are placed without it.
+pub fn panel_open(tick: u64, last_placed: Option<u64>, closed: bool) -> bool {
+    !closed && last_placed.is_none_or(|at| tick.saturating_sub(at) <= PANEL_MAX_SECONDS)
+}
+
+/// `bar` with its fill held at the highest share shown so far in this run,
+/// which `floor` keeps.
+pub fn steady(bar: Option<Bar>, floor: &mut u16) -> Option<Bar> {
+    bar.map(|mut bar| {
+        let share = (bar.done.min(bar.total) * 1000 / bar.total.max(1)) as u16;
+        *floor = (*floor).max(share);
+        bar.least = *floor;
+        bar
+    })
 }
 
 impl Bar {
@@ -82,14 +110,16 @@ impl Bar {
     }
 }
 
-/// Windows put back and windows expected, summed over every app that is not
-/// skipped. An app that is restored counts in full, so the first number only
-/// grows as the run goes on; an app still opening counts the windows it has,
-/// never more than the saved layout holds. None when no window is expected.
+/// Windows put back and windows expected, summed over every app that has
+/// opened a window and is not skipped. Apps that have opened nothing do not
+/// count, so the bar can reach its end while they stay in the tray. An app
+/// that is restored counts in full, so the first number only grows as the
+/// run goes on; an app still opening counts the windows it has, never more
+/// than the saved layout holds. None when no window is expected.
 pub fn overall_progress(progress: &[Progress]) -> Option<(usize, usize)> {
     let (mut done, mut total) = (0, 0);
     for entry in progress {
-        if entry.phase == Phase::Skipped {
+        if matches!(entry.phase, Phase::Skipped | Phase::NotOpened) {
             continue;
         }
         let all = entry.expected.max(entry.count);
@@ -107,6 +137,7 @@ fn bar_for(progress: &[Progress]) -> Option<Bar> {
         done,
         total,
         finished: false,
+        least: 0,
     })
 }
 
@@ -217,6 +248,7 @@ pub fn final_line(progress: &[Progress], label: &dyn Fn(&str) -> String) -> Opti
         done: total,
         total,
         finished: true,
+        least: 1000,
     });
     Some(Content {
         title,
@@ -285,7 +317,7 @@ pub fn tooltip(progress: &[Progress], label: &dyn Fn(&str) -> String) -> Option<
         .collect();
     let waiting = progress
         .iter()
-        .filter(|entry| entry.phase == Phase::NotOpened)
+        .filter(|entry| matches!(entry.phase, Phase::NotOpened | Phase::Quiet))
         .count();
     let skipped: Vec<String> = progress
         .iter()
@@ -593,7 +625,8 @@ fn draw_bar(
     track: Color32,
 ) {
     let (left, top, length, thick) = rect;
-    let share = bar.done.min(bar.total) as f32 / bar.total.max(1) as f32;
+    let share = (bar.done.min(bar.total) as f32 / bar.total.max(1) as f32)
+        .max(f32::from(bar.least.min(1000)) / 1000.0);
     let filled = match (share * length as f32).round() as i32 {
         0 => 0,
         part => part.max(thick).min(length),
@@ -926,7 +959,7 @@ mod tests {
         assert_eq!(
             tooltip(&list, &name).as_deref(),
             Some(
-                "WinCraft \u{2014} restoring layout (12 of 25 windows): Chrome 12/22 settling; waiting for 3 apps to open"
+                "WinCraft \u{2014} restoring layout (12 of 22 windows): Chrome 12/22 settling; waiting for 3 apps to open"
             )
         );
         let only_waiting = [
@@ -1110,6 +1143,7 @@ mod tests {
                 done: 3,
                 total: 10,
                 finished: false,
+                least: 0,
             }),
         };
         for scale in [1.0, 1.5, 2.0] {
@@ -1174,15 +1208,17 @@ mod tests {
             progress("Viber", Phase::NotOpened, 0, 1),
             progress("Zoom", Phase::Skipped, 0, 3),
         ];
-        // Skipped windows are not expected any more: 12 + 4 + 1 + 0 of 22 + 4 + 1 + 1.
-        assert_eq!(overall_progress(&list), Some((17, 28)));
+        // Skipped windows are not expected any more, and Viber has opened
+        // nothing: 12 + 4 + 1 of 22 + 4 + 1.
+        assert_eq!(overall_progress(&list), Some((17, 27)));
         let content = active_content(&list, &name).unwrap();
         assert_eq!(
             content.bar,
             Some(Bar {
                 done: 17,
-                total: 28,
-                finished: false
+                total: 27,
+                finished: false,
+                least: 0
             })
         );
     }
@@ -1230,9 +1266,128 @@ mod tests {
         ];
         let done: Vec<usize> = steps
             .iter()
-            .map(|step| overall_progress(step).unwrap().0)
+            .map(|step| overall_progress(step).map_or(0, |(done, _)| done))
             .collect();
         assert_eq!(done, [0, 2, 5, 6]);
+    }
+
+    #[test]
+    fn the_bar_counts_only_apps_that_opened_a_window_and_never_runs_back() {
+        let mut floor = 0;
+        // Chrome is done; Surfshark and ShareX are still in the tray.
+        let early = [
+            progress("Chrome", Phase::Done, 24, 24),
+            progress("Surfshark", Phase::NotOpened, 0, 1),
+            progress("ShareX", Phase::NotOpened, 0, 1),
+        ];
+        let bar = steady(active_bar(&early), &mut floor).unwrap();
+        assert_eq!((bar.done, bar.total, bar.least), (24, 24, 1000));
+        // Telegram opens its first window: the total grows, the fill stays.
+        let later = [
+            progress("Chrome", Phase::Done, 24, 24),
+            progress("Telegram", Phase::Settling, 1, 2),
+        ];
+        let bar = steady(active_bar(&later), &mut floor).unwrap();
+        assert_eq!((bar.done, bar.total), (25, 26), "the words are true");
+        assert_eq!(bar.least, 1000, "the fill does not run back");
+    }
+
+    fn active_bar(list: &[Progress]) -> Option<Bar> {
+        overall_progress(list).map(|(done, total)| Bar {
+            done,
+            total,
+            finished: false,
+            least: 0,
+        })
+    }
+
+    #[test]
+    fn the_panel_closes_at_the_latest_a_minute_after_the_last_window_was_placed() {
+        assert!(
+            panel_open(10, None, false),
+            "nothing placed yet; each line has its cap"
+        );
+        assert!(panel_open(70, Some(10), false));
+        assert!(!panel_open(71, Some(10), false));
+        assert!(!panel_open(20, Some(10), true), "it has shown once already");
+    }
+
+    #[test]
+    fn once_the_panel_has_gone_a_window_the_user_opens_later_brings_no_panel() {
+        let mut controller = Controller::default();
+        let mut closed = false;
+        let mut step = |tick: u64, active: Option<Content>, last: Option<Content>| {
+            let was_visible = controller.is_visible();
+            let open = panel_open(tick, Some(1), closed);
+            let command = controller.update(tick, active.filter(|_| open), last);
+            if was_visible && !controller.is_visible() {
+                closed = true;
+            }
+            (command, controller.is_visible())
+        };
+        let moving = [progress("Chrome", Phase::Moving, 24, 24)];
+        let done = [progress("Chrome", Phase::Done, 24, 24)];
+        assert!(matches!(
+            step(1, active_content(&moving, &name), None).0,
+            Command::Show(_)
+        ));
+        assert!(matches!(
+            step(3, None, final_line(&done, &name)).0,
+            Command::Show(_)
+        ));
+        assert_eq!(
+            step(3 + FINAL_HOLD_SECONDS, None, final_line(&done, &name)),
+            (Command::Fade, false)
+        );
+        // Ten seconds later the user opens Explorer, which had 3 saved windows.
+        let explorer = [
+            progress("Chrome", Phase::Done, 24, 24),
+            progress("Explorer", Phase::Settling, 1, 3),
+        ];
+        assert_eq!(
+            step(
+                20,
+                active_content(&explorer, &name),
+                final_line(&explorer, &name)
+            ),
+            (Command::Nothing, false)
+        );
+    }
+
+    #[test]
+    fn an_app_with_one_open_window_that_matches_nothing_does_not_hold_the_panel() {
+        let mut restore = super::super::restore::Restore::new(3, 1800);
+        restore.start(0, vec!["ShareX".into(), "Chrome".into()]);
+        let saved: std::collections::BTreeMap<String, usize> =
+            [("ShareX".to_string(), 1), ("Chrome".to_string(), 2)].into();
+        restore.expect(saved.clone());
+        let mut controller = Controller::default();
+        let mut shown_until = 0;
+        let mut floor = 0;
+        for tick in 1..=200u64 {
+            // ShareX's open window is not the saved one, and it flickers, so
+            // its count never holds still; Chrome never opens.
+            let counts: std::collections::BTreeMap<String, usize> =
+                [("ShareX".to_string(), (tick % 2) as usize)].into();
+            restore.step(tick, &counts);
+            let progress = restore.progress(tick, &counts, &saved);
+            let active = panel_open(tick, None, false)
+                .then(|| active_content(&progress, &name))
+                .flatten()
+                .map(|mut content| {
+                    content.bar = steady(content.bar, &mut floor);
+                    content
+                });
+            let last = final_line(&progress, &name);
+            if controller.update(tick, active, last) != Command::Nothing || controller.is_visible()
+            {
+                shown_until = tick;
+            }
+        }
+        assert!(
+            shown_until <= super::super::restore::LINE_CAP_SECONDS + FINAL_HOLD_SECONDS + 1,
+            "the panel was still up at {shown_until}"
+        );
     }
 
     #[test]
@@ -1247,7 +1402,8 @@ mod tests {
             Some(Bar {
                 done: 22,
                 total: 22,
-                finished: true
+                finished: true,
+                least: 1000
             })
         );
         assert!(last.lines.is_empty());
@@ -1255,7 +1411,8 @@ mod tests {
             Bar {
                 done: 1,
                 total: 1,
-                finished: false
+                finished: false,
+                least: 0
             }
             .label(),
             "1 of 1 window"
@@ -1264,7 +1421,8 @@ mod tests {
             Bar {
                 done: 7,
                 total: 10,
-                finished: false
+                finished: false,
+                least: 0
             }
             .label(),
             "7 of 10 windows"
@@ -1282,6 +1440,7 @@ mod tests {
             done: 5,
             total: 10,
             finished: false,
+            least: 0,
         };
         let plain = render(&with(None), 1.0, &tokens).expect("GDI draws the panel");
         let barred = render(&with(Some(bar)), 1.0, &tokens).expect("GDI draws the panel");
@@ -1313,6 +1472,7 @@ mod tests {
             done: 10,
             total: 10,
             finished: true,
+            least: 0,
         };
         draw_bar(
             &mut full,
