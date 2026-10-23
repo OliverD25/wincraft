@@ -76,6 +76,25 @@ fn main() {
         return;
     }
 
+    // A read-only look at the taskbar's thumbnail popup that runs beside the
+    // user's WinCraft: before the single-instance guard, which would end it,
+    // and before logging::init, which would empty the running one's log.
+    if let Some(seconds) = plugins::layout_keeper::thumbnail_probe::seconds_from_args(&args) {
+        let code = match seconds {
+            Ok(seconds) => {
+                unsafe {
+                    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
+                };
+                plugins::layout_keeper::thumbnail_probe::run(seconds)
+            }
+            Err(reason) => {
+                let _ = writeln!(std::io::stdout(), "{reason}");
+                2
+            }
+        };
+        std::process::exit(code);
+    }
+
     // Also before logging::init, for the same reason as the probe.
     if has_flag(&args, "--quit") {
         let outcome = quit::run(quit::TIMEOUT);

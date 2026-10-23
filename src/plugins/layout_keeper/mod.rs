@@ -7,6 +7,7 @@ pub(crate) mod notice;
 mod order;
 mod restore;
 mod state;
+pub mod thumbnail_probe;
 mod verify;
 mod windows;
 

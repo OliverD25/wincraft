@@ -6,23 +6,20 @@ use std::ffi::c_void;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use windows_sys::core::{IUnknown_Vtbl, BSTR, GUID, HRESULT, PWSTR};
+use windows_sys::core::{GUID, PWSTR};
 use windows_sys::Win32::Foundation::POINT;
 use windows_sys::Win32::System::Com::{
-    CLSIDFromString, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
-    COINIT_MULTITHREADED,
+    CLSIDFromString, CoInitializeEx, CoTaskMemFree, CoUninitialize, COINIT_MULTITHREADED,
 };
 use windows_sys::Win32::UI::Shell::SHGetKnownFolderPath;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetAncestor, GetCursorPos, WindowFromPoint, GA_ROOT,
 };
 
-use crate::core::com::{self, ComPtr};
+use crate::core::com;
+use crate::core::uia::{self, Automation};
 use crate::core::windows_list::class_name;
 use crate::core::{from_wide_ptr, wide};
-
-const CLSID_CUI_AUTOMATION: GUID = GUID::from_u128(0xff48dba4_60ef_4201_aa87_54103eef594e);
-const IID_IUI_AUTOMATION: GUID = GUID::from_u128(0x30cbe57d_d9d0_452a_ab13_7ac5ac4825ee);
 
 const BUTTON_CLASS: &str = "Taskbar.TaskListButtonAutomationPeer";
 const ID_PREFIX: &str = "Appid: ";
@@ -30,67 +27,6 @@ const ID_PREFIX: &str = "Appid: ";
 /// a level or two below the button itself.
 const MAX_DEPTH: usize = 5;
 const TIMEOUT: Duration = Duration::from_millis(300);
-
-// Slot orders follow UIAutomationClient.h (Windows SDK 10.0.26100.0).
-
-#[repr(C)]
-struct IUIAutomationVtbl {
-    _base: IUnknown_Vtbl,
-    _compare_elements: unsafe extern "system" fn(),
-    _compare_runtime_ids: unsafe extern "system" fn(),
-    _get_root_element: unsafe extern "system" fn(),
-    _element_from_handle: unsafe extern "system" fn(),
-    element_from_point: unsafe extern "system" fn(*mut c_void, POINT, *mut *mut c_void) -> HRESULT,
-    _get_focused_element: unsafe extern "system" fn(),
-    _get_root_element_build_cache: unsafe extern "system" fn(),
-    _element_from_handle_build_cache: unsafe extern "system" fn(),
-    _element_from_point_build_cache: unsafe extern "system" fn(),
-    _get_focused_element_build_cache: unsafe extern "system" fn(),
-    _create_tree_walker: unsafe extern "system" fn(),
-    _get_control_view_walker: unsafe extern "system" fn(),
-    _get_content_view_walker: unsafe extern "system" fn(),
-    get_raw_view_walker: unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> HRESULT,
-}
-
-#[repr(C)]
-struct IUIAutomationTreeWalkerVtbl {
-    _base: IUnknown_Vtbl,
-    get_parent_element:
-        unsafe extern "system" fn(*mut c_void, *mut c_void, *mut *mut c_void) -> HRESULT,
-}
-
-#[repr(C)]
-struct IUIAutomationElementVtbl {
-    _base: IUnknown_Vtbl,
-    _set_focus: unsafe extern "system" fn(),
-    _get_runtime_id: unsafe extern "system" fn(),
-    _find_first: unsafe extern "system" fn(),
-    _find_all: unsafe extern "system" fn(),
-    _find_first_build_cache: unsafe extern "system" fn(),
-    _find_all_build_cache: unsafe extern "system" fn(),
-    _build_updated_cache: unsafe extern "system" fn(),
-    _get_current_property_value: unsafe extern "system" fn(),
-    _get_current_property_value_ex: unsafe extern "system" fn(),
-    _get_cached_property_value: unsafe extern "system" fn(),
-    _get_cached_property_value_ex: unsafe extern "system" fn(),
-    _get_current_pattern_as: unsafe extern "system" fn(),
-    _get_cached_pattern_as: unsafe extern "system" fn(),
-    _get_current_pattern: unsafe extern "system" fn(),
-    _get_cached_pattern: unsafe extern "system" fn(),
-    _get_cached_parent: unsafe extern "system" fn(),
-    _get_cached_children: unsafe extern "system" fn(),
-    _get_current_process_id: unsafe extern "system" fn(),
-    _get_current_control_type: unsafe extern "system" fn(),
-    _get_current_localized_control_type: unsafe extern "system" fn(),
-    _get_current_name: unsafe extern "system" fn(),
-    _get_current_accelerator_key: unsafe extern "system" fn(),
-    _get_current_access_key: unsafe extern "system" fn(),
-    _get_current_has_keyboard_focus: unsafe extern "system" fn(),
-    _get_current_is_keyboard_focusable: unsafe extern "system" fn(),
-    _get_current_is_enabled: unsafe extern "system" fn(),
-    get_current_automation_id: unsafe extern "system" fn(*mut c_void, *mut BSTR) -> HRESULT,
-    get_current_class_name: unsafe extern "system" fn(*mut c_void, *mut BSTR) -> HRESULT,
-}
 
 /// The app ID of the taskbar button under the mouse, without the
 /// `Appid: ` prefix, or `None` when the mouse is not on an app button.
@@ -151,57 +87,19 @@ fn on_worker(point: POINT) -> Result<Option<String>, String> {
 }
 
 fn button_at(point: POINT) -> Result<Option<String>, String> {
-    let automation = ComPtr::create(
-        &CLSID_CUI_AUTOMATION,
-        &IID_IUI_AUTOMATION,
-        CLSCTX_INPROC_SERVER,
-    )
-    .map_err(|hr| format!("UI Automation is unavailable ({})", com::hex(hr)))?;
-    let vtable = unsafe { automation.vtable::<IUIAutomationVtbl>() };
-
-    let mut raw = std::ptr::null_mut();
-    let hr = unsafe { (vtable.get_raw_view_walker)(automation.as_raw(), &mut raw) };
-    let walker = (hr >= 0)
-        .then(|| ComPtr::from_raw(raw))
-        .flatten()
-        .ok_or_else(|| format!("RawViewWalker failed ({})", com::hex(hr)))?;
-
-    let mut raw = std::ptr::null_mut();
-    let hr = unsafe { (vtable.element_from_point)(automation.as_raw(), point, &mut raw) };
-    let mut element = (hr >= 0)
-        .then(|| ComPtr::from_raw(raw))
-        .flatten()
-        .ok_or_else(|| format!("ElementFromPoint failed ({})", com::hex(hr)))?;
-
+    let automation = Automation::new()?;
+    let mut element = automation.element_from_point(point.x, point.y)?;
     for _ in 0..MAX_DEPTH {
-        let element_vtable = unsafe { element.vtable::<IUIAutomationElementVtbl>() };
-        let class = bstr_property(&element, element_vtable.get_current_class_name);
-        if class.as_deref() == Some(BUTTON_CLASS) {
-            let id = bstr_property(&element, element_vtable.get_current_automation_id);
+        if uia::class_name(&element).as_deref() == Some(BUTTON_CLASS) {
+            let id = uia::automation_id(&element);
             return Ok(id.map(|id| strip_prefix(&id).to_string()));
         }
-        let mut raw = std::ptr::null_mut();
-        let hr = unsafe {
-            (walker
-                .vtable::<IUIAutomationTreeWalkerVtbl>()
-                .get_parent_element)(walker.as_raw(), element.as_raw(), &mut raw)
-        };
-        match (hr >= 0).then(|| ComPtr::from_raw(raw)).flatten() {
+        match automation.parent(&element) {
             Some(parent) => element = parent,
             None => break,
         }
     }
     Ok(None)
-}
-
-fn bstr_property(
-    element: &ComPtr,
-    getter: unsafe extern "system" fn(*mut c_void, *mut BSTR) -> HRESULT,
-) -> Option<String> {
-    let mut value: BSTR = std::ptr::null();
-    let hr = unsafe { getter(element.as_raw(), &mut value) };
-    let text = unsafe { com::take_bstr(value) };
-    com::ok(hr).then_some(text).flatten()
 }
 
 fn strip_prefix(id: &str) -> &str {

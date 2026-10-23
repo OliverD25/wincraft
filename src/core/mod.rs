@@ -24,6 +24,7 @@ pub mod tips;
 pub mod traits;
 pub mod tray;
 pub mod ui_bridge;
+pub mod uia;
 pub mod update;
 pub mod update_notice;
 pub mod version_info;
