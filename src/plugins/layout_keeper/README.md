@@ -365,9 +365,20 @@ the one you picked last (`arrange_view` in the settings file). Until you
 pick one, it is **By monitor** with two or more monitors and **Flat** with
 one.
 
+Both views show **only this desktop** when they open, every time. Under its
+windows, a small link reads "+ 2 other desktops" (the count is the other
+desktops that have windows of the app; there is no link when there are
+none). Click it, or press **D**, to show the other desktops; the link then
+reads "Hide other desktops". The strip is shorter while they are hidden. A
+window moved to a hidden desktop with Shift+↑ or Shift+↓ opens them, to show
+where it went, and so does a picture dragged onto the link and held there for
+a moment (then it can be dropped in one of their rows). They stay open until
+you hide them or close the strip. The right-click **Move to desktop** works
+as always.
+
 **By monitor** is a map of your desk. There is one band per virtual
-desktop: this desktop first, its name in the accent colour, then the others
-in Task View order, slightly faded. A desktop with none of the app's windows
+desktop: this desktop first, its name in the accent colour, then (when
+shown) the others in Task View order, slightly faded. A desktop with none of the app's windows
 is just its header. Inside a band there is one column per monitor, from left
 to right as the monitors stand, each as wide as its monitor is next to the
 others (never narrower than 240 pixels; if the columns still do not fit, that
@@ -394,10 +405,11 @@ box to drop a window into.
   move it within its column; Shift+← and Shift+→ move it to the end of the
   next monitor's column; Shift+↑ and Shift+↓ move it to the next desktop, on
   the same monitor (or the main one when its own is unplugged). Enter
-  switches to the window, Esc closes the strip. The footer lists the keys.
+  switches to the window, D shows or hides the other desktops, Esc closes the
+  strip. The footer lists the keys.
 
 **Flat** is the strip as it was before WinCraft 0.13: one row per virtual
-desktop, this desktop first, then the others under their names. A window
+desktop, this desktop first, then (when shown) the others under their names. A window
 that is not on the primary monitor has a small label above its picture
 saying which monitor it is on ("Left", "Right").
 
@@ -415,17 +427,18 @@ its height; beyond that the mouse wheel scrolls it. In both views:
 - **Click** a picture to switch to that window; the strip closes.
 - **Drag** a picture to a new place. Every change goes to the taskbar at once
   and is saved. Dropping it in another desktop's row moves the window to
-  that desktop.
+  that desktop (show the other desktops first, or hold the picture over the
+  link).
 - **Right-click** for **Close window** and **Move to desktop**. Closing is
   only offered here, never on a key.
 - **Keyboard (Flat):** ← and → pick a window, Ctrl+← and Ctrl+→ move it,
-  Enter switches to it, Esc closes the strip. The strip also closes when you
-  click elsewhere.
+  D shows or hides the other desktops, Enter switches to it, Esc closes the
+  strip. The strip also closes when you click elsewhere.
 
 The taskbar only shows the current desktop's buttons, and Windows cannot
 rebuild a button without bringing its window to the current desktop. So a
 new order for windows on other desktops is saved at once but reaches their
-taskbar at the next restore; the strip says so when more than one desktop is
+taskbar at the next restore; the strip says so while other desktops are
 shown.
 
 ### Without the mouse
@@ -446,7 +459,10 @@ The mouse way to reorder is the Arrange windows strip. Dragging a thumbnail
 inside the taskbar's own flyout is not possible from outside Explorer on
 Windows 11 24H2: the flyout exposes no accessible thumbnail items, so another
 program cannot tell which thumbnail is under the pointer (probed on
-2026-09-25). The Windhawk mod "Taskbar Thumbnail Reorder" still works for
+2026-09-25). To check this again on a newer Windows, run
+`wincraft --probe-thumbnails` and hover a taskbar button for 30 seconds: it
+only reads, and writes what it saw to a `probe-thumbnails-*.txt` file in
+`%LOCALAPPDATA%\WinCraft`. The Windhawk mod "Taskbar Thumbnail Reorder" still works for
 reordering by hand, but it changes the order inside Explorer where WinCraft
 cannot see it, so the next restore replaces its changes with LayoutKeeper's
 saved order.

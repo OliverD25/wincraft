@@ -26,6 +26,7 @@ use crate::ui::widgets::{choice, focus, text};
 
 mod by_monitor;
 mod hold;
+mod others;
 
 /// Unique, so the strip's window can be found among the UI thread's windows.
 const TITLE: &str = "WinCraft Arrange";
@@ -116,6 +117,16 @@ pub fn rows(group: &ArrangeGroup, desktops: &[ArrangeDesktop]) -> Vec<Row> {
     rows
 }
 
+/// The rows on screen: only this desktop's until the other desktops are
+/// shown.
+fn shown_rows(group: &ArrangeGroup, desktops: &[ArrangeDesktop], shown: bool) -> Vec<Row> {
+    let mut rows = rows(group, desktops);
+    if !shown {
+        rows.truncate(1);
+    }
+    rows
+}
+
 /// How many cards fit on one line within `width`.
 pub fn cards_per_line(width: f32) -> usize {
     (((width - 2.0 * PADDING + CARD_GAP) / (CARD.x + CARD_GAP)).floor() as usize).max(1)
@@ -123,8 +134,9 @@ pub fn cards_per_line(width: f32) -> usize {
 
 /// The panel size for the rows: as wide as the widest row needs, at most
 /// `limit.x`, with longer rows wrapping onto more lines; as tall as that
-/// makes it, at most `limit.y`, beyond which the rows scroll.
-pub fn panel_size(rows: &[Row], limit: Vec2) -> Vec2 {
+/// makes it, at most `limit.y`, beyond which the rows scroll. `link` makes
+/// room for the line that opens the other desktops.
+pub fn panel_size(rows: &[Row], link: bool, limit: Vec2) -> Vec2 {
     let widest = rows
         .iter()
         .map(|row| row.members.len())
@@ -142,7 +154,8 @@ pub fn panel_size(rows: &[Row], limit: Vec2) -> Vec2 {
         .sum();
     let count = rows.len().max(1) as f32;
     let footer = if rows.len() > 1 { FOOTER } else { 0.0 };
-    let height = 2.0 * PADDING + lines + (count - 1.0) * ROW_GAP + footer + SLACK;
+    let link = if link { others::LINK_HEIGHT } else { 0.0 };
+    let height = 2.0 * PADDING + lines + (count - 1.0) * ROW_GAP + link + footer + SLACK;
     vec2(width.min(limit.x), height.min(limit.y))
 }
 
@@ -225,6 +238,8 @@ struct Shared {
     forced_peek: Option<PeekCard>,
     /// Losing the focus does not close the strip before this.
     keep_open_until: Option<Instant>,
+    /// Whether the other desktops are shown; closed whenever the strip opens.
+    others: others::Others,
 }
 
 impl Shared {
@@ -250,6 +265,14 @@ impl Shared {
             })
     }
 
+    /// How many other desktops have windows of the group on screen.
+    fn others_count(&self) -> usize {
+        match (self.group(), &self.snapshot) {
+            (Some(group), Some(snapshot)) => others::count(group, &snapshot.desktops),
+            _ => 0,
+        }
+    }
+
     fn panel(&self) -> Vec2 {
         let limit = self
             .monitor
@@ -257,10 +280,13 @@ impl Shared {
             .unwrap_or(vec2(1600.0, 900.0));
         match (self.group(), &self.snapshot) {
             (Some(group), Some(snapshot)) if self.view() == ArrangeView::ByMonitor => {
-                by_monitor::panel_for(group, snapshot, limit)
+                let count = self.others_count();
+                by_monitor::panel_for(group, snapshot, self.others.shown(count), count > 0, limit)
             }
             (Some(group), Some(snapshot)) => {
-                let mut size = panel_size(&rows(group, &snapshot.desktops), limit);
+                let count = self.others_count();
+                let rows = shown_rows(group, &snapshot.desktops, self.others.shown(count));
+                let mut size = panel_size(&rows, count > 0, limit);
                 size.y = (size.y + SWITCHER).min(limit.y);
                 size.x = size
                     .x
@@ -302,6 +328,7 @@ impl Arrange {
                 hover: Hover::default(),
                 forced_peek: None,
                 keep_open_until: None,
+                others: others::Others::default(),
             })),
             palette_hwnd,
         }
@@ -322,6 +349,10 @@ impl Arrange {
         shared.focused_once = false;
         shared.cursor = None;
         shared.drag = None;
+        shared.others.reset();
+        shared.row_rects.clear();
+        shared.card_rects.clear();
+        shared.zones.clear();
         shared.monitor = Monitor::under_pointer();
     }
 
@@ -365,6 +396,7 @@ impl Arrange {
             shared.closed = false;
             shared.window = 0;
             shared.drag = None;
+            shared.others.reset();
             shared.thumbs.clear();
             shared.hide_peek();
             shared.forced_peek = None;
@@ -656,6 +688,15 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     let ctx = ui.ctx().clone();
     let ppp = ctx.pixels_per_point();
     let menu_open = egui::Popup::is_any_open(&ctx);
+    let others_count = others::count(&group, &snapshot.desktops);
+    if others_count > 0
+        && !menu_open
+        && shared.drag.is_none()
+        && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::D))
+    {
+        shared.others.toggle();
+        ctx.request_repaint();
+    }
     let mut frame = match view {
         ArrangeView::ByMonitor => by_monitor::body(ui, shared, &group, &snapshot, panel, menu_open),
         _ => {
@@ -807,7 +848,8 @@ fn flat(
     menu_open: bool,
 ) -> Frame {
     let tokens = Tokens::get(ui.ctx());
-    let rows = rows(group, desktops);
+    let others_count = others::count(group, desktops);
+    let rows = shown_rows(group, desktops, shared.others.shown(others_count));
     let ctx = ui.ctx().clone();
     let can_rename = shared.snapshot.as_ref().is_some_and(|s| s.can_rename);
     let pointer = ctx.pointer_latest_pos();
@@ -946,6 +988,13 @@ fn flat(
                         pos2(rows_area.min.x, row_top),
                         pos2(rows_area.max.x, ui.cursor().min.y),
                     ));
+                    if row_index == 0 && others_count > 0 {
+                        let (line, _) = ui.allocate_exact_size(
+                            vec2(rows_area.width(), others::LINK_HEIGHT),
+                            Sense::hover(),
+                        );
+                        others_link(ui, shared, line, others_count);
+                    }
                 }
             });
     });
@@ -999,6 +1048,67 @@ fn flat(
         keyboard(&ctx, shared, group, &rows, &flat, actions, activate);
     }
     frame
+}
+
+/// The line under this desktop's windows that opens and closes the other
+/// desktops. A card dragged onto it opens them after a short rest, so it
+/// can be dropped there. `line` has `others::LINK_HEIGHT`, the gap on top.
+fn others_link(ui: &mut Ui, shared: &mut Shared, line: Rect, count: usize) {
+    let shown = shared.others.shown(count);
+    let Some(text) = others::label(count, shown) else {
+        return;
+    };
+    let ctx = ui.ctx().clone();
+    let tokens = Tokens::get(&ctx);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text, theme::regular(12.0), tokens.text_secondary);
+    let arrow = 10.0;
+    let hit = Rect::from_min_size(line.min, vec2(galley.size().x + 6.0 + arrow, line.height()));
+    let response = ui
+        .interact(hit, egui::Id::new("arrange-others"), Sense::click())
+        .on_hover_text("Press D to show or hide them.");
+    let dragging = shared.drag.is_some();
+    let over = ctx.pointer_latest_pos().is_some_and(|at| hit.contains(at));
+    if response.clicked() {
+        shared.others.toggle();
+        ctx.request_repaint();
+    }
+    if let Some(wait) = shared.others.drag_over(Instant::now(), dragging && over) {
+        ctx.request_repaint_after(wait);
+    }
+    if !dragging && response.hovered() {
+        ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    let colour = if over {
+        tokens.accent
+    } else {
+        tokens.text_secondary
+    };
+    let centre = line.bottom() - (line.height() - 6.0) / 2.0;
+    let galley_pos = pos2(line.left(), centre - galley.size().y / 2.0);
+    ui.painter().galley(galley_pos, galley.clone(), colour);
+    // A triangle drawn here, as the fonts may not have one.
+    let tip = pos2(line.left() + galley.size().x + 6.0 + arrow / 2.0, centre);
+    let (half, rise) = (3.5, 2.0);
+    let points = if shown {
+        vec![
+            pos2(tip.x - half, tip.y + rise),
+            pos2(tip.x + half, tip.y + rise),
+            pos2(tip.x, tip.y - rise),
+        ]
+    } else {
+        vec![
+            pos2(tip.x - half, tip.y - rise),
+            pos2(tip.x + half, tip.y - rise),
+            pos2(tip.x, tip.y + rise),
+        ]
+    };
+    ui.painter().add(egui::Shape::convex_polygon(
+        points,
+        colour,
+        egui::Stroke::NONE,
+    ));
 }
 
 /// The live picture of the dragged window, slightly see-through inside an
@@ -1634,7 +1744,7 @@ mod tests {
             desktop: String::new(),
             members: (0..n).collect(),
         };
-        let size = panel_size(&[row(3), row(1)], vec2(5000.0, 5000.0));
+        let size = panel_size(&[row(3), row(1)], false, vec2(5000.0, 5000.0));
         assert_eq!(
             size.x,
             2.0 * PADDING + 3.0 * CARD.x + 2.0 * CARD_GAP + SLACK
@@ -1654,7 +1764,7 @@ mod tests {
         };
         let limit = vec2(2.0 * PADDING + 5.0 * CARD.x + 4.0 * CARD_GAP + 10.0, 5000.0);
         assert_eq!(cards_per_line(limit.x), 5);
-        let size = panel_size(&[row(12)], limit);
+        let size = panel_size(&[row(12)], false, limit);
         assert_eq!(
             size.x,
             2.0 * PADDING + 5.0 * CARD.x + 4.0 * CARD_GAP + SLACK
@@ -1664,8 +1774,23 @@ mod tests {
             size.y,
             2.0 * PADDING + HEADER + HEADER_GAP + 3.0 * CARD.y + 2.0 * CARD_GAP + SLACK
         );
-        let short = panel_size(&[row(12)], vec2(limit.x, 200.0));
+        let short = panel_size(&[row(12)], false, vec2(limit.x, 200.0));
         assert_eq!(short.y, 200.0);
+    }
+
+    #[test]
+    fn the_flat_view_shows_only_this_desktop_until_the_others_are_shown() {
+        let desktops = [desktop("a", "Home", true), desktop("b", "Work", false)];
+        let group = group(&["a", "b", "b"]);
+        assert_eq!(shown_rows(&group, &desktops, false).len(), 1);
+        assert_eq!(shown_rows(&group, &desktops, true).len(), 2);
+        let limit = vec2(5000.0, 5000.0);
+        let shut = panel_size(&shown_rows(&group, &desktops, false), true, limit);
+        let open = panel_size(&shown_rows(&group, &desktops, true), true, limit);
+        assert!(shut.y < open.y);
+        // The footnote about other desktops needs a second row.
+        let alone = panel_size(&shown_rows(&group, &desktops, false), false, limit);
+        assert!((shut.y - alone.y - others::LINK_HEIGHT).abs() < 0.01);
     }
 
     fn two_rows() -> Vec<Row> {

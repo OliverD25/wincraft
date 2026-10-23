@@ -6,8 +6,8 @@ use egui::text::TextWrapping;
 use egui::{pos2, vec2, Rect, Response, Sense, Shape, StrokeKind, Ui, UiBuilder, Vec2};
 
 use super::{
-    card_menu, float_picture, name_card, thumbnail, Drag, Frame, Pending, Shared, SAME_TITLE_HINT,
-    SLACK,
+    card_menu, float_picture, name_card, others, others_link, thumbnail, Drag, Frame, Pending,
+    Shared, SAME_TITLE_HINT, SLACK,
 };
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{
@@ -299,6 +299,15 @@ fn band_height(band: &Band, tracks: &[Vec<f32>]) -> f32 {
     height
 }
 
+/// The bands on screen: only this desktop's until the other desktops are
+/// shown.
+pub fn visible(mut bands: Vec<Band>, shown: bool) -> Vec<Band> {
+    if !shown {
+        bands.truncate(1);
+    }
+    bands
+}
+
 /// The width at which every column holds its windows on one line, or at
 /// least MIN_PANEL.
 pub fn natural_width(bands: &[Band], weights: &[Vec<f32>]) -> f32 {
@@ -328,12 +337,13 @@ pub fn natural_width(bands: &[Band], weights: &[Vec<f32>]) -> f32 {
 
 /// The window size for the view: wide enough for one line of cards per
 /// column, as tall as the bands then are, and at most `limit`, beyond which
-/// it scrolls.
-pub fn panel_size(bands: &[Band], weights: &[Vec<f32>], limit: Vec2) -> Vec2 {
+/// it scrolls. `link` makes room for the line that opens the other desktops.
+pub fn panel_size(bands: &[Band], weights: &[Vec<f32>], link: bool, limit: Vec2) -> Vec2 {
     let width = (natural_width(bands, weights) + SLACK).min(limit.x);
     let tracks: Vec<Vec<f32>> = weights.iter().map(|row| row_tracks(row, width)).collect();
     let bands_height: f32 = bands.iter().map(|band| band_height(band, &tracks)).sum();
-    let height = TOOLBAR + bands_height + FOOTER + SLACK;
+    let link = if link { others::LINK_HEIGHT } else { 0.0 };
+    let height = TOOLBAR + bands_height + link + FOOTER + SLACK;
     vec2(width, height.min(limit.y))
 }
 
@@ -341,11 +351,14 @@ pub fn panel_size(bands: &[Band], weights: &[Vec<f32>], limit: Vec2) -> Vec2 {
 struct Model {
     rows: Vec<Vec<usize>>,
     weights: Vec<Vec<f32>>,
+    /// The bands on screen.
     bands: Vec<Band>,
+    /// Every band, for a key that moves a window to a hidden desktop.
+    all: Vec<Band>,
 }
 
 impl Model {
-    fn new(group: &ArrangeGroup, snapshot: &ArrangeSnapshot) -> Self {
+    fn new(group: &ArrangeGroup, snapshot: &ArrangeSnapshot, shown: bool) -> Self {
         let monitors = &snapshot.monitors;
         let used = |index: usize| {
             monitors[index].connected
@@ -356,18 +369,25 @@ impl Model {
         };
         let rows = monitor_rows(monitors, &used);
         let weights = rows.iter().map(|row| weights(monitors, row)).collect();
-        let bands = bands(group, &snapshot.desktops, monitors, &rows);
+        let all = bands(group, &snapshot.desktops, monitors, &rows);
         Self {
             rows,
             weights,
-            bands,
+            bands: visible(all.clone(), shown),
+            all,
         }
     }
 }
 
-pub fn panel_for(group: &ArrangeGroup, snapshot: &ArrangeSnapshot, limit: Vec2) -> Vec2 {
-    let model = Model::new(group, snapshot);
-    panel_size(&model.bands, &model.weights, limit)
+pub fn panel_for(
+    group: &ArrangeGroup,
+    snapshot: &ArrangeSnapshot,
+    shown: bool,
+    link: bool,
+    limit: Vec2,
+) -> Vec2 {
+    let model = Model::new(group, snapshot, shown);
+    panel_size(&model.bands, &model.weights, link, limit)
 }
 
 pub fn toolbar_rect(panel: Rect) -> Rect {
@@ -676,7 +696,9 @@ pub fn body(
     menu_open: bool,
 ) -> Frame {
     let ctx = ui.ctx().clone();
-    let model = Model::new(group, snapshot);
+    let others_count = others::count(group, &snapshot.desktops);
+    let shown = shared.others.shown(others_count);
+    let model = Model::new(group, snapshot, shown);
     let mut frame = Frame::default();
     let walk = walk(&model.bands);
     let member_of = |hwnd: isize| group.windows.iter().position(|w| w.hwnd == hwnd);
@@ -747,6 +769,13 @@ pub fn body(
                 let width = ui.available_width();
                 for (b, band) in model.bands.iter().enumerate() {
                     draw.band(ui, shared, &mut frame, b, band, width);
+                    if b == 0 && others_count > 0 {
+                        let (line, _) = ui.allocate_exact_size(
+                            vec2(width - SIDE, others::LINK_HEIGHT),
+                            Sense::hover(),
+                        );
+                        others_link(ui, shared, line.translate(vec2(SIDE, 0.0)), others_count);
+                    }
                 }
             });
     });
@@ -764,7 +793,7 @@ pub fn body(
         );
     }
 
-    footer(ui, panel);
+    footer(ui, panel, shown, others_count > 0);
 
     if !menu_open && !dragging {
         keyboard(&ctx, shared, group, &model, &snapshot.monitors, &mut frame);
@@ -1321,8 +1350,9 @@ fn title_chip(
     chip
 }
 
-/// The note on order and the key hints under the bands.
-fn footer(ui: &Ui, panel: Rect) {
+/// The note on order and the key hints under the bands. The note is only
+/// true while other desktops are on screen; the D hint needs some to show.
+fn footer(ui: &Ui, panel: Rect, note: bool, others_key: bool) {
     let tokens = Tokens::get(ui.ctx());
     let painter = ui.painter();
     let area = Rect::from_min_max(pos2(panel.min.x, panel.max.y - FOOTER), panel.max);
@@ -1332,11 +1362,14 @@ fn footer(ui: &Ui, panel: Rect) {
         theme::stroke(ui.ctx(), 1.0, tokens.border),
     );
     let centre = area.top() + 1.0 + (FOOTER - 1.0) / 2.0;
-    let hints = [
+    let mut hints = vec![
         ("\u{2190}\u{2192}", "Move within monitor"),
         ("Shift + \u{2190}\u{2192}", "Move to next monitor"),
         ("Shift + \u{2191}\u{2193}", "Move to next desktop"),
     ];
+    if others_key {
+        hints.push(("D", "Other desktops"));
+    }
     let mut x = area.right() - SIDE;
     for (index, (key, label)) in hints.iter().enumerate().rev() {
         let label = painter.layout_no_wrap(
@@ -1373,6 +1406,9 @@ fn footer(ui: &Ui, panel: Rect) {
         if index > 0 {
             x -= 16.0;
         }
+    }
+    if !note {
+        return;
     }
     let mut job = text::job(
         "Order on other desktops applies at the next restore.",
@@ -1440,16 +1476,28 @@ fn keyboard(
         frame.activate = Some(group.windows[cursor].hwnd);
         return;
     }
-    match pressed.and_then(|key| step(&model.bands, &model.rows, monitors, cursor, key)) {
+    // A move to another desktop looks through all of them, so it also
+    // works while they are hidden.
+    let bands = if matches!(pressed, Some(Key::ShiftUp | Key::ShiftDown)) {
+        &model.all
+    } else {
+        &model.bands
+    };
+    match pressed.and_then(|key| step(bands, &model.rows, monitors, cursor, key)) {
         Some(Step::Select(member)) => shared.cursor = Some(group.windows[member].hwnd),
-        Some(Step::Move(spot)) => frame.actions.extend(drop_actions(
-            group,
-            &model.bands,
-            &model.rows,
-            monitors,
-            cursor,
-            spot,
-        )),
+        Some(Step::Move(spot)) => {
+            if spot.band >= model.bands.len() {
+                shared.others.expand();
+            }
+            frame.actions.extend(drop_actions(
+                group,
+                bands,
+                &model.rows,
+                monitors,
+                cursor,
+                spot,
+            ));
+        }
         None => {}
     }
 }
@@ -1688,15 +1736,52 @@ mod tests {
         let available = MIN_TRACK * 8320.0 / 1920.0;
         let width = natural_width(&one_each, &weights);
         assert!(close(width, available + 2.0 * COLUMN_GAP + 2.0 * SIDE));
-        let size = panel_size(&one_each, &weights, vec2(5000.0, 5000.0));
+        let size = panel_size(&one_each, &weights, false, vec2(5000.0, 5000.0));
         assert!(close(size.x, width + SLACK));
         let tracks = row_tracks(&weights[0], size.x);
         assert!(tracks[0] >= MIN_TRACK);
         assert_eq!(per_line(tracks[1]), 2);
 
         // Never wider than the limit, nor taller.
-        let small = panel_size(&one_each, &weights, vec2(800.0, 300.0));
+        let small = panel_size(&one_each, &weights, false, vec2(800.0, 300.0));
         assert_eq!(small, vec2(800.0, 300.0));
+    }
+
+    #[test]
+    fn hidden_bands_are_not_laid_out_or_found_while_collapsed() {
+        let all = three_columns();
+        let collapsed = visible(all.clone(), false);
+        assert_eq!(collapsed.len(), 1);
+        assert!(collapsed[0].current);
+        // Arrow keys and drops only know the bands on screen.
+        assert_eq!(walk(&collapsed), [0, 1, 2, 3, 4]);
+        assert_eq!(locate(&collapsed, 5), None);
+        assert_eq!(visible(all, true).len(), 2);
+    }
+
+    #[test]
+    fn the_collapsed_panel_is_shorter_and_the_link_adds_a_line() {
+        let weights = vec![vec![1.0, 1.0, 1.0]];
+        let limit = vec2(5000.0, 5000.0);
+        let all = three_columns();
+        let open = panel_size(&all, &weights, true, limit);
+        let shut = panel_size(&visible(all.clone(), false), &weights, true, limit);
+        let bare = panel_size(&visible(all, false), &weights, false, limit);
+        assert!(shut.y < open.y);
+        assert!(close(shut.y - bare.y, others::LINK_HEIGHT));
+    }
+
+    #[test]
+    fn shift_down_reaches_a_hidden_desktop_through_all_the_bands() {
+        let all = three_columns();
+        let monitors = vec![monitor([0, 0, 1920, 1080], 48, true); 3];
+        let rows = vec![vec![0, 1, 2]];
+        let collapsed = visible(all.clone(), false);
+        assert_eq!(step(&collapsed, &rows, &monitors, 0, Key::ShiftDown), None);
+        let Some(Step::Move(spot)) = step(&all, &rows, &monitors, 0, Key::ShiftDown) else {
+            panic!("expected a move");
+        };
+        assert!(spot.band >= collapsed.len());
     }
 
     fn three_columns() -> Vec<Band> {
