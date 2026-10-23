@@ -25,10 +25,21 @@ pub fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
     }
 
     if ui.is_rect_visible(rect) {
+        // A switch that was not drawn on the last frame (the window just
+        // opened, or the page changed) starts at its value; only a change
+        // while it is on screen slides.
+        let pass = ui.ctx().cumulative_pass_nr();
+        let drawn_id = response.id.with("drawn");
+        let previous = ui.ctx().data_mut(|d| {
+            let previous = d.get_temp::<u64>(drawn_id);
+            d.insert_temp(drawn_id, pass);
+            previous
+        });
+        let fresh = just_appeared(previous, pass);
         let position = ui.ctx().animate_bool_with_time_and_easing(
             response.id.with("knob"),
             *on,
-            SLIDE,
+            if fresh { 0.0 } else { SLIDE },
             easing::cubic_out,
         );
         let colour = tokens.text_disabled.lerp_to_gamma(tokens.accent, position);
@@ -57,9 +68,21 @@ pub fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
     }
 }
 
+/// Whether a switch last drawn on pass `previous` is new on pass `now`.
+fn just_appeared(previous: Option<u64>, now: u64) -> bool {
+    previous.is_none_or(|previous| now.saturating_sub(previous) > 1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_switch_slides_only_while_it_stays_on_screen() {
+        assert!(just_appeared(None, 7));
+        assert!(!just_appeared(Some(6), 7));
+        assert!(just_appeared(Some(3), 7));
+    }
 
     #[test]
     fn the_slide_starts_and_ends_exactly_and_moves_fast_first() {
