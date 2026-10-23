@@ -59,8 +59,28 @@ fn now() -> String {
     )
 }
 
+/// Starts a new wincraft.log. The log of the run before is kept as
+/// wincraft.prev.log, so a restart or a reboot does not wipe the record of
+/// what happened just before it.
 pub fn init() {
-    start(&config::log_path(), false);
+    let path = config::log_path();
+    keep_previous(&path);
+    start(&path, false);
+}
+
+/// `wincraft.prev.log` next to `wincraft.log`.
+pub fn previous_path(path: &Path) -> std::path::PathBuf {
+    path.with_extension("prev.log")
+}
+
+/// Moves the log to its `previous_path`, over the one kept before, so only
+/// one older run is kept and the two files together stay about two runs
+/// long. Nothing happens when there is no log yet; when the move fails the
+/// log is emptied as before, which is better than not logging.
+fn keep_previous(path: &Path) {
+    if path.exists() {
+        let _ = fs::rename(path, previous_path(path));
+    }
 }
 
 /// For a WinCraft started by an update, or started again after one failed:
@@ -106,5 +126,36 @@ fn start(path: &Path, append: bool) {
     }
     if log::set_boxed_logger(Box::new(FileLogger { level })).is_ok() {
         log::set_max_level(level.to_level_filter());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_new_start_keeps_one_older_log() {
+        let dir = std::env::temp_dir().join(format!("wincraft-test-log-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("wincraft.log");
+        let prev = previous_path(&log);
+        assert_eq!(prev, dir.join("wincraft.prev.log"));
+
+        keep_previous(&log);
+        assert!(!prev.exists(), "no log yet, nothing to keep");
+
+        fs::write(&log, "first run\n").unwrap();
+        keep_previous(&log);
+        assert!(!log.exists());
+        assert_eq!(fs::read_to_string(&prev).unwrap(), "first run\n");
+
+        fs::write(&log, "second run\n").unwrap();
+        keep_previous(&log);
+        assert_eq!(
+            fs::read_to_string(&prev).unwrap(),
+            "second run\n",
+            "only the run just before is kept"
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 }

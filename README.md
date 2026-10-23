@@ -346,7 +346,8 @@ plugins\
   window_namer.names.json    the saved window names, written by WindowNamer
   layout_keeper.state.prev.json   the layout from before a browser crash or restart
 cache\                 the last plugin index fetched from GitHub
-wincraft.log           what the program did, emptied on every start but an update's
+wincraft.log           what the program did in this run; an update adds to it
+wincraft.prev.log      the log of the run before, kept at each new start
 install.log            what the last --install or --uninstall did
 ```
 

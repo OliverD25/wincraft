@@ -189,7 +189,9 @@ wrote to `wincraft.log`, newest first. The filter box keeps the lines that
 contain its text. The list reads the log again every few seconds while the
 page is open, on a thread of its own, so the page never waits for the disk.
 **Refresh** reads it now, and **Open log file** opens the whole log in
-Notepad.
+Notepad. Each start of WinCraft begins a new log and keeps the one before
+as `wincraft.prev.log` next to it, so the lines of the last restore are
+still there after the next restart or reboot.
 
 ## Windows with the same title
 
