@@ -7,6 +7,7 @@ pub(crate) mod notice;
 mod order;
 mod restore;
 mod state;
+mod verify;
 mod windows;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -101,6 +102,26 @@ struct Finish {
     summary: String,
     /// Show the summary as a balloon too, not only in the log.
     announce: bool,
+    /// Where each restored window should end up, for the check after it.
+    targets: Vec<verify::Target>,
+    /// Each restored group's windows in the taskbar order that was applied.
+    orders: Vec<(String, Vec<Handle>)>,
+}
+
+/// How long after a restore, and after moving the stragglers again, the
+/// windows are looked at. Re-added buttons pull windows to the current
+/// desktop a moment late, more so while the PC is busy after sign-in.
+const CHECK_SECONDS: u64 = 3;
+
+/// A look at the windows of a restore that is done: were they all put where
+/// they belong? Out of place windows are moved once more and looked at again.
+struct Check {
+    due: u64,
+    targets: Vec<verify::Target>,
+    orders: Vec<(String, Vec<Handle>)>,
+    /// The places in `targets` of the windows moved a second time; set once
+    /// the first look is over.
+    moved_again: Option<Vec<usize>>,
 }
 
 /// The undocumented move chain is built on first use and kept for the
@@ -179,6 +200,8 @@ pub struct LayoutKeeper {
     read_only: bool,
     /// Changes a read-only instance turned down, for its status line.
     refused: u32,
+    /// Restores whose windows are still to be looked at.
+    checks: Vec<Check>,
 }
 
 impl Default for LayoutKeeper {
@@ -222,6 +245,7 @@ impl Default for LayoutKeeper {
             last_restore: None,
             read_only: instance::is_test(),
             refused: 0,
+            checks: Vec::new(),
         }
     }
 }
@@ -612,13 +636,24 @@ impl LayoutKeeper {
             self.writer.last(),
             &self.released,
         );
+        // A group whose windows are still being checked after its restore
+        // may have a window that a late pull has just put on the wrong
+        // desktop; its saved windows wait for the check.
+        let mut pending = self.restore.pending();
+        for check in &self.checks {
+            for target in &check.targets {
+                if !pending.contains(&target.group) {
+                    pending.push(target.group.clone());
+                }
+            }
+        }
         let plan = plan_save(
             self.writer.last(),
             fresh,
             reason,
             &self.watch,
             &self.guard,
-            self.restore.pending(),
+            pending,
         );
         if plan.copy_aside && self.writer.keep_previous()? {
             log::info!(
@@ -932,6 +967,8 @@ impl LayoutKeeper {
         let announce = restored && !self.announced && !self.show_progress;
         self.announced |= restored;
         self.finishing = Some(Finish {
+            targets: done.targets,
+            orders: done.orders,
             moves: done.moves,
             stack: if restored {
                 self.restored_stack.clone()
@@ -959,6 +996,10 @@ impl LayoutKeeper {
                 self.return_to_monitor(step, monitors);
             }
             self.apply_group(&plan.group, can_move);
+            done.targets.extend(check_targets(&plan, monitors));
+            if let Some(model) = self.groups.get(&plan.group) {
+                done.orders.push((plan.group.clone(), model.handles()));
+            }
             for (label, gone) in &plan.gone {
                 log::info!(
                     "\"{label}\" was saved on desktop {gone}, which no longer exists; it stays where it is"
@@ -1006,6 +1047,14 @@ impl LayoutKeeper {
         }
         for hwnd in raises {
             raise(hwnd);
+        }
+        if !finish.targets.is_empty() {
+            self.checks.push(Check {
+                due: self.ticks + CHECK_SECONDS,
+                targets: finish.targets.clone(),
+                orders: finish.orders.clone(),
+                moved_again: None,
+            });
         }
         log::info!("{}", finish.summary);
         if finish.announce {
@@ -1121,6 +1170,120 @@ impl LayoutKeeper {
         }
     }
 
+    /// Looks at the windows of every restore whose check is due.
+    fn run_checks(&mut self) {
+        if !self.checks.iter().any(|check| check.due <= self.ticks) {
+            return;
+        }
+        let (due, later): (Vec<Check>, Vec<Check>) = std::mem::take(&mut self.checks)
+            .into_iter()
+            .partition(|check| check.due <= self.ticks);
+        self.checks = later;
+        let live = self.live_windows();
+        let monitors = monitors::list();
+        let registry = desktops::list();
+        for check in due {
+            self.check_restore(check, &live, &monitors, &registry);
+        }
+    }
+
+    /// Where each window is now; None for one no longer open.
+    fn where_now(
+        &self,
+        hwnds: &[Handle],
+        live: &[windows::LiveWindow],
+        monitors: &[monitors::Monitor],
+    ) -> Vec<Option<verify::Seen>> {
+        hwnds
+            .iter()
+            .map(|hwnd| {
+                let window = live.iter().find(|window| window.hwnd as Handle == *hwnd)?;
+                Some(verify::Seen {
+                    desktop: self.reader.as_ref().and_then(|r| r.read(window.hwnd)),
+                    monitor: monitors::index_of(window.identity.rect, monitors)
+                        .map(|index| monitors[index].saved().device.clone()),
+                })
+            })
+            .collect()
+    }
+
+    /// The first look moves the windows out of place once more and looks
+    /// again later; the second look logs how each group came out, each
+    /// window still out of place, and the taskbar order on each desktop.
+    fn check_restore(
+        &mut self,
+        mut check: Check,
+        live: &[windows::LiveWindow],
+        monitors: &[monitors::Monitor],
+        registry: &[Desktop],
+    ) {
+        let hwnds: Vec<Handle> = check.targets.iter().map(|target| target.hwnd).collect();
+        let seen = self.where_now(&hwnds, live, monitors);
+        let wrong = verify::wrong(&check.targets, &seen);
+        if check.moved_again.is_none() && !wrong.is_empty() {
+            log::info!(
+                "check after the restore: {} windows are not where the restore put them; moving them again",
+                wrong.len()
+            );
+            for out in &wrong {
+                let target = check.targets[out.index].clone();
+                if let Some((device, _)) = &out.monitor {
+                    self.move_to_monitor(target.hwnd as HWND, device);
+                }
+                if let Some((desktop, _)) = out.desktop {
+                    self.move_to_desktop(target.hwnd as HWND, desktop, registry, &target.label);
+                }
+            }
+            check.moved_again = Some(wrong.iter().map(|out| out.index).collect());
+            check.due = self.ticks + CHECK_SECONDS;
+            self.checks.push(check);
+            return;
+        }
+        let moved_again = check.moved_again.unwrap_or_default();
+        let desktop_name = |id: DesktopId| {
+            desktops::name_of(registry, id).unwrap_or_else(|| "an unknown desktop".to_string())
+        };
+        for (group, tally) in verify::tallies(&check.targets, &seen, &wrong) {
+            let label = self.label_of(&group);
+            let again = moved_again
+                .iter()
+                .filter(|index| check.targets[**index].group == group)
+                .count();
+            log::info!("{}", verify::group_line(&label, &tally, again));
+            for out in wrong
+                .iter()
+                .filter(|out| check.targets[out.index].group == group)
+            {
+                log::warn!(
+                    "{}",
+                    verify::window_line(&check.targets[out.index], out, &desktop_name)
+                );
+            }
+        }
+        for (group, order) in &check.orders {
+            let label = self.label_of(group);
+            let now = self.where_now(order, live, monitors);
+            let applied: Vec<verify::Placed> = order
+                .iter()
+                .zip(now)
+                .filter_map(|(hwnd, now)| {
+                    let now = now?;
+                    let target = check.targets.iter().find(|target| target.hwnd == *hwnd);
+                    let name = target
+                        .map(|target| target.label.clone())
+                        .unwrap_or_else(|| window_names::display_title(*hwnd as HWND));
+                    Some((name, target.and_then(|target| target.desktop), now.desktop))
+                })
+                .collect();
+            for (desktop, wanted, now) in verify::desktop_orders(&applied) {
+                log::info!(
+                    "{}",
+                    verify::order_line(&label, &desktop_name(desktop), &wanted, &now)
+                );
+            }
+        }
+    }
+
     fn tick(&mut self) {
         self.ticks += 1;
         if !self.reapply.is_empty() {
@@ -1135,6 +1298,7 @@ impl LayoutKeeper {
         if std::mem::take(&mut self.arrange_stale) {
             host::refresh_arrange();
         }
+        self.run_checks();
         if let Some(finish) = self.finishing.take() {
             self.finish_restore(finish);
             return;
@@ -1769,6 +1933,8 @@ fn plan_restore(
 #[derive(Default)]
 struct Restored {
     moves: Vec<(HWND, DesktopId, String)>,
+    targets: Vec<verify::Target>,
+    orders: Vec<(String, Vec<Handle>)>,
     /// "2 of 3 Chrome windows", one per group restored.
     parts: Vec<String>,
     late_parts: Vec<String>,
@@ -1817,6 +1983,57 @@ fn finish_steps(
         }
     }
     (moves, raises)
+}
+
+/// Where one group's restore wants each window, for the check after it: the
+/// desktop of its move (which only undoes the pull for a window that stays)
+/// and the monitor its monitor step leaves it on.
+fn check_targets(plan: &GroupPlan, monitors: &[monitors::Monitor]) -> Vec<verify::Target> {
+    check_targets_with(plan, &|index| {
+        monitors
+            .get(index)
+            .map(|monitor| monitor.saved().device.clone())
+    })
+}
+
+/// `check_targets` with the device name of each monitor place given.
+fn check_targets_with(
+    plan: &GroupPlan,
+    device: &dyn Fn(usize) -> Option<String>,
+) -> Vec<verify::Target> {
+    let mut targets: Vec<verify::Target> = Vec::new();
+    for step in &plan.monitors {
+        let monitor = match step.target {
+            monitors::Return::To(index) => device(index),
+            monitors::Return::Stay => step.now.and_then(device),
+            monitors::Return::Unplugged => None,
+        };
+        targets.push(verify::Target {
+            hwnd: step.hwnd as Handle,
+            group: plan.group.clone(),
+            label: step.label.clone(),
+            desktop: None,
+            monitor,
+        });
+    }
+    for (hwnd, desktop, label) in &plan.moves {
+        let desktop = Some(*desktop).filter(|id| *id != DesktopId::ALL);
+        match targets
+            .iter_mut()
+            .find(|target| target.hwnd == *hwnd as Handle)
+        {
+            Some(target) => target.desktop = desktop,
+            None => targets.push(verify::Target {
+                hwnd: *hwnd as Handle,
+                group: plan.group.clone(),
+                label: label.clone(),
+                desktop,
+                monitor: None,
+            }),
+        }
+    }
+    targets.retain(|target| target.desktop.is_some() || target.monitor.is_some());
+    targets
 }
 
 /// A timer save is due on every `snapshot_seconds`-th tick.
@@ -2720,6 +2937,7 @@ impl WinCraftPlugin for LayoutKeeper {
             host::set_tray_tip(None);
         }
         self.finishing = None;
+        self.checks.clear();
         self.restored_stack.clear();
         self.reader = None;
         self.taskbar = None;
@@ -2930,9 +3148,12 @@ mod tests {
             foreground: NO_WINDOW,
             summary: "Restored 1 of 1 test windows".to_string(),
             announce: true,
+            targets: Vec::new(),
+            orders: Vec::new(),
         });
         assert_eq!(keeper.refused, 1);
         assert!(keeper.last_restore.is_none());
+        assert!(keeper.checks.is_empty(), "nothing to check either");
     }
 
     #[test]
@@ -3802,6 +4023,32 @@ mod tests {
     }
 
     #[test]
+    fn a_group_still_being_checked_after_its_restore_keeps_its_saved_windows() {
+        let before = programs(vec![(
+            "chrome.exe",
+            vec![kept("A", None, None, 0), kept("B", None, None, 1)],
+        )]);
+        let (mut keeper, path) = keeper_with(before, "save-checking");
+        keeper.checks.push(check_of(vec![verify::Target {
+            hwnd: 1,
+            group: "Chrome".to_string(),
+            label: "B".to_string(),
+            desktop: Some(D1),
+            monitor: None,
+        }]));
+        let live = [chrome(1, "B", 0), chrome(3, "New", 0)];
+        assert_eq!(
+            save_seen(&mut keeper, &live, "timer"),
+            (false, 2),
+            "the saved A and B stay as they were"
+        );
+        keeper.checks.clear();
+        assert_eq!(save_seen(&mut keeper, &live, "timer"), (true, 2));
+        assert_eq!(set(&["B", "New"]), title_set(&path, "chrome.exe"));
+        clean_up(&path);
+    }
+
+    #[test]
     fn a_save_plan_copies_aside_only_when_asked_and_something_changes() {
         let watch = Watch::new("*", "");
         let mut guard = guard::Guard::default();
@@ -4107,6 +4354,8 @@ mod tests {
             foreground,
             summary: String::new(),
             announce: false,
+            targets: Vec::new(),
+            orders: Vec::new(),
         }
     }
 
@@ -4168,6 +4417,118 @@ mod tests {
             done.late_parts,
             ["second pass: moved 1 late Chrome windows"]
         );
+    }
+
+    #[test]
+    fn the_check_wants_each_window_on_its_move_desktop_and_step_monitor() {
+        let plan = GroupPlan {
+            group: "Chrome".to_string(),
+            monitors: vec![
+                MonitorStep {
+                    hwnd: hwnd(10),
+                    label: "Inbox".to_string(),
+                    saved: None,
+                    now: Some(0),
+                    target: monitors::Return::To(1),
+                },
+                MonitorStep {
+                    hwnd: hwnd(11),
+                    label: "Docs".to_string(),
+                    saved: None,
+                    now: Some(0),
+                    target: monitors::Return::Stay,
+                },
+                MonitorStep {
+                    hwnd: hwnd(12),
+                    label: "Old".to_string(),
+                    saved: None,
+                    now: None,
+                    target: monitors::Return::Unplugged,
+                },
+            ],
+            moves: vec![
+                (hwnd(10), D2, "Inbox".to_string()),
+                (hwnd(13), D1, "Late".to_string()),
+                (hwnd(14), DesktopId::ALL, "Pinned".to_string()),
+            ],
+            ..GroupPlan::default()
+        };
+        let device = |index: usize| Some(format!("DISPLAY{}", index + 1));
+        let wanted: Vec<(isize, Option<DesktopId>, Option<String>)> =
+            check_targets_with(&plan, &device)
+                .into_iter()
+                .map(|target| (target.hwnd, target.desktop, target.monitor))
+                .collect();
+        assert_eq!(
+            wanted,
+            [
+                (10, Some(D2), Some("DISPLAY2".to_string())),
+                (11, None, Some("DISPLAY1".to_string())),
+                (13, Some(D1), None),
+            ],
+            "an unplugged monitor and a pinned window are not checked"
+        );
+    }
+
+    fn check_of(targets: Vec<verify::Target>) -> Check {
+        Check {
+            due: 0,
+            orders: vec![(
+                "Chrome".to_string(),
+                targets.iter().map(|target| target.hwnd).collect(),
+            )],
+            targets,
+            moved_again: None,
+        }
+    }
+
+    #[test]
+    fn a_window_out_of_place_is_moved_once_more_and_then_reported() {
+        let mut keeper = read_only();
+        let target = verify::Target {
+            hwnd: 10,
+            group: "Chrome".to_string(),
+            label: "Inbox".to_string(),
+            desktop: Some(D2),
+            monitor: None,
+        };
+        // Without a desktop reader the window's desktop cannot be read, so
+        // it is not on the wanted one.
+        let live = [chrome(10, "Inbox", 0)];
+        keeper.check_restore(check_of(vec![target]), &live, &[], &two_desktops());
+        assert_eq!(keeper.refused, 1, "the second desktop move");
+        let [again] = keeper.checks.as_slice() else {
+            panic!("the check comes back")
+        };
+        assert_eq!(again.moved_again, Some(vec![0]));
+        assert_eq!(again.due, CHECK_SECONDS);
+
+        let check = keeper.checks.pop().unwrap();
+        keeper.check_restore(check, &live, &[], &two_desktops());
+        assert!(keeper.checks.is_empty(), "the second look is the last");
+        assert_eq!(keeper.refused, 1, "nothing is moved a third time");
+    }
+
+    #[test]
+    fn a_check_of_windows_that_closed_since_moves_nothing() {
+        let mut keeper = read_only();
+        let target = verify::Target {
+            hwnd: 10,
+            group: "Chrome".to_string(),
+            label: "Inbox".to_string(),
+            desktop: Some(D2),
+            monitor: Some("DISPLAY1".to_string()),
+        };
+        keeper.check_restore(check_of(vec![target]), &[], &[], &two_desktops());
+        assert!(keeper.checks.is_empty());
+        assert_eq!(keeper.refused, 0);
+        // A check that is not due yet waits.
+        keeper.checks.push(Check {
+            due: 5,
+            ..check_of(Vec::new())
+        });
+        keeper.run_checks();
+        assert_eq!(keeper.checks.len(), 1);
     }
 
     #[test]

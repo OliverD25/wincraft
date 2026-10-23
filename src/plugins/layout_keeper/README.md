@@ -109,7 +109,17 @@ For each group, LayoutKeeper:
 1. moves every window back to its saved monitor (see **Monitors** below),
 2. puts the taskbar thumbnails back in the saved order,
 3. moves every window back to its saved virtual desktop,
-4. puts the restored windows back in their saved front-to-back order.
+4. puts the restored windows back in their saved front-to-back order,
+5. 3 seconds later, looks at every restored window again: is it on the
+   desktop and the monitor it was put on? Putting the taskbar order back pulls
+   each window onto the current desktop, and Windows can do that a moment
+   after the window was already sent back, more so on a busy PC right after
+   sign-in. A window that is not in place is moved once more, and 3 seconds
+   after that the log gets one line per app ("check after the restore: all 23
+   Chrome windows are on their desktops and monitors"), one line for each
+   window still out of place, with the desktop it wants and the one it is on
+   (name and id), and the taskbar order on each desktop, wanted and now.
+   Until that last look, saves keep the app's saved windows.
 
 The monitors come first: with taskbar buttons shown on the taskbar of the
 monitor a window is on, moving the window moves its button too, so the
