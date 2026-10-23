@@ -75,7 +75,9 @@ the program and your settings.
 WinCraft asks GitHub once a day whether a newer release exists, and About's
 "Check for updates" asks at once. A newer one shows a tray notification once,
 an "Update to …" item in the tray menu, and its release notes on the About
-page. Nothing changes until you click **Update now**.
+page. The command palette has the same two steps: "Check for updates", and
+"Update to …" once a newer release is known. Nothing changes until you click
+**Update now** or run that command.
 
 Update now downloads `wincraft.exe` and `SHA256SUMS.txt` from the release,
 checks the checksum, puts the new exe in place and restarts WinCraft. A bar
@@ -212,6 +214,7 @@ a chip before the search box; Backspace in the empty box removes it.
 | `'` | Your bookmarks, all of them when nothing is typed | Open it | Show it in Explorer, selected (Ctrl+Enter copies the target) | Go into the folder under `/` |
 | `=` | A sum: `+ - * / ^ %` and brackets; `×` and `÷` work too | Copy the answer | | Put the answer in the box |
 | `>` | A command for the terminal shell chosen in settings (WSL bash unless you change it), then your earlier commands | Run it here, with its output in the palette | | Put the earlier command in the box |
+| `!` | WinCraft's own commands only: the host's items, then each plugin's actions and on/off switches. All of them when nothing is typed | Run it | | Put the command's name in the box |
 | `?` | Alone: this list of prefixes. With words: a web search | Pick the prefix, or search in your default browser | | Pick the prefix |
 
 In the calculator `%` after a number is a percentage (`200 * 15%` is 30) and
@@ -367,7 +370,7 @@ in the log.
   "theme": "system",
   "palette_hotkey": "Win+Alt+P",
   "search": {
-    "prefixes": { "bookmarks": "'", "calc": "=", "files": ".", "paths": "/", "terminal": ">", "web": "?", "windows": "<" },
+    "prefixes": { "bookmarks": "'", "calc": "=", "commands": "!", "files": ".", "paths": "/", "terminal": ">", "web": "?", "windows": "<" },
     "web_url": "https://www.google.com/search?q={query}",
     "terminal_shell": "WSL bash",
     "terminal_custom": "",

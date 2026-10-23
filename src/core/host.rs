@@ -594,6 +594,7 @@ impl Host {
             })
             .collect();
 
+        let update = self.update_view();
         UiSnapshot {
             version: env!("CARGO_PKG_VERSION").to_string(),
             start_with_windows: self.config.start_with_windows,
@@ -607,11 +608,11 @@ impl Host {
                 .unwrap_or(false),
             config_path: config::config_path(),
             log_path: config::log_path(),
-            commands: self.plugins.palette_entries(&plugins),
+            commands: self.plugins.palette_entries(&plugins, &update),
             plugins,
             search: self.config.search.clone(),
             tips: self.config.tips.clone(),
-            update: self.update_view(),
+            update,
         }
     }
 
@@ -1066,6 +1067,8 @@ impl Host {
             }
             CommandId::Host(HostCommand::OpenConfig) => open_in_notepad(&config::config_path()),
             CommandId::Host(HostCommand::OpenLog) => open_in_notepad(&config::log_path()),
+            CommandId::Host(HostCommand::CheckForUpdates) => self.check_for_updates(true),
+            CommandId::Host(HostCommand::UpdateNow) => self.update_now(),
             CommandId::Host(HostCommand::Exit) => self.shutdown(),
             CommandId::Host(HostCommand::TogglePlugin(index)) => {
                 if index < self.plugins.slots.len() {
@@ -1664,7 +1667,7 @@ impl PluginSet {
             .unwrap_or("")
     }
 
-    fn palette_entries(&self, plugins: &[PluginInfo]) -> Vec<PaletteEntry> {
+    fn palette_entries(&self, plugins: &[PluginInfo], update: &UpdateView) -> Vec<PaletteEntry> {
         let mut entries = Vec::new();
         let host_group = "WinCraft".to_string();
         for (command, label) in [
@@ -1674,6 +1677,7 @@ impl PluginSet {
             (HostCommand::OpenAbout, "About WinCraft"),
             (HostCommand::OpenConfig, "Open the config file"),
             (HostCommand::OpenLog, "Open the log file"),
+            (HostCommand::CheckForUpdates, "Check for updates"),
             (HostCommand::Exit, "Quit WinCraft"),
         ] {
             entries.push(PaletteEntry {
@@ -1685,6 +1689,23 @@ impl PluginSet {
                 plugin: None,
                 subtitle: None,
             });
+        }
+        // Not listed when this copy cannot update itself: a dimmed row would
+        // say "plugin off", which is wrong here.
+        if let (Some(release), None) = (&update.available, &update.blocked) {
+            let version = release.tag.strip_prefix('v').unwrap_or(&release.tag);
+            entries.insert(
+                6,
+                PaletteEntry {
+                    id: CommandId::Host(HostCommand::UpdateNow),
+                    group: host_group.clone(),
+                    label: format!("Update to {version}"),
+                    hint: String::new(),
+                    disabled: false,
+                    plugin: None,
+                    subtitle: Some("Downloads, checks and restarts WinCraft".to_string()),
+                },
+            );
         }
 
         for (index, slot) in self.slots.iter().enumerate() {
@@ -3081,7 +3102,7 @@ mod tests {
                 page_action: None,
             }]
         };
-        let off = set.palette_entries(&plugins(&set));
+        let off = set.palette_entries(&plugins(&set), &UpdateView::default());
         let mine: Vec<(&str, &str, bool)> = off
             .iter()
             .filter(|entry| entry.group == "Fake A")
@@ -3099,10 +3120,10 @@ mod tests {
         );
         assert_eq!(
             off.iter().filter(|entry| entry.group == "WinCraft").count(),
-            7
+            8
         );
         set.enable(0);
-        let on = set.palette_entries(&plugins(&set));
+        let on = set.palette_entries(&plugins(&set), &UpdateView::default());
         let toggle = on.iter().find(|entry| entry.group == "Fake A").unwrap();
         assert_eq!(toggle.label, "Turn Fake A off");
         assert_eq!(toggle.id, CommandId::Host(HostCommand::TogglePlugin(0)));
@@ -3110,6 +3131,87 @@ mod tests {
             .iter()
             .filter(|entry| entry.group == "Fake A")
             .all(|entry| !entry.disabled));
+    }
+
+    #[test]
+    fn the_palette_offers_an_update_only_when_a_newer_release_is_known_and_allowed() {
+        let data = Scratch::new("update-entries");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let set = plugin_set(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        let labels = |update: &UpdateView| -> Vec<(String, String)> {
+            set.palette_entries(&[], update)
+                .into_iter()
+                .filter(|entry| entry.group == "WinCraft")
+                .map(|entry| (entry.label, entry.subtitle.unwrap_or_default()))
+                .collect()
+        };
+        let newer = NewRelease {
+            tag: "v0.17.9".to_string(),
+            notes: String::new(),
+            page: String::new(),
+        };
+
+        let none = labels(&UpdateView::default());
+        assert!(none.iter().any(|(label, _)| label == "Check for updates"));
+        assert!(!none.iter().any(|(label, _)| label.starts_with("Update to")));
+
+        let known = labels(&UpdateView {
+            available: Some(newer.clone()),
+            ..Default::default()
+        });
+        let update = known
+            .iter()
+            .find(|(label, _)| label.starts_with("Update to"));
+        assert_eq!(
+            update,
+            Some(&(
+                "Update to 0.17.9".to_string(),
+                "Downloads, checks and restarts WinCraft".to_string()
+            ))
+        );
+        assert!(known.iter().any(|(label, _)| label == "Check for updates"));
+
+        let blocked = labels(&UpdateView {
+            available: Some(newer),
+            blocked: Some("a development build".to_string()),
+            ..Default::default()
+        });
+        assert!(!blocked
+            .iter()
+            .any(|(label, _)| label.starts_with("Update to")));
+        assert!(blocked
+            .iter()
+            .any(|(label, _)| label == "Check for updates"));
+    }
+
+    #[test]
+    fn the_update_commands_reach_the_update_code_and_the_snapshot_lists_them() {
+        let data = Scratch::new("update-commands");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let (mut host, ui) = test_host(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        host.updates.busy = true;
+        host.updates.newer = Some(release("v0.17.9"));
+        host.publish();
+        let listed = snapshots(&ui).pop().unwrap().commands;
+        assert!(listed.iter().any(|entry| entry.label == "Update to 0.17.9"));
+
+        // Busy: neither command starts a download or a second check.
+        host.handle_request(HostRequest::RunCommand(CommandId::Host(
+            HostCommand::UpdateNow,
+        )));
+        host.handle_request(HostRequest::RunCommand(CommandId::Host(
+            HostCommand::CheckForUpdates,
+        )));
+        assert!(host.updates.busy && !host.updates.checking);
+        assert_eq!(host.updates.status, UpdateStatus::Idle);
     }
 
     fn release(tag: &str) -> Release {

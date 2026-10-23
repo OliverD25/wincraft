@@ -21,6 +21,10 @@ impl SearchProvider for Commands {
         "WinCraft and plugin commands"
     }
 
+    fn default_prefix(&self) -> Option<&'static str> {
+        Some("!")
+    }
+
     fn blended(&self) -> bool {
         true
     }
@@ -141,5 +145,95 @@ mod tests {
             found[1].enter.as_ref().map(|choice| &choice.action),
             Some(&Action::Command(CommandId::Host(HostCommand::OpenSettings)))
         );
+    }
+
+    fn router() -> crate::search::Router {
+        crate::search::Router::new(
+            vec![
+                (None, Box::new(Commands) as Box<dyn SearchProvider>),
+                (None, Box::new(crate::search::providers::calc::Calculator)),
+            ],
+            &std::collections::BTreeMap::new(),
+        )
+    }
+
+    fn host_entry(command: HostCommand, group: &str, label: &str) -> PaletteEntry {
+        PaletteEntry {
+            id: CommandId::Host(command),
+            plugin: None,
+            ..entry(group, label, false)
+        }
+    }
+
+    #[test]
+    fn the_bang_prefix_lists_every_command_and_only_commands() {
+        let commands = [
+            host_entry(HostCommand::OpenSettings, "WinCraft", "Open settings"),
+            host_entry(
+                HostCommand::CheckForUpdates,
+                "WinCraft",
+                "Check for updates",
+            ),
+            entry("ScreenDimmer", "Wake all monitors", true),
+        ];
+        let context = Context {
+            commands: &commands,
+            ..crate::search::test_context()
+        };
+        let mut router = router();
+        assert_eq!(router.split("!upd"), Some(("!".to_string(), "upd")));
+
+        let all = router.search(Some("!"), "", &context);
+        let titles: Vec<&str> = all.items.iter().map(|item| item.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            ["Open settings", "Check for updates", "Wake all monitors"],
+            "host commands first, in the host's order, then each plugin"
+        );
+
+        let found = router.search(Some("!"), "2+2", &context);
+        assert!(found.items.is_empty(), "no calculator answer after a bang");
+    }
+
+    #[test]
+    fn typing_upd_finds_the_update_commands() {
+        let commands = [
+            host_entry(HostCommand::OpenSettings, "WinCraft", "Open settings"),
+            host_entry(
+                HostCommand::CheckForUpdates,
+                "WinCraft",
+                "Check for updates",
+            ),
+            host_entry(HostCommand::UpdateNow, "WinCraft", "Update to 0.17.9"),
+        ];
+        let context = Context {
+            commands: &commands,
+            ..crate::search::test_context()
+        };
+        let mut router = router();
+        let has = |router: &mut crate::search::Router, prefix, text, title: &str| {
+            let found = router.search(prefix, text, &context);
+            found.items.iter().any(|item| item.title == title)
+        };
+        assert!(has(&mut router, None, "upd", "Check for updates"));
+        assert!(has(&mut router, None, "update", "Update to 0.17.9"));
+        assert!(has(&mut router, None, "check", "Check for updates"));
+        let found = router.search(Some("!"), "upd", &context);
+        let titles: Vec<&str> = found.items.iter().map(|item| item.title.as_str()).collect();
+        assert!(titles.contains(&"Check for updates") && titles.contains(&"Update to 0.17.9"));
+        assert!(!titles.contains(&"Open settings"));
+    }
+
+    #[test]
+    fn the_prefix_list_offers_the_bang() {
+        let mut router = router();
+        let help = router.search(Some("?"), "", &crate::search::test_context());
+        let row = help
+            .items
+            .iter()
+            .find(|item| item.hint == "!")
+            .expect("a row for !");
+        assert_eq!(row.title, "Commands");
+        assert_eq!(row.subtitle, "WinCraft and plugin commands");
     }
 }

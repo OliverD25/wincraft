@@ -43,6 +43,8 @@ pub enum HostCommand {
     OpenLayout,
     OpenLog,
     OpenConfig,
+    CheckForUpdates,
+    UpdateNow,
     TogglePlugin(usize),
     Exit,
 }
