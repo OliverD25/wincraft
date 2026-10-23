@@ -3,6 +3,7 @@ use egui::{pos2, vec2, Color32, CornerRadius, CursorIcon, Rect, Sense, StrokeKin
 use crate::core::theme::{self, Tokens};
 use crate::ui::widgets::focus;
 use crate::ui::widgets::icons::{self, Icon};
+use crate::ui::widgets::pending;
 
 const HEIGHT: f32 = 32.0;
 const OPTION_PADDING: f32 = 14.0;
@@ -26,6 +27,8 @@ pub fn choice(
 /// Selected option: accent text and a 1 px accent stroke inset into its cell.
 pub fn segmented(ui: &mut Ui, options: &[&str], selected: Option<usize>) -> Option<usize> {
     let tokens = Tokens::get(ui.ctx());
+    let pending_id = ui.id().with("segmented-pending");
+    let selected = shown_index(ui, pending_id, selected);
     let galleys: Vec<_> = options
         .iter()
         .map(|option| {
@@ -90,7 +93,16 @@ pub fn segmented(ui: &mut Ui, options: &[&str], selected: Option<usize>) -> Opti
         focus::ring(ui, &response, 4.0);
     }
     ui.painter().rect_stroke(outer, 4, line, StrokeKind::Inside);
+    if let Some(index) = chosen {
+        pending::choose(ui, pending_id, index);
+    }
     chosen
+}
+
+/// Shows a clicked option at once, before the host reports it back.
+fn shown_index(ui: &Ui, id: egui::Id, selected: Option<usize>) -> Option<usize> {
+    let wanted = pending::shown(ui, id, selected.unwrap_or(usize::MAX));
+    (wanted != usize::MAX).then_some(wanted)
 }
 
 /// 32 high, 200 wide, the current value in 14 regular and a chevron at the right.
@@ -101,6 +113,8 @@ pub fn dropdown(
     selected: Option<usize>,
 ) -> Option<usize> {
     let tokens = Tokens::get(ui.ctx());
+    let pending_id = ui.id().with(("dropdown-pending", id_salt));
+    let selected = shown_index(ui, pending_id, selected);
     let (rect, response) = ui.allocate_exact_size(vec2(DROPDOWN_WIDTH, HEIGHT), Sense::click());
     let response = response.on_hover_cursor(CursorIcon::PointingHand);
     let current = selected
@@ -167,5 +181,8 @@ pub fn dropdown(
                 }
             }
         });
+    if let Some(index) = chosen {
+        pending::choose(ui, pending_id, index);
+    }
     chosen
 }

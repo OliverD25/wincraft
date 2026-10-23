@@ -9,6 +9,7 @@ pub mod hotkey_capture;
 pub mod icons;
 pub mod input;
 pub mod keycap;
+pub mod pending;
 pub mod row;
 pub mod slider;
 pub mod text;

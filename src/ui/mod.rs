@@ -238,6 +238,11 @@ impl App {
                 }
                 UiCommand::Snapshot(snapshot) => {
                     self.settings.set_snapshot((*snapshot).clone());
+                    // The settings window is its own viewport and sleeps when
+                    // idle, so it must be told to draw the new values.
+                    if self.settings_open {
+                        ctx.request_repaint_of(settings::viewport_id());
+                    }
                     self.snapshot = *snapshot;
                     self.palette.invalidate();
                 }

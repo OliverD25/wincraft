@@ -1,32 +1,37 @@
+use egui::emath::easing;
 use egui::{pos2, vec2, CursorIcon, Response, Sense, StrokeKind, Ui};
 
 use crate::core::theme::{self, Tokens};
-use crate::ui::widgets::focus;
+use crate::ui::widgets::{focus, pending};
 
 const WIDTH: f32 = 40.0;
 const HEIGHT: f32 = 20.0;
 const KNOB: f32 = 12.0;
 const INSET: f32 = 3.0;
 
-/// 40×20 pill. The knob slides over 120 ms; the stroke colour switches at once,
-/// so the state reads immediately and the motion only confirms it.
+const SLIDE: f32 = 0.15;
+
+/// 40×20 pill. The knob slides over 150 ms, easing out, and the colour moves
+/// with it. A click shows its new value at once, even if the caller still
+/// passes the old one for a few frames while the host catches up.
 pub fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
     let tokens = Tokens::get(ui.ctx());
     let (rect, mut response) = ui.allocate_exact_size(vec2(WIDTH, HEIGHT), Sense::click());
+    *on = pending::shown(ui, response.id, *on);
     if response.clicked() {
         *on = !*on;
+        pending::choose(ui, response.id, *on);
         response.mark_changed();
     }
 
     if ui.is_rect_visible(rect) {
-        let position = ui
-            .ctx()
-            .animate_bool_with_time(response.id.with("knob"), *on, 0.12);
-        let colour = if *on {
-            tokens.accent
-        } else {
-            tokens.text_disabled
-        };
+        let position = ui.ctx().animate_bool_with_time_and_easing(
+            response.id.with("knob"),
+            *on,
+            SLIDE,
+            easing::cubic_out,
+        );
+        let colour = tokens.text_disabled.lerp_to_gamma(tokens.accent, position);
         let painter = ui.painter();
         painter.rect(
             rect,
@@ -49,5 +54,17 @@ pub fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
         response.on_hover_cursor(CursorIcon::PointingHand)
     } else {
         response
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_slide_starts_and_ends_exactly_and_moves_fast_first() {
+        assert_eq!(easing::cubic_out(0.0), 0.0);
+        assert_eq!(easing::cubic_out(1.0), 1.0);
+        assert!(easing::cubic_out(0.5) > 0.5);
     }
 }
