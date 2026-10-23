@@ -28,7 +28,9 @@ $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
-$scratch = Join-Path ([IO.Path]::GetTempPath()) 'wincraft-check'
+# One folder per run: two checks at once (another clone, a worktree) would
+# otherwise write the same log files and fail with "file in use".
+$scratch = Join-Path ([IO.Path]::GetTempPath()) "wincraft-check\$PID"
 New-Item -ItemType Directory -Force -Path $scratch | Out-Null
 $covTarget = if ($env:WINCRAFT_COV_TARGET) { $env:WINCRAFT_COV_TARGET } else { 'target/cov' }
 
