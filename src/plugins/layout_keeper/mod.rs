@@ -18,9 +18,10 @@ use windows_sys::Win32::System::SystemInformation::GetTickCount64;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, IsIconic, KillTimer, PostMessageW, SetTimer, SetWindowPos, ShowWindow,
-    ENDSESSION_CLOSEAPP, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE,
-    SW_SHOWNORMAL, WM_CLOSE, WM_ENDSESSION, WM_QUERYENDSESSION, WM_TIMER,
+    GetForegroundWindow, IsHungAppWindow, IsIconic, KillTimer, PostMessageW, SendMessageTimeoutW,
+    SetTimer, SetWindowPos, ShowWindow, ENDSESSION_CLOSEAPP, HWND_TOP, SMTO_ABORTIFHUNG,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE, SW_SHOWNORMAL, WM_CLOSE, WM_ENDSESSION,
+    WM_NULL, WM_QUERYENDSESSION, WM_TIMER,
 };
 
 use crate::core::traits::{
@@ -802,7 +803,19 @@ impl LayoutKeeper {
                 labels.join(" | ")
             );
         }
-        let took = taskbar.apply(&send);
+        let (took, refused) = taskbar.apply(&send);
+        for (call, hr) in &refused {
+            let (what, hwnd) = match call {
+                order::TabCall::Delete(hwnd) => ("remove", *hwnd),
+                order::TabCall::Add(hwnd) => ("add", *hwnd),
+                order::TabCall::Activate(hwnd) => ("highlight", *hwnd),
+            };
+            log::warn!(
+                "the taskbar refused to {what} the button of \"{}\" ({}), so it may keep its old place",
+                window_names::display_title(hwnd as HWND),
+                crate::core::com::hex(*hr)
+            );
+        }
         log::info!(
             "applied the order of {} {label} windows in {} ms ({} on other desktops left alone)",
             send.len(),
@@ -891,7 +904,9 @@ impl LayoutKeeper {
         counts
     }
 
-    fn start_restore(&mut self) {
+    /// Starts a restore run. `sign_in`: the run that follows signing in,
+    /// whose groups get their taskbar order a second time.
+    fn start_restore(&mut self, sign_in: bool) {
         if self.refuses("restore") {
             return;
         }
@@ -921,6 +936,9 @@ impl LayoutKeeper {
         self.panel_closed = false;
         self.restore.start(self.ticks, groups);
         self.restore.expect(self.expected.clone());
+        if sign_in {
+            self.restore.after_sign_in();
+        }
     }
 
     /// First half of restoring the groups in `due`: their taskbar order.
@@ -1025,6 +1043,12 @@ impl LayoutKeeper {
             }
             done.moves.extend(plan.moves);
             let label = self.label_of(&plan.group);
+            if plan.again {
+                log::info!(
+                    "put the taskbar order of {label} back a second time, in case the first rebuild came too soon for some buttons"
+                );
+                continue;
+            }
             if plan.late {
                 let line = format!(
                     "second pass: moved {} late {label} windows",
@@ -1418,15 +1442,23 @@ impl LayoutKeeper {
         }
         if self.restore.is_running() || self.notice_ctl.is_visible() || self.tray_tip.is_some() {
             let live = self.live_windows();
+            let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+            for window in &live {
+                self.remember_label(window);
+                *counts.entry(window.group.clone()).or_default() += 1;
+            }
             if self.restore.is_running() {
                 self.place_new(&live);
             }
-            let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-            for window in live {
-                self.remember_label(&window);
-                *counts.entry(window.group).or_default() += 1;
-            }
-            let step = self.restore.step(self.ticks, &counts);
+            let deciding = self.restore.deciding(&counts);
+            let busy: BTreeSet<String> = deciding
+                .into_iter()
+                .filter(|group| {
+                    live.iter()
+                        .any(|window| window.group == *group && !answers(window.hwnd))
+                })
+                .collect();
+            let step = self.restore.step_busy(self.ticks, &counts, &busy);
             for due in &step.due {
                 if due.pass == restore::Pass::Limit {
                     log::info!(
@@ -1927,6 +1959,8 @@ struct GroupPlan {
     group: String,
     /// A second pass, for windows that came after the group's restore.
     late: bool,
+    /// The order once more after a sign-in restore; like a second pass.
+    again: bool,
     /// Done before the taskbar order: with buttons on the taskbar of the
     /// window's own monitor, a move to another monitor moves its button too,
     /// and the order is rebuilt after that.
@@ -1974,7 +2008,8 @@ fn plan_restore(
         .filter(|entry| live_groups.contains(&entry.group))
     {
         let key = &entry.group;
-        let late = entry.pass == restore::Pass::Late;
+        let again = entry.pass == restore::Pass::Again;
+        let late = entry.pass == restore::Pass::Late || again;
         let members = state::saved_for_group(windows, &matching, &live_groups, key);
         // The model takes the same pairs as the moves below, so a window
         // gets its taskbar place and its desktop from the same saved entry
@@ -2003,6 +2038,7 @@ fn plan_restore(
         let mut plan = GroupPlan {
             group: key.clone(),
             late,
+            again,
             matched: pairs.len(),
             saved: members.len(),
             ..GroupPlan::default()
@@ -2309,6 +2345,30 @@ fn desktop_target(
         .filter(|id| known.contains(id));
     Some(saved.unwrap_or(now))
 }
+
+/// Whether a window's program answers messages now. A window that is still
+/// busy being made (Chrome loading a restored window) may not have its
+/// taskbar button in place yet, so its group's order waits a little.
+fn answers(hwnd: HWND) -> bool {
+    if unsafe { IsHungAppWindow(hwnd) } != 0 {
+        return false;
+    }
+    let mut result = 0usize;
+    unsafe {
+        SendMessageTimeoutW(
+            hwnd,
+            WM_NULL,
+            0,
+            0,
+            SMTO_ABORTIFHUNG,
+            ANSWER_TIMEOUT_MS,
+            &mut result,
+        ) != 0
+    }
+}
+
+/// How long a window may take to answer before it counts as busy.
+const ANSWER_TIMEOUT_MS: u32 = 50;
 
 fn raise(hwnd: HWND) {
     unsafe {
@@ -2639,7 +2699,7 @@ impl WinCraftPlugin for LayoutKeeper {
 
         // Switching the plugin off and on again is not a reboot.
         if !self.started_once && self.restore_on_start && start_follows_sign_in() {
-            self.start_restore();
+            self.start_restore(true);
         }
         self.started_once = true;
         if host::demo_restore_panel() {
@@ -2685,7 +2745,7 @@ impl WinCraftPlugin for LayoutKeeper {
 
     fn on_hotkey(&mut self, action_id: u32) {
         match action_id {
-            ACTION_RESTORE => self.start_restore(),
+            ACTION_RESTORE => self.start_restore(false),
             ACTION_SAVE_NOW => self.save_now(),
             ACTION_MOVE_LEFT => self.shift_front(-1),
             ACTION_MOVE_RIGHT => self.shift_front(1),
@@ -2709,7 +2769,7 @@ impl WinCraftPlugin for LayoutKeeper {
 
     fn on_tray_action(&mut self, action_id: u32) {
         match action_id {
-            ACTION_RESTORE => self.start_restore(),
+            ACTION_RESTORE => self.start_restore(false),
             ACTION_ARRANGE => host::open_arrange(),
             _ => {}
         }
@@ -3003,7 +3063,7 @@ impl WinCraftPlugin for LayoutKeeper {
 
     fn on_layout_action(&mut self, action: &LayoutAction) {
         match action {
-            LayoutAction::RestoreNow => self.start_restore(),
+            LayoutAction::RestoreNow => self.start_restore(false),
             LayoutAction::SaveNow => self.save_now(),
             LayoutAction::SetDesktop {
                 entry,
@@ -3330,7 +3390,7 @@ mod tests {
             std::env::temp_dir().join("wincraft-test-never-written.json"),
             Some(old_file()),
         );
-        keeper.start_restore();
+        keeper.start_restore(false);
         assert_eq!(keeper.refused, 1);
         assert!(!keeper.restore.is_running());
     }
@@ -4527,6 +4587,42 @@ mod tests {
         assert!(group.gone.is_empty() && group.lost.is_empty());
         assert!(plan.stack.is_empty(), "nothing is raised again");
         assert!(plan.placed.contains(&13));
+    }
+
+    #[test]
+    fn the_second_order_after_a_sign_in_rebuilds_the_taskbar_and_moves_nothing() {
+        let plan = plan_for(
+            &saved_chrome(),
+            &reopened(),
+            &due("Chrome", restore::Pass::Again),
+            BTreeSet::from([10, 11, 12]),
+            true,
+            true,
+        );
+        let [group] = plan.plans.as_slice() else {
+            panic!("{:?}", plan.plans)
+        };
+        assert!(group.again && group.late);
+        assert!(
+            group.monitors.is_empty(),
+            "placed windows stay on their monitor"
+        );
+        let targets: Vec<DesktopId> = group.moves.iter().map(|(_, target, _)| *target).collect();
+        assert_eq!(
+            targets,
+            [D1, D1, D1],
+            "each only undoes the pull of its button"
+        );
+        assert_eq!(plan.groups["Chrome"].pending(), Some(vec![11, 10, 12]));
+        assert!(plan.stack.is_empty(), "nothing is raised again");
+
+        let mut keeper = read_only();
+        let mut done = Restored::default();
+        keeper.carry_out(plan.plans, true, &[], &mut done);
+        assert!(
+            done.parts.is_empty() && done.late_parts.is_empty(),
+            "no summary line"
+        );
     }
 
     #[test]

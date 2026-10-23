@@ -26,6 +26,17 @@ const MOVING_SECONDS: u64 = 2;
 /// new window: an app that opens some of its windows and then no more (or
 /// whose open window flickers) must not hold the panel.
 pub const LINE_CAP_SECONDS: u64 = 20;
+/// A group with all its saved windows open still waits this long after its
+/// last window came: a button Explorer is still making for a window that
+/// opened a moment ago can miss the rebuild of the taskbar order.
+pub const COMPLETE_QUIET_SECONDS: u64 = 2;
+/// A group with a window that does not answer yet waits for it, but never
+/// longer than this after its count stopped changing.
+pub const BUSY_WAIT_SECONDS: u64 = 10;
+/// After the sign-in restore of a group, its taskbar order is put back once
+/// more this much later: the first rebuild, right after the app opened its
+/// windows, can lose the race with Explorer for some buttons.
+pub const AGAIN_SECONDS: u64 = 8;
 
 /// Why a group is restored now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,6 +48,9 @@ pub enum Pass {
     /// Second restore: windows came late and held still, or the watch ended
     /// while they were still arriving.
     Late,
+    /// The taskbar order once more, `AGAIN_SECONDS` after the first restore
+    /// of a sign-in restore; nothing else changes.
+    Again,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -122,6 +136,8 @@ struct Watching {
     /// The most windows seen above the baseline, and when that last grew.
     most: usize,
     grew_at: Option<u64>,
+    /// When the taskbar order is put back once more, if it still is.
+    again_at: Option<u64>,
 }
 
 /// Keeps `most` and `grew_at` up to date with a new count.
@@ -155,6 +171,8 @@ pub struct Restore {
     /// Windows saved for each group. A group with all of them open is
     /// restored at once, without waiting for its count to hold still.
     expected: BTreeMap<String, usize>,
+    /// This run follows a sign-in, so each group gets its order twice.
+    sign_in: bool,
     pub settle_seconds: u64,
     pub give_up_seconds: u64,
 }
@@ -172,6 +190,7 @@ impl Restore {
             skipped: BTreeSet::new(),
             restored: 0,
             expected: BTreeMap::new(),
+            sign_in: false,
             settle_seconds,
             give_up_seconds,
         }
@@ -181,6 +200,7 @@ impl Restore {
     pub fn start(&mut self, tick: u64, groups: Vec<String>) {
         self.started = Some(tick);
         self.expected.clear();
+        self.sign_in = false;
         self.deadline_passed = false;
         self.restored = 0;
         self.by_limit.clear();
@@ -203,6 +223,26 @@ impl Restore {
                 )
             })
             .collect();
+    }
+
+    /// Marks the run, after `start`, as the restore that follows a sign-in.
+    pub fn after_sign_in(&mut self) {
+        self.sign_in = true;
+    }
+
+    /// The groups that may be restored on the next step with these counts:
+    /// those waiting with windows open, and those watched that have new
+    /// windows or a second order still to come. Only their windows are
+    /// asked whether they answer.
+    pub fn deciding(&self, counts: &BTreeMap<String, usize>) -> Vec<String> {
+        let now = |group: &String| counts.get(group).copied().unwrap_or(0);
+        let waiting = self.waiting.keys().filter(|group| now(group) > 0).cloned();
+        let watching = self
+            .watching
+            .iter()
+            .filter(|(group, watch)| now(group) > watch.baseline || watch.again_at.is_some())
+            .map(|(group, _)| group.clone());
+        waiting.chain(watching).collect()
     }
 
     /// How many windows are saved for each group, set after `start`.
@@ -295,7 +335,19 @@ impl Restore {
     /// Feeds each group's window count at `tick`. Zero windows never count
     /// as settled: right after sign-in WinCraft often runs before the app
     /// has opened anything.
+    #[cfg(test)]
     pub fn step(&mut self, tick: u64, counts: &BTreeMap<String, usize>) -> Step {
+        self.step_busy(tick, counts, &BTreeSet::new())
+    }
+
+    /// `step`, with the groups in `busy` having a window that does not answer
+    /// messages yet: such a group waits up to `BUSY_WAIT_SECONDS` more.
+    pub fn step_busy(
+        &mut self,
+        tick: u64,
+        counts: &BTreeMap<String, usize>,
+        busy: &BTreeSet<String>,
+    ) -> Step {
         let Some(started) = self.started else {
             return Step::default();
         };
@@ -345,9 +397,21 @@ impl Restore {
                 watch.stable_since = tick;
             }
             note_growth(&mut watch.most, &mut watch.grew_at, count, tick);
+            let quiet = tick.saturating_sub(watch.stable_since);
             let settled = count > watch.baseline
-                && tick.saturating_sub(watch.stable_since) >= self.settle_seconds;
+                && quiet >= self.settle_seconds
+                && (!busy.contains(group) || quiet >= BUSY_WAIT_SECONDS);
+            if !settled && watch.again_at.is_some_and(|at| tick >= at) {
+                watch.again_at = None;
+                step.due.push(Due {
+                    group: group.clone(),
+                    pass: Pass::Again,
+                });
+                self.moved_at.insert(group.clone(), tick);
+                continue;
+            }
             if settled {
+                watch.again_at = None;
                 step.due.push(Due {
                     group: group.clone(),
                     pass: Pass::Late,
@@ -386,8 +450,10 @@ impl Restore {
                 .expected
                 .get(group)
                 .is_some_and(|expected| *expected > 0 && count >= *expected);
+            let quiet = tick.saturating_sub(watch.stable_since);
             let settled = count > 0
-                && (complete || tick.saturating_sub(watch.stable_since) >= self.settle_seconds);
+                && ((complete && quiet >= COMPLETE_QUIET_SECONDS) || quiet >= self.settle_seconds)
+                && (!busy.contains(group) || quiet >= BUSY_WAIT_SECONDS);
             if settled || (count > 0 && past_limit) {
                 let pass = if settled { Pass::Settled } else { Pass::Limit };
                 restored_now.push((group.clone(), pass, count));
@@ -410,6 +476,7 @@ impl Restore {
                     until: tick + SECOND_PASS_SECONDS,
                     most: count,
                     grew_at: None,
+                    again_at: self.sign_in.then_some(tick + AGAIN_SECONDS),
                 },
             );
             if pass == Pass::Limit {
@@ -733,9 +800,92 @@ mod tests {
         restore.start(0, vec!["Chrome".into(), "Telegram".into()]);
         restore.expect(counts(&[("Chrome", 3), ("Telegram", 1)]));
         assert_eq!(restore.step(1, &counts(&[("Chrome", 2)])), Step::default());
+        let all = |_| counts(&[("Chrome", 3), ("Telegram", 1)]);
+        assert!(
+            drive(&mut restore, 2..=3, all).is_empty(),
+            "a moment of quiet"
+        );
         assert_eq!(
-            restore.step(2, &counts(&[("Chrome", 3), ("Telegram", 1)])),
+            restore.step(4, &all(4)),
             due(&[("Chrome", Pass::Settled), ("Telegram", Pass::Settled)])
+        );
+    }
+
+    #[test]
+    fn a_group_with_a_window_that_does_not_answer_waits_but_not_for_long() {
+        let mut restore = Restore::new(3, 1800);
+        restore.start(0, vec!["Chrome".into()]);
+        let busy = BTreeSet::from(["Chrome".to_string()]);
+        let mut first = None;
+        for tick in 1..=30 {
+            let step = restore.step_busy(tick, &counts(&[("Chrome", 5)]), &busy);
+            if !step.due.is_empty() {
+                first = Some(tick);
+                break;
+            }
+        }
+        // The count is steady from tick 1; busy holds it 10 s, not 3.
+        assert_eq!(first, Some(1 + BUSY_WAIT_SECONDS));
+    }
+
+    #[test]
+    fn only_groups_that_may_be_restored_next_are_asked_whether_they_answer() {
+        let mut restore = Restore::new(3, 1800);
+        restore.start(0, vec!["Chrome".into(), "Ghost".into(), "Telegram".into()]);
+        restore.after_sign_in();
+        let now = counts(&[("Chrome", 5), ("Telegram", 1)]);
+        restore.step(1, &now);
+        assert_eq!(restore.deciding(&now), ["Chrome", "Telegram"]);
+        drive(&mut restore, 2..=4, |_| now.clone());
+        // Restored and waiting for the second order.
+        assert_eq!(restore.deciding(&now), ["Chrome", "Telegram"]);
+        drive(&mut restore, 5..=20, |_| now.clone());
+        assert!(restore.deciding(&now).is_empty());
+        let more = counts(&[("Chrome", 6), ("Telegram", 1)]);
+        assert_eq!(restore.deciding(&more), ["Chrome"]);
+    }
+
+    #[test]
+    fn after_a_sign_in_each_group_gets_its_order_once_more_and_only_once() {
+        let mut restore = Restore::new(3, 1800);
+        restore.start(0, vec!["Chrome".into()]);
+        restore.after_sign_in();
+        let at = |_| counts(&[("Chrome", 5)]);
+        let events = drive(&mut restore, 1..=100, at);
+        assert_eq!(
+            events,
+            [
+                (4, due(&[("Chrome", Pass::Settled)])),
+                (4 + AGAIN_SECONDS, due(&[("Chrome", Pass::Again)])),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_restore_asked_for_by_hand_puts_the_order_back_once() {
+        let mut restore = Restore::new(3, 1800);
+        restore.start(0, vec!["Chrome".into()]);
+        restore.after_sign_in();
+        // A new run, as Restore now starts, is not a sign-in.
+        restore.start(0, vec!["Chrome".into()]);
+        let events = drive(&mut restore, 1..=100, |_| counts(&[("Chrome", 5)]));
+        assert_eq!(events, [(4, due(&[("Chrome", Pass::Settled)]))]);
+    }
+
+    #[test]
+    fn late_windows_before_the_second_order_take_its_place() {
+        let mut restore = Restore::new(3, 1800);
+        restore.start(0, vec!["Chrome".into()]);
+        restore.after_sign_in();
+        let at = |tick: u64| counts(&[("Chrome", if tick >= 6 { 6 } else { 5 })]);
+        let events = drive(&mut restore, 1..=100, at);
+        assert_eq!(
+            events,
+            [
+                (4, due(&[("Chrome", Pass::Settled)])),
+                (9, due(&[("Chrome", Pass::Late)])),
+            ],
+            "the late pass rebuilt the order after the race anyway"
         );
     }
 

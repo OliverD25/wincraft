@@ -185,14 +185,15 @@ pub fn desktop_orders(applied: &[Placed]) -> Vec<(DesktopId, Vec<String>, Vec<St
 
 /// The log line for one desktop of `desktop_orders`.
 pub fn order_line(label: &str, desktop: &str, wanted: &[String], now: &[String]) -> String {
+    // The taskbar cannot be read, so the line names WinCraft's own list.
     if wanted == now {
         format!(
-            "taskbar order of {label} on {desktop}, as wanted: {}",
+            "WinCraft's order for {label} on {desktop} (its own list, not read from the taskbar), every window on its desktop: {}",
             now.join(" | ")
         )
     } else {
         format!(
-            "taskbar order of {label} on {desktop}: wanted {}; now {}",
+            "WinCraft's order for {label} on {desktop} (its own list, not read from the taskbar): wanted {}; on this desktop now {}",
             list_or_none(wanted),
             list_or_none(now)
         )
@@ -338,11 +339,11 @@ mod tests {
         );
         assert_eq!(
             order_line("Chrome", "Home", &orders[0].1, &orders[0].1),
-            "taskbar order of Chrome on Home, as wanted: Home"
+            "WinCraft's order for Chrome on Home (its own list, not read from the taskbar), every window on its desktop: Home"
         );
         assert_eq!(
             order_line("Chrome", "Work", &[], &orders[1].2),
-            "taskbar order of Chrome on Work: wanted none; now Mail | New"
+            "WinCraft's order for Chrome on Work (its own list, not read from the taskbar): wanted none; on this desktop now Mail | New"
         );
     }
 }

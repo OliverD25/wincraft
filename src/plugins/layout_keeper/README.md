@@ -93,8 +93,14 @@ placed once; after that it stays where you put it.
 The taskbar order, and the front-to-back order, are put back per taskbar
 group, because the order needs the whole group. Each group has its own
 clock, which starts when its first window appears, not when WinCraft starts.
-A group gets its order as soon as all its saved windows are open, or once no
-window has come or gone for 3 seconds (**Wait for windows**). If the number
+A group gets its order 2 seconds after all its saved windows are open, or
+once no window has come or gone for 3 seconds (**Wait for windows**). A
+window that does not answer yet, such as a Chrome window still loading,
+holds its group back up to 10 seconds more, because Explorer may not have
+made its taskbar button yet. After a sign-in, each group gets its taskbar
+order once more 8 seconds later: on 2026-10-24 three Chrome windows that had
+opened a second before the first rebuild kept the places Chrome gave them.
+A taskbar call that Windows refuses is logged with the window's title. If the number
 keeps changing, the group gets its order 4 minutes after its first window
 with the windows that are open then. Settings that still had the old
 defaults of 5 or 15 seconds are changed to 3.
@@ -126,7 +132,9 @@ For each group, LayoutKeeper:
    after that the log gets one line per app ("check after the restore: all 23
    Chrome windows are on their desktops and monitors"), one line for each
    window still out of place, with the desktop it wants and the one it is on
-   (name and id), and the taskbar order on each desktop, wanted and now.
+   (name and id), and WinCraft's order on each desktop, wanted and now. That
+   order is WinCraft's own list, not a reading of the taskbar, and the log
+   line says so.
    Until that last look, saves keep the app's saved windows.
 
 The monitors come first: with taskbar buttons shown on the taskbar of the
@@ -321,10 +329,11 @@ cases, and a restore then puts back the list, not what was on screen:
   example, if Windows gives it a new button there; this has not been
   measured.
 
-After a restore the log lists, for each app and each desktop, the order that
-was put back and the windows on that desktop, so the next reboot shows
-whether a difference came from the order or from a window that did not
-reach its desktop.
+After a restore the log lists, for each app and each desktop, WinCraft's
+order that was put back and the windows on that desktop ("WinCraft's order
+for Chrome on Home (its own list, not read from the taskbar)"). It shows
+whether a window did not reach its desktop. It cannot show a button that
+the taskbar left in another place; only the taskbar itself shows that.
 
 ### Groups
 

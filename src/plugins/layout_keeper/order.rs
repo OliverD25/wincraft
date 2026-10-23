@@ -272,22 +272,28 @@ impl Taskbar {
 
     /// Re-adds the windows in order, then hands the highlight back to the
     /// window that had it, so the apply is not visible as a focus change.
-    pub fn apply(&self, handles: &[Handle]) -> Duration {
+    /// Returns how long it took and every call the taskbar refused, with
+    /// its HRESULT.
+    pub fn apply(&self, handles: &[Handle]) -> (Duration, Vec<(TabCall, HRESULT)>) {
         let started = Instant::now();
         let vtable = unsafe { self.0.vtable::<ITaskbarListVtbl>() };
         let foreground = unsafe { GetForegroundWindow() } as Handle;
+        let mut refused = Vec::new();
         for call in tab_calls(handles, foreground) {
             let (method, hwnd) = match call {
                 TabCall::Delete(hwnd) => (vtable.delete_tab, hwnd),
                 TabCall::Add(hwnd) => (vtable.add_tab, hwnd),
                 TabCall::Activate(hwnd) => (vtable.activate_tab, hwnd),
             };
-            unsafe { method(self.0.as_raw(), hwnd as HWND) };
+            let hr = unsafe { method(self.0.as_raw(), hwnd as HWND) };
+            if com::check(hr).is_err() {
+                refused.push((call, hr));
+            }
             if matches!(call, TabCall::Delete(_)) {
                 std::thread::sleep(REINSERT_PAUSE);
             }
         }
-        started.elapsed()
+        (started.elapsed(), refused)
     }
 }
 
