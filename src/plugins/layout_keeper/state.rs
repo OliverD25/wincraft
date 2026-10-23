@@ -94,6 +94,45 @@ pub fn path() -> PathBuf {
     config::plugins_dir().join("layout_keeper.state.json")
 }
 
+/// `layout_keeper.state.shutdown.json`, next to the state file: the layout
+/// as it was at the last shutdown, restart, sign-out or quit. Timer saves
+/// never write it, so the restore after the next sign-in still has it after
+/// the first saves of the new session.
+pub fn snapshot_path(state: &Path) -> PathBuf {
+    state.with_extension("shutdown.json")
+}
+
+/// Which file holds the layout to start from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Source {
+    State,
+    Snapshot,
+}
+
+/// Picks the state file or the shutdown snapshot. Each argument is None when
+/// that file is missing or unreadable, else the time in its `saved` field,
+/// itself None when that time cannot be read.
+///
+/// The snapshot wins when nothing was saved after it: then the session
+/// before ended with a shutdown or a quit, and the snapshot is the layout at
+/// that last moment. A state file saved later means the session ended
+/// without one, by a crash or a power cut, and its last save is newer.
+pub fn pick(state: Option<Option<i64>>, snapshot: Option<Option<i64>>) -> Source {
+    match (state, snapshot) {
+        (_, None) => Source::State,
+        (None, Some(_)) => Source::Snapshot,
+        (Some(_), Some(None)) => Source::State,
+        (Some(None), Some(Some(_))) => Source::Snapshot,
+        (Some(Some(state)), Some(Some(snapshot))) => {
+            if snapshot >= state {
+                Source::Snapshot
+            } else {
+                Source::State
+            }
+        }
+    }
+}
+
 pub fn load(path: &Path) -> Option<StateFile> {
     let text = fs::read_to_string(path).ok()?;
     match serde_json::from_str(config::strip_bom(&text)) {
@@ -257,6 +296,32 @@ impl Writer {
             .map_err(|e| format!("cannot copy the layout to {}: {e}", prev.display()))
     }
 
+    /// The shutdown snapshot next to the state file (see `snapshot_path`).
+    pub fn snapshot_path(&self) -> PathBuf {
+        snapshot_path(&self.path)
+    }
+
+    /// Writes what was saved last to the shutdown snapshot, always, and
+    /// returns how many windows it holds; None when nothing was saved yet.
+    pub fn write_snapshot(&self, reason: &str, saved: String) -> Result<Option<usize>, String> {
+        let Some(programs) = &self.last else {
+            return Ok(None);
+        };
+        let file = StateFile {
+            version: VERSION,
+            saved,
+            reason: reason.to_string(),
+            programs: programs.clone(),
+        };
+        let text = serde_json::to_string_pretty(&file)
+            .map_err(|e| format!("cannot serialise the layout: {e}"))?;
+        let path = self.snapshot_path();
+        config::write_atomic(&path, &text)?;
+        Ok(Some(
+            programs.values().map(|program| program.windows.len()).sum(),
+        ))
+    }
+
     /// Returns whether anything was written. `force` writes even an
     /// unchanged layout, for a save the user asked for.
     pub fn write(
@@ -382,6 +447,54 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(writer.prev_path()).unwrap()).unwrap();
         assert_eq!(prev.programs, programs(&["Before"]));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_snapshot_is_written_next_to_the_state_file_and_left_by_saves() {
+        let dir = std::env::temp_dir().join(format!("wincraft-snapshot-{}", std::process::id()));
+        let file = dir.join("layout_keeper.state.json");
+        let mut writer = Writer::new(file.clone(), None);
+        assert_eq!(
+            writer.snapshot_path(),
+            dir.join("layout_keeper.state.shutdown.json")
+        );
+        assert_eq!(writer.write_snapshot("shutdown", "t0".into()), Ok(None));
+        assert!(!writer.snapshot_path().exists());
+
+        writer
+            .write(
+                programs(&["Before", "Shutdown"]),
+                "shutdown",
+                "t1".into(),
+                false,
+            )
+            .unwrap();
+        assert_eq!(writer.write_snapshot("shutdown", "t1".into()), Ok(Some(2)));
+        writer
+            .write(programs(&["After sign-in"]), "timer", "t2".into(), false)
+            .unwrap();
+        let snapshot = load(&writer.snapshot_path()).unwrap();
+        assert_eq!(snapshot.reason, "shutdown");
+        assert_eq!(snapshot.programs, programs(&["Before", "Shutdown"]));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_snapshot_is_used_when_nothing_was_saved_after_it() {
+        // A shutdown wrote both files in the same second, or the state file
+        // was unchanged and kept its older time.
+        assert_eq!(pick(Some(Some(100)), Some(Some(100))), Source::Snapshot);
+        assert_eq!(pick(Some(Some(40)), Some(Some(100))), Source::Snapshot);
+        // The session ended in a crash: timer saves came after the snapshot.
+        assert_eq!(pick(Some(Some(160)), Some(Some(100))), Source::State);
+        // No snapshot yet, as before this version, or it cannot be read.
+        assert_eq!(pick(Some(Some(100)), None), Source::State);
+        assert_eq!(pick(None, None), Source::State);
+        // Only one of the two can be told apart in time.
+        assert_eq!(pick(None, Some(Some(100))), Source::Snapshot);
+        assert_eq!(pick(Some(None), Some(Some(100))), Source::Snapshot);
+        assert_eq!(pick(Some(Some(100)), Some(None)), Source::State);
+        assert_eq!(pick(None, Some(None)), Source::Snapshot);
     }
 
     #[test]

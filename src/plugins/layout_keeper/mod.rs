@@ -18,8 +18,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, IsIconic, KillTimer, PostMessageW, SetTimer, SetWindowPos, ShowWindow,
-    HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE, SW_SHOWNORMAL, WM_CLOSE,
-    WM_ENDSESSION, WM_QUERYENDSESSION, WM_TIMER,
+    ENDSESSION_CLOSEAPP, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE,
+    SW_SHOWNORMAL, WM_CLOSE, WM_ENDSESSION, WM_QUERYENDSESSION, WM_TIMER,
 };
 
 use crate::core::traits::{
@@ -653,6 +653,27 @@ impl LayoutKeeper {
             }
             Ok((false, _)) => log::debug!("layout unchanged ({reason})"),
             Err(err) => log::error!("could not save the layout: {err}"),
+        }
+    }
+
+    /// The save at the end of a session or a run: the state file as usual,
+    /// then the shutdown snapshot that the next sign-in restores from.
+    fn save_at_end(&mut self, reason: &str) {
+        if self.restore_finishing() {
+            log::info!("a restore is under way, so the layout is not saved ({reason})");
+            return;
+        }
+        self.save(reason);
+        match self
+            .writer
+            .write_snapshot(reason, clock::local_iso(SystemTime::now()))
+        {
+            Ok(Some(count)) => log::info!(
+                "kept the layout of {count} windows in {} for the next sign-in ({reason})",
+                self.writer.snapshot_path().display()
+            ),
+            Ok(None) => {}
+            Err(err) => log::error!("could not keep the layout for the next sign-in: {err}"),
         }
     }
 
@@ -1369,6 +1390,39 @@ fn start_follows_sign_in() -> bool {
         );
     }
     restores
+}
+
+/// The layout `init` starts from: the state file, or the shutdown snapshot
+/// when nothing was saved after it (see `state::pick`).
+fn start_layout(
+    file: Option<state::StateFile>,
+    snapshot: Option<state::StateFile>,
+) -> Option<state::StateFile> {
+    let time =
+        |file: &Option<state::StateFile>| file.as_ref().map(|file| clock::parse_iso(&file.saved));
+    match state::pick(time(&file), time(&snapshot)) {
+        state::Source::State => {
+            if let (Some(file), Some(snapshot)) = (&file, &snapshot) {
+                log::info!(
+                    "the state file (saved {}) is newer than the layout kept at the end of the last session (saved {}, {}), so it is used",
+                    file.saved,
+                    snapshot.saved,
+                    snapshot.reason
+                );
+            }
+            file
+        }
+        state::Source::Snapshot => {
+            if let Some(snapshot) = &snapshot {
+                log::info!(
+                    "using the layout kept at the end of the last session (saved {}, {}); nothing was saved after it",
+                    snapshot.saved,
+                    snapshot.reason
+                );
+            }
+            snapshot
+        }
+    }
 }
 
 /// What a save reads from Windows besides the window list, as plain values
@@ -2128,7 +2182,10 @@ impl WinCraftPlugin for LayoutKeeper {
                 None
             }
         };
-        let file = state::load(&self.state_path);
+        let file = start_layout(
+            state::load(&self.state_path),
+            state::load(&state::snapshot_path(&self.state_path)),
+        );
         if let Some(file) = &file {
             let count: usize = file
                 .programs
@@ -2635,12 +2692,16 @@ impl WinCraftPlugin for LayoutKeeper {
         Some(parts.join(" \u{b7} "))
     }
 
-    fn on_windows_message(&mut self, msg: u32, wparam: WPARAM, _lparam: LPARAM) {
+    fn on_windows_message(&mut self, msg: u32, wparam: WPARAM, lparam: LPARAM) {
+        // An installer or update closing apps is not the end of the session:
+        // Windows keeps running, and the next start is no sign-in.
+        let closes_app = (lparam as u32) & ENDSESSION_CLOSEAPP != 0;
         match msg {
             WM_TIMER if wparam == TIMER_ID => self.tick(),
             WM_TIMER if wparam == FADE_TIMER_ID => self.fade_step(),
-            WM_QUERYENDSESSION => self.save("shutdown"),
-            WM_ENDSESSION if wparam != 0 => self.save("shutdown"),
+            WM_QUERYENDSESSION | WM_ENDSESSION if closes_app => self.save("shutdown"),
+            WM_QUERYENDSESSION => self.save_at_end("shutdown"),
+            WM_ENDSESSION if wparam != 0 => self.save_at_end("shutdown"),
             _ => {}
         }
     }
@@ -2648,7 +2709,7 @@ impl WinCraftPlugin for LayoutKeeper {
     fn teardown(&mut self) {
         if let Some(hwnd) = self.host_hwnd.take() {
             unsafe { KillTimer(hwnd, TIMER_ID) };
-            self.save("teardown");
+            self.save_at_end("teardown");
         }
         self.restore = Restore::new(self.restore.settle_seconds, self.restore.give_up_seconds);
         self.hide_notice();
@@ -3591,6 +3652,7 @@ mod tests {
     fn clean_up(path: &std::path::Path) {
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(path.with_extension("prev.json"));
+        let _ = std::fs::remove_file(state::snapshot_path(path));
     }
 
     #[test]
@@ -4189,6 +4251,100 @@ mod tests {
         keeper.tick();
         assert!(keeper.reapply.is_empty() && !keeper.arrange_stale);
         assert_eq!(keeper.refused, 1, "the taskbar reorder was turned down");
+    }
+
+    #[test]
+    fn the_end_of_a_session_keeps_a_snapshot_but_an_installer_closing_apps_does_not() {
+        let (mut keeper, path) = watching_nothing("end-session");
+        let snapshot = state::snapshot_path(&path);
+        keeper.on_windows_message(WM_QUERYENDSESSION, 0, ENDSESSION_CLOSEAPP as LPARAM);
+        assert_eq!(read_file(&path).reason, "shutdown");
+        assert!(!snapshot.exists(), "Windows keeps running after this");
+        keeper.on_windows_message(WM_ENDSESSION, 0, 0);
+        assert!(!snapshot.exists(), "the session did not end after all");
+        keeper.on_windows_message(WM_QUERYENDSESSION, 0, 0);
+        let kept = state::load(&snapshot).expect("a snapshot");
+        assert_eq!(kept.reason, "shutdown");
+        assert_eq!(Some(&kept.programs), keeper.writer.last());
+        clean_up(&path);
+
+        // Between the two halves of a restore neither file is written.
+        let (mut keeper, path) = watching_nothing("end-session-restore");
+        keeper.finishing = Some(finish(Vec::new(), std::ptr::null_mut()));
+        keeper.on_windows_message(WM_ENDSESSION, 1, 0);
+        assert!(!path.exists() && !state::snapshot_path(&path).exists());
+        clean_up(&path);
+    }
+
+    fn saved_at(programs: Programs, saved: &str, reason: &str) -> state::StateFile {
+        state::StateFile {
+            version: state::VERSION,
+            saved: saved.to_string(),
+            reason: reason.to_string(),
+            programs,
+        }
+    }
+
+    #[test]
+    fn the_start_layout_is_the_snapshot_unless_something_was_saved_after_it() {
+        let at_shutdown = programs(vec![("chrome.exe", vec![kept("Shutdown", None, None, 0)])]);
+        let later = programs(vec![("chrome.exe", vec![kept("Later", None, None, 0)])]);
+        let snapshot = saved_at(at_shutdown.clone(), "2026-10-22T21:20:00+03:00", "shutdown");
+
+        let unchanged = saved_at(later.clone(), "2026-10-22T18:00:00+03:00", "timer");
+        let chosen = start_layout(Some(unchanged), Some(snapshot.clone())).unwrap();
+        assert_eq!(chosen.programs, at_shutdown);
+
+        let crashed = saved_at(later.clone(), "2026-10-23T09:00:00+03:00", "timer");
+        let chosen = start_layout(Some(crashed), Some(snapshot.clone())).unwrap();
+        assert_eq!(
+            chosen.programs, later,
+            "the session after it ended in a crash"
+        );
+
+        assert_eq!(
+            start_layout(None, Some(snapshot)).unwrap().programs,
+            at_shutdown
+        );
+        assert!(start_layout(None, None).is_none());
+    }
+
+    #[test]
+    fn init_starts_from_the_snapshot_when_it_is_the_newest() {
+        let path = std::env::temp_dir().join(format!(
+            "wincraft-test-layout-init-snapshot-{}.json",
+            std::process::id()
+        ));
+        let mut writer = state::Writer::new(path.clone(), None);
+        writer
+            .write(
+                programs(vec![("viber.exe", vec![kept("Older", None, None, 0)])]),
+                "timer",
+                "2026-10-22T18:00:00+03:00".to_string(),
+                true,
+            )
+            .unwrap();
+        let snapshot = state::Writer::new(path.clone(), Some(layout_file()));
+        snapshot
+            .write_snapshot("shutdown", "2026-10-22T21:20:00+03:00".to_string())
+            .unwrap();
+        let mut keeper = LayoutKeeper {
+            state_path: path.clone(),
+            ..LayoutKeeper::default()
+        };
+        let settings = serde_json::json!({
+            "programs": "wincraft-test-nothing.exe",
+            "restore_on_start": false,
+        });
+        let ctx = HostContext {
+            hwnd: std::ptr::null_mut(),
+            settings: &settings,
+        };
+        keeper.init(&ctx).unwrap();
+        assert_eq!(keeper.writer.last(), Some(&layout_file()));
+        keeper.host_hwnd = None;
+        keeper.teardown();
+        clean_up(&path);
     }
 
     #[test]

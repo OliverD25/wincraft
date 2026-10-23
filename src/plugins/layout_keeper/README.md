@@ -49,6 +49,19 @@ Telegram before a restart loses nothing. At shutdown, programs close their windo
 while the layout is being saved, so a list that got shorter at that moment
 keeps the complete one from before.
 
+### The layout at the end of a session
+
+When Windows shuts down, restarts or signs you out, and when WinCraft quits
+or stops, LayoutKeeper saves the layout and also keeps a copy of it in
+`layout_keeper.state.shutdown.json`, next to the state file. Saves during
+the day never write that copy. After you sign in again, LayoutKeeper starts
+from the copy when nothing was saved after it, so the restore puts back the
+layout of the last moment before the shutdown, even after the first saves
+of the new session. If the state file is newer, the session before ended
+without a shutdown (a crash or a power cut), and its last save is used.
+An installer or update that closes WinCraft while Windows keeps running
+does not count as the end of a session.
+
 ### After a browser crash or restart during the day
 
 When Chrome crashes or restarts, its windows come back in a scrambled order.

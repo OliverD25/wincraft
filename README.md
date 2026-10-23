@@ -345,6 +345,7 @@ plugins\
   layout_keeper.state.json   the saved window layout, written by LayoutKeeper
   window_namer.names.json    the saved window names, written by WindowNamer
   layout_keeper.state.prev.json   the layout from before a browser crash or restart
+  layout_keeper.state.shutdown.json   the layout at the last shutdown or quit
 cache\                 the last plugin index fetched from GitHub
 wincraft.log           what the program did in this run; an update adds to it
 wincraft.prev.log      the log of the run before, kept at each new start
