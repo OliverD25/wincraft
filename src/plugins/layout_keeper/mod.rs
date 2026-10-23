@@ -1849,8 +1849,22 @@ fn plan_restore(
         let key = &entry.group;
         let late = entry.pass == restore::Pass::Late;
         let members = state::saved_for_group(windows, &matching, &live_groups, key);
-        let ids = members.iter().map(|s| saved_ids[*s].clone()).collect();
-        let mut model = OrderModel::from_saved(ids);
+        // The model takes the same pairs as the moves below, so a window
+        // gets its taskbar place and its desktop from the same saved entry
+        // even when two saved windows share a title.
+        let mut model = OrderModel::from_matched(
+            members
+                .iter()
+                .map(|s| {
+                    let paired = matching
+                        .pairs
+                        .iter()
+                        .find(|(saved, live)| saved == s && live_groups[*live] == *key)
+                        .map(|(_, live)| mine[*live].hwnd as Handle);
+                    (saved_ids[*s].clone(), paired)
+                })
+                .collect(),
+        );
         model.refresh(&handles_in(cx.live, key), cx.ticks, cx.snapshot_seconds);
         groups.insert(key.clone(), model);
         let pairs: Vec<(usize, usize)> = matching

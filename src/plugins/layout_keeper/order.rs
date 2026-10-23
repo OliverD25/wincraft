@@ -47,6 +47,23 @@ impl OrderModel {
         }
     }
 
+    /// A model in a saved order whose windows a restore has already paired
+    /// with open ones, by handle; the others wait for a refresh to recognise
+    /// them.
+    pub fn from_matched(entries: Vec<(WindowIdentity, Option<Handle>)>) -> Self {
+        Self {
+            entries: entries
+                .into_iter()
+                .map(|(identity, hwnd)| Entry {
+                    identity,
+                    hwnd,
+                    missing_since: None,
+                })
+                .collect(),
+            applied: None,
+        }
+    }
+
     /// Brings the model up to date with the live windows, listed top of the
     /// z-order first. Windows already known by handle stay put, others are
     /// recognised by identity, and the rest join at the end bottom first, the
@@ -312,6 +329,18 @@ mod tests {
         let mut model = OrderModel::from_saved(vec![window("B"), window("A")]);
         model.refresh(&live(&["New", "A", "B"]), 0, 30);
         assert_eq!(labels(&model), ["B", "A", "New"]);
+    }
+
+    #[test]
+    fn windows_paired_by_a_restore_keep_their_pair_when_titles_are_the_same() {
+        // Two saved "Jobs" windows: the restore paired the first with 101.
+        let mut model = OrderModel::from_matched(vec![
+            (window("Jobs"), Some(101)),
+            (window("Mail"), None),
+            (window("Jobs"), Some(100)),
+        ]);
+        model.refresh(&live(&["Jobs", "Jobs", "Mail"]), 0, 30);
+        assert_eq!(model.handles(), [101, 102, 100]);
     }
 
     #[test]
