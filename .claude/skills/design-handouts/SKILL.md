@@ -35,3 +35,4 @@ This file holds WinCraft's own facts and decisions.
 | WinCraft Themes.dc.html (5 themes; tiles + hover preview chosen by the user) | 2026-10-25, via DesignSync (page, no README) | plan `wincraft-themes.md` |
 | Keyboard Shortcuts.dc.html (shortcuts editor + chords) | 2026-10-26, via DesignSync (page, no README) | plan `wincraft-shortcuts-editor.md` |
 | QuickJump.dc.html (QuickJump plugin: strips, notices, pin list, picker) | 2026-10-26, via DesignSync (page, no README) | plan `wincraft-quickjump.md` |
+| Palette Main View.dc.html + v2 (palette with inspector, 8 additions) | 2026-10-26, via DesignSync (pages, no README) | plan `wincraft-palette-v2.md` |
