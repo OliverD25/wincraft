@@ -136,6 +136,135 @@ pub fn taskbar_numbers(group: &ArrangeGroup, desktops: &[ArrangeDesktop]) -> Vec
     numbers
 }
 
+/// A window's place in its desktop's taskbar row (from 1) and how many
+/// windows the row has.
+pub fn place_in_row(
+    group: &ArrangeGroup,
+    desktops: &[ArrangeDesktop],
+    member: usize,
+) -> Option<(usize, usize)> {
+    rows(group, desktops).iter().find_map(|row| {
+        row.members
+            .iter()
+            .position(|m| *m == member)
+            .map(|at| (at + 1, row.members.len()))
+    })
+}
+
+/// The whole group's order once `member` takes `place` (from 1, kept within
+/// the row) in its desktop's taskbar row. The row's windows keep their
+/// slots in the group's order, so every other desktop and every window's
+/// monitor are untouched. None when nothing would change.
+pub fn order_with_place(
+    group: &ArrangeGroup,
+    desktops: &[ArrangeDesktop],
+    member: usize,
+    place: usize,
+) -> Option<Vec<isize>> {
+    let rows = rows(group, desktops);
+    let row = rows.iter().find(|row| row.members.contains(&member))?;
+    let mut sequence = row.members.clone();
+    sequence.retain(|m| *m != member);
+    sequence.insert((place.max(1) - 1).min(sequence.len()), member);
+    let now: Vec<isize> = group.windows.iter().map(|w| w.hwnd).collect();
+    let mut order = now.clone();
+    for (slot, window) in row.members.iter().zip(sequence) {
+        order[*slot] = group.windows[window].hwnd;
+    }
+    (order != now).then_some(order)
+}
+
+/// Gives `member` another place in its taskbar row and nothing else: the
+/// same Reorder a drag sends, never a move to a monitor or desktop.
+pub fn take_place(
+    group: &ArrangeGroup,
+    desktops: &[ArrangeDesktop],
+    member: usize,
+    place: usize,
+) -> Option<ArrangeAction> {
+    order_with_place(group, desktops, member, place).map(|order| ArrangeAction::Reorder {
+        group: group.key.clone(),
+        order,
+    })
+}
+
+/// Alt+Left (`step` -1) and Alt+Right (+1): one number lower or higher. None
+/// at either end of the row.
+pub fn nudge(
+    group: &ArrangeGroup,
+    desktops: &[ArrangeDesktop],
+    member: usize,
+    step: isize,
+) -> Option<ArrangeAction> {
+    let (place, count) = place_in_row(group, desktops, member)?;
+    let wanted = place.checked_add_signed(step)?;
+    if (1..=count).contains(&wanted) {
+        take_place(group, desktops, member, wanted)
+    } else {
+        None
+    }
+}
+
+/// The entries of the "Taskbar place" menu: one per place in a row of
+/// `count` windows, the window's own place (`current`) marked.
+pub fn place_labels(count: usize, current: usize) -> Vec<String> {
+    (1..=count)
+        .map(|place| {
+            if place == current {
+                format!("{place} (now)")
+            } else {
+                place.to_string()
+            }
+        })
+        .collect()
+}
+
+/// The card a Ctrl drop lands on: the one under the pointer, a little
+/// beyond its edge so the gap between cards belongs to a card too. The
+/// dragged window's own card never counts.
+pub fn ctrl_target(pointer: Pos2, dragged: isize, cards: &[(isize, Rect)]) -> Option<isize> {
+    cards
+        .iter()
+        .filter(|(hwnd, _)| *hwnd != dragged)
+        .find(|(_, rect)| rect.expand(CARD_GAP / 2.0).contains(pointer))
+        .map(|(hwnd, _)| *hwnd)
+}
+
+/// The place a Ctrl drop gives `member`: the target card's number. None when
+/// the target is on another desktop, whose numbers are not this row's.
+pub fn ctrl_place(
+    group: &ArrangeGroup,
+    desktops: &[ArrangeDesktop],
+    member: usize,
+    target: isize,
+) -> Option<usize> {
+    let target = group.windows.iter().position(|w| w.hwnd == target)?;
+    let (place, _) = place_in_row(group, desktops, target)?;
+    let same_row = rows(group, desktops)
+        .iter()
+        .any(|row| row.members.contains(&member) && row.members.contains(&target));
+    (same_row && target != member).then_some(place)
+}
+
+/// What a Ctrl drop onto `target` does: `member` takes the target's number.
+pub fn ctrl_drop(
+    group: &ArrangeGroup,
+    desktops: &[ArrangeDesktop],
+    member: usize,
+    target: isize,
+) -> Option<ArrangeAction> {
+    let place = ctrl_place(group, desktops, member, target)?;
+    take_place(group, desktops, member, place)
+}
+
+/// The hint shown beside a card dragged with Ctrl held.
+pub fn ctrl_hint(place: Option<usize>) -> String {
+    match place {
+        Some(place) => format!("Change number only: takes number {place}"),
+        None => "Change number only: drop on a card of this desktop".to_string(),
+    }
+}
+
 /// The rows on screen: only this desktop's until the other desktops are
 /// shown.
 fn shown_rows(group: &ArrangeGroup, desktops: &[ArrangeDesktop], shown: bool) -> Vec<Row> {
@@ -361,6 +490,9 @@ struct Shared {
     card_rects: Vec<Vec<Rect>>,
     /// The same for the By monitor view.
     zones: Vec<by_monitor::Zone>,
+    /// Every card drawn last frame, for finding the card a Ctrl drop lands
+    /// on. By window handle, so it survives the group changing.
+    card_hits: Vec<(isize, Rect)>,
     to_host: Arc<HostChannel>,
     closed: bool,
     window: isize,
@@ -475,6 +607,7 @@ impl Arrange {
                 row_rects: Vec::new(),
                 card_rects: Vec::new(),
                 zones: Vec::new(),
+                card_hits: Vec::new(),
                 to_host,
                 closed: false,
                 window: 0,
@@ -512,6 +645,7 @@ impl Arrange {
         shared.row_rects.clear();
         shared.card_rects.clear();
         shared.zones.clear();
+        shared.card_hits.clear();
         shared.anchor = shared.snapshot.as_ref().and_then(|s| s.anchor);
         shared.monitor = match shared.anchor {
             Some(button) => Monitor::at(POINT {
@@ -1052,13 +1186,26 @@ fn flat(
     if dragged.is_none() {
         shared.drag = None;
     }
+    let ctrl = ctx.input(|i| i.modifiers.ctrl);
     let target = match (dragged, pointer) {
         (Some(_), Some(pointer)) => drop_target(pointer, &shared.row_rects, &shared.card_rects),
         _ => None,
     };
+    // With Ctrl the drop only changes the number: the card under the
+    // pointer says which.
+    let ctrl_card = match (dragged, pointer, ctrl) {
+        (Some(member), Some(pointer), true) => {
+            ctrl_target(pointer, group.windows[member].hwnd, &shared.card_hits)
+        }
+        _ => None,
+    };
     if let Some(member) = dragged {
         if !ctx.input(|i| i.pointer.primary_down()) {
-            if let Some(target) = target {
+            if ctrl {
+                frame
+                    .actions
+                    .extend(ctrl_card.and_then(|card| ctrl_drop(group, desktops, member, card)));
+            } else if let Some(target) = target {
                 frame
                     .actions
                     .extend(drop_actions(group, &rows, member, target));
@@ -1068,14 +1215,25 @@ fn flat(
     }
     let dragging = shared.drag.is_some();
     let gap_width = dragged.map_or(card_width(None), |member| widths[member]);
+    // The gap stays where the card was while Ctrl is held: nothing moves.
+    let home = dragged.and_then(|member| {
+        rows.iter().enumerate().find_map(|(r, row)| {
+            row.members
+                .iter()
+                .position(|m| *m == member)
+                .map(|at| (r, at))
+        })
+    });
+    let landing = if ctrl { home } else { target };
     let layout = preview(
         &rows,
         dragged.filter(|_| dragging),
-        target.filter(|_| dragging),
+        landing.filter(|_| dragging),
     );
 
     let mut row_rects: Vec<Rect> = Vec::new();
     let mut card_rects: Vec<Vec<Rect>> = Vec::new();
+    let mut hits: Vec<(isize, Rect)> = Vec::new();
     let footer = if rows.len() > 1 { FOOTER } else { 0.0 };
     let rows_area = Rect::from_min_max(content.min, pos2(content.max.x, content.max.y - footer));
     frame.area = rows_area;
@@ -1142,6 +1300,7 @@ fn flat(
                                         frame.actions.push(ArrangeAction::AskName(window.hwnd));
                                     }
                                     cards_here.push(response.rect);
+                                    hits.push((window.hwnd, response.rect));
                                     frame.cards.push((window.hwnd, window.monitor.is_some()));
                                     if response.hovered() {
                                         frame.hovered = Some(window.hwnd);
@@ -1168,13 +1327,9 @@ fn flat(
                                     }
                                     response.context_menu(|ui| {
                                         let names = can_rename.then_some(window.renamed);
-                                        if let Some(action) = card_menu(
-                                            ui,
-                                            window.hwnd,
-                                            &window.desktop,
-                                            desktops,
-                                            names,
-                                        ) {
+                                        if let Some(action) =
+                                            card_menu(ui, group, member, desktops, names)
+                                        {
                                             frame.actions.push(action);
                                         }
                                     });
@@ -1199,6 +1354,7 @@ fn flat(
     });
     shared.row_rects = row_rects;
     shared.card_rects = card_rects;
+    shared.card_hits = hits;
 
     // The dragged card rides above everything, following the pointer.
     if let (Some(drag), Some(member), Some(pointer)) = (shared.drag.as_ref(), dragged, pointer) {
@@ -1220,6 +1376,14 @@ fn flat(
             menu_open,
         );
         frame.floating = Some(rect);
+        if ctrl {
+            let place = ctrl_card.and_then(|card| ctrl_place(group, desktops, member, card));
+            let outlined = ctrl_card
+                .filter(|_| place.is_some())
+                .and_then(|card| hit_rect(&shared.card_hits, card));
+            let hint = ctrl_mark(&ctx, rect, outlined, &ctrl_hint(place));
+            frame.floating = Some(rect.union(hint));
+        }
         ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
     }
     frame.dragged = dragged.map(|m| group.windows[m].hwnd);
@@ -1243,7 +1407,7 @@ fn flat(
         let Frame {
             actions, activate, ..
         } = &mut frame;
-        keyboard(&ctx, shared, group, &rows, &flat, actions, activate);
+        keyboard(&ctx, shared, group, desktops, &rows, actions, activate);
     }
     frame
 }
@@ -1307,6 +1471,57 @@ fn others_link(ui: &mut Ui, shared: &mut Shared, line: Rect, count: usize) {
         colour,
         egui::Stroke::NONE,
     ));
+}
+
+fn hit_rect(cards: &[(isize, Rect)], hwnd: isize) -> Option<Rect> {
+    cards
+        .iter()
+        .find(|(card, _)| *card == hwnd)
+        .map(|(_, rect)| *rect)
+}
+
+/// What a drag with Ctrl held shows: an accent outline round the card that
+/// gives its number (`outlined`) and a small hint above the dragged card, or
+/// below it when there is no room. Returns the hint's rectangle, so the
+/// pictures under it can be hidden: DWM draws them over anything.
+fn ctrl_mark(ctx: &egui::Context, ghost: Rect, outlined: Option<Rect>, hint: &str) -> Rect {
+    let tokens = Tokens::get(ctx);
+    let layer = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Tooltip,
+        egui::Id::new("arrange-drag-hint"),
+    ));
+    if let Some(card) = outlined {
+        layer.rect_stroke(
+            card,
+            6,
+            theme::stroke(ctx, 2.0, tokens.accent),
+            StrokeKind::Inside,
+        );
+    }
+    let galley = layer.layout_no_wrap(hint.to_string(), theme::regular(12.0), tokens.text_primary);
+    let size = galley.size() + vec2(16.0, 8.0);
+    let room = ctx.content_rect();
+    let above = ghost.top() - size.y - 4.0;
+    let top = if above >= room.top() {
+        above
+    } else {
+        ghost.bottom() + 4.0
+    };
+    let left = ghost.left().min(room.right() - size.x).max(room.left());
+    let chip = Rect::from_min_size(pos2(left, top), size);
+    layer.rect(
+        chip,
+        4,
+        tokens.panel_bg,
+        theme::stroke(ctx, 1.0, tokens.accent),
+        StrokeKind::Inside,
+    );
+    layer.galley(
+        chip.center() - galley.size() / 2.0,
+        galley,
+        tokens.text_primary,
+    );
+    chip
 }
 
 /// The live picture of the dragged window, slightly see-through inside an
@@ -1482,17 +1697,19 @@ fn drop_actions(
     actions
 }
 
-/// ←/→ move the cursor, Ctrl+←/→ move its window within its row, Enter
-/// switches to it. Esc is handled with the other ways to close.
+/// ←/→ move the cursor, Ctrl+←/→ move its window within its row, Alt+←/→
+/// give it the next lower or higher number, Enter switches to it. Esc is
+/// handled with the other ways to close.
 fn keyboard(
     ctx: &egui::Context,
     shared: &mut Shared,
     group: &ArrangeGroup,
+    desktops: &[ArrangeDesktop],
     rows: &[Row],
-    flat: &[usize],
     actions: &mut Vec<ArrangeAction>,
     activate: &mut Option<isize>,
 ) {
+    let flat: Vec<usize> = rows.iter().flat_map(|row| row.members.clone()).collect();
     let Some(position) = shared
         .cursor
         .and_then(|hwnd| flat.iter().position(|m| group.windows[*m].hwnd == hwnd))
@@ -1500,8 +1717,11 @@ fn keyboard(
         return;
     };
     let member = flat[position];
-    let (ctrl_left, ctrl_right, left, right, enter) = ctx.input_mut(|i| {
+    // Alt first: a key pattern without modifiers also matches with Alt down.
+    let (alt_left, alt_right, ctrl_left, ctrl_right, left, right, enter) = ctx.input_mut(|i| {
         (
+            i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowLeft),
+            i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowRight),
             i.consume_key(egui::Modifiers::CTRL, egui::Key::ArrowLeft),
             i.consume_key(egui::Modifiers::CTRL, egui::Key::ArrowRight),
             i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft),
@@ -1511,6 +1731,11 @@ fn keyboard(
     });
     if enter {
         *activate = Some(group.windows[member].hwnd);
+        return;
+    }
+    if alt_left || alt_right {
+        let step = if alt_left { -1 } else { 1 };
+        actions.extend(nudge(group, desktops, member, step));
         return;
     }
     if left && position > 0 {
@@ -1608,14 +1833,17 @@ fn apply_locally(shared: &mut Shared, action: &ArrangeAction) {
 
 /// The right-click menu. Closing a window is only offered here, never on a
 /// key, because it cannot be undone. `renamed` is None when WindowNamer is
-/// off, else whether the window has a name.
+/// off, else whether the window has a name. "Taskbar place" lists the places
+/// of the window's row and changes nothing but its number.
 fn card_menu(
     ui: &mut Ui,
-    hwnd: isize,
-    current: &str,
+    group: &ArrangeGroup,
+    member: usize,
     desktops: &[ArrangeDesktop],
     renamed: Option<bool>,
 ) -> Option<ArrangeAction> {
+    let hwnd = group.windows[member].hwnd;
+    let current = group.windows[member].desktop.as_str();
     let mut chosen = None;
     if let Some(renamed) = renamed {
         if ui.button("Rename\u{2026}").clicked() {
@@ -1631,6 +1859,16 @@ fn card_menu(
     if ui.button("Close window").clicked() {
         chosen = Some(ArrangeAction::Close(hwnd));
         ui.close();
+    }
+    if let Some((place, count)) = place_in_row(group, desktops, member).filter(|(_, n)| *n > 1) {
+        ui.menu_button("Taskbar place", |ui| {
+            for (index, label) in place_labels(count, place).iter().enumerate() {
+                if ui.selectable_label(index + 1 == place, label).clicked() {
+                    chosen = take_place(group, desktops, member, index + 1);
+                    ui.close();
+                }
+            }
+        });
     }
     ui.menu_button("Move to desktop", |ui| {
         for desktop in desktops.iter().filter(|desktop| desktop.id != current) {
@@ -2431,5 +2669,156 @@ mod tests {
             Some((0, 2))
         );
         assert_eq!(drop_target(pos2(10.0, 60.0), &tall, &wrapped), Some((0, 0)));
+    }
+
+    fn mixed_desktops() -> (Vec<ArrangeDesktop>, ArrangeGroup) {
+        (
+            vec![
+                desktop("home", "Home", false),
+                desktop("work", "Work", true),
+            ],
+            group(&["work", "home", "work", "work", "home", "work"]),
+        )
+    }
+
+    fn reorder(action: Option<ArrangeAction>) -> Option<Vec<isize>> {
+        match action {
+            Some(ArrangeAction::Reorder { order, .. }) => Some(order),
+            Some(other) => panic!("only a Reorder changes a number, got {other:?}"),
+            None => None,
+        }
+    }
+
+    #[test]
+    fn a_window_takes_a_place_in_its_own_desktops_row_only() {
+        let (desktops, group) = mixed_desktops();
+        // This desktop is windows 0, 2, 3 and 5; window 5 becomes number 2.
+        assert_eq!(
+            order_with_place(&group, &desktops, 5, 2),
+            Some(vec![0, 1, 5, 2, 4, 3])
+        );
+        // The other desktop's windows (1 and 4) keep their slots and order.
+        assert_eq!(
+            order_with_place(&group, &desktops, 4, 1),
+            Some(vec![0, 4, 2, 3, 1, 5])
+        );
+        // Number 1 and the last number, and a place past the end.
+        assert_eq!(
+            order_with_place(&group, &desktops, 3, 1),
+            Some(vec![3, 1, 0, 2, 4, 5])
+        );
+        assert_eq!(
+            order_with_place(&group, &desktops, 0, 4),
+            Some(vec![2, 1, 3, 5, 4, 0])
+        );
+        assert_eq!(
+            order_with_place(&group, &desktops, 0, 99),
+            order_with_place(&group, &desktops, 0, 4)
+        );
+        // Its own number changes nothing.
+        assert_eq!(order_with_place(&group, &desktops, 3, 3), None);
+        assert_eq!(order_with_place(&group, &desktops, 9, 1), None);
+    }
+
+    #[test]
+    fn a_new_number_is_one_reorder_and_never_a_move() {
+        let (desktops, group) = mixed_desktops();
+        assert_eq!(
+            take_place(&group, &desktops, 5, 2),
+            Some(ArrangeAction::Reorder {
+                group: "chrome.exe".to_string(),
+                order: vec![0, 1, 5, 2, 4, 3]
+            })
+        );
+        assert_eq!(take_place(&group, &desktops, 5, 4), None);
+    }
+
+    #[test]
+    fn a_window_knows_its_number_and_how_many_share_the_row() {
+        let (desktops, group) = mixed_desktops();
+        assert_eq!(place_in_row(&group, &desktops, 3), Some((3, 4)));
+        assert_eq!(place_in_row(&group, &desktops, 4), Some((2, 2)));
+        assert_eq!(place_in_row(&group, &desktops, 7), None);
+    }
+
+    #[test]
+    fn alt_arrows_step_one_number_and_stop_at_the_ends() {
+        let (desktops, group) = mixed_desktops();
+        // Window 2 is number 2: Alt+Left makes it 1, Alt+Right makes it 3.
+        assert_eq!(
+            reorder(nudge(&group, &desktops, 2, -1)),
+            Some(vec![2, 1, 0, 3, 4, 5])
+        );
+        assert_eq!(
+            reorder(nudge(&group, &desktops, 2, 1)),
+            Some(vec![0, 1, 3, 2, 4, 5])
+        );
+        assert_eq!(nudge(&group, &desktops, 0, -1), None, "already number 1");
+        assert_eq!(nudge(&group, &desktops, 5, 1), None, "already the last");
+        // On another desktop, in its own row.
+        assert_eq!(
+            reorder(nudge(&group, &desktops, 4, -1)),
+            Some(vec![0, 4, 2, 3, 1, 5])
+        );
+        assert_eq!(nudge(&group, &desktops, 7, 1), None);
+    }
+
+    #[test]
+    fn the_menu_lists_every_place_and_marks_the_current_one() {
+        assert_eq!(place_labels(4, 2), ["1", "2 (now)", "3", "4"]);
+        assert_eq!(place_labels(2, 2), ["1", "2 (now)"]);
+        assert!(place_labels(0, 1).is_empty());
+    }
+
+    #[test]
+    fn a_ctrl_drop_lands_on_the_card_under_the_pointer() {
+        let card = |x: f32| Rect::from_min_size(pos2(x, 20.0), CARD);
+        let cards = [(7, card(0.0)), (8, card(160.0)), (9, card(320.0))];
+        assert_eq!(ctrl_target(pos2(200.0, 60.0), 7, &cards), Some(8));
+        // The gap between two cards belongs to a card.
+        assert_eq!(ctrl_target(pos2(154.0, 60.0), 9, &cards), Some(7));
+        // Never the dragged window's own card, nor empty space.
+        assert_eq!(ctrl_target(pos2(60.0, 60.0), 7, &cards), None);
+        assert_eq!(ctrl_target(pos2(600.0, 60.0), 7, &cards), None);
+        assert_eq!(ctrl_target(pos2(60.0, 500.0), 8, &cards), None);
+    }
+
+    #[test]
+    fn a_ctrl_drop_gives_the_dragged_window_the_targets_number() {
+        let (desktops, group) = mixed_desktops();
+        // Window 5 (number 4) dropped on window 2 (number 2) becomes number 2.
+        assert_eq!(ctrl_place(&group, &desktops, 5, 2), Some(2));
+        assert_eq!(
+            reorder(ctrl_drop(&group, &desktops, 5, 2)),
+            Some(vec![0, 1, 5, 2, 4, 3])
+        );
+        // Dropped on a card further along, it takes that card's number.
+        assert_eq!(ctrl_place(&group, &desktops, 0, 5), Some(4));
+        assert_eq!(
+            reorder(ctrl_drop(&group, &desktops, 0, 5)),
+            Some(vec![2, 1, 3, 5, 4, 0])
+        );
+    }
+
+    #[test]
+    fn a_ctrl_drop_on_nothing_useful_changes_nothing() {
+        let (desktops, group) = mixed_desktops();
+        // A card of the other desktop has a number of that desktop's row.
+        assert_eq!(ctrl_place(&group, &desktops, 5, 1), None);
+        assert_eq!(ctrl_drop(&group, &desktops, 5, 1), None);
+        // Itself, an unknown window, and the card right before it.
+        assert_eq!(ctrl_place(&group, &desktops, 5, 5), None);
+        assert_eq!(ctrl_place(&group, &desktops, 5, 42), None);
+        assert_eq!(ctrl_drop(&group, &desktops, 3, 3), None);
+        assert_eq!(
+            reorder(ctrl_drop(&group, &desktops, 3, 2)),
+            Some(vec![0, 1, 3, 2, 4, 5])
+        );
+    }
+
+    #[test]
+    fn the_ctrl_hint_names_the_number_or_asks_for_a_card() {
+        assert_eq!(ctrl_hint(Some(2)), "Change number only: takes number 2");
+        assert!(ctrl_hint(None).starts_with("Change number only"));
     }
 }

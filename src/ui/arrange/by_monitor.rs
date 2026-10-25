@@ -6,9 +6,10 @@ use egui::text::TextWrapping;
 use egui::{pos2, vec2, Rect, Response, Sense, Shape, StrokeKind, Ui, UiBuilder, Vec2};
 
 use super::{
-    card_look, card_menu, float_picture, line_width, name_card, number_chip, others, others_link,
-    paint_look, picture_width, taskbar_numbers, thumbnail, wrap, Drag, Frame, Pending, Shared,
-    NUMBER_GAP, SAME_TITLE_HINT, SLACK,
+    card_look, card_menu, ctrl_drop, ctrl_hint, ctrl_mark, ctrl_place, ctrl_target, float_picture,
+    hit_rect, line_width, name_card, nudge, number_chip, others, others_link, paint_look,
+    picture_width, taskbar_numbers, thumbnail, wrap, Drag, Frame, Pending, Shared, NUMBER_GAP,
+    SAME_TITLE_HINT, SLACK,
 };
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{
@@ -708,6 +709,8 @@ struct Draw<'a> {
     dragged: Option<usize>,
     target: Option<Spot>,
     zones: Vec<Zone>,
+    /// Every card drawn, with its window handle, for a Ctrl drop.
+    hits: Vec<(isize, Rect)>,
 }
 
 pub fn body(
@@ -744,13 +747,26 @@ pub fn body(
             .filter(|(r, c)| snapshot.monitors[model.rows[*r][*c]].connected)
             .unwrap_or_else(|| primary_cell(&snapshot.monitors, &model.rows))
     };
+    let ctrl = ctx.input(|i| i.modifiers.ctrl);
     let target = match (dragged, ctx.pointer_latest_pos()) {
         (Some(member), Some(pointer)) => drop_spot(pointer, &shared.zones, member, home(member)),
         _ => None,
     };
+    // With Ctrl the drop only changes the number: the card under the
+    // pointer says which, and the window stays on its monitor and desktop.
+    let ctrl_card = match (dragged, ctx.pointer_latest_pos(), ctrl) {
+        (Some(member), Some(pointer), true) => {
+            ctrl_target(pointer, group.windows[member].hwnd, &shared.card_hits)
+        }
+        _ => None,
+    };
     if let Some(member) = dragged {
         if !ctx.input(|i| i.pointer.primary_down()) {
-            if let Some(spot) = target {
+            if ctrl {
+                frame.actions.extend(
+                    ctrl_card.and_then(|card| ctrl_drop(group, &snapshot.desktops, member, card)),
+                );
+            } else if let Some(spot) = target {
                 frame.actions.extend(drop_actions(
                     group,
                     &model.bands,
@@ -782,8 +798,9 @@ pub fn body(
         can_rename: snapshot.can_rename,
         numbers: taskbar_numbers(group, &snapshot.desktops),
         dragged: dragged.filter(|_| dragging),
-        target: target.filter(|_| dragging),
+        target: target.filter(|_| dragging && !ctrl),
         zones: Vec::new(),
+        hits: Vec::new(),
     };
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
         egui::ScrollArea::vertical()
@@ -805,6 +822,7 @@ pub fn body(
             });
     });
     shared.zones = std::mem::take(&mut draw.zones);
+    shared.card_hits = std::mem::take(&mut draw.hits);
     frame.dragged = dragged.map(|m| group.windows[m].hwnd);
     if let (Some(drag), Some(member), Some(pointer)) =
         (shared.drag.as_ref(), dragged, ctx.pointer_latest_pos())
@@ -816,12 +834,33 @@ pub fn body(
             Rect::from_min_size(pointer - drag.grab, vec2(model.widths[member], CARD_HEIGHT)),
             menu_open,
         );
+        if ctrl {
+            let ghost = Rect::from_min_size(
+                ctx.pointer_latest_pos().unwrap_or_default() - drag.grab,
+                vec2(model.widths[member], CARD_HEIGHT),
+            );
+            let place =
+                ctrl_card.and_then(|card| ctrl_place(group, &snapshot.desktops, member, card));
+            let outlined = ctrl_card
+                .filter(|_| place.is_some())
+                .and_then(|card| hit_rect(&shared.card_hits, card));
+            let hint = ctrl_mark(&ctx, ghost, outlined, &ctrl_hint(place));
+            frame.floating = Some(ghost.union(hint));
+        }
     }
 
     footer(ui, panel, shown, others_count > 0);
 
     if !menu_open && !dragging {
-        keyboard(&ctx, shared, group, &model, &snapshot.monitors, &mut frame);
+        keyboard(
+            &ctx,
+            shared,
+            group,
+            &snapshot.desktops,
+            &model,
+            &snapshot.monitors,
+            &mut frame,
+        );
     }
     frame
 }
@@ -1028,6 +1067,10 @@ impl Draw<'_> {
                     ));
                 }
             }
+            for (member, card_rect) in &cards {
+                self.hits
+                    .push((self.group.windows[*member].hwnd, *card_rect));
+            }
             for (member, card_rect) in cards.clone() {
                 let mut card_alpha = alpha;
                 if !monitor.connected {
@@ -1212,8 +1255,7 @@ impl Draw<'_> {
         }
         let names = self.can_rename.then_some(window.renamed);
         response.context_menu(|ui| {
-            if let Some(action) = card_menu(ui, window.hwnd, &window.desktop, self.desktops, names)
-            {
+            if let Some(action) = card_menu(ui, self.group, member, self.desktops, names) {
                 frame.actions.push(action);
             }
         });
@@ -1402,7 +1444,9 @@ fn footer(ui: &Ui, panel: Rect, note: bool, others_key: bool) {
         theme::stroke(ui.ctx(), 1.0, tokens.border),
     );
     let centre = area.top() + 1.0 + (FOOTER - 1.0) / 2.0;
+    // The first hint is the first to go when the strip is too narrow.
     let mut hints = vec![
+        ("Alt + \u{2190}\u{2192}", "Change number"),
         ("\u{2190}\u{2192}", "Move within monitor"),
         ("Shift + \u{2190}\u{2192}", "Move to next monitor"),
         ("Shift + \u{2191}\u{2193}", "Move to next desktop"),
@@ -1417,6 +1461,16 @@ fn footer(ui: &Ui, panel: Rect, note: bool, others_key: bool) {
             theme::regular(12.0),
             tokens.text_secondary,
         );
+        let font = if key.is_ascii() {
+            theme::regular(12.0)
+        } else {
+            theme::mono(12.0)
+        };
+        let key = painter.layout_no_wrap(key.to_string(), font, tokens.text_secondary);
+        // A hint that does not fit is left out whole, not cut.
+        if x - label.size().x - 6.0 - key.size().x - 12.0 < area.left() + SIDE {
+            break;
+        }
         x -= label.size().x;
         painter.galley(
             pos2(x, centre - label.size().y / 2.0),
@@ -1424,12 +1478,6 @@ fn footer(ui: &Ui, panel: Rect, note: bool, others_key: bool) {
             tokens.text_secondary,
         );
         x -= 6.0;
-        let font = if key.is_ascii() {
-            theme::regular(12.0)
-        } else {
-            theme::mono(12.0)
-        };
-        let key = painter.layout_no_wrap(key.to_string(), font, tokens.text_secondary);
         let chip = Rect::from_min_max(
             pos2(x - key.size().x - 12.0, centre - key.size().y / 2.0 - 1.0),
             pos2(x, centre + key.size().y / 2.0 + 1.0),
@@ -1471,12 +1519,14 @@ fn footer(ui: &Ui, panel: Rect, note: bool, others_key: bool) {
 }
 
 /// ↑ and ↓ pick a window, ← and → move it within its column, Shift with
-/// the arrows moves it to the next monitor or desktop, Enter switches to it.
-/// Esc is handled with the other ways to close.
+/// the arrows moves it to the next monitor or desktop, Alt with ← or →
+/// gives it the next lower or higher number without moving it anywhere
+/// else, Enter switches to it. Esc is handled with the other ways to close.
 fn keyboard(
     ctx: &egui::Context,
     shared: &mut Shared,
     group: &ArrangeGroup,
+    desktops: &[ArrangeDesktop],
     model: &Model,
     monitors: &[ArrangeMonitor],
     frame: &mut Frame,
@@ -1502,18 +1552,29 @@ fn keyboard(
         (egui::Modifiers::NONE, egui::Key::ArrowLeft, Key::Left),
         (egui::Modifiers::NONE, egui::Key::ArrowRight, Key::Right),
     ];
-    let (pressed, enter) = ctx.input_mut(|i| {
+    let (alt_left, alt_right, pressed, enter) = ctx.input_mut(|i| {
+        // Alt first: a key pattern without modifiers also matches with Alt
+        // down.
+        let alt_left = i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowLeft);
+        let alt_right = i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowRight);
         let pressed = keys
             .iter()
             .find(|(modifiers, key, _)| i.consume_key(*modifiers, *key))
             .map(|(_, _, key)| *key);
         (
+            alt_left,
+            alt_right,
             pressed,
             i.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
         )
     });
     if enter {
         frame.activate = Some(group.windows[cursor].hwnd);
+        return;
+    }
+    if alt_left || alt_right {
+        let step = if alt_left { -1 } else { 1 };
+        frame.actions.extend(nudge(group, desktops, cursor, step));
         return;
     }
     // A move to another desktop looks through all of them, so it also
@@ -1938,6 +1999,65 @@ mod tests {
             order_after(6, &bands, 1, spot(1, (0, 1), 0)),
             [0, 2, 3, 4, 1, 5]
         );
+    }
+
+    #[test]
+    fn a_new_number_keeps_the_window_in_its_column() {
+        // Six windows on this desktop; 1 and 3 are on the right monitor.
+        let monitors = desk();
+        let desktops = [ArrangeDesktop {
+            id: "d1".to_string(),
+            name: "Work".to_string(),
+            current: true,
+        }];
+        let on = |hwnd: isize, monitor: usize| ArrangeWindow {
+            hwnd,
+            label: format!("w{hwnd}"),
+            desktop: "d1".to_string(),
+            monitor: None,
+            on_monitor: Some(monitor),
+            saved_monitor: Some(monitor),
+            renamed: false,
+            same_title: false,
+            attention: false,
+        };
+        let mut group = ArrangeGroup {
+            key: "claude.exe".to_string(),
+            label: "Claude".to_string(),
+            windows: vec![on(0, 0), on(1, 2), on(2, 0), on(3, 2), on(4, 1), on(5, 0)],
+        };
+        let rows = monitor_rows(&monitors, &every);
+        let right = |group: &ArrangeGroup| -> Vec<isize> {
+            let bands = bands(group, &desktops, &monitors, &rows);
+            bands[0].cells[0][2]
+                .iter()
+                .map(|member| group.windows[*member].hwnd)
+                .collect()
+        };
+        let number_of = |group: &ArrangeGroup, hwnd: isize| {
+            let numbers = taskbar_numbers(group, &desktops);
+            numbers[group.windows.iter().position(|w| w.hwnd == hwnd).unwrap()]
+        };
+        assert_eq!(right(&group), [1, 3]);
+        assert_eq!(number_of(&group, 3), 4);
+
+        // Window 3 becomes number 2, as the menu, Alt+Left or a Ctrl drop do.
+        let Some(ArrangeAction::Reorder { order, .. }) =
+            crate::ui::arrange::take_place(&group, &desktops, 3, 2)
+        else {
+            panic!("a Reorder");
+        };
+        group
+            .windows
+            .sort_by_key(|window| order.iter().position(|h| *h == window.hwnd));
+        assert_eq!(number_of(&group, 3), 2);
+        // Still on the right monitor, now above window 1 in its column.
+        assert_eq!(right(&group), [3, 1]);
+        assert!(group
+            .windows
+            .iter()
+            .all(|w| w.on_monitor == w.saved_monitor));
+        assert_eq!(group.windows[1].on_monitor, Some(2));
     }
 
     #[test]

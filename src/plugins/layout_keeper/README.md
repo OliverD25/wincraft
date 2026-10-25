@@ -415,7 +415,8 @@ box to drop a window into.
   next monitor's column; Shift+↑ and Shift+↓ move it to the next desktop, on
   the same monitor (or the main one when its own is unplugged). Enter
   switches to the window, D shows or hides the other desktops, Esc closes the
-  strip. The footer lists the keys.
+  strip, Alt+← and Alt+→ give it the next lower or higher number (see
+  **Changing a window's number**). The footer lists the keys.
 
 **Flat** is the strip as it was before WinCraft 0.13: one row per virtual
 desktop, this desktop first, then (when shown) the others under their names. A window
@@ -439,7 +440,8 @@ its height; beyond that the mouse wheel scrolls it. In both views:
   By monitor columns cut that row into pieces; the numbers show how the
   pieces fit back together. Each desktop counts from 1 on its own, because
   the taskbar shows one desktop at a time. The numbers change at once when
-  you drag a picture.
+  you drag a picture. To give a window another number without moving it to
+  another monitor, see **Changing a window's number** below.
 - **Rest the mouse** on a picture for a quarter of a second to see that
   window where it really is: its monitor goes dark and the window's live
   picture is drawn on top, even for a window on another desktop. The window
@@ -450,8 +452,8 @@ its height; beyond that the mouse wheel scrolls it. In both views:
   and is saved. Dropping it in another desktop's row moves the window to
   that desktop (show the other desktops first, or hold the picture over the
   link).
-- **Right-click** for **Close window** and **Move to desktop**. Closing is
-  only offered here, never on a key.
+- **Right-click** for **Close window**, **Taskbar place** (see below) and
+  **Move to desktop**. Closing is only offered here, never on a key.
 - **An orange card** is a window that wants your attention, like an orange
   taskbar button: the app flashed it, for example for a new chat message.
   The card has a soft orange tint and an orange border until you switch to
@@ -461,8 +463,38 @@ its height; beyond that the mouse wheel scrolls it. In both views:
   window that flashed before WinCraft started, so such a window shows no
   mark until it flashes again.
 - **Keyboard (Flat):** ← and → pick a window, Ctrl+← and Ctrl+→ move it,
-  D shows or hides the other desktops, Enter switches to it, Esc closes the
-  strip. The strip also closes when you click elsewhere.
+  Alt+← and Alt+→ change its number, D shows or hides the other desktops,
+  Enter switches to it, Esc closes the strip. The strip also closes when you click elsewhere.
+
+#### Changing a window's number
+
+A drag in the By monitor view can move a window to another monitor. These
+three ways change only the window's number, in both views. The window stays
+on its monitor and on its desktop, and no other desktop's order changes. Each
+one is the same change a drag makes: it shows at once, is saved at once and
+is put on the taskbar for the desktop you are on. In By monitor the card
+stays in its column and the column follows the numbers, so a window made
+number 2 on the right monitor is still in the right column, now shown as 2.
+
+- **Right-click, Taskbar place.** The submenu lists 1 to N, where N is how
+  many windows the app has on that desktop. The window's own number is
+  marked "(now)". Pick a number and the window takes it. The entry is not
+  shown when the app has only one window on that desktop.
+- **Alt+← and Alt+→** on the picked card make its number one lower or one
+  higher. Nothing happens at number 1 or at the last number. The strip must
+  have the keyboard (click once inside it, or open it with `Win+Alt+A`). The
+  hover strip normally closes when Alt goes down, so that Alt+Tab keeps
+  working; once you have clicked into the strip, Alt no longer closes it.
+  Alt+Tab then still works: it moves the keyboard to another window, and the
+  strip closes because it lost the keyboard.
+- **Ctrl while you drag.** Hold Ctrl, drag a picture and drop it on another
+  picture of the same desktop: the dragged window takes that picture's
+  number. Dragged up (to a lower number), it goes in front of the picture;
+  dragged down, it takes the picture's place and the ones between move up. While Ctrl is held, the picture under
+  the pointer gets an accent outline and a hint says "Change number only".
+  Nothing is moved to another monitor or desktop, and dropping on empty
+  space, on yourself or on a picture of another desktop (whose numbers are
+  that desktop's own) does nothing. Without Ctrl a drag works as before.
 
 The taskbar only shows the current desktop's buttons, and Windows cannot
 rebuild a button without bringing its window to the current desktop. So a
@@ -500,7 +532,10 @@ With it on:
   never hidden while a Windows key or Alt is down, within 1.5 s of
   Win+number, within half a second of letting go of a Windows key or of
   pressing an arrow key, Tab, Enter, Space or Esc, or while a mouse button is
-  down. Pressing a Windows key or Alt also closes the strip.
+  down. Pressing a Windows key or Alt also closes the strip, with one
+  exception: after you click inside the strip it has the keyboard, and Alt
+  no longer closes it, so Alt+← and Alt+→ can change a window's number.
+  Windows' own preview is still left alone while Alt is down.
 
 WinCraft only hides Windows' preview window, the way any program can; it
 never moves it, changes Explorer or changes a setting. If WinCraft stops,

@@ -26,9 +26,9 @@ use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 use windows_sys::Win32::System::SystemInformation::GetTickCount64;
 use windows_sys::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    FindWindowExW, FindWindowW, GetCursorPos, GetWindowRect, GetWindowThreadProcessId, KillTimer,
-    SetTimer, CHILDID_SELF, EVENT_OBJECT_SHOW, EVENT_OBJECT_UNCLOAKED, OBJID_WINDOW,
-    WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
+    FindWindowExW, FindWindowW, GetCursorPos, GetForegroundWindow, GetWindowRect,
+    GetWindowThreadProcessId, KillTimer, SetTimer, CHILDID_SELF, EVENT_OBJECT_SHOW,
+    EVENT_OBJECT_UNCLOAKED, OBJID_WINDOW, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
 };
 
 use crate::core::windows_list::class_name;
@@ -136,13 +136,17 @@ impl HoverPreview {
         let cursor = cursor();
         let on_taskbar = self.taskbars.iter().any(|rect| contains(*rect, cursor));
         let keys = popup::key_state();
-        let strip = ui_bridge::arrange_window().and_then(|hwnd| window_rect(hwnd as HWND));
+        let strip_hwnd = ui_bridge::arrange_window();
+        let strip = strip_hwnd.and_then(|hwnd| window_rect(hwnd as HWND));
+        let strip_focused =
+            strip_hwnd.is_some_and(|hwnd| unsafe { GetForegroundWindow() } == hwnd as HWND);
         let look = Look {
             now,
             cursor,
             on_taskbar,
             keys,
             strip,
+            strip_focused,
             answer: self.take_answer(windows_of),
         };
         let was_open = self

@@ -71,6 +71,8 @@ pub struct Look {
     pub keys: KeyState,
     /// The strip's window, while it is on screen.
     pub strip: Option<Rect>,
+    /// The strip's window has the keyboard: the user clicked into it.
+    pub strip_focused: bool,
     pub answer: Option<Answer>,
 }
 
@@ -369,7 +371,11 @@ impl Machine {
         }
         let in_strip = look.strip.is_some_and(|strip| contains(strip, look.cursor));
         let on_button = look.on_taskbar && contains(open.button.rect, look.cursor);
-        let keyboard = look.keys.win_down || look.keys.alt_down;
+        // Alt closes a strip that does not have the keyboard, to leave
+        // Alt+Tab alone. In a strip the user clicked into, Alt+arrows
+        // change a window's number, and Alt+Tab still works: it moves the
+        // focus away and the strip closes itself.
+        let keyboard = look.keys.win_down || (look.keys.alt_down && !look.strip_focused);
         if escape || keyboard || (pressed && !in_strip) {
             out.push(Command::Close);
             return done;
@@ -866,6 +872,63 @@ mod tests {
         };
         assert_eq!(machine.step(&win), [Command::Close]);
         assert_eq!(machine.gate(Some(STRIP)), None);
+    }
+
+    #[test]
+    fn alt_closes_a_strip_that_has_no_keyboard_but_not_one_that_has() {
+        let alt = KeyState {
+            alt_down: true,
+            ..KeyState::default()
+        };
+        let mut unfocused = on();
+        let now = open_strip(&mut unfocused);
+        let alt_tab = Look {
+            keys: alt,
+            ..with_strip(now + 16, IN_STRIP)
+        };
+        assert_eq!(
+            unfocused.step(&alt_tab),
+            [Command::Close],
+            "Alt+Tab stays safe"
+        );
+
+        let mut focused = on();
+        let now = open_strip(&mut focused);
+        for t in (now + 16..now + 1000).step_by(16) {
+            let held = Look {
+                keys: alt,
+                strip_focused: true,
+                ..with_strip(t, IN_STRIP)
+            };
+            assert!(
+                focused.step(&held).is_empty(),
+                "Alt+arrow in a clicked-in strip"
+            );
+        }
+        assert!(focused.is_open());
+        assert_eq!(
+            focused
+                .gate(Some(STRIP))
+                .map(|gate| gate.allows(IN_STRIP, alt, now + 1000)),
+            Some(false),
+            "Windows' own popup is still left alone while Alt is down"
+        );
+    }
+
+    #[test]
+    fn a_windows_key_closes_even_a_strip_that_has_the_keyboard() {
+        let mut machine = on();
+        let now = open_strip(&mut machine);
+        let win = Look {
+            keys: KeyState {
+                win_down: true,
+                alt_down: true,
+                ..KeyState::default()
+            },
+            strip_focused: true,
+            ..with_strip(now + 16, IN_STRIP)
+        };
+        assert_eq!(machine.step(&win), [Command::Close]);
     }
 
     #[test]
