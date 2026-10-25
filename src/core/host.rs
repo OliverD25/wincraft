@@ -648,6 +648,7 @@ impl Host {
                     author: meta.author.to_string(),
                     description: meta.description.to_string(),
                     readme: meta.readme.to_string(),
+                    category: meta.category.to_string(),
                     enabled: slot.enabled,
                     config_path: config::plugin_path(meta.id),
                     hotkeys: self.plugins.hotkey_infos(index),
@@ -2377,6 +2378,16 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     let shell_hook = SHELL_HOOK.with(|cell| cell.get());
     if shell_hook != 0 && msg == shell_hook {
         let foreground = unsafe { GetForegroundWindow() } as isize;
+        // Which window an app flashes is not always the one with the news
+        // (one app may flash its main window for every window), so the log
+        // names it.
+        if wparam == 0x8006 && lparam != 0 {
+            log::info!(
+                "attention: window {lparam:#x} \"{}\" flashed{}",
+                crate::core::windows_list::window_text(lparam as HWND),
+                if lparam == foreground { " (in front, not marked)" } else { "" }
+            );
+        }
         let changed = ATTENTION.with(|attention| {
             attention
                 .borrow_mut()
@@ -2669,6 +2680,8 @@ mod tests {
                 author: "test",
                 version: "1.0.0",
                 readme: "",
+                category: "Test",
+                thumbnail: None,
             }
         }
 
@@ -3246,6 +3259,7 @@ mod tests {
                 author: String::new(),
                 description: String::new(),
                 readme: String::new(),
+                category: String::new(),
                 enabled: set.slots[0].enabled,
                 config_path: PathBuf::new(),
                 hotkeys: set.hotkey_infos(0),
