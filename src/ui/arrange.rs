@@ -15,8 +15,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{
-    self, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeSnapshot, ArrangeView, HostChannel,
-    HostRequest, PeekCard,
+    self, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeSnapshot, ArrangeView, ArrangeWindow,
+    HostChannel, HostRequest, PeekCard,
 };
 use crate::ui::dwm_thumbs::{self, Placement, Thumbnail};
 use crate::ui::peek::{self, Hover, Peek, Step};
@@ -32,18 +32,22 @@ mod others;
 const TITLE: &str = "WinCraft Arrange";
 
 const PADDING: f32 = 12.0;
-/// 16:9, small enough that a group of 15+ windows fits on one screen.
-const THUMB: Vec2 = Vec2::new(144.0, 81.0);
+/// Small enough that a group of 15+ windows fits on one screen.
+const THUMB_HEIGHT: f32 = 81.0;
 const CARD_INSET: f32 = 4.0;
 /// The line above the picture that holds the monitor chip. Every card has
 /// it, so cards on the primary monitor line up with the others.
 const LABEL_LINE: f32 = 18.0;
 const NAME_HEIGHT: f32 = 16.0;
-const CARD: Vec2 = Vec2::new(
-    THUMB.x + 2.0 * CARD_INSET,
-    CARD_INSET + LABEL_LINE + CARD_INSET + THUMB.y + CARD_INSET + NAME_HEIGHT + CARD_INSET,
-);
+const CARD_HEIGHT: f32 =
+    CARD_INSET + LABEL_LINE + CARD_INSET + THUMB_HEIGHT + CARD_INSET + NAME_HEIGHT + CARD_INSET;
 const CARD_GAP: f32 = 8.0;
+/// A picture is as wide as the window's shape makes it, but never narrower
+/// or wider than these parts of its height, like the taskbar's own.
+const NARROWEST: f32 = 0.6;
+const WIDEST: f32 = 2.4;
+/// The shape of a window whose size is not known.
+const DEFAULT_SHAPE: Vec2 = Vec2::new(16.0, 9.0);
 const HEADER: f32 = 15.0;
 const HEADER_GAP: f32 = 6.0;
 const ROW_GAP: f32 = 12.0;
@@ -127,36 +131,123 @@ fn shown_rows(group: &ArrangeGroup, desktops: &[ArrangeDesktop], shown: bool) ->
     rows
 }
 
-/// How many cards fit on one line within `width`.
-pub fn cards_per_line(width: f32) -> usize {
-    (((width - 2.0 * PADDING + CARD_GAP) / (CARD.x + CARD_GAP)).floor() as usize).max(1)
+/// How wide a picture `height` tall is for a window whose picture shows
+/// `source` (its size in pixels): the window's own shape, kept between
+/// NARROWEST and WIDEST of the height, 16:9 when the size is not known.
+/// Whole points, so a card does not change width while nothing changed.
+pub fn picture_width(source: Option<Vec2>, height: f32) -> f32 {
+    let shape = source
+        .filter(|size| size.x > 0.0 && size.y > 0.0)
+        .unwrap_or(DEFAULT_SHAPE);
+    (height * (shape.x / shape.y).clamp(NARROWEST, WIDEST)).round()
 }
 
-/// The panel size for the rows: as wide as the widest row needs, at most
-/// `limit.x`, with longer rows wrapping onto more lines; as tall as that
-/// makes it, at most `limit.y`, beyond which the rows scroll. `link` makes
-/// room for the line that opens the other desktops.
-pub fn panel_size(rows: &[Row], link: bool, limit: Vec2) -> Vec2 {
+/// The part of a window its picture shows, in the window's own pixels: its
+/// visible frame, or the whole window when that frame does not fit it, as
+/// for a minimized window, whose frame is the small one it has while
+/// minimized.
+pub fn picture_source(frame: Option<Rect>, size: Vec2) -> Rect {
+    let whole = Rect::from_min_size(pos2(0.0, 0.0), size);
+    match frame {
+        Some(frame)
+            if whole.contains_rect(frame)
+                && frame.width() >= size.x / 2.0
+                && frame.height() >= size.y / 2.0 =>
+        {
+            Rect::from_min_max(frame.min.round(), frame.max.round())
+        }
+        _ => whole,
+    }
+}
+
+/// Cards of these widths in lines no wider than `available`, in order:
+/// each line holds as many as fit, and at least one.
+pub fn wrap(widths: &[f32], available: f32) -> Vec<std::ops::Range<usize>> {
+    let mut lines = Vec::new();
+    let mut start = 0;
+    let mut used = 0.0;
+    for (index, width) in widths.iter().enumerate() {
+        let wanted = if index == start {
+            *width
+        } else {
+            used + CARD_GAP + width
+        };
+        // Half a point of room: a panel sized to fit exactly can round down.
+        if index > start && wanted > available + 0.5 {
+            lines.push(start..index);
+            start = index;
+            used = *width;
+        } else {
+            used = wanted;
+        }
+    }
+    if start < widths.len() {
+        lines.push(start..widths.len());
+    }
+    lines
+}
+
+/// How wide cards of these widths are on one line.
+pub fn line_width(widths: &[f32]) -> f32 {
+    widths.iter().sum::<f32>() + CARD_GAP * widths.len().saturating_sub(1) as f32
+}
+
+/// A Flat card's width for a window whose picture shows `source`.
+fn card_width(source: Option<Vec2>) -> f32 {
+    picture_width(source, THUMB_HEIGHT) + 2.0 * CARD_INSET
+}
+
+/// The cards' widths in a row, or the empty row's placeholder.
+fn row_widths(row: &Row, widths: &[f32]) -> Vec<f32> {
+    if row.members.is_empty() {
+        vec![card_width(None)]
+    } else {
+        row.members.iter().map(|member| widths[*member]).collect()
+    }
+}
+
+/// The panel size for the rows, whose cards are `widths` wide (one per
+/// window of the group): as wide as the widest row needs, at least
+/// `min_width` and at most `limit.x`, with longer rows wrapping onto more
+/// lines; as tall as that makes it, at most `limit.y`, beyond which the
+/// rows scroll. `link` makes room for the line that opens the other
+/// desktops.
+pub fn panel_size(rows: &[Row], widths: &[f32], link: bool, min_width: f32, limit: Vec2) -> Vec2 {
     let widest = rows
         .iter()
-        .map(|row| row.members.len())
-        .max()
-        .unwrap_or(0)
-        .max(1);
-    let per_line = widest.min(cards_per_line(limit.x));
-    let width = 2.0 * PADDING + per_line as f32 * CARD.x + (per_line - 1) as f32 * CARD_GAP + SLACK;
-    let lines: f32 = rows
+        .map(|row| line_width(&row_widths(row, widths)))
+        .fold(card_width(None), f32::max);
+    let width = (2.0 * PADDING + widest + SLACK).min(limit.x);
+    let wrapped: Vec<(Vec<f32>, Vec<std::ops::Range<usize>>)> = rows
         .iter()
         .map(|row| {
-            let lines = row.members.len().max(1).div_ceil(per_line) as f32;
-            HEADER + HEADER_GAP + lines * CARD.y + (lines - 1.0) * CARD_GAP
+            let cards = row_widths(row, widths);
+            let lines = wrap(&cards, width - 2.0 * PADDING);
+            (cards, lines)
+        })
+        .collect();
+    // Rows that wrap leave the panel only as wide as their longest line; at
+    // that width they wrap the same way.
+    let longest = wrapped
+        .iter()
+        .flat_map(|(cards, lines)| lines.iter().map(|line| line_width(&cards[line.clone()])))
+        .fold(0.0, f32::max);
+    let width = (2.0 * PADDING + longest + SLACK)
+        .min(width)
+        .max(min_width)
+        .min(limit.x);
+    let lines: f32 = wrapped
+        .iter()
+        .map(|(_, lines)| {
+            let lines = lines.len() as f32;
+            HEADER + HEADER_GAP + lines * CARD_HEIGHT + (lines - 1.0) * CARD_GAP
         })
         .sum();
     let count = rows.len().max(1) as f32;
     let footer = if rows.len() > 1 { FOOTER } else { 0.0 };
     let link = if link { others::LINK_HEIGHT } else { 0.0 };
     let height = 2.0 * PADDING + lines + (count - 1.0) * ROW_GAP + link + footer + SLACK;
-    vec2(width.min(limit.x), height.min(limit.y))
+    vec2(width, height.min(limit.y))
 }
 
 /// The pointer's monitor: its work area (the screen minus the taskbar) in
@@ -261,6 +352,9 @@ struct Shared {
     monitor: Option<Monitor>,
     focused_once: bool,
     thumbs: HashMap<isize, Option<Thumbnail>>,
+    /// The part of each window its picture shows; its shape is the card's.
+    /// Missing for a window Windows gives no picture of.
+    sources: HashMap<isize, Rect>,
     peek: Peek,
     hover: Hover,
     /// A test scene's card to peek at, without a mouse.
@@ -297,6 +391,16 @@ impl Shared {
             })
     }
 
+    /// Each of the group's windows' card width, from the shape of its
+    /// picture.
+    fn widths(&self, group: &ArrangeGroup, width: fn(Option<Vec2>) -> f32) -> Vec<f32> {
+        group
+            .windows
+            .iter()
+            .map(|window| width(self.sources.get(&window.hwnd).map(|source| source.size())))
+            .collect()
+    }
+
     /// How many other desktops have windows of the group on screen.
     fn others_count(&self) -> usize {
         match (self.group(), &self.snapshot) {
@@ -313,17 +417,23 @@ impl Shared {
         match (self.group(), &self.snapshot) {
             (Some(group), Some(snapshot)) if self.view() == ArrangeView::ByMonitor => {
                 let count = self.others_count();
-                by_monitor::panel_for(group, snapshot, self.others.shown(count), count > 0, limit)
+                let widths = self.widths(group, by_monitor::card_width);
+                by_monitor::panel_for(
+                    group,
+                    snapshot,
+                    &widths,
+                    self.others.shown(count),
+                    count > 0,
+                    limit,
+                )
             }
             (Some(group), Some(snapshot)) => {
                 let count = self.others_count();
                 let rows = shown_rows(group, &snapshot.desktops, self.others.shown(count));
-                let mut size = panel_size(&rows, count > 0, limit);
+                let widths = self.widths(group, card_width);
+                let min_width = 2.0 * PADDING + TOOLBAR_CONTROLS + SLACK;
+                let mut size = panel_size(&rows, &widths, count > 0, min_width, limit);
                 size.y = (size.y + SWITCHER).min(limit.y);
-                size.x = size
-                    .x
-                    .max(2.0 * PADDING + TOOLBAR_CONTROLS + SLACK)
-                    .min(limit.x);
                 size
             }
             _ => EMPTY_PANEL.min(limit),
@@ -356,6 +466,7 @@ impl Arrange {
                 monitor: None,
                 focused_once: false,
                 thumbs: HashMap::new(),
+                sources: HashMap::new(),
                 peek: Peek::default(),
                 hover: Hover::default(),
                 forced_peek: None,
@@ -440,6 +551,7 @@ impl Arrange {
             shared.drag = None;
             shared.others.reset();
             shared.thumbs.clear();
+            shared.sources.clear();
             shared.hide_peek();
             shared.forced_peek = None;
         }
@@ -641,8 +753,6 @@ struct Pending {
     dest: Rect,
     clip: Rect,
     opacity: u8,
-    /// Fill `dest`, cropping the window, instead of fitting it whole.
-    cover: bool,
 }
 
 /// What a view's body did this frame, for the parts both views share.
@@ -734,6 +844,10 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
         .thumbs
         .retain(|hwnd, _| group.windows.iter().any(|window| window.hwnd == *hwnd));
     let ctx = ui.ctx().clone();
+    if refresh_sources(shared, &group) {
+        // The cards change shape, and the window with them.
+        ctx.request_repaint();
+    }
     let ppp = ctx.pixels_per_point();
     let menu_open = egui::Popup::is_any_open(&ctx);
     let others_count = others::count(&group, &snapshot.desktops);
@@ -904,6 +1018,7 @@ fn flat(
     let mut frame = Frame::default();
 
     let flat: Vec<usize> = rows.iter().flat_map(|row| row.members.clone()).collect();
+    let widths = shared.widths(group, card_width);
     if shared
         .cursor
         .is_none_or(|hwnd| !flat.iter().any(|m| group.windows[*m].hwnd == hwnd))
@@ -936,6 +1051,7 @@ fn flat(
         }
     }
     let dragging = shared.drag.is_some();
+    let gap_width = dragged.map_or(card_width(None), |member| widths[member]);
     let layout = preview(
         &rows,
         dragged.filter(|_| dragging),
@@ -965,71 +1081,87 @@ fn flat(
                     // Rows wrap rather than scroll sideways, so the one scroll
                     // area left is the vertical one and takes the wheel.
                     ui.scope(|ui| {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.spacing_mut().item_spacing = vec2(CARD_GAP, CARD_GAP);
-                            if layout[row_index].is_empty() {
-                                placeholder(ui, "No windows on this desktop");
-                                return;
+                        if layout[row_index].is_empty() {
+                            placeholder(ui, "No windows on this desktop");
+                            return;
+                        }
+                        let slot_widths: Vec<f32> = layout[row_index]
+                            .iter()
+                            .map(|slot| match slot {
+                                Slot::Window(member) => widths[*member],
+                                Slot::Gap => gap_width,
+                            })
+                            .collect();
+                        let lines = wrap(&slot_widths, ui.available_width());
+                        for (line_index, line) in lines.into_iter().enumerate() {
+                            if line_index > 0 {
+                                ui.add_space(CARD_GAP);
                             }
-                            for slot in &layout[row_index] {
-                                let Slot::Window(member) = *slot else {
-                                    gap(ui);
-                                    continue;
-                                };
-                                let window = &group.windows[member];
-                                let desktop_name = desktop_name(desktops, &window.desktop);
-                                let has_picture = !menu_open
-                                    && thumbnail(shared, window.hwnd)
-                                        .is_some_and(|thumb| thumb.source_size().is_some());
-                                let is_cursor = shared.cursor == Some(window.hwnd);
-                                let (response, picture, rename) = card(
-                                    ui,
-                                    &window.label,
-                                    desktop_name,
-                                    window.monitor.as_deref(),
-                                    window.same_title.then_some(can_rename),
-                                    has_picture,
-                                    is_cursor,
-                                );
-                                if rename {
-                                    frame.actions.push(ArrangeAction::AskName(window.hwnd));
-                                }
-                                cards_here.push(response.rect);
-                                frame.cards.push((window.hwnd, window.monitor.is_some()));
-                                if response.hovered() {
-                                    frame.hovered = Some(window.hwnd);
-                                }
-                                if has_picture {
-                                    frame.pending.push(Pending {
-                                        hwnd: window.hwnd,
-                                        dest: picture,
-                                        clip: ui.clip_rect(),
-                                        opacity: 255,
-                                        cover: false,
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing = vec2(CARD_GAP, 0.0);
+                                for slot in &layout[row_index][line] {
+                                    let Slot::Window(member) = *slot else {
+                                        gap(ui, gap_width);
+                                        continue;
+                                    };
+                                    let window = &group.windows[member];
+                                    let desktop_name = desktop_name(desktops, &window.desktop);
+                                    let has_picture = !menu_open
+                                        && thumbnail(shared, window.hwnd)
+                                            .is_some_and(|thumb| thumb.source_size().is_some());
+                                    let is_cursor = shared.cursor == Some(window.hwnd);
+                                    let (response, picture, rename) = card(
+                                        ui,
+                                        widths[member],
+                                        window,
+                                        desktop_name,
+                                        can_rename,
+                                        has_picture,
+                                        is_cursor,
+                                    );
+                                    if rename {
+                                        frame.actions.push(ArrangeAction::AskName(window.hwnd));
+                                    }
+                                    cards_here.push(response.rect);
+                                    frame.cards.push((window.hwnd, window.monitor.is_some()));
+                                    if response.hovered() {
+                                        frame.hovered = Some(window.hwnd);
+                                    }
+                                    if has_picture {
+                                        frame.pending.push(Pending {
+                                            hwnd: window.hwnd,
+                                            dest: picture,
+                                            clip: ui.clip_rect(),
+                                            opacity: 255,
+                                        });
+                                    }
+                                    if response.clicked() {
+                                        frame.activate = Some(window.hwnd);
+                                    }
+                                    if response.drag_started() {
+                                        if let Some(at) = response.interact_pointer_pos() {
+                                            shared.drag = Some(Drag {
+                                                hwnd: window.hwnd,
+                                                grab: at - response.rect.min,
+                                            });
+                                            shared.cursor = Some(window.hwnd);
+                                        }
+                                    }
+                                    response.context_menu(|ui| {
+                                        let names = can_rename.then_some(window.renamed);
+                                        if let Some(action) = card_menu(
+                                            ui,
+                                            window.hwnd,
+                                            &window.desktop,
+                                            desktops,
+                                            names,
+                                        ) {
+                                            frame.actions.push(action);
+                                        }
                                     });
                                 }
-                                if response.clicked() {
-                                    frame.activate = Some(window.hwnd);
-                                }
-                                if response.drag_started() {
-                                    if let Some(at) = response.interact_pointer_pos() {
-                                        shared.drag = Some(Drag {
-                                            hwnd: window.hwnd,
-                                            grab: at - response.rect.min,
-                                        });
-                                        shared.cursor = Some(window.hwnd);
-                                    }
-                                }
-                                response.context_menu(|ui| {
-                                    let names = can_rename.then_some(window.renamed);
-                                    if let Some(action) =
-                                        card_menu(ui, window.hwnd, &window.desktop, desktops, names)
-                                    {
-                                        frame.actions.push(action);
-                                    }
-                                });
-                            }
-                        });
+                            });
+                        }
                     });
                     card_rects.push(cards_here);
                     row_rects.push(Rect::from_min_max(
@@ -1051,7 +1183,7 @@ fn flat(
 
     // The dragged card rides above everything, following the pointer.
     if let (Some(drag), Some(member), Some(pointer)) = (shared.drag.as_ref(), dragged, pointer) {
-        let rect = Rect::from_min_size(pointer - drag.grab, CARD);
+        let rect = Rect::from_min_size(pointer - drag.grab, vec2(widths[member], CARD_HEIGHT));
         let window = &group.windows[member];
         let layer = ctx.layer_painter(egui::LayerId::new(
             egui::Order::Tooltip,
@@ -1066,7 +1198,6 @@ fn flat(
             &mut frame,
             window.hwnd,
             picture_area(rect),
-            false,
             menu_open,
         );
         frame.floating = Some(rect);
@@ -1167,7 +1298,6 @@ fn float_picture(
     frame: &mut Frame,
     hwnd: isize,
     area: Rect,
-    cover: bool,
     menu_open: bool,
 ) {
     let tokens = Tokens::get(layer.ctx());
@@ -1184,7 +1314,6 @@ fn float_picture(
             dest: area.shrink(1.0),
             clip: Rect::EVERYTHING,
             opacity: 204,
-            cover,
         });
     }
 }
@@ -1225,6 +1354,32 @@ fn thumbnail(shared: &mut Shared, hwnd: isize) -> Option<&mut Thumbnail> {
         .as_mut()
 }
 
+/// Finds the part of each of the group's windows its picture shows, which
+/// gives its card its shape; returns whether any changed. Only possible once
+/// the strip's own window exists.
+fn refresh_sources(shared: &mut Shared, group: &ArrangeGroup) -> bool {
+    if shared.window == 0 {
+        return false;
+    }
+    shared
+        .sources
+        .retain(|hwnd, _| group.windows.iter().any(|window| window.hwnd == *hwnd));
+    let mut changed = false;
+    for window in &group.windows {
+        let source = thumbnail(shared, window.hwnd)
+            .and_then(|thumb| thumb.source_size())
+            .map(|size| picture_source(dwm_thumbs::visible_frame(window.hwnd as HWND), size));
+        if shared.sources.get(&window.hwnd).copied() != source {
+            changed = true;
+            match source {
+                Some(source) => shared.sources.insert(window.hwnd, source),
+                None => shared.sources.remove(&window.hwnd),
+            };
+        }
+    }
+    changed
+}
+
 /// Puts every picture where its card is. DWM draws pictures on top of
 /// everything in the window, so one under the dragged card is hidden, and
 /// pictures of windows without a card this frame are hidden too.
@@ -1246,6 +1401,7 @@ fn place_pictures(
     for item in pending {
         let covered =
             floating.is_some_and(|rect| Some(item.hwnd) != dragged && rect.intersects(item.dest));
+        let known = shared.sources.get(&item.hwnd).copied();
         let Some(thumb) = thumbnail(shared, item.hwnd) else {
             continue;
         };
@@ -1257,14 +1413,12 @@ fn place_pictures(
             thumb.place(None);
             continue;
         }
-        let frame = dwm_thumbs::visible_frame(item.hwnd as HWND)
-            .unwrap_or(Rect::from_min_size(pos2(0.0, 0.0), size));
-        let (dest, source) = if item.cover {
-            (item.dest, dwm_thumbs::cover(frame, item.dest.size()))
-        } else {
-            let fitted = dwm_thumbs::fit(frame.size(), item.dest.size());
-            (Rect::from_center_size(item.dest.center(), fitted), frame)
-        };
+        let source = known
+            .unwrap_or_else(|| picture_source(dwm_thumbs::visible_frame(item.hwnd as HWND), size));
+        // The card has the window's shape, so this only leaves a margin for
+        // a window narrower or wider than a card can be.
+        let fitted = dwm_thumbs::fit(source.size(), item.dest.size());
+        let dest = Rect::from_center_size(item.dest.center(), fitted);
         let placement =
             dwm_thumbs::crop(dest, item.clip, source).map(|(shown, cropped)| Placement {
                 dest: dwm_thumbs::physical(shown, pixels_per_point),
@@ -1476,24 +1630,29 @@ fn card_menu(
 /// The text of the "Same title" chip's tooltip.
 const SAME_TITLE_HINT: &str = "Restores cannot tell these windows apart. Give one a name.";
 
-/// One window: the monitor chip when it is not on the primary monitor, an
-/// amber "Same title" chip at the right of that line when another window of
-/// the app has the same title (`same_title` says whether WindowNamer is on,
-/// so the chip can offer to rename), its picture area (the live picture is
-/// put on top of it later) and its name underneath. Without a picture the
-/// area shows the name and desktop instead. Returns the card's response, the
-/// picture area, and whether the chip was clicked to rename.
+/// One window, `width` wide: the monitor chip when it is not on the primary
+/// monitor, an amber "Same title" chip at the right of that line when
+/// another window of the app has the same title (`can_rename` says whether
+/// WindowNamer is on, so the chip can offer to rename), its picture area
+/// (the live picture is put on top of it later) and its name underneath.
+/// Without a picture the area shows the name and desktop instead. Returns
+/// the card's response, the picture area, and whether the chip was clicked
+/// to rename.
 fn card(
     ui: &mut Ui,
-    label: &str,
+    width: f32,
+    window: &ArrangeWindow,
     desktop: &str,
-    monitor: Option<&str>,
-    same_title: Option<bool>,
+    can_rename: bool,
     has_picture: bool,
     is_cursor: bool,
 ) -> (Response, Rect, bool) {
+    let label = window.label.as_str();
+    let monitor = window.monitor.as_deref();
+    let same_title = window.same_title.then_some(can_rename);
     let tokens = Tokens::get(ui.ctx());
-    let (rect, response) = ui.allocate_exact_size(CARD, Sense::click_and_drag());
+    let (rect, response) =
+        ui.allocate_exact_size(vec2(width, CARD_HEIGHT), Sense::click_and_drag());
     let lit = response.hovered() || is_cursor;
     let painter = ui.painter();
     if lit {
@@ -1533,7 +1692,7 @@ fn card(
 
     let mut job = text::job(label, theme::regular(12.0), tokens.text_primary, None);
     job.wrap = TextWrapping {
-        max_width: THUMB.x,
+        max_width: area.width(),
         max_rows: 1,
         break_anywhere: true,
         overflow_character: Some('\u{2026}'),
@@ -1582,7 +1741,7 @@ fn same_title_chip(painter: &egui::Painter, card: Rect) -> Rect {
 fn picture_area(card: Rect) -> Rect {
     Rect::from_min_size(
         card.min + vec2(CARD_INSET, CARD_INSET + LABEL_LINE + CARD_INSET),
-        THUMB,
+        vec2(card.width() - 2.0 * CARD_INSET, THUMB_HEIGHT),
     )
 }
 
@@ -1613,10 +1772,10 @@ fn monitor_chip(painter: &egui::Painter, card: Rect, text: &str) {
     );
 }
 
-/// The gap a dragged card would land in.
-fn gap(ui: &mut Ui) {
+/// The gap a dragged card would land in, as wide as that card.
+fn gap(ui: &mut Ui, width: f32) {
     let tokens = Tokens::get(ui.ctx());
-    let (rect, _) = ui.allocate_exact_size(CARD, Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(vec2(width, CARD_HEIGHT), Sense::hover());
     let area = picture_area(rect);
     ui.painter().rect(
         area,
@@ -1630,7 +1789,7 @@ fn gap(ui: &mut Ui) {
 /// An empty row, still a place to drop a window on.
 fn placeholder(ui: &mut Ui, text_line: &str) {
     let tokens = Tokens::get(ui.ctx());
-    let (rect, _) = ui.allocate_exact_size(CARD, Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(vec2(card_width(None), CARD_HEIGHT), Sense::hover());
     let area = picture_area(rect);
     ui.painter().rect(
         area,
@@ -1698,7 +1857,10 @@ fn name_card(painter: &egui::Painter, area: Rect, label: &str, desktop: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::ui_bridge::ArrangeWindow;
+
+    /// A card of a 16:9 window.
+    const CARD: Vec2 = Vec2::new(152.0, CARD_HEIGHT);
+    const SAME: [f32; 20] = [CARD.x; 20];
 
     fn desktop(id: &str, name: &str, current: bool) -> ArrangeDesktop {
         ArrangeDesktop {
@@ -1838,7 +2000,7 @@ mod tests {
             desktop: String::new(),
             members: (0..n).collect(),
         };
-        let size = panel_size(&[row(3), row(1)], false, vec2(5000.0, 5000.0));
+        let size = panel_size(&[row(3), row(1)], &SAME, false, 0.0, vec2(5000.0, 5000.0));
         assert_eq!(
             size.x,
             2.0 * PADDING + 3.0 * CARD.x + 2.0 * CARD_GAP + SLACK
@@ -1857,8 +2019,7 @@ mod tests {
             members: (0..n).collect(),
         };
         let limit = vec2(2.0 * PADDING + 5.0 * CARD.x + 4.0 * CARD_GAP + 10.0, 5000.0);
-        assert_eq!(cards_per_line(limit.x), 5);
-        let size = panel_size(&[row(12)], false, limit);
+        let size = panel_size(&[row(12)], &SAME, false, 0.0, limit);
         assert_eq!(
             size.x,
             2.0 * PADDING + 5.0 * CARD.x + 4.0 * CARD_GAP + SLACK
@@ -1868,8 +2029,98 @@ mod tests {
             size.y,
             2.0 * PADDING + HEADER + HEADER_GAP + 3.0 * CARD.y + 2.0 * CARD_GAP + SLACK
         );
-        let short = panel_size(&[row(12)], false, vec2(limit.x, 200.0));
+        let short = panel_size(&[row(12)], &SAME, false, 0.0, vec2(limit.x, 200.0));
         assert_eq!(short.y, 200.0);
+    }
+
+    #[test]
+    fn a_picture_keeps_the_windows_shape_within_limits() {
+        let close = |a: f32, b: f32| (a - b).abs() < 0.01;
+        // A 16:9 window, a portrait one and an unknown size, 81 tall.
+        assert!(close(
+            picture_width(Some(vec2(1920.0, 1080.0)), 81.0),
+            144.0
+        ));
+        assert!(close(picture_width(Some(vec2(1000.0, 1250.0)), 81.0), 65.0));
+        assert!(close(picture_width(None, 81.0), 144.0));
+        assert!(close(picture_width(Some(vec2(0.0, 900.0)), 81.0), 144.0));
+        // Very narrow and very wide windows stop at 0.6 and 2.4 heights.
+        assert!(close(picture_width(Some(vec2(200.0, 2000.0)), 100.0), 60.0));
+        assert!(close(
+            picture_width(Some(vec2(7680.0, 1080.0)), 100.0),
+            240.0
+        ));
+        // Whole points, so a window a pixel wider gives the same card.
+        assert_eq!(
+            picture_width(Some(vec2(1921.0, 1080.0)), 81.0),
+            picture_width(Some(vec2(1920.0, 1080.0)), 81.0)
+        );
+        assert_eq!(card_width(None), CARD.x);
+    }
+
+    #[test]
+    fn a_picture_shows_the_visible_frame_or_else_the_whole_window() {
+        let size = vec2(1936.0, 1048.0);
+        let frame = Rect::from_min_max(pos2(8.0, 0.0), pos2(1928.0, 1040.0));
+        assert_eq!(picture_source(Some(frame), size), frame);
+        let whole = Rect::from_min_size(pos2(0.0, 0.0), size);
+        assert_eq!(picture_source(None, size), whole);
+        // A minimized window's frame is its small one while minimized.
+        let iconic = Rect::from_min_max(pos2(0.0, 0.0), pos2(160.0, 28.0));
+        assert_eq!(picture_source(Some(iconic), size), whole);
+        let outside = Rect::from_min_max(pos2(-8.0, 0.0), pos2(1928.0, 1040.0));
+        assert_eq!(picture_source(Some(outside), size), whole);
+    }
+
+    #[test]
+    fn cards_of_mixed_widths_wrap_where_the_next_one_does_not_fit() {
+        // 100 + 8 + 200 = 308 fits in 310; the 60 after it does not.
+        let widths = [100.0, 200.0, 60.0, 60.0, 300.0];
+        assert_eq!(wrap(&widths, 310.0), [0..2, 2..4, 4..5]);
+        // A card wider than the line still gets a line of its own.
+        assert_eq!(wrap(&[400.0, 50.0], 310.0), [0..1, 1..2]);
+        assert_eq!(wrap(&widths, 5000.0).first(), Some(&(0..5)));
+        assert_eq!(wrap(&widths, 5000.0).len(), 1);
+        assert!(wrap(&[], 310.0).is_empty());
+        assert_eq!(line_width(&[100.0, 200.0]), 308.0);
+        assert_eq!(line_width(&[]), 0.0);
+    }
+
+    #[test]
+    fn the_panel_follows_the_widths_of_the_cards() {
+        let rows = [
+            Row {
+                title: String::new(),
+                desktop: String::new(),
+                members: vec![0, 1, 2],
+            },
+            Row {
+                title: String::new(),
+                desktop: String::new(),
+                members: vec![3],
+            },
+        ];
+        // A wide, a narrow and a 16:9 window, then a very wide one alone.
+        let widths = [200.0, 60.0, CARD.x, 300.0];
+        let size = panel_size(&rows, &widths, false, 0.0, vec2(5000.0, 5000.0));
+        assert_eq!(size.x, 2.0 * PADDING + 412.0 + 2.0 * CARD_GAP + SLACK);
+        // Squeezed to 300 points of cards, the first row needs two lines.
+        let limit = vec2(2.0 * PADDING + 300.0, 5000.0);
+        let size = panel_size(&rows, &widths, false, 0.0, limit);
+        assert_eq!(size.x, limit.x);
+        assert_eq!(
+            size.y,
+            2.0 * PADDING
+                + 2.0 * (HEADER + HEADER_GAP)
+                + 3.0 * CARD_HEIGHT
+                + CARD_GAP
+                + ROW_GAP
+                + FOOTER
+                + SLACK
+        );
+        // Never narrower than the toolbar needs.
+        let size = panel_size(&rows[1..], &widths, false, 700.0, vec2(5000.0, 5000.0));
+        assert_eq!(size.x, 700.0);
     }
 
     #[test]
@@ -1879,11 +2130,29 @@ mod tests {
         assert_eq!(shown_rows(&group, &desktops, false).len(), 1);
         assert_eq!(shown_rows(&group, &desktops, true).len(), 2);
         let limit = vec2(5000.0, 5000.0);
-        let shut = panel_size(&shown_rows(&group, &desktops, false), true, limit);
-        let open = panel_size(&shown_rows(&group, &desktops, true), true, limit);
+        let shut = panel_size(
+            &shown_rows(&group, &desktops, false),
+            &SAME,
+            true,
+            0.0,
+            limit,
+        );
+        let open = panel_size(
+            &shown_rows(&group, &desktops, true),
+            &SAME,
+            true,
+            0.0,
+            limit,
+        );
         assert!(shut.y < open.y);
         // The footnote about other desktops needs a second row.
-        let alone = panel_size(&shown_rows(&group, &desktops, false), false, limit);
+        let alone = panel_size(
+            &shown_rows(&group, &desktops, false),
+            &SAME,
+            false,
+            0.0,
+            limit,
+        );
         assert!((shut.y - alone.y - others::LINK_HEIGHT).abs() < 0.01);
     }
 
@@ -1973,6 +2242,16 @@ mod tests {
             drop_target(pos2(10.0, 900.0), &row_rects, &card_rects),
             Some((1, 1))
         );
+
+        // Cards of other widths: the middle of each real card counts.
+        let mixed = vec![vec![
+            Rect::from_min_size(pos2(0.0, 20.0), vec2(60.0, CARD_HEIGHT)),
+            Rect::from_min_size(pos2(68.0, 20.0), vec2(300.0, CARD_HEIGHT)),
+        ]];
+        let one = [Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 200.0))];
+        assert_eq!(drop_target(pos2(40.0, 60.0), &one, &mixed), Some((0, 1)));
+        assert_eq!(drop_target(pos2(200.0, 60.0), &one, &mixed), Some((0, 1)));
+        assert_eq!(drop_target(pos2(230.0, 60.0), &one, &mixed), Some((0, 2)));
 
         // A wrapped row: two cards on the first line, one on the second.
         let wrapped = vec![vec![card(0.0, 20.0), card(228.0, 20.0), card(0.0, 200.0)]];

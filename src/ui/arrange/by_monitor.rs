@@ -6,8 +6,8 @@ use egui::text::TextWrapping;
 use egui::{pos2, vec2, Rect, Response, Sense, Shape, StrokeKind, Ui, UiBuilder, Vec2};
 
 use super::{
-    card_menu, float_picture, name_card, others, others_link, thumbnail, Drag, Frame, Pending,
-    Shared, SAME_TITLE_HINT, SLACK,
+    card_menu, float_picture, line_width, name_card, others, others_link, picture_width, thumbnail,
+    wrap, Drag, Frame, Pending, Shared, SAME_TITLE_HINT, SLACK,
 };
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{
@@ -38,10 +38,7 @@ const CARD_PAD: f32 = 4.0;
 const THUMB_HEIGHT: f32 = 96.0;
 const TITLE_GAP: f32 = 6.0;
 const TITLE: f32 = 18.0;
-pub const CARD: Vec2 = Vec2::new(
-    172.0,
-    CARD_PAD + THUMB_HEIGHT + TITLE_GAP + TITLE + CARD_PAD,
-);
+const CARD_HEIGHT: f32 = CARD_PAD + THUMB_HEIGHT + TITLE_GAP + TITLE + CARD_PAD;
 const CARD_GAP: f32 = 8.0;
 /// Room for the toolbar's controls and its counts.
 const MIN_PANEL: f32 = 680.0;
@@ -154,17 +151,27 @@ fn row_tracks(weights: &[f32], width: f32) -> Vec<f32> {
     tracks(weights, width - 2.0 * SIDE - gaps)
 }
 
-/// How many cards fit side by side in a column `track` wide.
-pub fn per_line(track: f32) -> usize {
-    (((track - INSET + CARD_GAP) / (CARD.x + CARD_GAP)).floor() as usize).max(1)
+/// A card's width for a window whose picture shows `source`.
+pub fn card_width(source: Option<Vec2>) -> f32 {
+    picture_width(source, THUMB_HEIGHT) + 2.0 * CARD_PAD
 }
 
-fn cell_height(cards: usize, track: f32) -> f32 {
-    if cards == 0 {
+/// The widths of a cell's cards, from every window's card width.
+fn cell_widths(cell: &[usize], widths: &[f32]) -> Vec<f32> {
+    cell.iter().map(|member| widths[*member]).collect()
+}
+
+/// The cell's cards in lines that fit in a column `track` wide.
+fn cell_lines(cell: &[usize], widths: &[f32], track: f32) -> Vec<std::ops::Range<usize>> {
+    wrap(&cell_widths(cell, widths), track - INSET)
+}
+
+fn cell_height(cell: &[usize], widths: &[f32], track: f32) -> f32 {
+    if cell.is_empty() {
         return EMPTY;
     }
-    let lines = cards.div_ceil(per_line(track)) as f32;
-    lines * CARD.y + (lines - 1.0) * CARD_GAP
+    let lines = cell_lines(cell, widths, track).len() as f32;
+    lines * CARD_HEIGHT + (lines - 1.0) * CARD_GAP
 }
 
 /// One virtual desktop's windows, split by monitor.
@@ -277,9 +284,10 @@ pub fn bands(
     bands
 }
 
-/// The height of a band whose rows have these column widths. A desktop with
-/// none of the group's windows is its header alone.
-fn band_height(band: &Band, tracks: &[Vec<f32>]) -> f32 {
+/// The height of a band whose rows have these column widths, with cards
+/// `widths` wide. A desktop with none of the group's windows is its header
+/// alone.
+fn band_height(band: &Band, tracks: &[Vec<f32>], widths: &[f32]) -> f32 {
     let header = 1.0 + BAND_TOP + BAND_HEADER;
     if band.count() == 0 {
         return header + BAND_TOP;
@@ -292,7 +300,7 @@ fn band_height(band: &Band, tracks: &[Vec<f32>]) -> f32 {
         let tallest = row
             .iter()
             .zip(&tracks[r])
-            .map(|(cell, track)| cell_height(cell.len(), *track))
+            .map(|(cell, track)| cell_height(cell, widths, *track))
             .fold(0.0, f32::max);
         height += LABEL + LABEL_GAP + tallest;
     }
@@ -308,9 +316,9 @@ pub fn visible(mut bands: Vec<Band>, shown: bool) -> Vec<Band> {
     bands
 }
 
-/// The width at which every column holds its windows on one line, or at
-/// least MIN_PANEL.
-pub fn natural_width(bands: &[Band], weights: &[Vec<f32>]) -> f32 {
+/// The width at which every column holds its windows, `widths` wide, on
+/// one line, or at least MIN_PANEL.
+pub fn natural_width(bands: &[Band], weights: &[Vec<f32>], widths: &[f32]) -> f32 {
     weights
         .iter()
         .enumerate()
@@ -320,13 +328,11 @@ pub fn natural_width(bands: &[Band], weights: &[Vec<f32>]) -> f32 {
                 .iter()
                 .enumerate()
                 .map(|(c, weight)| {
-                    let most = bands
+                    let widest = bands
                         .iter()
-                        .map(|band| band.cells[r][c].len())
-                        .max()
-                        .unwrap_or(0)
-                        .max(1) as f32;
-                    let needed = (INSET + most * CARD.x + (most - 1.0) * CARD_GAP).max(MIN_TRACK);
+                        .map(|band| line_width(&cell_widths(&band.cells[r][c], widths)))
+                        .fold(card_width(None), f32::max);
+                    let needed = (INSET + widest).max(MIN_TRACK);
                     needed * total / weight
                 })
                 .fold(0.0, f32::max);
@@ -338,10 +344,20 @@ pub fn natural_width(bands: &[Band], weights: &[Vec<f32>]) -> f32 {
 /// The window size for the view: wide enough for one line of cards per
 /// column, as tall as the bands then are, and at most `limit`, beyond which
 /// it scrolls. `link` makes room for the line that opens the other desktops.
-pub fn panel_size(bands: &[Band], weights: &[Vec<f32>], link: bool, limit: Vec2) -> Vec2 {
-    let width = (natural_width(bands, weights) + SLACK).min(limit.x);
+/// `widths` is each window's card width.
+pub fn panel_size(
+    bands: &[Band],
+    weights: &[Vec<f32>],
+    widths: &[f32],
+    link: bool,
+    limit: Vec2,
+) -> Vec2 {
+    let width = (natural_width(bands, weights, widths) + SLACK).min(limit.x);
     let tracks: Vec<Vec<f32>> = weights.iter().map(|row| row_tracks(row, width)).collect();
-    let bands_height: f32 = bands.iter().map(|band| band_height(band, &tracks)).sum();
+    let bands_height: f32 = bands
+        .iter()
+        .map(|band| band_height(band, &tracks, widths))
+        .sum();
     let link = if link { others::LINK_HEIGHT } else { 0.0 };
     let height = TOOLBAR + bands_height + link + FOOTER + SLACK;
     vec2(width, height.min(limit.y))
@@ -355,10 +371,12 @@ struct Model {
     bands: Vec<Band>,
     /// Every band, for a key that moves a window to a hidden desktop.
     all: Vec<Band>,
+    /// Each window's card width.
+    widths: Vec<f32>,
 }
 
 impl Model {
-    fn new(group: &ArrangeGroup, snapshot: &ArrangeSnapshot, shown: bool) -> Self {
+    fn new(group: &ArrangeGroup, snapshot: &ArrangeSnapshot, widths: &[f32], shown: bool) -> Self {
         let monitors = &snapshot.monitors;
         let used = |index: usize| {
             monitors[index].connected
@@ -375,6 +393,7 @@ impl Model {
             weights,
             bands: visible(all.clone(), shown),
             all,
+            widths: widths.to_vec(),
         }
     }
 }
@@ -382,12 +401,13 @@ impl Model {
 pub fn panel_for(
     group: &ArrangeGroup,
     snapshot: &ArrangeSnapshot,
+    widths: &[f32],
     shown: bool,
     link: bool,
     limit: Vec2,
 ) -> Vec2 {
-    let model = Model::new(group, snapshot, shown);
-    panel_size(&model.bands, &model.weights, link, limit)
+    let model = Model::new(group, snapshot, widths, shown);
+    panel_size(&model.bands, &model.weights, widths, link, limit)
 }
 
 pub fn toolbar_rect(panel: Rect) -> Rect {
@@ -698,7 +718,8 @@ pub fn body(
     let ctx = ui.ctx().clone();
     let others_count = others::count(group, &snapshot.desktops);
     let shown = shared.others.shown(others_count);
-    let model = Model::new(group, snapshot, shown);
+    let widths = shared.widths(group, card_width);
+    let model = Model::new(group, snapshot, &widths, shown);
     let mut frame = Frame::default();
     let walk = walk(&model.bands);
     let member_of = |hwnd: isize| group.windows.iter().position(|w| w.hwnd == hwnd);
@@ -788,7 +809,7 @@ pub fn body(
             &ctx,
             &mut frame,
             &group.windows[member],
-            pointer - drag.grab,
+            Rect::from_min_size(pointer - drag.grab, vec2(model.widths[member], CARD_HEIGHT)),
             menu_open,
         );
     }
@@ -802,16 +823,16 @@ pub fn body(
 }
 
 /// The dragged card riding above everything at the pointer, grabbed where
-/// it was picked up. Its old place stays behind, faded, as the "from" mark.
+/// it was picked up, as big as its card. Its old place stays behind, faded,
+/// as the "from" mark.
 fn ghost(
     ctx: &egui::Context,
     frame: &mut Frame,
     window: &ArrangeWindow,
-    at: egui::Pos2,
+    rect: Rect,
     menu_open: bool,
 ) {
     let tokens = Tokens::get(ctx);
-    let rect = Rect::from_min_size(at, CARD);
     let layer = ctx.layer_painter(egui::LayerId::new(
         egui::Order::Tooltip,
         egui::Id::new("arrange-drag"),
@@ -819,9 +840,9 @@ fn ghost(
     layer.rect_filled(rect, 4, tokens.hover_bg);
     let thumb = Rect::from_min_size(
         rect.min + Vec2::splat(CARD_PAD),
-        vec2(CARD.x - 2.0 * CARD_PAD, THUMB_HEIGHT),
+        vec2(rect.width() - 2.0 * CARD_PAD, THUMB_HEIGHT),
     );
-    float_picture(&layer, frame, window.hwnd, thumb, true, menu_open);
+    float_picture(&layer, frame, window.hwnd, thumb, menu_open);
     let mut job = text::job(
         &window.label,
         theme::regular(13.0),
@@ -829,7 +850,7 @@ fn ghost(
         None,
     );
     job.wrap = TextWrapping {
-        max_width: CARD.x - 2.0 * CARD_PAD - 4.0,
+        max_width: rect.width() - 2.0 * CARD_PAD - 4.0,
         max_rows: 1,
         break_anywhere: true,
         overflow_character: Some('\u{2026}'),
@@ -924,7 +945,7 @@ impl Draw<'_> {
             let tallest = row
                 .iter()
                 .zip(&tracks[r])
-                .map(|(cell, track)| cell_height(cell.len(), *track))
+                .map(|(cell, track)| cell_height(cell, &self.model.widths, *track))
                 .fold(0.0, f32::max);
             let height = LABEL + LABEL_GAP + tallest;
             let needed = 2.0 * SIDE
@@ -990,23 +1011,28 @@ impl Draw<'_> {
             );
 
             let top = inner.top() + LABEL + LABEL_GAP;
-            let per = per_line(*track);
+            let widths = &self.model.widths;
             let mut cards: Vec<(usize, Rect)> = Vec::new();
-            for (i, member) in cell.iter().enumerate() {
-                let at = pos2(
-                    inner.left() + (i % per) as f32 * (CARD.x + CARD_GAP),
-                    top + (i / per) as f32 * (CARD.y + CARD_GAP),
-                );
-                let card_rect = Rect::from_min_size(at, CARD);
+            for (line, members) in cell_lines(cell, widths, *track).into_iter().enumerate() {
+                let mut x = inner.left();
+                for member in &cell[members] {
+                    let at = pos2(x, top + line as f32 * (CARD_HEIGHT + CARD_GAP));
+                    x += widths[*member] + CARD_GAP;
+                    cards.push((
+                        *member,
+                        Rect::from_min_size(at, vec2(widths[*member], CARD_HEIGHT)),
+                    ));
+                }
+            }
+            for (member, card_rect) in cards.clone() {
                 let mut card_alpha = alpha;
                 if !monitor.connected {
                     card_alpha *= DISCONNECTED;
                 }
-                if self.dragged == Some(*member) {
+                if self.dragged == Some(member) {
                     card_alpha *= DRAGGED;
                 }
-                self.card(ui, shared, frame, *member, card_rect, card_alpha);
-                cards.push((*member, card_rect));
+                self.card(ui, shared, frame, member, card_rect, card_alpha);
             }
             let target_here = self
                 .target
@@ -1067,7 +1093,7 @@ impl Draw<'_> {
         }
         let thumb = Rect::from_min_size(
             rect.min + Vec2::splat(CARD_PAD),
-            vec2(CARD.x - 2.0 * CARD_PAD, THUMB_HEIGHT),
+            vec2(rect.width() - 2.0 * CARD_PAD, THUMB_HEIGHT),
         );
         painter.rect(
             thumb,
@@ -1088,7 +1114,6 @@ impl Draw<'_> {
                 dest: picture,
                 clip: ui.clip_rect(),
                 opacity: (255.0 * alpha).round() as u8,
-                cover: true,
             });
         } else {
             name_card(&painter, picture, &window.label, "");
@@ -1321,7 +1346,7 @@ fn insertion_bar(ui: &Ui, others: &[Rect], index: usize, start: egui::Pos2) {
         (None, None) => (start.x - CARD_GAP / 2.0, start.y),
     };
     ui.painter()
-        .vline(x, egui::Rangef::new(top, top + CARD.y), stroke);
+        .vline(x, egui::Rangef::new(top, top + CARD_HEIGHT), stroke);
 }
 
 /// A chip at the right of a card's title line, ending at `right`; returns
@@ -1506,6 +1531,13 @@ fn keyboard(
 mod tests {
     use super::*;
 
+    /// A card of a 16:9 window.
+    fn card_size() -> Vec2 {
+        vec2(card_width(None), CARD_HEIGHT)
+    }
+
+    const SAME: [f32; 10] = [179.0; 10];
+
     fn monitor(rect: [i32; 4], taskbar: i32, primary: bool) -> ArrangeMonitor {
         ArrangeMonitor {
             device: format!(r"\\.\DISPLAY{}", rect[0]),
@@ -1673,19 +1705,19 @@ mod tests {
         assert_eq!(bands[1].count(), 0);
         let tracks = vec![row_tracks(&weights(&monitors, &rows[0]), 1200.0)];
         assert_eq!(
-            band_height(&bands[1], &tracks),
+            band_height(&bands[1], &tracks, &SAME),
             1.0 + BAND_TOP + BAND_HEADER + BAND_TOP
         );
         // One card in the primary column; the empty ones show the 112 high
         // drop target, which is the taller of the two.
         assert_eq!(
-            band_height(&bands[0], &tracks),
+            band_height(&bands[0], &tracks, &SAME),
             1.0 + BAND_TOP
                 + BAND_HEADER
                 + HEADER_GAP
                 + LABEL
                 + LABEL_GAP
-                + CARD.y.max(EMPTY)
+                + CARD_HEIGHT.max(EMPTY)
                 + BAND_BOTTOM
         );
     }
@@ -1734,17 +1766,77 @@ mod tests {
         // The 1920 column is the narrowest share; it needs 240, so the
         // three tracks need 240 * 8320 / 1920.
         let available = MIN_TRACK * 8320.0 / 1920.0;
-        let width = natural_width(&one_each, &weights);
+        assert_eq!(card_size().x, SAME[0]);
+        let width = natural_width(&one_each, &weights, &SAME);
         assert!(close(width, available + 2.0 * COLUMN_GAP + 2.0 * SIDE));
-        let size = panel_size(&one_each, &weights, false, vec2(5000.0, 5000.0));
+        let size = panel_size(&one_each, &weights, &SAME, false, vec2(5000.0, 5000.0));
         assert!(close(size.x, width + SLACK));
         let tracks = row_tracks(&weights[0], size.x);
         assert!(tracks[0] >= MIN_TRACK);
-        assert_eq!(per_line(tracks[1]), 2);
+        // Two cards fit side by side in the centre column, not three.
+        assert_eq!(cell_lines(&[0, 1, 2], &SAME, tracks[1]), [0..2, 2..3]);
 
         // Never wider than the limit, nor taller.
-        let small = panel_size(&one_each, &weights, false, vec2(800.0, 300.0));
+        let small = panel_size(&one_each, &weights, &SAME, false, vec2(800.0, 300.0));
         assert_eq!(small, vec2(800.0, 300.0));
+    }
+
+    #[test]
+    fn mixed_cards_wrap_by_their_widths_inside_a_column() {
+        // A 240 column holds 227 of cards: a 60 and a 140 side by side
+        // (208), then a 230 that only fits alone.
+        let widths = [60.0, 140.0, 230.0, 60.0];
+        assert_eq!(
+            cell_lines(&[0, 1, 2, 3], &widths, MIN_TRACK),
+            [0..2, 2..3, 3..4]
+        );
+        assert_eq!(
+            cell_height(&[0, 1, 2, 3], &widths, MIN_TRACK),
+            3.0 * CARD_HEIGHT + 2.0 * CARD_GAP
+        );
+        assert_eq!(cell_height(&[], &widths, MIN_TRACK), EMPTY);
+        // The widest cell on one line sets the panel's width.
+        let band = Band {
+            desktop: String::new(),
+            title: String::new(),
+            number: None,
+            current: true,
+            cells: vec![vec![vec![0, 1, 2]]],
+        };
+        let width = natural_width(&[band], &[vec![1.0]], &widths);
+        assert!(close(width, MIN_PANEL.max(INSET + 446.0 + 2.0 * SIDE)));
+    }
+
+    #[test]
+    fn the_landing_spot_follows_cards_of_mixed_widths() {
+        let at = |x: f32, w: f32, y: f32| Rect::from_min_size(pos2(x, y), vec2(w, CARD_HEIGHT));
+        let zones = vec![Zone {
+            band: 0,
+            cell: Some((0, 0)),
+            rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 400.0)),
+            open: true,
+            // A narrow card, a wide one, and a third card on the next line.
+            cards: vec![
+                (0, at(13.0, 60.0, 26.0)),
+                (1, at(81.0, 230.0, 26.0)),
+                (2, at(13.0, 179.0, 26.0 + CARD_HEIGHT + CARD_GAP)),
+            ],
+        }];
+        // Over the wide card's left half: before it.
+        assert_eq!(
+            drop_spot(pos2(150.0, 60.0), &zones, 9, (0, 0)),
+            Some(spot(0, (0, 0), 1))
+        );
+        // Over its right half: after it.
+        assert_eq!(
+            drop_spot(pos2(250.0, 60.0), &zones, 9, (0, 0)),
+            Some(spot(0, (0, 0), 2))
+        );
+        // On the second line, past the third card's middle.
+        assert_eq!(
+            drop_spot(pos2(150.0, 200.0), &zones, 9, (0, 0)),
+            Some(spot(0, (0, 0), 3))
+        );
     }
 
     #[test]
@@ -1764,9 +1856,9 @@ mod tests {
         let weights = vec![vec![1.0, 1.0, 1.0]];
         let limit = vec2(5000.0, 5000.0);
         let all = three_columns();
-        let open = panel_size(&all, &weights, true, limit);
-        let shut = panel_size(&visible(all.clone(), false), &weights, true, limit);
-        let bare = panel_size(&visible(all, false), &weights, false, limit);
+        let open = panel_size(&all, &weights, &SAME, true, limit);
+        let shut = panel_size(&visible(all.clone(), false), &weights, &SAME, true, limit);
+        let bare = panel_size(&visible(all, false), &weights, &SAME, false, limit);
         assert!(shut.y < open.y);
         assert!(close(shut.y - bare.y, others::LINK_HEIGHT));
     }
@@ -2024,7 +2116,7 @@ mod tests {
 
     #[test]
     fn the_drop_spot_comes_from_last_frames_zones() {
-        let card = |x: f32, y: f32| Rect::from_min_size(pos2(x, y), CARD);
+        let card = |x: f32, y: f32| Rect::from_min_size(pos2(x, y), card_size());
         let column = |x: f32| Rect::from_min_size(pos2(x, 0.0), vec2(300.0, 400.0));
         let zones = vec![
             Zone {

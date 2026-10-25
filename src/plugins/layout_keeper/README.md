@@ -413,10 +413,15 @@ desktop, this desktop first, then (when shown) the others under their names. A w
 that is not on the primary monitor has a small label above its picture
 saying which monitor it is on ("Left", "Right").
 
-The pictures are small (about the size of the taskbar's own; By monitor
-crops each window to the shape of its card, showing the top of a tall one),
-and a desktop with many windows wraps onto more lines instead of running off
-the screen. The strip takes at most 90 % of the screen's width and 60 % of
+The pictures are small, about the size of the taskbar's own, and like the
+taskbar's they keep each window's shape: every picture has the same height,
+and its width follows the window, so a narrow window has a narrow card and a
+wide one a wide card. The whole window is shown, never cut. A very narrow or
+very wide window stops at a card 0.6 or 2.4 times as wide as it is tall, with
+a margin beside or above its picture. A window Windows cannot picture gets a
+16:9 card with its name. A card changes width only when its window changes
+size. A desktop with many windows wraps onto more lines instead of running
+off the screen. The strip takes at most 90 % of the screen's width and 60 % of
 its height; beyond that the mouse wheel scrolls it. In both views:
 
 - **Rest the mouse** on a picture for a quarter of a second to see that

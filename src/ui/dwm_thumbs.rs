@@ -172,22 +172,6 @@ pub fn fit(source: Vec2, area: Vec2) -> Vec2 {
     source * scale
 }
 
-/// The part of `frame` that fills an `area` of another shape without
-/// squeezing it: the full width of a wide window, centred, or the top of a
-/// tall one, where its title and tabs are.
-pub fn cover(frame: Rect, area: Vec2) -> Rect {
-    if !frame.is_positive() || area.x <= 0.0 || area.y <= 0.0 {
-        return frame;
-    }
-    let wanted = area.x / area.y;
-    if frame.width() / frame.height() > wanted {
-        let width = frame.height() * wanted;
-        Rect::from_center_size(frame.center(), Vec2::new(width, frame.height()))
-    } else {
-        Rect::from_min_size(frame.min, Vec2::new(frame.width(), frame.width() / wanted))
-    }
-}
-
 /// A picture of `source` drawn at `dest` but only visible inside `clip`: DWM
 /// cannot clip, so the destination shrinks to the visible part and the
 /// source is cropped by the same fraction. None when nothing is visible.
@@ -235,26 +219,6 @@ mod tests {
             vec2(80.0, 120.0)
         ));
         assert_eq!(fit(vec2(0.0, 0.0), vec2(200.0, 120.0)), vec2(200.0, 120.0));
-    }
-
-    #[test]
-    fn a_cover_crop_keeps_the_middle_of_a_wide_window_and_the_top_of_a_tall_one() {
-        let card = vec2(164.0, 96.0);
-        let wide = Rect::from_min_size(pos2(8.0, 0.0), vec2(3440.0, 1440.0));
-        let shown = cover(wide, card);
-        assert!((shown.width() / shown.height() - 164.0 / 96.0).abs() < 0.001);
-        assert_eq!(shown.height(), 1440.0);
-        assert!((shown.center().x - wide.center().x).abs() < 0.001);
-
-        // A window maximized on the portrait-like 2560 x 2880 monitor.
-        let tall = Rect::from_min_size(pos2(8.0, 0.0), vec2(2560.0, 2880.0));
-        let shown = cover(tall, card);
-        assert_eq!(shown.min, tall.min);
-        assert_eq!(shown.width(), 2560.0);
-        assert!((shown.height() - 2560.0 * 96.0 / 164.0).abs() < 0.01);
-
-        let empty = Rect::from_min_size(pos2(0.0, 0.0), vec2(0.0, 0.0));
-        assert_eq!(cover(empty, card), empty);
     }
 
     #[test]
