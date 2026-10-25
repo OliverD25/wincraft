@@ -540,22 +540,22 @@ mod tests {
             assert_eq!(frame(&ctx, &mut preview, Vec::new()), None);
         }
         // The second tile of four in a row starts at 180 (168 + 12).
-        let on_terminal = pos2(260.0, 60.0);
+        let on_fluent = pos2(260.0, 60.0);
         frame(
             &ctx,
             &mut preview,
-            vec![egui::Event::PointerMoved(on_terminal)],
+            vec![egui::Event::PointerMoved(on_fluent)],
         );
         let press = |pressed| egui::Event::PointerButton {
-            pos: on_terminal,
+            pos: on_fluent,
             button: egui::PointerButton::Primary,
             pressed,
             modifiers: Modifiers::NONE,
         };
         frame(&ctx, &mut preview, vec![press(true)]);
         let picked = frame(&ctx, &mut preview, vec![press(false)]);
-        assert_eq!(picked, Some(ThemeName::Terminal));
-        assert_eq!(theme::previewing(&ctx), Some(ThemeName::Terminal));
+        assert_eq!(picked, Some(ThemeName::Fluent));
+        assert_eq!(theme::previewing(&ctx), Some(ThemeName::Fluent));
 
         frame(
             &ctx,

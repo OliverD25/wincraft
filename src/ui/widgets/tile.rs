@@ -125,13 +125,18 @@ pub fn show(
         band.bottom() - line.width / 2.0,
         theme::line(ui.ctx(), border),
     );
-    icons::paint_weighted(
-        &painter,
-        Rect::from_center_size(band.center(), vec2(40.0, 40.0)),
-        tile.icon,
-        tokens.tile_fg,
-        1.5,
-    );
+    let glyph = Rect::from_center_size(band.center(), vec2(40.0, 40.0));
+    if tokens.icon_tiles {
+        icons::paint_on_tile(
+            &painter,
+            Rect::from_center_size(band.center(), vec2(64.0, 64.0)),
+            glyph.shrink(4.0),
+            tile.icon,
+            f32::from(tokens.radius_tile) * 2.0,
+        );
+    } else {
+        icons::paint_weighted(&painter, glyph, tile.icon, tokens.tile_fg, 1.5);
+    }
 
     let left = rect.left() + SIDE;
     let inner = rect.width() - SIDE * 2.0;

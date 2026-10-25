@@ -236,8 +236,16 @@ pub struct Tokens {
     pub border_width: f32,
     /// Width of the accent rule on the left of a selected row; 0 for none.
     pub pill_width: f32,
-    /// Height of that rule; None for the whole row. Fluent will want 16.
+    /// Height of that rule; None for the whole row.
     pub pill_height: Option<f32>,
+    /// Corner radius of that rule. A full-height rule rounds only its left
+    /// corners; a shorter one rounds all four.
+    pub pill_radius: u8,
+    /// A 1 px line along the inside top edge of the palette panel;
+    /// transparent for none.
+    pub top_highlight: Color32,
+    /// Glyph icons sit on small coloured tiles in white.
+    pub icon_tiles: bool,
     /// An accent rule under the palette's search field; 0 for none.
     pub search_line: f32,
     /// The selected row gets an accent outline instead of a tint.
@@ -325,6 +333,9 @@ impl Tokens {
             border_width: 1.0,
             pill_width: 2.0,
             pill_height: None,
+            pill_radius: 1,
+            top_highlight: Color32::TRANSPARENT,
+            icon_tiles: false,
             search_line: 0.0,
             selection_ring: false,
             tile_fill: true,
@@ -398,6 +409,80 @@ impl Tokens {
             focus_ring: colours.accent,
             tile_fg: colours.tile_fg,
             ..Self::classic(dark)
+        }
+    }
+
+    /// Windows 11 glass. The glass is drawn solid: the design's
+    /// translucent layers are mixed onto the glass colour, which is also
+    /// what the design asks for where Windows cannot show acrylic.
+    fn fluent(dark: bool) -> Self {
+        let (glass, overlay, text, text2, accent, success) = if dark {
+            (
+                hex(0x242120),
+                Color32::WHITE,
+                hex(0xf3f2f2),
+                hex(0xbab6b6),
+                hex(0xe1ad66),
+                hex(0x8fbf7f),
+            )
+        } else {
+            (
+                hex(0xfaf8f7),
+                Color32::BLACK,
+                hex(0x201f1d),
+                hex(0x605d5d),
+                hex(0xb68235),
+                hex(0x3f7a4a),
+            )
+        };
+        let layer = if dark {
+            mix(glass, Color32::WHITE, 0.035)
+        } else {
+            mix(glass, Color32::WHITE, 0.45)
+        };
+        let (rim, border) = if dark {
+            (mix(glass, overlay, 0.09), mix(glass, overlay, 0.08))
+        } else {
+            (mix(glass, overlay, 0.08), mix(glass, overlay, 0.07))
+        };
+        let colours = Palette {
+            bg: if dark { hex(0x1c1a19) } else { hex(0xf3f2f2) },
+            glass,
+            glass2: layer,
+            rim,
+            border,
+            text,
+            text2,
+            text3: hex(0x8a8585),
+            accent,
+            selection: with_alpha(accent, 0.14),
+            success,
+            tile_fg: Color32::WHITE,
+        };
+        let (shadow, highlight) = if dark {
+            (
+                Color32::from_rgba_unmultiplied(0, 0, 0, 97),
+                mix(glass, Color32::WHITE, 0.07),
+            )
+        } else {
+            (
+                Color32::from_rgba_unmultiplied(45, 43, 43, 56),
+                mix(glass, Color32::WHITE, 0.8),
+            )
+        };
+        Self {
+            accent_tint: with_alpha(accent, if dark { 0.12 } else { 0.10 }),
+            palette_shadow: shadow,
+            top_highlight: highlight,
+            radius_window: 12,
+            radius_row: 6,
+            radius_tile: 7,
+            pill_width: 3.0,
+            pill_height: Some(16.0),
+            pill_radius: 2,
+            search_line: 2.0,
+            icon_tiles: true,
+            ..Self::painted(ThemeName::Fluent, dark, colours)
         }
     }
 
@@ -565,6 +650,7 @@ impl Tokens {
     pub fn of(theme: ThemeName, dark: bool) -> Self {
         match theme {
             ThemeName::Classic => Self::classic(dark),
+            ThemeName::Fluent => Self::fluent(dark),
             ThemeName::Terminal => Self::terminal(dark),
             ThemeName::Paper => Self::paper(dark),
             ThemeName::HighContrast => Self::high_contrast(dark),
@@ -1106,6 +1192,9 @@ mod tests {
             assert_eq!(tokens.border_width, 1.0);
             assert_eq!(tokens.pill_width, 2.0);
             assert_eq!(tokens.pill_height, None);
+            assert_eq!(tokens.pill_radius, 1);
+            assert_eq!(tokens.top_highlight, Color32::TRANSPARENT);
+            assert!(!tokens.icon_tiles);
             assert_eq!(tokens.search_line, 0.0);
             assert!(!tokens.selection_ring);
             assert!(tokens.tile_fill);
@@ -1258,6 +1347,38 @@ mod tests {
         assert_eq!(white.window_bg, Color32::WHITE);
         assert_eq!(white.accent, hex(0x5a00b0));
         assert_eq!(white.text_disabled, hex(0x3a3a3a));
+    }
+
+    #[test]
+    fn fluent_has_the_values_from_the_design_page_with_solid_glass() {
+        for dark in [true, false] {
+            let fluent = Tokens::of(ThemeName::Fluent, dark);
+            assert_eq!(
+                (fluent.radius_window, fluent.radius_row, fluent.radius_tile),
+                (12, 6, 7)
+            );
+            assert_eq!(fluent.pill_width, 3.0);
+            assert_eq!(fluent.pill_height, Some(16.0));
+            assert_eq!(fluent.pill_radius, 2);
+            assert_eq!(fluent.search_line, 2.0);
+            assert_eq!(fluent.tile_fg, Color32::WHITE);
+            assert!(fluent.icon_tiles && fluent.shadows);
+            assert_eq!(fluent.text_disabled, hex(0x8a8585));
+            assert_eq!(fluent.elevated_bg.a(), 255, "the glass is solid");
+            assert!(fluent.top_highlight.a() > 0);
+        }
+        let dark = Tokens::of(ThemeName::Fluent, true);
+        assert_eq!(dark.window_bg, hex(0x1c1a19));
+        assert_eq!(dark.elevated_bg, hex(0x242120));
+        assert_eq!(dark.accent, hex(0xe1ad66));
+        assert_eq!(dark.selection_bg, with_alpha(hex(0xe1ad66), 0.14));
+        assert_eq!(dark.accent_tint, with_alpha(hex(0xe1ad66), 0.12));
+        assert_eq!(dark.border, mix(hex(0x242120), Color32::WHITE, 0.08));
+        let light = Tokens::of(ThemeName::Fluent, false);
+        assert_eq!(light.window_bg, hex(0xf3f2f2));
+        assert_eq!(light.elevated_bg, hex(0xfaf8f7));
+        assert_eq!(light.accent, hex(0xb68235));
+        assert_eq!(light.rim, mix(hex(0xfaf8f7), Color32::BLACK, 0.08));
     }
 
     #[test]

@@ -58,12 +58,13 @@ impl<'de> Deserialize<'de> for ThemeChoice {
 }
 
 /// The look: colours, corners, row height and fonts. Each has a dark and a
-/// light set of tokens in `core::theme`. Fluent comes as the next one.
+/// light set of tokens in `core::theme`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ThemeName {
     #[default]
     Classic,
+    Fluent,
     Terminal,
     Paper,
     HighContrast,
@@ -71,8 +72,9 @@ pub enum ThemeName {
 
 impl ThemeName {
     /// In the order the theme picker shows them.
-    pub const ALL: [ThemeName; 4] = [
+    pub const ALL: [ThemeName; 5] = [
         ThemeName::Classic,
+        ThemeName::Fluent,
         ThemeName::Terminal,
         ThemeName::Paper,
         ThemeName::HighContrast,
@@ -81,6 +83,7 @@ impl ThemeName {
     pub fn key(self) -> &'static str {
         match self {
             ThemeName::Classic => "classic",
+            ThemeName::Fluent => "fluent",
             ThemeName::Terminal => "terminal",
             ThemeName::Paper => "paper",
             ThemeName::HighContrast => "high-contrast",
@@ -94,6 +97,7 @@ impl ThemeName {
     pub fn label(self) -> &'static str {
         match self {
             ThemeName::Classic => "Classic",
+            ThemeName::Fluent => "Fluent",
             ThemeName::Terminal => "Terminal",
             ThemeName::Paper => "Paper",
             ThemeName::HighContrast => "High contrast",
@@ -104,6 +108,7 @@ impl ThemeName {
     pub fn blurb(self) -> &'static str {
         match self {
             ThemeName::Classic => "Today's look",
+            ThemeName::Fluent => "Windows 11 glass",
             ThemeName::Terminal => "Dense, monospace",
             ThemeName::Paper => "Serif, like a book",
             ThemeName::HighContrast => "Black and white, strong borders",
@@ -773,7 +778,7 @@ mod tests {
 
     #[test]
     fn unknown_theme_and_mode_words_fall_back_to_classic_and_system() {
-        let (config, _) = Config::parse(r#"{"theme":"fluent","mode":"dim"}"#).unwrap();
+        let (config, _) = Config::parse(r#"{"theme":"aero","mode":"dim"}"#).unwrap();
         assert_eq!(config.theme, ThemeName::Classic);
         assert_eq!(config.mode, ThemeChoice::System);
         let (config, _) = Config::parse(r#"{"theme":"blue"}"#).unwrap();

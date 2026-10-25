@@ -970,6 +970,15 @@ fn paint_panel(
         theme::line(&ctx, tokens.rim),
         StrokeKind::Inside,
     );
+    if tokens.top_highlight.a() > 0 {
+        let inset = theme::line(&ctx, tokens.rim).width;
+        let r = f32::from(tokens.radius_window);
+        painter.hline(
+            panel.left() + r..=panel.right() - r,
+            panel.top() + inset + 0.5,
+            theme::stroke(&ctx, 1.0, tokens.top_highlight),
+        );
+    }
     (panel, painter, theme::line(&ctx, tokens.border))
 }
 
@@ -1316,7 +1325,18 @@ fn paint_icon(
                 Glyph::Globe => Icon::Globe,
                 Glyph::Terminal => Icon::Terminal,
             };
-            icons::paint(painter, rect, drawn, tokens.text_disabled);
+            if tokens.icon_tiles {
+                let tile = Rect::from_center_size(rect.center(), vec2(24.0, 24.0));
+                icons::paint_on_tile(
+                    painter,
+                    tile,
+                    rect.shrink(1.0),
+                    drawn,
+                    f32::from(tokens.radius_row),
+                );
+            } else {
+                icons::paint(painter, rect, drawn, tokens.text_disabled);
+            }
         }
         IconRef::Path(_) | IconRef::Window { .. } => {
             if let Some(texture) = icons.get(ctx, icon) {

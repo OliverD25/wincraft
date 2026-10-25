@@ -1,4 +1,5 @@
-use egui::{pos2, Color32, Painter, Pos2, Rect, Stroke, Ui};
+use egui::epaint::{Mesh, Vertex, WHITE_UV};
+use egui::{pos2, vec2, Color32, Painter, Pos2, Rect, Stroke, StrokeKind, Ui};
 
 /// The Lucide icons the handout uses, drawn as strokes so no image loader is
 /// needed. Coordinates are Lucide's own 24-unit grid.
@@ -248,6 +249,94 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, colour: Color32) {
     paint_weighted(painter, rect, icon, colour, 2.0);
 }
 
+/// The top and bottom colour of the tile behind an icon in themes with
+/// icon tiles: one fixed pair per kind of thing the icon stands for.
+pub fn tile_colours(icon: Icon) -> (Color32, Color32) {
+    let pair = |top: u32, bottom: u32| (rgb(top), rgb(bottom));
+    match icon {
+        Icon::FolderOpen | Icon::ExternalLink | Icon::Search => pair(0x9aa3ad, 0x646d78),
+        Icon::Check | Icon::Refresh => pair(0x47c98a, 0x1f955a),
+        Icon::Terminal | Icon::Keyboard | Icon::Monitor => pair(0xad86f5, 0x7448d6),
+        Icon::Calculator => pair(0x34c7bb, 0x128a83),
+        Icon::Lightbulb => pair(0xf2bd68, 0xc4852a),
+        Icon::Globe => pair(0x55b4f5, 0x1f73c8),
+        _ => pair(0x5b9cff, 0x2f63d8),
+    }
+}
+
+const fn rgb(value: u32) -> Color32 {
+    Color32::from_rgb((value >> 16) as u8, (value >> 8) as u8, value as u8)
+}
+
+/// `icon` in white on its coloured tile: a top-to-bottom gradient with
+/// rounded corners, a faint light ring inside the edge and a soft shadow
+/// under the glyph. `glyph` is the icon's own square inside `tile`.
+pub fn paint_on_tile(painter: &Painter, tile: Rect, glyph: Rect, icon: Icon, radius: f32) {
+    let (top, bottom) = tile_colours(icon);
+    painter.add(gradient_rect(tile, radius, top, bottom));
+    painter.rect_stroke(
+        tile,
+        radius.round() as u8,
+        Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 36)),
+        StrokeKind::Inside,
+    );
+    let weight = if glyph.width() >= 32.0 { 1.5 } else { 2.0 };
+    paint_weighted(
+        painter,
+        glyph.translate(vec2(0.0, 1.0)),
+        icon,
+        Color32::from_rgba_unmultiplied(0, 0, 0, 64),
+        weight,
+    );
+    paint_weighted(painter, glyph, icon, Color32::WHITE, weight);
+}
+
+/// A rounded rectangle filled from `top` to `bottom`, as a fan of
+/// triangles: egui fills shapes with one colour only.
+fn gradient_rect(rect: Rect, radius: f32, top: Color32, bottom: Color32) -> Mesh {
+    const STEPS: usize = 6;
+    let radius = radius.clamp(0.0, rect.width().min(rect.height()) / 2.0);
+    let corners = [
+        (pos2(rect.right() - radius, rect.top() + radius), -90.0_f32),
+        (pos2(rect.right() - radius, rect.bottom() - radius), 0.0),
+        (pos2(rect.left() + radius, rect.bottom() - radius), 90.0),
+        (pos2(rect.left() + radius, rect.top() + radius), 180.0),
+    ];
+    let colour_at = |y: f32| {
+        let t = ((y - rect.top()) / rect.height().max(1.0)).clamp(0.0, 1.0);
+        let channel =
+            |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t).round() as u8;
+        Color32::from_rgb(
+            channel(top.r(), bottom.r()),
+            channel(top.g(), bottom.g()),
+            channel(top.b(), bottom.b()),
+        )
+    };
+    let mut mesh = Mesh::default();
+    let centre = rect.center();
+    mesh.vertices.push(Vertex {
+        pos: centre,
+        uv: WHITE_UV,
+        color: colour_at(centre.y),
+    });
+    for (corner, start) in corners {
+        for step in 0..=STEPS {
+            let angle = (start + 90.0 * step as f32 / STEPS as f32).to_radians();
+            let pos = corner + vec2(angle.cos(), angle.sin()) * radius;
+            mesh.vertices.push(Vertex {
+                pos,
+                uv: WHITE_UV,
+                color: colour_at(pos.y),
+            });
+        }
+    }
+    let around = mesh.vertices.len() as u32 - 1;
+    for index in 0..around {
+        mesh.add_triangle(0, 1 + index, 1 + (index + 1) % around);
+    }
+    mesh
+}
+
 /// The same icon with a lighter or heavier line, in Lucide's 24-unit grid.
 /// Large icons use 1.5, because 2 looks clumsy at 40 px.
 pub fn paint_weighted(painter: &Painter, rect: Rect, icon: Icon, colour: Color32, weight: f32) {
@@ -269,4 +358,34 @@ pub fn show(ui: &mut Ui, icon: Icon, size: f32, colour: Color32) -> egui::Respon
         paint(ui.painter(), rect, icon, colour);
     }
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_gradient_tile_runs_from_the_top_colour_to_the_bottom_colour() {
+        let rect = Rect::from_min_size(pos2(10.0, 20.0), vec2(24.0, 24.0));
+        let (top, bottom) = tile_colours(Icon::Calculator);
+        let mesh = gradient_rect(rect, 6.0, top, bottom);
+        assert_eq!(mesh.vertices.len(), 1 + 4 * 7);
+        assert_eq!(mesh.indices.len(), 3 * 4 * 7);
+        for vertex in &mesh.vertices {
+            assert!(rect.expand(0.01).contains(vertex.pos));
+        }
+        let highest = mesh
+            .vertices
+            .iter()
+            .min_by(|a, b| a.pos.y.total_cmp(&b.pos.y))
+            .unwrap();
+        let lowest = mesh
+            .vertices
+            .iter()
+            .max_by(|a, b| a.pos.y.total_cmp(&b.pos.y))
+            .unwrap();
+        assert_eq!(highest.color, top);
+        assert_eq!(lowest.color, bottom);
+        assert_ne!(tile_colours(Icon::Globe), tile_colours(Icon::FolderOpen));
+    }
 }

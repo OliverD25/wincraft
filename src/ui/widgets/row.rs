@@ -172,11 +172,15 @@ pub fn paint_selection(ui: &Ui, rect: Rect) {
             pos2(rect.left(), top),
             pos2(rect.left() + rule, top + height),
         ),
-        CornerRadius {
-            nw: 1,
-            sw: 1,
-            ne: 0,
-            se: 0,
+        if tokens.pill_height.is_some() {
+            CornerRadius::same(tokens.pill_radius)
+        } else {
+            CornerRadius {
+                nw: tokens.pill_radius,
+                sw: tokens.pill_radius,
+                ne: 0,
+                se: 0,
+            }
         },
         tokens.accent,
     );
