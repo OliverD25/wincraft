@@ -424,6 +424,13 @@ size. A desktop with many windows wraps onto more lines instead of running
 off the screen. The strip takes at most 90 % of the screen's width and 60 % of
 its height; beyond that the mouse wheel scrolls it. In both views:
 
+- **The small number** at the start of each name is the window's place in
+  the taskbar row of this app: 1, 2, 3 and so on, the same order that
+  Win+number goes through. Windows shows one row for the whole app, so the
+  By monitor columns cut that row into pieces; the numbers show how the
+  pieces fit back together. Each desktop counts from 1 on its own, because
+  the taskbar shows one desktop at a time. The numbers change at once when
+  you drag a picture.
 - **Rest the mouse** on a picture for a quarter of a second to see that
   window where it really is: its monitor goes dark and the window's live
   picture is drawn on top, even for a window on another desktop. The window

@@ -6,8 +6,9 @@ use egui::text::TextWrapping;
 use egui::{pos2, vec2, Rect, Response, Sense, Shape, StrokeKind, Ui, UiBuilder, Vec2};
 
 use super::{
-    card_look, card_menu, float_picture, line_width, name_card, others, others_link, paint_look,
-    picture_width, thumbnail, wrap, Drag, Frame, Pending, Shared, SAME_TITLE_HINT, SLACK,
+    card_look, card_menu, float_picture, line_width, name_card, number_chip, others, others_link,
+    paint_look, picture_width, taskbar_numbers, thumbnail, wrap, Drag, Frame, Pending, Shared,
+    NUMBER_GAP, SAME_TITLE_HINT, SLACK,
 };
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{
@@ -702,6 +703,8 @@ struct Draw<'a> {
     model: &'a Model,
     menu_open: bool,
     can_rename: bool,
+    /// Each window's place in Windows' taskbar row, indexed like the group.
+    numbers: Vec<usize>,
     dragged: Option<usize>,
     target: Option<Spot>,
     zones: Vec<Zone>,
@@ -777,6 +780,7 @@ pub fn body(
         model: &model,
         menu_open,
         can_rename: snapshot.can_rename,
+        numbers: taskbar_numbers(group, &snapshot.desktops),
         dragged: dragged.filter(|_| dragging),
         target: target.filter(|_| dragging),
         zones: Vec::new(),
@@ -1149,7 +1153,13 @@ impl Draw<'_> {
                 }
             }
         }
-        let left = rect.left() + CARD_PAD + 2.0;
+        let number = number_chip(
+            &painter,
+            pos2(rect.left() + CARD_PAD + 2.0, title_top),
+            TITLE,
+            self.numbers[member],
+        );
+        let left = number.right() + NUMBER_GAP;
         let mut job = text::job(
             &window.label,
             theme::regular(13.0),

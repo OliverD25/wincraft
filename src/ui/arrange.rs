@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use egui::text::TextWrapping;
-use egui::{pos2, vec2, Color32, Rect, Response, Sense, StrokeKind, Ui, UiBuilder, Vec2};
+use egui::{pos2, vec2, Color32, Pos2, Rect, Response, Sense, StrokeKind, Ui, UiBuilder, Vec2};
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
@@ -119,6 +119,21 @@ pub fn rows(group: &ArrangeGroup, desktops: &[ArrangeDesktop]) -> Vec<Row> {
         }
     }
     rows
+}
+
+/// Each window's place in Windows' taskbar row for its app on its own
+/// desktop, counted from 1 and indexed like `group.windows`. The group keeps
+/// WinCraft's order, which is the order it puts on the taskbar, and Win+number
+/// goes through the same row. A desktop counts on its own, whether it is on
+/// screen or not.
+pub fn taskbar_numbers(group: &ArrangeGroup, desktops: &[ArrangeDesktop]) -> Vec<usize> {
+    let mut numbers = vec![0; group.windows.len()];
+    for row in rows(group, desktops) {
+        for (place, member) in row.members.iter().enumerate() {
+            numbers[*member] = place + 1;
+        }
+    }
+    numbers
 }
 
 /// The rows on screen: only this desktop's until the other desktops are
@@ -1017,6 +1032,7 @@ fn flat(
     let pointer = ctx.pointer_latest_pos();
     let mut frame = Frame::default();
 
+    let numbers = taskbar_numbers(group, desktops);
     let flat: Vec<usize> = rows.iter().flat_map(|row| row.members.clone()).collect();
     let widths = shared.widths(group, card_width);
     if shared
@@ -1115,9 +1131,12 @@ fn flat(
                                         widths[member],
                                         window,
                                         desktop_name,
-                                        can_rename,
-                                        has_picture,
-                                        is_cursor,
+                                        CardInfo {
+                                            number: numbers[member],
+                                            can_rename,
+                                            has_picture,
+                                            is_cursor,
+                                        },
                                     );
                                     if rename {
                                         frame.actions.push(ArrangeAction::AskName(window.hwnd));
@@ -1634,19 +1653,23 @@ const SAME_TITLE_HINT: &str = "Restores cannot tell these windows apart. Give on
 /// monitor, an amber "Same title" chip at the right of that line when
 /// another window of the app has the same title (`can_rename` says whether
 /// WindowNamer is on, so the chip can offer to rename), its picture area
-/// (the live picture is put on top of it later) and its name underneath.
-/// Without a picture the area shows the name and desktop instead. Returns
-/// the card's response, the picture area, and whether the chip was clicked
-/// to rename.
+/// (the live picture is put on top of it later) and its name underneath,
+/// after its taskbar number. Without a picture the area shows the name and
+/// desktop instead. Returns the card's response, the picture area, and
+/// whether the chip was clicked to rename.
 fn card(
     ui: &mut Ui,
     width: f32,
     window: &ArrangeWindow,
     desktop: &str,
-    can_rename: bool,
-    has_picture: bool,
-    is_cursor: bool,
+    info: CardInfo,
 ) -> (Response, Rect, bool) {
+    let CardInfo {
+        number,
+        can_rename,
+        has_picture,
+        is_cursor,
+    } = info;
     let label = window.label.as_str();
     let monitor = window.monitor.as_deref();
     let same_title = window.same_title.then_some(can_rename);
@@ -1689,24 +1712,68 @@ fn card(
         rename = can_rename && chip_response.clicked();
     }
 
+    let name_top = area.bottom() + CARD_INSET;
+    let chip = number_chip(
+        ui.painter(),
+        pos2(area.left(), name_top),
+        NAME_HEIGHT,
+        number,
+    );
+    let name_left = chip.right() + NUMBER_GAP;
     let mut job = text::job(label, theme::regular(12.0), tokens.text_primary, None);
     job.wrap = TextWrapping {
-        max_width: area.width(),
+        max_width: (area.right() - name_left).max(0.0),
         max_rows: 1,
         break_anywhere: true,
         overflow_character: Some('\u{2026}'),
     };
     let galley = ui.painter().layout_job(job);
-    ui.painter().galley(
-        pos2(area.left(), area.bottom() + CARD_INSET),
-        galley,
-        tokens.text_primary,
-    );
+    ui.painter()
+        .galley(pos2(name_left, name_top), galley, tokens.text_primary);
     (
         response.on_hover_cursor(egui::CursorIcon::Grab),
         picture,
         rename,
     )
+}
+
+/// What a card shows besides its window.
+struct CardInfo {
+    /// The window's place in Windows' taskbar row, from 1.
+    number: usize,
+    can_rename: bool,
+    has_picture: bool,
+    is_cursor: bool,
+}
+
+/// The gap between the taskbar number and the name after it.
+const NUMBER_GAP: f32 = 4.0;
+
+/// The window's place in Windows' taskbar row, as a small keycap at the
+/// start of its name line. It sits below the picture, because DWM draws the
+/// picture over anything painted on it, and the name starts after it, so it
+/// stays readable on the narrowest card. Returns its rectangle.
+fn number_chip(painter: &egui::Painter, at: Pos2, height: f32, number: usize) -> Rect {
+    let tokens = Tokens::get(painter.ctx());
+    let galley = painter.layout_no_wrap(
+        number.to_string(),
+        theme::regular(12.0),
+        tokens.text_secondary,
+    );
+    let chip = Rect::from_min_size(at, vec2((galley.size().x + 10.0).max(height), height));
+    painter.rect(
+        chip,
+        4,
+        theme::with_alpha(tokens.panel_bg, 0.75),
+        theme::stroke(painter.ctx(), 1.0, tokens.border),
+        StrokeKind::Inside,
+    );
+    painter.galley(
+        chip.center() - galley.size() / 2.0,
+        galley,
+        tokens.text_secondary,
+    );
+    chip
 }
 
 /// What is drawn behind a card's picture: a fill and an outline.
@@ -2021,6 +2088,31 @@ mod tests {
         assert_eq!(rows[0].members, [1, 3, 4]);
         assert_eq!(rows[1].members, [2]);
         assert_eq!(rows[2].members, [0]);
+    }
+
+    #[test]
+    fn taskbar_numbers_count_from_one_on_each_desktop() {
+        let desktops = [
+            desktop("home", "Home", false),
+            desktop("work", "Work", true),
+        ];
+        let group = group(&["home", "work", "home", "work", "", "home"]);
+        // The unknown desktop counts as this one, after the windows before it.
+        assert_eq!(taskbar_numbers(&group, &desktops), [1, 1, 2, 2, 3, 3]);
+    }
+
+    #[test]
+    fn taskbar_numbers_follow_the_order_after_a_drag() {
+        let desktops = [desktop("work", "Work", true)];
+        let mut group = self::group(&["work", "work", "work"]);
+        group.windows.swap(0, 2);
+        let numbers = taskbar_numbers(&group, &desktops);
+        let place = |hwnd: isize| {
+            let member = group.windows.iter().position(|w| w.hwnd == hwnd);
+            numbers[member.unwrap()]
+        };
+        assert_eq!((place(2), place(1), place(0)), (1, 2, 3));
+        assert!(taskbar_numbers(&self::group(&[]), &desktops).is_empty());
     }
 
     #[test]
