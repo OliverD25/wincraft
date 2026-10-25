@@ -154,11 +154,13 @@ impl App {
     ) -> Self {
         let to_host_for_settings = Arc::clone(&to_host);
         let snapshot_for_settings = snapshot.clone();
+        let mut palette = Palette::new(router);
+        palette.set_window(palette_hwnd);
         Self {
             rx,
             to_host,
             snapshot,
-            palette: Palette::new(router),
+            palette,
             palette_visible: false,
             pending_position: None,
             settings_open: false,
@@ -180,6 +182,7 @@ impl App {
             match command {
                 UiCommand::ShowPalette(monitor) => {
                     self.palette.opened();
+                    self.fit_palette(ctx, monitor);
                     self.palette_visible = true;
                     self.closing = false;
                     self.pending_position = Some(monitor);
@@ -188,6 +191,7 @@ impl App {
                 }
                 UiCommand::ShowPrompt(prompt, monitor) => {
                     self.palette.opened();
+                    self.fit_palette(ctx, monitor);
                     self.palette.ask(prompt);
                     self.palette_visible = true;
                     self.closing = false;
@@ -302,9 +306,26 @@ impl App {
             return;
         }
         self.palette.flush_usage();
+        self.palette.hidden();
         self.palette_visible = false;
         self.closing = false;
         self.set_palette_visible(ctx, false);
+    }
+
+    /// On a monitor narrower than 1100 px the inspector does not fit beside
+    /// the list, so the window narrows to the list and the inspector opens
+    /// over it.
+    fn fit_palette(&mut self, ctx: &egui::Context, monitor: MonitorRect) {
+        let scale = ctx.pixels_per_point().max(0.1);
+        let narrow = palette::is_narrow((monitor.right - monitor.left) as f32 / scale);
+        let before = self.palette.window_width();
+        self.palette.set_narrow(narrow);
+        if (self.palette.window_width() - before).abs() > f32::EPSILON {
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                self.palette.window_width(),
+                palette::HEIGHT,
+            )));
+        }
     }
 
     /// Placing the window through the builder is unreliable across monitors
@@ -314,7 +335,7 @@ impl App {
             return;
         };
         let scale = ctx.pixels_per_point().max(0.1);
-        let width = palette::WIDTH * scale;
+        let width = self.palette.window_width() * scale;
         let left = monitor.left as f32 + ((monitor.right - monitor.left) as f32 - width) / 2.0;
         // 18 % down is where the panel's top edge goes; the window starts the
         // shadow margin above it.
@@ -420,6 +441,11 @@ impl eframe::App for App {
             }
             Outcome::OpenShortcut { id, label } => {
                 self.settings.open_shortcut(&id, &label);
+                self.settings_open = true;
+                self.begin_hide(&ctx);
+            }
+            Outcome::OpenSettings(page) => {
+                self.settings.open_at(page);
                 self.settings_open = true;
                 self.begin_hide(&ctx);
             }

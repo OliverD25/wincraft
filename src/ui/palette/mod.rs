@@ -1,31 +1,46 @@
+mod actions;
+mod inspector;
+
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use egui::text::LayoutJob;
 use egui::{
-    pos2, vec2, Align, Color32, CornerRadius, FontId, Layout, Rect, Sense, StrokeKind, UiBuilder,
+    pos2, vec2, Align, Align2, Color32, CornerRadius, FontId, Layout, Rect, Sense, StrokeKind,
+    UiBuilder,
 };
+use windows_sys::Win32::Foundation::HWND;
 
 use crate::core::theme::{self, Tokens};
 use crate::core::tips::{self, Place, TipsConfig};
 use crate::core::ui_bridge::{
-    HostChannel, HostRequest, HostSetting, Prompt, UiSnapshot, SEARCH_PROMPT,
+    HostChannel, HostRequest, HostSetting, Page, Prompt, UiSnapshot, SEARCH_PROMPT,
 };
+use crate::core::virtual_desktops::Pinner;
+use crate::core::window_info::{self, WindowDetails};
 use crate::search::bookmarks as bookmark_store;
 use crate::search::icons::IconCache;
 use crate::search::providers::bookmarks as bookmark_rows;
 use crate::search::{
     Action, Ask, Choice, Context, Glyph, IconRef, Reply, ResultItem, Results, Router, Tone,
+    SUGGESTED_GROUP,
 };
+use crate::ui::dwm_thumbs::{self, Placement, Thumbnail};
 use crate::ui::fuzzy;
 use crate::ui::widgets::icons::{self, Icon};
 use crate::ui::widgets::tip::{self, STRIP_HEIGHT};
 use crate::ui::widgets::{keycap, row, text};
+use actions::{Hint, Key, Marks, RowAction, Run, Situation};
+use inspector::Inspected;
 
-/// The panel the user sees.
-pub const PANEL_WIDTH: f32 = 680.0;
-pub const PANEL_HEIGHT: f32 = 420.0;
+pub use actions::is_narrow;
+
+/// The panel the user sees. On a monitor narrower than 1100 px the panel
+/// is the list alone and the inspector opens over it.
+pub const PANEL_WIDTH: f32 = 900.0;
+pub const NARROW_PANEL_WIDTH: f32 = PANEL_WIDTH - inspector::WIDTH;
+pub const PANEL_HEIGHT: f32 = 520.0;
 /// The shadow is drawn inside the window, so the OS window is the panel plus a
 /// 24 px transparent margin on every side.
 pub const MARGIN: f32 = 24.0;
@@ -33,11 +48,15 @@ pub const WIDTH: f32 = PANEL_WIDTH + MARGIN * 2.0;
 pub const HEIGHT: f32 = PANEL_HEIGHT + MARGIN * 2.0;
 
 const SEARCH_HEIGHT: f32 = 56.0;
-const FOOTER_HEIGHT: f32 = 36.0;
+const FOOTER_HEIGHT: f32 = 40.0;
 const COMPACT_HEIGHT: f32 = 24.0;
 const ROW_PADDING: f32 = 12.0;
-const ICON_SIZE: f32 = 16.0;
+const ROW_MIN_HEIGHT: f32 = 44.0;
+const ICON_SLOT: f32 = 26.0;
+const CHECK_SIZE: f32 = 16.0;
+const GROUP_HEADER: f32 = 28.0;
 const TITLE_LINE: f32 = 20.0;
+const ANSWER_LINE: f32 = 26.0;
 const SUBTITLE_LINE: f32 = 16.0;
 const RISE: f32 = 4.0;
 /// How long the palette stays open after a bookmark was saved, so the
@@ -53,6 +72,8 @@ pub enum Outcome {
         id: String,
         label: String,
     },
+    /// The footer's gear, Ctrl+, or Ctrl+P.
+    OpenSettings(Page),
 }
 
 pub struct Palette {
@@ -90,6 +111,27 @@ pub struct Palette {
     bookmarks: Option<bookmark_store::Shared>,
     /// Whether the place the selected row opens is a folder, looked up once.
     place: Option<(String, Place)>,
+    /// The monitor it opened on is narrower than 1100 px.
+    narrow: bool,
+    /// On a narrow monitor, the inspector is open over the list.
+    overlay: bool,
+    /// After →, the keyboard is in the inspector's action list, here.
+    action_cursor: Option<usize>,
+    marks: Marks,
+    /// The results are the "Try instead" rows, since nothing matched.
+    trying: bool,
+    /// The palette's own window, which the live window picture is drawn on.
+    window: isize,
+    thumbnail: Option<(isize, Thumbnail)>,
+    /// What the inspector shows about the selected window, read once when
+    /// the cursor reaches it.
+    details: Option<(isize, WindowDetails)>,
+    /// Made when first needed; None inside when the shell's interface for
+    /// pinning is not there.
+    pinner: Option<Option<Pinner>>,
+    /// The search box's id from the last frame, to read its text cursor
+    /// before it is drawn again.
+    query_id: Option<egui::Id>,
 }
 
 /// The line over the footer.
@@ -114,6 +156,14 @@ fn scene_saved(scene: Option<&str>) -> Option<Saved> {
     })
 }
 
+/// Where a run came from, so only a row's own Enter or click counts as a
+/// pick for the ranking.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Via {
+    Pick,
+    Other,
+}
+
 impl Palette {
     pub fn new(router: Router) -> Self {
         Self {
@@ -135,7 +185,23 @@ impl Palette {
             saved: None,
             bookmarks: None,
             place: None,
+            narrow: false,
+            overlay: false,
+            action_cursor: None,
+            marks: Marks::default(),
+            trying: false,
+            window: 0,
+            thumbnail: None,
+            details: None,
+            pinner: None,
+            query_id: None,
         }
+    }
+
+    /// The palette's own window, which the live picture of the selected
+    /// window is drawn on.
+    pub fn set_window(&mut self, hwnd: isize) {
+        self.window = hwnd;
     }
 
     pub fn opened(&mut self) {
@@ -150,9 +216,37 @@ impl Palette {
         self.follow_selection = true;
         self.router.opened();
         self.searched = None;
+        self.overlay = false;
+        self.action_cursor = None;
+        self.marks.clear();
+        self.details = None;
+        self.thumbnail = None;
         if let Some(icons) = &mut self.icons {
             icons.forget_windows();
         }
+    }
+
+    /// The palette's window was hidden: the live picture goes with it.
+    pub fn hidden(&mut self) {
+        self.thumbnail = None;
+    }
+
+    /// On a monitor narrower than 1100 px the panel is the list alone.
+    pub fn set_narrow(&mut self, narrow: bool) {
+        self.narrow = narrow;
+    }
+
+    pub fn panel_width(&self) -> f32 {
+        if self.narrow {
+            NARROW_PANEL_WIDTH
+        } else {
+            PANEL_WIDTH
+        }
+    }
+
+    /// The OS window's width: the panel and the shadow margins.
+    pub fn window_width(&self) -> f32 {
+        self.panel_width() + MARGIN * 2.0
     }
 
     /// Turns the freshly opened palette into a text box for `prompt`.
@@ -303,7 +397,9 @@ impl Palette {
     /// Asks the providers again only when the query changed, because some of
     /// them read the disk or the window list, or when one of them has new
     /// background results. While one still waits for some, the palette wakes
-    /// up every 100 ms to check, since nothing else would repaint it.
+    /// up every 100 ms to check, since nothing else would repaint it. When
+    /// nothing matches a query typed without a prefix, the rows are the
+    /// "Try instead" ones.
     fn refresh(&mut self, snapshot: &UiSnapshot, ctx: &egui::Context) {
         let (news, waiting) = self.router.poll();
         if news {
@@ -318,6 +414,12 @@ impl Palette {
             self.results =
                 self.router
                     .search(self.prefix.as_deref(), &self.query, &context(snapshot));
+            self.trying = self.results.items.is_empty()
+                && self.prefix.is_none()
+                && !self.query.trim().is_empty();
+            if self.trying {
+                self.results.items = actions::try_instead(&self.query, &snapshot.search);
+            }
             // Output streaming in keeps the newest line in view, unless the
             // user moved the cursor up to read something.
             if news && at_end && self.results.follows_end {
@@ -353,6 +455,7 @@ impl Palette {
         self.selected = 0;
         self.follow_selection = true;
         self.cursor_to_end = true;
+        self.action_cursor = None;
     }
 
     fn set_prefix(&mut self, prefix: Option<String>) {
@@ -388,6 +491,133 @@ impl Palette {
         None
     }
 
+    /// The selected row is the best match from the picks.
+    fn on_best_match(&self) -> bool {
+        self.results.best_match && self.selected == 0 && !self.trying
+    }
+
+    /// What the selected row can do; with windows marked, what the marked
+    /// windows can do together.
+    fn current_actions(&mut self) -> Vec<RowAction> {
+        if !self.marks.is_empty() {
+            return actions::marks_actions(&self.marks.windows());
+        }
+        let tab_action = self.tab_action();
+        let best_match = self.on_best_match();
+        let Some(item) = self.selected_item() else {
+            return Vec::new();
+        };
+        let situation = Situation {
+            tab_action,
+            best_match,
+            marked: item.window().is_some_and(|hwnd| self.marks.contains(hwnd)),
+        };
+        actions::row_actions(item, &situation)
+    }
+
+    /// The text cursor is at the end of the box with nothing selected, so →
+    /// is free to open the actions and Ctrl+C to copy a row.
+    fn text_cursor_at_end(&self, ctx: &egui::Context) -> bool {
+        self.text_cursor(ctx).is_none_or(|(primary, secondary)| {
+            primary == secondary && primary == self.query.chars().count()
+        })
+    }
+
+    fn nothing_selected_in_box(&self, ctx: &egui::Context) -> bool {
+        self.text_cursor(ctx)
+            .is_none_or(|(primary, secondary)| primary == secondary)
+    }
+
+    fn text_cursor(&self, ctx: &egui::Context) -> Option<(usize, usize)> {
+        let state = egui::TextEdit::load_state(ctx, self.query_id?)?;
+        let range = state.cursor.char_range()?;
+        Some((range.primary.index.into(), range.secondary.index.into()))
+    }
+
+    /// The place line of a window, for the marked list.
+    fn window_place(item: &ResultItem) -> String {
+        match item.window() {
+            Some(hwnd) => {
+                crate::search::start_com();
+                window_info::read(hwnd as HWND, None).place_line()
+            }
+            None => String::new(),
+        }
+    }
+
+    /// Reads the selected window's details once, when the cursor gets there.
+    fn refresh_details(&mut self) {
+        let Some(hwnd) = self.selected_item().and_then(ResultItem::window) else {
+            return;
+        };
+        if self
+            .details
+            .as_ref()
+            .is_some_and(|(known, _)| *known == hwnd)
+        {
+            return;
+        }
+        crate::search::start_com();
+        let pinner = self
+            .pinner
+            .get_or_insert_with(|| match Pinner::new() {
+                Ok(pinner) => Some(pinner),
+                Err(err) => {
+                    log::info!("palette: pinning windows to all desktops is not available: {err}");
+                    None
+                }
+            })
+            .as_ref();
+        let details = window_info::read(hwnd as HWND, pinner);
+        self.details = Some((hwnd, details));
+    }
+
+    /// The inspector's last line: where the row comes from.
+    fn source_line(&self, item: &ResultItem, snapshot: &UiSnapshot) -> String {
+        if self.trying || item.provider.is_empty() {
+            return String::new();
+        }
+        match item.provider.as_str() {
+            "windows" => {
+                let program = self
+                    .details
+                    .as_ref()
+                    .filter(|(hwnd, _)| Some(*hwnd) == item.window())
+                    .map(|(_, details)| details.process.clone())
+                    .filter(|process| !process.is_empty())
+                    .unwrap_or_else(|| {
+                        item.subtitle
+                            .split(" \u{b7} ")
+                            .next()
+                            .unwrap_or_default()
+                            .to_string()
+                    });
+                format!("Open window \u{b7} {program}")
+            }
+            "calc" => "Built-in calculator".to_string(),
+            "commands" => match &item.origin {
+                Some(plugin) => snapshot
+                    .plugins
+                    .iter()
+                    .find(|info| info.id == *plugin)
+                    .map(|info| format!("From {} {}", info.name, info.version))
+                    .unwrap_or_else(|| "From a plugin".to_string()),
+                None => format!("WinCraft {}", snapshot.version),
+            },
+            "apps" => "App from the Start menu".to_string(),
+            "files" => "File search".to_string(),
+            "paths" => "Folders and files".to_string(),
+            "bookmarks" => "Your bookmark".to_string(),
+            "terminal" => "Terminal".to_string(),
+            "web" => "Ask AI and web search".to_string(),
+            other => self
+                .router
+                .provider_name(other)
+                .map(|name| format!("From {name}"))
+                .unwrap_or_default(),
+        }
+    }
+
     /// `appear` runs from 0 to 1 while the palette fades in, and back to 0 as
     /// it fades out; `interactive` is false during the fade out.
     pub fn show(
@@ -399,16 +629,18 @@ impl Palette {
         interactive: bool,
     ) -> Outcome {
         if self.prompt.is_some() {
+            self.thumbnail = None;
             return self.show_prompt(ui, snapshot, to_host, appear, interactive);
         }
         let ctx = ui.ctx().clone();
         self.refresh(snapshot, &ctx);
         self.sync_tips(snapshot);
+        self.refresh_details();
         let tokens = Tokens::get(&ctx);
         let mut outcome = Outcome::Stay;
-        let mut run: Option<Action> = None;
-        // Set only by Enter or a click, which run the row; Tab never picks.
-        let mut picked: Option<String> = None;
+        let mut run: Option<(Run, Via)> = None;
+        let mut actions = self.current_actions();
+        let listed = inspector::listed(&actions);
 
         if interactive {
             let pressed = |key| ctx.input(|input| input.key_pressed(key));
@@ -444,10 +676,46 @@ impl Palette {
             if other_key {
                 self.router.interrupted();
             }
-            if pressed(egui::Key::Escape) && !self.router.escape(self.prefix.as_deref()) {
-                outcome = Outcome::Hide;
+            if pressed(egui::Key::Escape) {
+                let left_actions =
+                    self.action_cursor.take().is_some() | std::mem::take(&mut self.overlay);
+                if left_actions {
+                    // Back to the list first.
+                } else if self.marks.clear() {
+                    actions = self.current_actions();
+                } else if !self.router.escape(self.prefix.as_deref()) {
+                    outcome = Outcome::Hide;
+                }
             }
-            if !self.results.items.is_empty() {
+            let ctrl = |key| {
+                key_modifiers(&ctx, key).is_some_and(|modifiers| {
+                    modifiers.command && !modifiers.shift && !modifiers.alt
+                })
+            };
+            if ctrl(egui::Key::Comma) {
+                outcome = Outcome::OpenSettings(Page::General);
+            }
+            if ctrl(egui::Key::P) {
+                ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::P));
+                outcome = Outcome::OpenSettings(Page::Plugins);
+            }
+            if let Some(at) = self.action_cursor {
+                if pressed(egui::Key::ArrowDown) && !listed.is_empty() {
+                    self.action_cursor = Some((at + 1) % listed.len());
+                }
+                if pressed(egui::Key::ArrowUp) && !listed.is_empty() {
+                    self.action_cursor = Some((at + listed.len() - 1) % listed.len());
+                }
+                if key_modifiers(&ctx, egui::Key::ArrowLeft).is_some() {
+                    ctx.input_mut(|input| {
+                        input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
+                    });
+                    self.action_cursor = None;
+                    if self.narrow {
+                        self.overlay = false;
+                    }
+                }
+            } else if !self.results.items.is_empty() {
                 let count = self.results.items.len();
                 if pressed(egui::Key::ArrowDown) {
                     self.selected = (self.selected + 1) % count;
@@ -458,47 +726,84 @@ impl Palette {
                     self.follow_selection = true;
                 }
             }
-            if let Some(modifiers) = key_modifiers(&ctx, egui::Key::Enter) {
-                run = self.selected_item().and_then(|item| {
-                    let slot = if modifiers.command {
-                        &item.ctrl_enter
-                    } else if modifiers.shift {
-                        &item.shift_enter
-                    } else {
-                        &item.enter
-                    };
-                    slot.as_ref().map(|choice| choice.action.clone())
-                });
-                if run.is_some() {
-                    picked = self.selected_item().and_then(|item| item.usage_key.clone());
-                }
-            }
-            // Ctrl+B and Ctrl+Delete act on the row; the key is taken here so
-            // the text box does not also act on it.
-            for (key, deletes) in [(egui::Key::B, false), (egui::Key::Delete, true)] {
-                let chord = key_modifiers(&ctx, key).is_some_and(|modifiers| {
-                    modifiers.command && !modifiers.shift && !modifiers.alt
-                });
-                let choice = self.selected_item().and_then(|item| {
-                    if deletes {
-                        item.delete.clone()
-                    } else {
-                        item.bookmark.clone()
+            match key_modifiers(&ctx, egui::Key::ArrowRight) {
+                Some(modifiers) if modifiers.shift && !modifiers.command => {
+                    if let Some(action) = actions.iter().find(|a| a.key == Key::ShiftRight) {
+                        ctx.input_mut(|input| {
+                            input.consume_key(egui::Modifiers::SHIFT, egui::Key::ArrowRight)
+                        });
+                        run = Some((action.run.clone(), Via::Other));
                     }
-                });
-                if let (true, Some(choice)) = (chord, choice) {
-                    ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, key));
-                    run = run.or(Some(choice.action));
+                }
+                Some(modifiers)
+                    if modifiers.is_none()
+                        && self.action_cursor.is_none()
+                        && !listed.is_empty()
+                        && self.text_cursor_at_end(&ctx) =>
+                {
+                    ctx.input_mut(|input| {
+                        input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
+                    });
+                    self.action_cursor = Some(0);
+                    self.overlay = self.narrow;
+                }
+                _ => {}
+            }
+            if let Some(modifiers) = key_modifiers(&ctx, egui::Key::Enter) {
+                let chosen = match self.action_cursor {
+                    Some(at) => listed.get(at).map(|index| &actions[*index]),
+                    None => {
+                        let key = if modifiers.command {
+                            Key::CtrlEnter
+                        } else if modifiers.shift {
+                            Key::ShiftEnter
+                        } else {
+                            Key::Enter
+                        };
+                        actions.iter().find(|action| action.key == key)
+                    }
+                };
+                if let Some(action) = chosen {
+                    let via = if self.marks.is_empty()
+                        && matches!(action.key, Key::Enter | Key::ShiftEnter | Key::CtrlEnter)
+                    {
+                        Via::Pick
+                    } else {
+                        Via::Other
+                    };
+                    run = Some((action.run.clone(), via));
                 }
             }
-            let change_shortcut = key_modifiers(&ctx, egui::Key::K)
-                .is_some_and(|modifiers| modifiers.command && !modifiers.shift && !modifiers.alt);
-            if change_shortcut {
-                if let Some(choice) = self.selected_item().and_then(|item| item.shortcut.clone()) {
+            // These act on the row; the key is taken here so the text box
+            // does not also act on it.
+            let chords = [
+                (egui::Key::B, Key::CtrlB),
+                (egui::Key::Delete, Key::CtrlDelete),
+                (egui::Key::K, Key::CtrlK),
+                (egui::Key::W, Key::CtrlW),
+                (egui::Key::M, Key::CtrlM),
+                (egui::Key::Space, Key::CtrlSpace),
+                (egui::Key::C, Key::CtrlC),
+            ];
+            for (key, slot) in chords {
+                if !ctrl(key) {
+                    continue;
+                }
+                if slot == Key::CtrlC && !self.nothing_selected_in_box(&ctx) {
+                    continue;
+                }
+                if let Some(action) = actions.iter().find(|action| action.key == slot) {
+                    ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, key));
+                    run = run.or(Some((action.run.clone(), Via::Other)));
+                }
+            }
+            if ctrl(egui::Key::A) {
+                let marked = self.marks.mark_all(&self.results.items, Self::window_place);
+                if marked > 0 {
                     ctx.input_mut(|input| {
-                        input.consume_key(egui::Modifiers::COMMAND, egui::Key::K)
+                        input.consume_key(egui::Modifiers::COMMAND, egui::Key::A)
                     });
-                    run = run.or(Some(choice.action));
+                    actions = self.current_actions();
                 }
             }
             let copy_all = key_modifiers(&ctx, egui::Key::C)
@@ -509,7 +814,9 @@ impl Palette {
                 }
             }
             if pressed(egui::Key::Tab) {
-                run = run.or(self.complete());
+                if let Some(action) = self.complete() {
+                    run = run.or(Some((Run::Action(action), Via::Other)));
+                }
             }
             // Checked before the text box sees the key: it is the Backspace
             // pressed on an already empty box that takes the prefix away.
@@ -519,11 +826,12 @@ impl Palette {
         }
 
         let strip = self.current_strip(to_host);
-        let (panel, painter, line) = paint_panel(ui, &tokens, appear);
+        let panel_width = self.panel_width();
+        let (panel, painter, line) = paint_panel(ui, &tokens, appear, panel_width);
 
-        // Search bar: 56 high, 16 px sides, the search icon, the prefix chip
-        // when a prefix is on, then the query.
-        let search = Rect::from_min_size(panel.min, vec2(PANEL_WIDTH, SEARCH_HEIGHT));
+        // Search bar: 56 high, 16 px sides, the search icon, the scope chip
+        // when one is on, the query, and the Ask AI pill at the right.
+        let search = Rect::from_min_size(panel.min, vec2(panel_width, SEARCH_HEIGHT));
         let rule = search_rule(ui.ctx(), &tokens, line);
         painter.hline(search.x_range(), search.bottom() - rule.width / 2.0, rule);
         let icon = Rect::from_center_size(
@@ -532,6 +840,25 @@ impl Palette {
         );
         icons::paint(&painter, icon, Icon::Search, tokens.text_disabled);
         let mut field_left = icon.right() + 12.0;
+        let ask_prefix = self.router.ask_prefix();
+        let asking = ask_prefix.is_some() && self.prefix == ask_prefix;
+        let pill = ask_prefix.as_ref().map(|_| {
+            let size = ask_pill_size(&painter);
+            Rect::from_min_size(
+                pos2(
+                    search.right() - 16.0 - size.x,
+                    search.center().y - size.y / 2.0,
+                ),
+                size,
+            )
+        });
+        if let Some(pill) = pill {
+            if ask_pill(ui, pill, asking, interactive) && !asking {
+                self.prefix = ask_prefix.clone();
+                self.selected = 0;
+                self.cursor_to_end = true;
+            }
+        }
         let placeholder = match &self.prefix {
             Some(prefix) => {
                 let (name, placeholder) = self.router.chip(prefix, &self.query);
@@ -548,9 +875,10 @@ impl Palette {
             }
             None => "Type a command, app or window\u{2026}",
         };
+        let field_right = pill.map_or(search.right() - 16.0, |pill| pill.left() - 12.0);
         let field = Rect::from_min_max(
             pos2(field_left, search.top()),
-            pos2(search.right() - 16.0, search.bottom() - line.width),
+            pos2(field_right, search.bottom() - line.width),
         );
         let hint = egui::RichText::new(placeholder)
             .color(tokens.text_disabled)
@@ -566,6 +894,7 @@ impl Palette {
             .lock_focus(true)
             .desired_width(field.width());
         let response = ui.put(field, edit);
+        self.query_id = Some(response.id);
         // Asked for on every frame, not once: the window only receives focus a
         // frame or two after it is shown, and egui drops a focus request made
         // before that, which left the first keystrokes going nowhere.
@@ -575,6 +904,7 @@ impl Palette {
         if response.changed() {
             self.selected = 0;
             self.follow_selection = true;
+            self.action_cursor = None;
             if self.prefix.is_none() {
                 if let Some((prefix, rest)) = self.router.split(&self.query) {
                     let rest = rest.to_string();
@@ -593,28 +923,53 @@ impl Palette {
             }
         }
 
-        // Footer: 36 high, 1 px rule above, key hints left, wordmark right.
+        // Footer: 40 high, the gear, the selected row's keys, the version.
         let footer = Rect::from_min_max(
             pos2(panel.left(), panel.bottom() - FOOTER_HEIGHT),
             panel.max,
         );
-        painter.hline(footer.x_range(), footer.top() + line.width / 2.0, line);
-        let tab_action = self.tab_action().map(|choice| choice.label);
-        let hints = footer_keys(self.selected_item(), tab_action, self.results.escape_label);
-        ui.scope_builder(
-            UiBuilder::new()
-                .max_rect(footer.shrink2(vec2(16.0, 0.0)))
-                .layout(Layout::left_to_right(Align::Center)),
-            |ui| footer_hints(ui, &tokens, &hints),
+        let escape = if !self.marks.is_empty() {
+            "Clear marks"
+        } else if self.action_cursor.is_some() || self.overlay {
+            "Back"
+        } else {
+            self.results.escape_label.unwrap_or("Close")
+        };
+        let clear_scope = self.prefix.is_some() && self.query.is_empty();
+        let hints = actions::footer_hints(&actions, clear_scope, escape);
+        if paint_footer(
+            ui,
+            footer,
+            &tokens,
+            line,
+            hints,
+            &snapshot.version,
+            interactive,
+        ) {
+            outcome = Outcome::OpenSettings(Page::General);
+        }
+
+        // The list on the left, the inspector at the right; on a narrow
+        // monitor the inspector opens over the list.
+        let body_top = search.bottom();
+        let body_bottom = footer.top();
+        let inspector_rect = Rect::from_min_max(
+            pos2(panel.right() - inspector::WIDTH, body_top),
+            pos2(panel.right(), body_bottom),
         );
+        let list_right = if self.narrow {
+            panel.right()
+        } else {
+            inspector_rect.left()
+        };
 
         // The tip takes the bottom of the list area; the window never changes
         // size and the list scrolls in what is left.
-        let mut list_bottom = footer.top() - 4.0;
+        let mut list_bottom = body_bottom - 4.0;
         if let Some(strip) = &strip {
             let rect = Rect::from_min_max(
                 pos2(panel.left() + 8.0, list_bottom - STRIP_HEIGHT),
-                pos2(panel.right() - 8.0, list_bottom),
+                pos2(list_right - 8.0, list_bottom),
             );
             list_bottom = rect.top() - 4.0;
             let (line, icon, colour, dismissable) = match strip {
@@ -637,10 +992,15 @@ impl Palette {
             }
         }
         let list = Rect::from_min_max(
-            pos2(panel.left() + 8.0, search.bottom() + 4.0),
-            pos2(panel.right() - 8.0, list_bottom),
+            pos2(panel.left() + 8.0, body_top + 4.0),
+            pos2(list_right - 8.0, list_bottom),
         );
         let waiting = self.prefix.is_some() && self.query.trim().is_empty();
+        let mut clicked_row: Option<(usize, bool)> = None;
+        let verb = actions
+            .first()
+            .filter(|action| action.key == Key::Enter)
+            .map(|action| actions::enter_verb(&action.label));
         ui.scope_builder(
             UiBuilder::new()
                 .max_rect(list)
@@ -660,29 +1020,149 @@ impl Palette {
                     .max_height(list.height())
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
+                        if self.trying {
+                            no_match_line(ui, &tokens);
+                        }
                         let icons = self.icons.get_or_insert_with(|| IconCache::new(&ctx));
                         let needle = self.results.needle.as_str();
+                        let column = !self.marks.is_empty();
                         let mut last_group: Option<&str> = None;
                         for (position, item) in self.results.items.iter().enumerate() {
-                            if last_group != Some(item.group.as_str()) {
-                                last_group = Some(item.group.as_str());
-                                group_header(ui, &item.group);
+                            let best = position == 0 && self.results.best_match && !self.trying;
+                            let group = if best {
+                                "Best match"
+                            } else {
+                                item.group.as_str()
+                            };
+                            if last_group != Some(group) {
+                                last_group = Some(group);
+                                group_header(ui, group);
                             }
                             let selected = position == self.selected;
-                            let (clicked, rect) =
-                                result_row(ui, item, needle, selected, interactive, icons);
+                            let look = RowLook {
+                                needle,
+                                selected,
+                                interactive,
+                                column,
+                                marked: item.window().is_some_and(|hwnd| self.marks.contains(hwnd)),
+                                best,
+                                verb: if selected && self.marks.is_empty() {
+                                    verb.as_deref()
+                                } else {
+                                    None
+                                },
+                            };
+                            let row = result_row(ui, item, &look, icons);
                             if selected && std::mem::take(&mut self.follow_selection) {
-                                ui.scroll_to_rect(rect, None);
+                                ui.scroll_to_rect(row.rect, None);
                             }
-                            if clicked {
-                                self.selected = position;
-                                run = item.enter.as_ref().map(|choice| choice.action.clone());
-                                picked = run.as_ref().and(item.usage_key.clone());
+                            if row.clicked {
+                                clicked_row = Some((position, row.shift));
                             }
                         }
                     });
             },
         );
+        if let Some((position, shift)) = clicked_row {
+            let item = &self.results.items[position];
+            if shift && item.window().is_some() {
+                let place = Self::window_place(item);
+                let item = item.clone();
+                self.marks.toggle(&item, || place);
+                actions = self.current_actions();
+            } else {
+                self.selected = position;
+                self.action_cursor = None;
+                run = item
+                    .enter
+                    .as_ref()
+                    .map(|choice| (Run::Action(choice.action.clone()), Via::Pick));
+            }
+        }
+
+        // The inspector, for the row under the cursor.
+        let show_inspector = !self.narrow || self.overlay;
+        let mut preview = None;
+        if show_inspector {
+            let rect = if self.narrow {
+                let rect = Rect::from_min_max(
+                    pos2(panel.right() - inspector::WIDTH - 8.0, body_top + 8.0),
+                    pos2(panel.right() - 8.0, body_bottom - 8.0),
+                );
+                if tokens.shadows {
+                    painter.add(
+                        theme::window_shadow(&tokens)
+                            .as_shape(rect, CornerRadius::same(tokens.radius_window)),
+                    );
+                }
+                painter.rect(
+                    rect,
+                    tokens.radius_window,
+                    tokens.elevated_bg,
+                    theme::line(&ctx, tokens.rim),
+                    StrokeKind::Inside,
+                );
+                rect
+            } else {
+                painter.vline(
+                    inspector_rect.left() + line.width / 2.0,
+                    inspector_rect.y_range(),
+                    line,
+                );
+                inspector_rect
+            };
+            let item = self.selected_item().cloned();
+            let pick = match (&item, self.on_best_match()) {
+                (Some(item), true) => item.usage_key.as_ref().and_then(|key| {
+                    self.router
+                        .pick_info(key, self.prefix.as_deref(), &self.query)
+                        .map(|info| (self.query.trim().to_string(), info))
+                }),
+                _ => None,
+            };
+            let source = item
+                .as_ref()
+                .map(|item| self.source_line(item, snapshot))
+                .unwrap_or_default();
+            let details = self
+                .details
+                .as_ref()
+                .filter(|(hwnd, _)| item.as_ref().and_then(ResultItem::window) == Some(*hwnd))
+                .map(|(_, details)| details);
+            let inspected = Inspected {
+                item: item.as_ref(),
+                marks: &self.marks,
+                actions: &actions,
+                cursor: self.action_cursor,
+                details,
+                pick,
+                best: self.on_best_match(),
+                source,
+                interactive,
+            };
+            let clicked = ui
+                .scope_builder(UiBuilder::new().max_rect(rect), |ui| {
+                    inspector::show(ui, rect, &inspected)
+                })
+                .inner;
+            if let Some(index) = clicked.action {
+                run = Some((actions[index].run.clone(), Via::Other));
+            }
+            if let (Some(on), Some(hwnd)) =
+                (clicked.pin, item.as_ref().and_then(ResultItem::window))
+            {
+                to_host.send(HostRequest::RunAction(Action::AllDesktops { hwnd, on }));
+                if let Some((_, details)) = self.details.as_mut() {
+                    details.pinned = Some(on);
+                }
+            }
+            if let (Some(rect), Some(hwnd)) =
+                (clicked.preview, item.as_ref().and_then(ResultItem::window))
+            {
+                preview = Some((hwnd, rect));
+            }
+        }
+        self.place_thumbnail(&ctx, &painter, &tokens, preview, appear);
 
         if let Some(until) = self.saved.as_ref().and_then(|saved| saved.until) {
             let left = until.saturating_duration_since(Instant::now());
@@ -702,15 +1182,94 @@ impl Palette {
             _ => {}
         }
 
-        if let Some(key) = picked {
-            self.router
-                .record_pick(&key, self.prefix.as_deref(), &self.query, &snapshot.search);
+        if let Some((_, Via::Pick)) = &run {
+            if let Some(key) = self.selected_item().and_then(|item| item.usage_key.clone()) {
+                self.router.record_pick(
+                    &key,
+                    self.prefix.as_deref(),
+                    &self.query,
+                    &snapshot.search,
+                );
+            }
         }
         self.router.save_usage_soon();
-        if let Some(action) = run {
-            outcome = self.perform(action, snapshot, to_host);
+        if let Some((run, _)) = run {
+            let next = self.run(run, snapshot, to_host);
+            if !matches!(next, Outcome::Stay) {
+                outcome = next;
+            }
         }
         outcome
+    }
+
+    /// The live picture of the selected window, drawn by DWM on top of the
+    /// palette's own window in the inspector's preview box.
+    fn place_thumbnail(
+        &mut self,
+        ctx: &egui::Context,
+        painter: &egui::Painter,
+        tokens: &Tokens,
+        preview: Option<(isize, Rect)>,
+        appear: f32,
+    ) {
+        let Some((hwnd, rect)) = preview.filter(|_| self.window != 0) else {
+            self.thumbnail = None;
+            return;
+        };
+        if self
+            .thumbnail
+            .as_ref()
+            .is_none_or(|(known, _)| *known != hwnd)
+        {
+            self.thumbnail = Thumbnail::register(self.window as HWND, hwnd as HWND)
+                .map(|thumbnail| (hwnd, thumbnail));
+        }
+        let Some((_, thumbnail)) = self.thumbnail.as_mut() else {
+            inspector::no_picture(painter, rect, tokens);
+            return;
+        };
+        let Some(size) = thumbnail.source_size() else {
+            thumbnail.place(None);
+            inspector::no_picture(painter, rect, tokens);
+            return;
+        };
+        let source =
+            crate::ui::arrange::picture_source(dwm_thumbs::visible_frame(hwnd as HWND), size);
+        let fitted = dwm_thumbs::fit(source.size(), rect.size());
+        let dest = Rect::from_center_size(rect.center(), fitted);
+        let placement = dwm_thumbs::crop(dest, rect, source).map(|(shown, cropped)| Placement {
+            dest: dwm_thumbs::physical(shown, ctx.pixels_per_point()),
+            source: dwm_thumbs::physical(cropped, 1.0),
+            opacity: (appear.clamp(0.0, 1.0) * 255.0).round() as u8,
+        });
+        thumbnail.place(placement);
+    }
+
+    /// Runs what a key, a click or the inspector chose.
+    fn run(&mut self, run: Run, snapshot: &UiSnapshot, to_host: &Arc<HostChannel>) -> Outcome {
+        match run {
+            Run::Action(action) => self.perform(action, snapshot, to_host),
+            Run::Complete(text) => {
+                self.set_query(text);
+                Outcome::Stay
+            }
+            Run::Forget => {
+                if let Some(key) = self.selected_item().and_then(|item| item.usage_key.clone()) {
+                    self.router
+                        .forget_pick(&key, self.prefix.as_deref(), &self.query);
+                    self.searched = None;
+                    self.action_cursor = None;
+                }
+                Outcome::Stay
+            }
+            Run::Mark => {
+                if let Some(item) = self.selected_item().cloned() {
+                    let place = Self::window_place(&item);
+                    self.marks.toggle(&item, || place);
+                }
+                Outcome::Stay
+            }
+        }
     }
 
     /// What choosing a row, or pressing one of its keys, does.
@@ -786,8 +1345,9 @@ impl Palette {
             answer = key_modifiers(&ctx, egui::Key::Enter).is_some();
         }
 
-        let (panel, painter, line) = paint_panel(ui, &tokens, appear);
-        let search = Rect::from_min_size(panel.min, vec2(PANEL_WIDTH, SEARCH_HEIGHT));
+        let panel_width = self.panel_width();
+        let (panel, painter, line) = paint_panel(ui, &tokens, appear, panel_width);
+        let search = Rect::from_min_size(panel.min, vec2(panel_width, SEARCH_HEIGHT));
         let rule = search_rule(ui.ctx(), &tokens, line);
         painter.hline(search.x_range(), search.bottom() - rule.width / 2.0, rule);
         let icon = Rect::from_center_size(
@@ -863,20 +1423,45 @@ impl Palette {
             pos2(panel.left(), panel.bottom() - FOOTER_HEIGHT),
             panel.max,
         );
-        painter.hline(footer.x_range(), footer.top() + line.width / 2.0, line);
-        let hints = footer_keys(Some(&item), None, Some("Cancel"));
-        ui.scope_builder(
-            UiBuilder::new()
-                .max_rect(footer.shrink2(vec2(16.0, 0.0)))
-                .layout(Layout::left_to_right(Align::Center)),
-            |ui| footer_hints(ui, &tokens, &hints),
-        );
+        let mut hints: Vec<Hint> = Vec::new();
+        if let Some(choice) = &item.enter {
+            hints.push(Hint {
+                key: Key::Enter.caps(),
+                label: choice.label.clone(),
+                accent: false,
+            });
+        }
+        hints.push(Hint {
+            key: "Esc",
+            label: "Cancel".to_string(),
+            accent: false,
+        });
+        if paint_footer(
+            ui,
+            footer,
+            &tokens,
+            line,
+            hints,
+            &snapshot.version,
+            interactive,
+        ) {
+            outcome = Outcome::OpenSettings(Page::General);
+        }
 
         let list = Rect::from_min_max(
             pos2(panel.left() + 8.0, search.bottom() + 4.0),
             pos2(panel.right() - 8.0, footer.top() - 4.0),
         );
         let icons = self.icons.get_or_insert_with(|| IconCache::new(&ctx));
+        let look = RowLook {
+            needle: "",
+            selected: true,
+            interactive,
+            column: false,
+            marked: false,
+            best: false,
+            verb: None,
+        };
         let clicked = ui
             .scope_builder(
                 UiBuilder::new()
@@ -885,7 +1470,7 @@ impl Palette {
                 |ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
                     ui.add_space(4.0);
-                    result_row(ui, &item, "", true, interactive, icons).0
+                    result_row(ui, &item, &look, icons).clicked
                 },
             )
             .inner;
@@ -966,13 +1551,14 @@ fn paint_panel(
     ui: &mut egui::Ui,
     tokens: &Tokens,
     appear: f32,
+    width: f32,
 ) -> (Rect, egui::Painter, egui::Stroke) {
     let ctx = ui.ctx().clone();
     ui.multiply_opacity(appear);
     let window = ui.max_rect();
     let panel = Rect::from_min_size(
         window.min + vec2(MARGIN, MARGIN + (1.0 - appear) * RISE),
-        vec2(PANEL_WIDTH, PANEL_HEIGHT),
+        vec2(width, PANEL_HEIGHT),
     );
     let radius = CornerRadius::same(tokens.radius_window);
     let painter = ui.painter().clone();
@@ -998,10 +1584,10 @@ fn paint_panel(
     (panel, painter, theme::line(&ctx, tokens.border))
 }
 
-/// The active prefix and its provider's name, such as "< Windows": the
-/// prefix in accent mono, the name in secondary text, on the keycap chip's
-/// panel fill, 1 px border and radius 4. Returns the chip's rectangle so the
-/// query can start after it. A prompt's chip has a name and no prefix.
+/// The scope chip, such as "w Windows": 24 high, 1 px accent border,
+/// radius 4, the prefix in mono and the scope's name in accent, both 12 px.
+/// Returns the chip's rectangle so the query can start after it. A
+/// prompt's chip has a name and no prefix.
 fn prefix_chip(
     ctx: &egui::Context,
     painter: &egui::Painter,
@@ -1010,13 +1596,9 @@ fn prefix_chip(
     name: &str,
     tokens: &Tokens,
 ) -> Rect {
-    let mark = painter.layout_no_wrap(prefix.to_string(), theme::mono(13.0), tokens.accent);
-    let label = painter.layout_no_wrap(
-        name.to_string(),
-        theme::regular(13.0),
-        tokens.text_secondary,
-    );
-    let height = mark.size().y.max(label.size().y) + 6.0;
+    let mark = painter.layout_no_wrap(prefix.to_string(), theme::mono(12.0), tokens.accent);
+    let label = painter.layout_no_wrap(name.to_string(), theme::regular(12.0), tokens.accent);
+    let height = 24.0;
     let gap = if prefix.is_empty() { 0.0 } else { 6.0 };
     let width = 8.0 + mark.size().x + gap + label.size().x + 8.0;
     let rect = Rect::from_min_size(
@@ -1025,9 +1607,9 @@ fn prefix_chip(
     );
     painter.rect(
         rect,
-        tokens.radius_row,
-        tokens.panel_bg,
-        theme::line(ctx, tokens.border),
+        4,
+        Color32::TRANSPARENT,
+        theme::line(ctx, tokens.accent),
         StrokeKind::Inside,
     );
     let mark_width = mark.size().x;
@@ -1042,9 +1624,80 @@ fn prefix_chip(
             rect.center().y - label.size().y / 2.0,
         ),
         label,
-        tokens.text_secondary,
+        tokens.accent,
     );
     rect
+}
+
+const ASK_LABEL: &str = "Ask AI";
+
+fn ask_pill_size(painter: &egui::Painter) -> egui::Vec2 {
+    let label = painter.layout_no_wrap(ASK_LABEL.to_string(), theme::regular(13.0), Color32::WHITE);
+    vec2(12.0 + 14.0 + 6.0 + label.size().x + 8.0 + 20.0 + 6.0, 28.0)
+}
+
+/// The search bar's "Ask AI" pill: 28 high, round, a sparkles icon in the
+/// accent colour, the label and a "?" keycap. Returns true when clicked.
+fn ask_pill(ui: &mut egui::Ui, rect: Rect, active: bool, interactive: bool) -> bool {
+    let tokens = Tokens::get(ui.ctx());
+    let sense = if interactive {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
+    let response = ui
+        .interact(rect, ui.id().with("ask-ai-pill"), sense)
+        .on_hover_text("Ask AI in your browser \u{b7} type ? first");
+    let painter = ui.painter();
+    let fill = if response.hovered() {
+        tokens.hover_bg
+    } else {
+        Color32::TRANSPARENT
+    };
+    let edge = if active { tokens.accent } else { tokens.border };
+    painter.rect(
+        rect,
+        14,
+        fill,
+        theme::line(ui.ctx(), edge),
+        StrokeKind::Inside,
+    );
+    let sparkles = Rect::from_min_size(
+        pos2(rect.left() + 12.0, rect.center().y - 7.0),
+        vec2(14.0, 14.0),
+    );
+    icons::paint(painter, sparkles, Icon::Sparkles, tokens.accent);
+    let label = painter.layout_no_wrap(
+        ASK_LABEL.to_string(),
+        theme::regular(13.0),
+        tokens.text_secondary,
+    );
+    let label_left = sparkles.right() + 6.0;
+    let label_width = label.size().x;
+    painter.galley(
+        pos2(label_left, rect.center().y - label.size().y / 2.0),
+        label,
+        tokens.text_secondary,
+    );
+    let cap = Rect::from_min_size(
+        pos2(label_left + label_width + 8.0, rect.center().y - 10.0),
+        vec2(20.0, 20.0),
+    );
+    painter.rect(
+        cap,
+        tokens.radius_row,
+        tokens.panel_bg,
+        theme::line(ui.ctx(), tokens.border),
+        StrokeKind::Inside,
+    );
+    painter.text(
+        cap.center(),
+        Align2::CENTER_CENTER,
+        "?",
+        theme::regular(12.0),
+        tokens.text_secondary,
+    );
+    response.clicked()
 }
 
 /// The modifiers held when `key` went down this frame. Read from the key's
@@ -1074,86 +1727,129 @@ fn context(snapshot: &UiSnapshot) -> Context<'_> {
     }
 }
 
-/// The keys that do something on the selected row, then the two that always
-/// work. A Tab completion without a label works but is not advertised.
-fn footer_keys(
-    item: Option<&ResultItem>,
-    tab_action: Option<String>,
-    escape: Option<&'static str>,
-) -> Vec<(&'static str, String)> {
-    let mut keys = Vec::new();
-    if let Some(item) = item {
-        if let Some(choice) = &item.enter {
-            keys.push(("\u{21B5}", choice.label.clone()));
-        }
-        if let Some(choice) = &item.shift_enter {
-            keys.push(("Shift+\u{21B5}", choice.label.clone()));
-        }
-        if let Some(choice) = &item.ctrl_enter {
-            keys.push(("Ctrl+\u{21B5}", choice.label.clone()));
-        }
-        if let Some(label) = tab_action {
-            keys.push(("Tab", label));
-        } else if let Some(completion) = item.tab.as_ref().filter(|tab| !tab.label.is_empty()) {
-            keys.push(("Tab", completion.label.clone()));
-        }
-        if let Some(choice) = &item.bookmark {
-            keys.push(("Ctrl+B", choice.label.clone()));
-        }
-        if let Some(choice) = &item.delete {
-            keys.push(("Ctrl+Del", choice.label.clone()));
-        }
-        if let Some(choice) = &item.shortcut {
-            keys.push(("Ctrl+K", choice.label.clone()));
-        }
+/// The footer: 40 high on the elevated fill with a rule above it, the
+/// Settings gear at the far left and a divider, the key hints, and the
+/// version at the right. Returns true when the gear was clicked.
+fn paint_footer(
+    ui: &mut egui::Ui,
+    footer: Rect,
+    tokens: &Tokens,
+    line: egui::Stroke,
+    hints: Vec<Hint>,
+    version: &str,
+    interactive: bool,
+) -> bool {
+    let painter = ui.painter().clone();
+    let radius = tokens.radius_window;
+    painter.rect_filled(
+        footer.shrink(line.width),
+        CornerRadius {
+            nw: 0,
+            ne: 0,
+            sw: radius,
+            se: radius,
+        },
+        tokens.elevated_bg,
+    );
+    painter.hline(footer.x_range(), footer.top() + line.width / 2.0, line);
+    let gear = Rect::from_min_size(
+        pos2(footer.left() + 8.0, footer.center().y - 14.0),
+        vec2(28.0, 28.0),
+    );
+    let sense = if interactive {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
+    let response = ui
+        .interact(gear, ui.id().with("palette-settings"), sense)
+        .on_hover_text("Settings \u{b7} Ctrl+,");
+    if response.hovered() {
+        painter.rect_filled(gear, tokens.radius_row, tokens.hover_bg);
     }
-    let escape = escape.unwrap_or("Close").to_string();
-    // Rows that can be bookmarked or removed carry two more keys than the
-    // footer has room for; the least needed ones are left out of the footer
-    // (they still work).
-    if item.is_some_and(|item| item.bookmark.is_some() || item.delete.is_some()) {
-        for droppable in ["Ctrl+\u{21B5}", "Shift+\u{21B5}"] {
-            if footer_width(&keys) + hint_width("Esc", &escape) <= FOOTER_ROOM {
-                break;
-            }
-            keys.retain(|(key, _)| *key != droppable);
-        }
-    }
-    // With three row actions at the 12 px chip size the footer would run into
-    // the wordmark, and the arrow keys need no reminder.
-    if keys.len() < 3 {
-        keys.push(("\u{2191}\u{2193}", "Move".to_string()));
-    }
-    keys.push(("Esc", escape));
-    keys
+    icons::paint(
+        &painter,
+        Rect::from_center_size(gear.center(), vec2(16.0, 16.0)),
+        Icon::Settings,
+        tokens.text_secondary,
+    );
+    let divider_x = gear.right() + 8.0;
+    painter.vline(
+        divider_x,
+        footer.center().y - 8.0..=footer.center().y + 8.0,
+        line,
+    );
+
+    let version_text = format!("v{version}");
+    let version_galley =
+        painter.layout_no_wrap(version_text, theme::mono(12.0), tokens.text_disabled);
+    let name_galley = painter.layout_no_wrap(
+        "WinCraft".to_string(),
+        theme::semibold(13.0),
+        tokens.text_disabled,
+    );
+    let version_left = footer.right() - 16.0 - version_galley.size().x;
+    let name_left = version_left - 6.0 - name_galley.size().x;
+    painter.galley(
+        pos2(name_left, footer.center().y - name_galley.size().y / 2.0),
+        name_galley,
+        tokens.text_disabled,
+    );
+    painter.galley(
+        pos2(
+            version_left,
+            footer.center().y - version_galley.size().y / 2.0,
+        ),
+        version_galley,
+        tokens.text_disabled,
+    );
+
+    let hints_left = divider_x + 12.0;
+    let room = (name_left - 16.0 - hints_left).max(0.0);
+    let hints = actions::fit_hints(hints, room);
+    ui.scope_builder(
+        UiBuilder::new()
+            .max_rect(Rect::from_min_max(
+                pos2(hints_left, footer.top()),
+                pos2(name_left - 16.0, footer.bottom()),
+            ))
+            .layout(Layout::left_to_right(Align::Center)),
+        |ui| footer_hints(ui, tokens, &hints),
+    );
+    response.clicked()
 }
 
-/// What the key hints may take of the footer: the panel less its side
-/// padding and the wordmark at the right.
-const FOOTER_ROOM: f32 = 540.0;
-
-/// A close guess at the width of one hint: the keycap, the gap, the label
-/// and the space before the next hint.
-fn hint_width(key: &str, label: &str) -> f32 {
-    (key.chars().count() as f32 * 7.0 + 14.0) + 6.0 + label.chars().count() as f32 * 6.2 + 16.0
-}
-
-fn footer_width(keys: &[(&str, String)]) -> f32 {
-    keys.iter().map(|(key, label)| hint_width(key, label)).sum()
-}
-
-/// Group header inside the list: 24 high, 12 px regular, padding 8 12 2.
+/// Group header inside the list: 28 high, 12 px, sitting at the bottom
+/// with 4 px under it, 12 px in from the left.
 fn group_header(ui: &mut egui::Ui, name: &str) {
     let tokens = Tokens::get(ui.ctx());
-    ui.add_space(8.0);
-    ui.horizontal(|ui| {
-        ui.add_space(12.0);
-        text::single(
-            ui,
-            text::job(name, theme::regular(12.0), tokens.text_disabled, Some(14.0)),
-        );
-    });
-    ui.add_space(2.0);
+    let (rect, _) =
+        ui.allocate_exact_size(vec2(ui.available_width(), GROUP_HEADER), Sense::hover());
+    if !ui.is_rect_visible(rect) {
+        return;
+    }
+    ui.painter().text(
+        pos2(rect.left() + 12.0, rect.bottom() - 4.0),
+        Align2::LEFT_BOTTOM,
+        name,
+        theme::regular(12.0),
+        tokens.text_disabled,
+    );
+}
+
+/// "No apps, windows or commands match." over the "Try instead" rows.
+fn no_match_line(ui: &mut egui::Ui, tokens: &Tokens) {
+    let (rect, _) = ui.allocate_exact_size(
+        vec2(ui.available_width(), 12.0 + 18.0 + 16.0),
+        Sense::hover(),
+    );
+    ui.painter().text(
+        pos2(rect.left() + 12.0, rect.top() + 12.0),
+        Align2::LEFT_TOP,
+        "No apps, windows or commands match.",
+        theme::regular(13.0),
+        tokens.text_disabled,
+    );
 }
 
 /// A label with only the main run of the match in the accent colour, as the
@@ -1164,11 +1860,12 @@ fn label_job(
     query: &str,
     font: FontId,
     colour: Color32,
+    line_height: f32,
     tokens: &Tokens,
 ) -> LayoutJob {
     let matched = fuzzy::main_run(query, label).unwrap_or(0..0);
-    let plain = text::format(font.clone(), colour, Some(TITLE_LINE));
-    let hit = text::format(font, tokens.accent, Some(TITLE_LINE));
+    let plain = text::format(font.clone(), colour, Some(line_height));
+    let hit = text::format(font, tokens.accent, Some(line_height));
     let mut job = LayoutJob::default();
     for (index, character) in label.chars().enumerate() {
         let format = if matched.contains(&index) {
@@ -1182,22 +1879,106 @@ fn label_job(
     job
 }
 
-/// A 44 px row: the 16 px picture, the title 15 with an optional 12 px
-/// subtitle under it, and one hotkey chip at the right; a compact row is one
-/// 24 px line of monospace output. The cursor row is drawn from state, never
-/// from hover; hover only adds the 5 % tint. A command whose plugin is off
-/// stays listed at 45 % with an italic "plugin off", so its hotkey does not
-/// seem to vanish.
+/// A small outlined pill after a title.
+pub(crate) enum Badge {
+    /// "open", with a success dot.
+    Open,
+    /// "often picked", with a clock.
+    OftenPicked,
+}
+
+/// The badges a row carries: "open" on a window beside other rows, "often
+/// picked" on the best match.
+pub(crate) fn row_badges(item: &ResultItem, best: bool) -> Vec<Badge> {
+    let mut badges = Vec::new();
+    if item.open && item.group == SUGGESTED_GROUP {
+        badges.push(Badge::Open);
+    }
+    if best {
+        badges.push(Badge::OftenPicked);
+    }
+    badges
+}
+
+/// Draws one badge with its left edge at `at.x` and its top at `at.y`: 18
+/// high, 1 px border, 12 px (the design's 11 px raised to the 12 px floor).
+pub(crate) fn badge(ui: &egui::Ui, at: egui::Pos2, kind: &Badge, tokens: &Tokens) -> Rect {
+    let painter = ui.painter();
+    let (text, lead) = match kind {
+        Badge::Open => ("open", 6.0),
+        Badge::OftenPicked => ("often picked", 12.0),
+    };
+    let galley = painter.layout_no_wrap(
+        text.to_string(),
+        theme::regular(12.0),
+        tokens.text_secondary,
+    );
+    let rect = Rect::from_min_size(at, vec2(8.0 + lead + 4.0 + galley.size().x + 8.0, 18.0));
+    painter.rect(
+        rect,
+        9,
+        Color32::TRANSPARENT,
+        theme::line(ui.ctx(), tokens.border),
+        StrokeKind::Inside,
+    );
+    let mark = pos2(rect.left() + 8.0 + lead / 2.0, rect.center().y);
+    match kind {
+        Badge::Open => {
+            painter.circle_filled(mark, 3.0, tokens.success);
+        }
+        Badge::OftenPicked => icons::paint(
+            painter,
+            Rect::from_center_size(mark, vec2(12.0, 12.0)),
+            Icon::Clock,
+            tokens.text_secondary,
+        ),
+    }
+    painter.galley(
+        pos2(
+            rect.left() + 8.0 + lead + 4.0,
+            rect.center().y - galley.size().y / 2.0,
+        ),
+        galley,
+        tokens.text_secondary,
+    );
+    rect
+}
+
+/// How one row is drawn.
+struct RowLook<'a> {
+    needle: &'a str,
+    selected: bool,
+    interactive: bool,
+    /// Windows are marked, so the checkbox column is there.
+    column: bool,
+    marked: bool,
+    best: bool,
+    /// The Enter pill's word on the selected row, in place of its keycaps.
+    verb: Option<&'a str>,
+}
+
+struct RowResponse {
+    clicked: bool,
+    /// Shift was held for the click: it marks the window instead.
+    shift: bool,
+    rect: Rect,
+}
+
+/// A 44 px row: the checkbox column while windows are marked, the 26 px
+/// icon slot, the title 15 (20 for an answer) with its badges and an
+/// optional 12 px subtitle, and at the right the keycaps, or the Enter pill
+/// on the selected row. A compact row is one 24 px line of monospace output.
+/// The cursor row is drawn from state, never from hover; hover only adds the
+/// 5 % tint. A command whose plugin is off stays listed at 45 % with an
+/// italic "plugin off", so its hotkey does not seem to vanish.
 fn result_row(
     ui: &mut egui::Ui,
     entry: &ResultItem,
-    query: &str,
-    selected: bool,
-    interactive: bool,
+    look: &RowLook,
     icons: &mut IconCache,
-) -> (bool, Rect) {
+) -> RowResponse {
     let tokens = Tokens::get(ui.ctx());
-    let sense = if interactive {
+    let sense = if look.interactive {
         Sense::click()
     } else {
         Sense::hover()
@@ -1205,16 +1986,22 @@ fn result_row(
     let height = if entry.compact {
         COMPACT_HEIGHT
     } else {
-        tokens.row_height
+        tokens.row_height.max(ROW_MIN_HEIGHT)
     };
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), height), sense);
+    let shift = response.clicked() && ui.input(|input| input.modifiers.shift);
+    let answer = RowResponse {
+        clicked: response.clicked(),
+        shift,
+        rect,
+    };
     if !ui.is_rect_visible(rect) {
-        return (false, rect);
+        return answer;
     }
     let hover =
         ui.ctx()
             .animate_bool_with_time(response.id.with("hover"), response.hovered(), 0.08);
-    if selected {
+    if look.selected {
         row::paint_selection(ui, rect);
     } else if hover > 0.0 {
         ui.painter().rect_filled(
@@ -1237,15 +2024,58 @@ fn result_row(
         ui.multiply_opacity(0.45);
     }
     let painter = ui.painter().clone();
-    let picture = Rect::from_min_size(
-        pos2(inner.left(), rect.center().y - ICON_SIZE / 2.0),
-        vec2(ICON_SIZE, ICON_SIZE),
+    let mut left = inner.left();
+    if look.column && !entry.compact {
+        if entry.window().is_some() {
+            let check = Rect::from_min_size(
+                pos2(left, rect.center().y - CHECK_SIZE / 2.0),
+                vec2(CHECK_SIZE, CHECK_SIZE),
+            );
+            let edge = if look.marked {
+                tokens.accent
+            } else {
+                tokens.border
+            };
+            painter.rect(
+                check,
+                3,
+                Color32::TRANSPARENT,
+                theme::line(ui.ctx(), edge),
+                StrokeKind::Inside,
+            );
+            if look.marked {
+                icons::paint(&painter, check.shrink(2.0), Icon::Check, tokens.accent);
+            }
+        }
+        left += CHECK_SIZE + 10.0;
+    }
+    let (slot, text_left) = if entry.compact {
+        let slot = Rect::from_min_size(pos2(left, rect.center().y - 8.0), vec2(16.0, 16.0));
+        (slot, slot.right() + 12.0)
+    } else {
+        let slot = Rect::from_min_size(
+            pos2(left, rect.center().y - ICON_SLOT / 2.0),
+            vec2(ICON_SLOT, ICON_SLOT),
+        );
+        (slot, slot.right() + 12.0)
+    };
+    paint_icon(
+        ui.ctx(),
+        &painter,
+        slot,
+        entry,
+        look.selected,
+        icons,
+        &tokens,
     );
-    paint_icon(ui.ctx(), &painter, picture, &entry.icon, icons, &tokens);
 
     let mut text_right = inner.right();
-    let keys = crate::core::shortcuts::parse(&entry.keys);
-    if let Some(keys) = keys {
+    if let Some(verb) = look.verb.filter(|_| !entry.compact) {
+        let pill = ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            enter_pill(ui, verb)
+        });
+        text_right = pill.inner.left() - 12.0;
+    } else if let Some(keys) = crate::core::shortcuts::parse(&entry.keys) {
         let chips = ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             keycap::caps(ui, &keys.steps(), keycap::Caps::palette()).rect
         });
@@ -1256,7 +2086,6 @@ fn result_row(
         });
         text_right = chips.inner.left() - 12.0;
     }
-    let text_left = picture.right() + 12.0;
 
     let off = entry.disabled.then(|| {
         let mut job = text::job(
@@ -1270,36 +2099,60 @@ fn result_row(
         }
         painter.layout_job(job)
     });
-    let off_width = off.as_ref().map(|galley| galley.size().x + 10.0);
-    let title_width = text_right - text_left - off_width.unwrap_or(0.0);
+    let badges = if entry.compact {
+        Vec::new()
+    } else {
+        row_badges(entry, look.best)
+    };
+    let badges_width: f32 = badges
+        .iter()
+        .map(|kind| match kind {
+            Badge::Open => 52.0,
+            Badge::OftenPicked => 104.0,
+        })
+        .sum();
+    let off_width = off.as_ref().map_or(0.0, |galley| galley.size().x + 10.0);
+    let title_width = text_right - text_left - off_width - badges_width;
 
     let colour = match entry.tone {
         Tone::Normal => tokens.text_primary,
         Tone::Warning => tokens.warning,
         Tone::Danger => tokens.danger,
     };
-    let font = if entry.compact {
-        theme::mono(13.0)
+    let (font, line_height) = if entry.compact {
+        (theme::mono(13.0), TITLE_LINE)
+    } else if entry.answer {
+        (theme::regular(20.0), ANSWER_LINE)
     } else {
-        theme::regular(15.0)
+        (theme::regular(15.0), TITLE_LINE)
     };
-    let mut title = label_job(&entry.title, query, font, colour, &tokens);
+    let mut title = label_job(
+        &entry.title,
+        look.needle,
+        font,
+        colour,
+        line_height,
+        &tokens,
+    );
     title.wrap = one_line(title_width);
     let title = painter.layout_job(title);
     let top = if entry.subtitle.is_empty() || entry.compact {
-        rect.center().y - TITLE_LINE / 2.0
+        rect.center().y - line_height / 2.0
     } else {
-        rect.center().y - (TITLE_LINE + SUBTITLE_LINE) / 2.0
+        rect.center().y - (line_height + SUBTITLE_LINE) / 2.0
     };
-    let title_width = title.size().x;
+    let title_drawn = title.size().x;
     painter.galley(pos2(text_left, top), title, colour);
+    let mut after = text_left + title_drawn + 10.0;
     if let Some(off) = off {
-        let y = top + (TITLE_LINE - off.size().y) / 2.0;
-        painter.galley(
-            pos2(text_left + title_width + 10.0, y),
-            off,
-            tokens.text_disabled,
-        );
+        let y = top + (line_height - off.size().y) / 2.0;
+        let width = off.size().x;
+        painter.galley(pos2(after, y), off, tokens.text_disabled);
+        after += width + 10.0;
+    }
+    for kind in &badges {
+        let at = pos2(after, top + (line_height - 18.0) / 2.0);
+        after = badge(ui, at, kind, &tokens).right() + 6.0;
     }
     if !entry.subtitle.is_empty() && !entry.compact {
         let mut subtitle = text::job(
@@ -1311,12 +2164,51 @@ fn result_row(
         subtitle.wrap = one_line(text_right - text_left);
         let subtitle = painter.layout_job(subtitle);
         painter.galley(
-            pos2(text_left, top + TITLE_LINE),
+            pos2(text_left, top + line_height),
             subtitle,
             tokens.text_secondary,
         );
     }
-    (response.clicked(), rect)
+    answer
+}
+
+/// The selected row's Enter pill: the verb in accent 12 px and a small ↵
+/// keycap, in a 24 high outline of the accent colour.
+fn enter_pill(ui: &mut egui::Ui, verb: &str) -> Rect {
+    let tokens = Tokens::get(ui.ctx());
+    let painter = ui.painter();
+    let word = painter.layout_no_wrap(verb.to_string(), theme::regular(12.0), tokens.accent);
+    let arrow = painter.layout_no_wrap("\u{21B5}".to_string(), theme::mono(12.0), tokens.accent);
+    let cap_width = arrow.size().x + 8.0;
+    let size = vec2(8.0 + word.size().x + 6.0 + cap_width + 4.0, 24.0);
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let painter = ui.painter();
+    painter.rect(
+        rect,
+        4,
+        Color32::TRANSPARENT,
+        theme::line(ui.ctx(), tokens.accent),
+        StrokeKind::Inside,
+    );
+    let word_width = word.size().x;
+    painter.galley(
+        pos2(rect.left() + 8.0, rect.center().y - word.size().y / 2.0),
+        word,
+        tokens.accent,
+    );
+    let cap = Rect::from_min_size(
+        pos2(rect.left() + 8.0 + word_width + 6.0, rect.center().y - 8.0),
+        vec2(cap_width, 16.0),
+    );
+    painter.rect(
+        cap,
+        3,
+        Color32::TRANSPARENT,
+        theme::line(ui.ctx(), tokens.accent),
+        StrokeKind::Inside,
+    );
+    painter.galley(cap.center() - arrow.size() / 2.0, arrow, tokens.accent);
+    rect
 }
 
 /// Long window titles and paths end in an ellipsis instead of running under
@@ -1330,18 +2222,44 @@ fn one_line(width: f32) -> egui::text::TextWrapping {
     }
 }
 
-/// A shell icon appears a frame or two after its row, once the icon thread
-/// has read it; until then the slot stays empty rather than flashing a stand-in.
+/// The 26 px icon slot: a program's or file's own icon at 24 px, a Lucide
+/// glyph at 18 px (accent on the selected row), or a monogram tile when the
+/// row has no picture. A shell icon appears a frame or two after its row,
+/// once the icon thread has read it; until then the slot stays empty rather
+/// than flashing a stand-in.
 fn paint_icon(
     ctx: &egui::Context,
     painter: &egui::Painter,
-    rect: Rect,
-    icon: &IconRef,
+    slot: Rect,
+    entry: &ResultItem,
+    selected: bool,
     icons: &mut IconCache,
     tokens: &Tokens,
 ) {
-    match icon {
-        IconRef::None => {}
+    match &entry.icon {
+        IconRef::None if entry.compact => {}
+        IconRef::None => {
+            painter.rect(
+                slot,
+                6,
+                Color32::TRANSPARENT,
+                theme::line(ctx, tokens.border),
+                StrokeKind::Inside,
+            );
+            let letter: String = entry
+                .title
+                .chars()
+                .find(|c| c.is_alphanumeric())
+                .map(|c| c.to_uppercase().collect())
+                .unwrap_or_default();
+            painter.text(
+                slot.center(),
+                Align2::CENTER_CENTER,
+                letter,
+                theme::semibold(13.0),
+                tokens.text_secondary,
+            );
+        }
         IconRef::Glyph(glyph) => {
             let drawn = match glyph {
                 Glyph::Command => Icon::ChevronRight,
@@ -1352,22 +2270,39 @@ fn paint_icon(
                 Glyph::Sparkles => Icon::Sparkles,
             };
             if tokens.icon_tiles {
-                let tile = Rect::from_center_size(rect.center(), vec2(24.0, 24.0));
+                let glyph_rect = Rect::from_center_size(slot.center(), vec2(18.0, 18.0));
                 icons::paint_on_tile(
                     painter,
-                    tile,
-                    rect.shrink(1.0),
+                    slot,
+                    glyph_rect,
                     drawn,
                     f32::from(tokens.radius_row),
                 );
             } else {
-                icons::paint(painter, rect, drawn, tokens.text_disabled);
+                let colour = if selected {
+                    tokens.accent
+                } else {
+                    tokens.text_secondary
+                };
+                let size = if entry.compact { 16.0 } else { 18.0 };
+                icons::paint(
+                    painter,
+                    Rect::from_center_size(slot.center(), vec2(size, size)),
+                    drawn,
+                    colour,
+                );
             }
         }
         IconRef::Path(_) | IconRef::Window { .. } => {
-            if let Some(texture) = icons.get(ctx, icon) {
+            if let Some(texture) = icons.get(ctx, &entry.icon) {
                 let whole = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
-                painter.image(texture.id(), rect, whole, egui::Color32::WHITE);
+                let size = if entry.compact { 16.0 } else { 24.0 };
+                painter.image(
+                    texture.id(),
+                    Rect::from_center_size(slot.center(), vec2(size, size)),
+                    whole,
+                    egui::Color32::WHITE,
+                );
             }
         }
     }
@@ -1398,37 +2333,31 @@ fn nothing_matches(ui: &mut egui::Ui, list: Rect, tokens: &Tokens) {
     });
 }
 
-/// Such as `↵ Open  Shift+↵ Show in folder  ↑↓ Move  Esc Close`, 12 px with
-/// the keys as chips, and the wordmark. The arrows are drawn in the monospace
-/// family: the return arrow exists only in egui's monospace fallback font.
-fn footer_hints(ui: &mut egui::Ui, tokens: &Tokens, keys: &[(&str, String)]) {
-    for (index, (key, label)) in keys.iter().enumerate() {
+/// Such as `↵ Switch  Shift+→ Next monitor  Esc Close`, 12 px with the keys
+/// as 20 px chips. The arrows are drawn in the monospace family: they exist
+/// only in egui's monospace fallback font.
+fn footer_hints(ui: &mut egui::Ui, tokens: &Tokens, hints: &[Hint]) {
+    for (index, hint) in hints.iter().enumerate() {
         if index > 0 {
             ui.add_space(16.0);
         }
-        let font = if key.is_ascii() {
+        let font = if hint.key.is_ascii() {
             theme::regular(12.0)
         } else {
             theme::mono(12.0)
         };
-        keycap::hint(ui, key, font);
+        keycap::hint(ui, hint.key, font);
         ui.add_space(6.0);
+        let colour = if hint.accent {
+            tokens.accent
+        } else {
+            tokens.text_secondary
+        };
         text::single(
             ui,
-            text::job(label, theme::regular(12.0), tokens.text_secondary, None),
+            text::job(&hint.label, theme::regular(12.0), colour, None),
         );
     }
-    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        text::single(
-            ui,
-            text::job(
-                "WinCraft",
-                theme::semibold(13.0),
-                tokens.text_disabled,
-                None,
-            ),
-        );
-    });
 }
 
 #[cfg(test)]
@@ -1496,15 +2425,30 @@ mod tests {
         }
     }
 
-    fn key_names(keys: &[(&str, String)]) -> Vec<String> {
-        keys.iter().map(|(key, _)| key.to_string()).collect()
+    fn hint_keys(item: &ResultItem, tab_action: Option<Choice>) -> Vec<String> {
+        let situation = Situation {
+            tab_action,
+            ..Default::default()
+        };
+        let actions = actions::row_actions(item, &situation);
+        actions::fit_hints(actions::footer_hints(&actions, false, "Close"), 690.0)
+            .iter()
+            .map(|hint| hint.key.to_string())
+            .collect()
+    }
+
+    fn browse() -> Option<Choice> {
+        Some(Choice {
+            label: "Browse".to_string(),
+            action: Action::SetPrefix(String::new()),
+        })
     }
 
     #[test]
     fn a_row_that_can_be_bookmarked_advertises_ctrl_b() {
-        let keys = footer_keys(Some(&row_with_keys("Files")), None, None);
-        assert!(keys.contains(&("Ctrl+B", "Bookmark".to_string())));
-        assert_eq!(keys.last(), Some(&("Esc", "Close".to_string())));
+        let keys = hint_keys(&row_with_keys("Files"), None);
+        assert!(keys.contains(&"Ctrl+B".to_string()), "{keys:?}");
+        assert_eq!(keys.last().map(String::as_str), Some("Esc"));
         // A row without the slot shows no such key.
         let plain = ResultItem {
             enter: Some(Choice {
@@ -1513,7 +2457,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        assert!(!key_names(&footer_keys(Some(&plain), None, None)).contains(&"Ctrl+B".to_string()));
+        assert!(!hint_keys(&plain, None).contains(&"Ctrl+B".to_string()));
     }
 
     #[test]
@@ -1523,19 +2467,21 @@ mod tests {
             choice.label = "Remove".to_string();
             choice
         });
-        let keys = footer_keys(Some(&folder), Some("Browse".to_string()), None);
-        let width: f32 = footer_width(&keys);
-        assert!(width <= FOOTER_ROOM, "{width} for {:?}", key_names(&keys));
-        // What the person most needs stays: open, browse, bookmark, remove.
-        let names = key_names(&keys);
-        for wanted in ["\u{21B5}", "Tab", "Ctrl+B", "Ctrl+Del", "Esc"] {
-            assert!(names.contains(&wanted.to_string()), "{wanted} in {names:?}");
-        }
-        assert!(!names.contains(&"Ctrl+\u{21B5}".to_string()), "{names:?}");
+        let situation = Situation {
+            tab_action: browse(),
+            ..Default::default()
+        };
+        let actions = actions::row_actions(&folder, &situation);
+        let hints = actions::fit_hints(actions::footer_hints(&actions, false, "Close"), 400.0);
+        let width: f32 = hints.iter().map(actions::hint_width).sum();
+        assert!(width <= 400.0, "{width}");
+        assert!(hints.len() <= actions::MOST_HINTS);
+        assert_eq!(hints.first().map(|hint| hint.key), Some("\u{21B5}"));
+        assert_eq!(hints.last().map(|hint| hint.key), Some("Esc"));
     }
 
     #[test]
-    fn rows_without_the_new_keys_keep_their_footer_as_it_was() {
+    fn rows_with_their_own_keys_fill_the_footer_with_them() {
         let choice = |label: &str| {
             Some(Choice {
                 label: label.to_string(),
@@ -1548,9 +2494,8 @@ mod tests {
             ctrl_enter: choice("Copy path"),
             ..Default::default()
         };
-        let names = key_names(&footer_keys(Some(&item), Some("Browse".to_string()), None));
         assert_eq!(
-            names,
+            hint_keys(&item, browse()),
             ["\u{21B5}", "Shift+\u{21B5}", "Ctrl+\u{21B5}", "Tab", "Esc"]
         );
     }
@@ -1972,7 +2917,7 @@ mod tests {
         // The strip is the last 32 px of the list area, and the cross sits
         // 8 px in from its right edge.
         let cross = pos2(
-            MARGIN + PANEL_WIDTH - 8.0 - 8.0 - 12.0,
+            MARGIN + PANEL_WIDTH - inspector::WIDTH - 8.0 - 8.0 - 12.0,
             MARGIN + PANEL_HEIGHT - FOOTER_HEIGHT - 4.0 - STRIP_HEIGHT / 2.0,
         );
         let press = |pressed| egui::Event::PointerButton {
@@ -2138,5 +3083,294 @@ mod tests {
             bridge.host_rx.try_recv(),
             Ok(HostRequest::PromptAnswer { id: 1, .. })
         ));
+    }
+
+    /// Window rows that never touch a real window: the handles are made up
+    /// and nothing in these tests reaches the host's window actions.
+    struct Wins;
+
+    impl crate::search::SearchProvider for Wins {
+        fn id(&self) -> &'static str {
+            "windows"
+        }
+        fn name(&self) -> &'static str {
+            "Windows"
+        }
+        fn description(&self) -> &'static str {
+            "test windows"
+        }
+        fn scope(&self) -> Option<&'static str> {
+            Some("w")
+        }
+        fn blended(&self) -> bool {
+            true
+        }
+        fn query(&mut self, _query: &crate::search::Query, _context: &Context) -> Vec<ResultItem> {
+            [(-7001, "Notes"), (-7002, "Inbox")]
+                .into_iter()
+                .map(|(hwnd, title)| ResultItem {
+                    group: "Windows".to_string(),
+                    title: title.to_string(),
+                    icon: IconRef::Window {
+                        hwnd,
+                        exe: std::path::PathBuf::new(),
+                    },
+                    enter: Some(Choice {
+                        label: "Switch to".to_string(),
+                        action: Action::Activate(hwnd),
+                    }),
+                    ..Default::default()
+                })
+                .collect()
+        }
+    }
+
+    fn windows_palette() -> Palette {
+        let mut palette = Palette::new(Router::new(
+            vec![(None, Box::new(Wins))],
+            &Default::default(),
+        ));
+        palette.opened();
+        palette
+    }
+
+    fn key(key: egui::Key) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Default::default(),
+        }
+    }
+
+    #[test]
+    fn a_scope_word_becomes_the_chip_and_backspace_on_an_empty_box_removes_it() {
+        let mut palette = windows_palette();
+        let bridge = crate::core::ui_bridge::create();
+        let snapshot = UiSnapshot::default();
+        let ctx = drawing_context();
+        palette.type_in("w no");
+        assert_eq!(palette.prefix.as_deref(), Some("w"));
+        assert_eq!(palette.query, "no");
+        palette.query.clear();
+        frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+        frame(
+            &mut palette,
+            &ctx,
+            &snapshot,
+            &bridge,
+            vec![key(egui::Key::Backspace)],
+        );
+        assert_eq!(palette.prefix, None, "the chip is gone");
+    }
+
+    #[test]
+    fn esc_clears_the_marks_before_it_closes_the_palette() {
+        let mut palette = windows_palette();
+        let bridge = crate::core::ui_bridge::create();
+        let snapshot = UiSnapshot::default();
+        let ctx = drawing_context();
+        palette.type_in("w ");
+        frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+        frame(
+            &mut palette,
+            &ctx,
+            &snapshot,
+            &bridge,
+            vec![ctrl_key(egui::Key::Space)],
+        );
+        assert_eq!(palette.marks.windows(), [-7001]);
+        frame(
+            &mut palette,
+            &ctx,
+            &snapshot,
+            &bridge,
+            vec![ctrl_key(egui::Key::A)],
+        );
+        assert_eq!(
+            palette.marks.windows(),
+            [-7001, -7002],
+            "Ctrl+A marks every window shown"
+        );
+        let outcome = frame(
+            &mut palette,
+            &ctx,
+            &snapshot,
+            &bridge,
+            vec![key(egui::Key::Escape)],
+        );
+        assert!(matches!(outcome, Outcome::Stay));
+        assert!(palette.marks.is_empty());
+        let outcome = frame(
+            &mut palette,
+            &ctx,
+            &snapshot,
+            &bridge,
+            vec![key(egui::Key::Escape)],
+        );
+        assert!(matches!(outcome, Outcome::Hide));
+        assert!(bridge.host_rx.try_recv().is_err(), "no window was acted on");
+    }
+
+    #[test]
+    fn nothing_matching_shows_the_try_instead_rows() {
+        let mut palette = Palette::new(Router::new(Vec::new(), &Default::default()));
+        let bridge = crate::core::ui_bridge::create();
+        let snapshot = UiSnapshot::default();
+        palette.opened();
+        palette.type_in("zqx");
+        frame(
+            &mut palette,
+            &drawing_context(),
+            &snapshot,
+            &bridge,
+            Vec::new(),
+        );
+        assert!(palette.trying);
+        let titles: Vec<&str> = palette
+            .results
+            .items
+            .iter()
+            .map(|item| item.title.as_str())
+            .collect();
+        assert_eq!(
+            titles,
+            ["Ask AI about \u{201c}zqx\u{201d}", "Search the web"]
+        );
+    }
+
+    #[test]
+    fn ctrl_comma_and_ctrl_p_open_settings() {
+        let mut palette = windows_palette();
+        let bridge = crate::core::ui_bridge::create();
+        let snapshot = UiSnapshot::default();
+        let ctx = drawing_context();
+        frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+        let outcome = frame(
+            &mut palette,
+            &ctx,
+            &snapshot,
+            &bridge,
+            vec![ctrl_key(egui::Key::Comma)],
+        );
+        assert!(matches!(outcome, Outcome::OpenSettings(Page::General)));
+        let outcome = frame(
+            &mut palette,
+            &ctx,
+            &snapshot,
+            &bridge,
+            vec![ctrl_key(egui::Key::P)],
+        );
+        assert!(matches!(outcome, Outcome::OpenSettings(Page::Plugins)));
+    }
+
+    #[test]
+    fn the_right_arrow_walks_into_the_actions_and_enter_runs_the_one_there() {
+        let folder = scratch_folder("actions").display().to_string();
+        let bridge = crate::core::ui_bridge::create();
+        let snapshot = UiSnapshot::default();
+        let ctx = drawing_context();
+        let mut palette = places_palette(&[&folder], &new_store());
+        palette.query.clear();
+        palette.searched = None;
+        palette.type_in("x");
+        frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+        frame(
+            &mut palette,
+            &ctx,
+            &snapshot,
+            &bridge,
+            vec![key(egui::Key::ArrowRight)],
+        );
+        assert_eq!(palette.action_cursor, Some(0));
+        frame(
+            &mut palette,
+            &ctx,
+            &snapshot,
+            &bridge,
+            vec![key(egui::Key::ArrowDown)],
+        );
+        assert_eq!(palette.action_cursor, Some(1), "on Ctrl+B's bookmark");
+        frame(
+            &mut palette,
+            &ctx,
+            &snapshot,
+            &bridge,
+            vec![key(egui::Key::ArrowUp)],
+        );
+        assert_eq!(palette.action_cursor, Some(0));
+        let outcome = frame(
+            &mut palette,
+            &ctx,
+            &snapshot,
+            &bridge,
+            vec![key(egui::Key::Enter)],
+        );
+        assert!(matches!(outcome, Outcome::Hide));
+        // The folder tip's state may go to the host first.
+        assert!(std::iter::from_fn(|| bridge.host_rx.try_recv().ok())
+            .any(|request| matches!(request, HostRequest::RunAction(Action::Open(_)))));
+        std::fs::remove_dir_all(&folder).ok();
+    }
+
+    #[test]
+    fn esc_in_the_actions_goes_back_to_the_list_first() {
+        let mut palette = windows_palette();
+        let bridge = crate::core::ui_bridge::create();
+        let snapshot = UiSnapshot::default();
+        let ctx = drawing_context();
+        palette.set_narrow(true);
+        palette.type_in("w ");
+        frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+        frame(
+            &mut palette,
+            &ctx,
+            &snapshot,
+            &bridge,
+            vec![key(egui::Key::ArrowRight)],
+        );
+        assert!(
+            palette.overlay,
+            "on a narrow monitor the inspector opens over the list"
+        );
+        let outcome = frame(
+            &mut palette,
+            &ctx,
+            &snapshot,
+            &bridge,
+            vec![key(egui::Key::Escape)],
+        );
+        assert!(matches!(outcome, Outcome::Stay));
+        assert!(!palette.overlay);
+        assert_eq!(palette.action_cursor, None);
+    }
+
+    #[test]
+    fn a_narrow_palette_is_the_list_alone() {
+        let mut palette = windows_palette();
+        assert_eq!(palette.panel_width(), PANEL_WIDTH);
+        palette.set_narrow(true);
+        assert_eq!(palette.panel_width(), PANEL_WIDTH - inspector::WIDTH);
+        assert_eq!(
+            palette.window_width(),
+            PANEL_WIDTH - inspector::WIDTH + 2.0 * MARGIN
+        );
+    }
+
+    #[test]
+    fn the_enter_pill_word_comes_from_the_first_action() {
+        let mut palette = windows_palette();
+        palette.type_in("w ");
+        let bridge = crate::core::ui_bridge::create();
+        frame(
+            &mut palette,
+            &drawing_context(),
+            &UiSnapshot::default(),
+            &bridge,
+            Vec::new(),
+        );
+        let actions = palette.current_actions();
+        assert_eq!(actions::enter_verb(&actions[0].label), "Switch");
     }
 }

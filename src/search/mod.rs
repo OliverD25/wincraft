@@ -713,6 +713,15 @@ impl Router {
             .is_some_and(|slot| slot.provider.available(command))
     }
 
+    /// The name a provider shows in its chip, for the inspector's source
+    /// line.
+    pub fn provider_name(&self, provider: &str) -> Option<&'static str> {
+        self.slots
+            .iter()
+            .find(|slot| slot.provider.id() == provider)
+            .map(|slot| slot.provider.name())
+    }
+
     /// The prefix a provider answers to, if it has one.
     pub fn prefix_of(&self, provider: &str) -> Option<String> {
         self.slots
