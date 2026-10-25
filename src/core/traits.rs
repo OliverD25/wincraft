@@ -156,6 +156,10 @@ pub trait WinCraftPlugin {
         let _ = (msg, wparam, lparam);
     }
 
+    /// Explorer restarted and built a new taskbar. It is still being filled
+    /// when this arrives, so wait a few seconds before touching its buttons.
+    fn on_taskbar_created(&mut self) {}
+
     fn tray_actions(&self) -> Vec<TrayAction> {
         Vec::new()
     }

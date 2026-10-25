@@ -1,4 +1,5 @@
 mod desktops;
+mod explorer;
 mod guard;
 pub mod hover_preview;
 mod identity;
@@ -20,10 +21,10 @@ use windows_sys::Win32::System::SystemInformation::GetTickCount64;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, IsHungAppWindow, IsIconic, KillTimer, PostMessageW, SendMessageTimeoutW,
-    SetTimer, SetWindowPos, ShowWindow, ENDSESSION_CLOSEAPP, HWND_TOP, SMTO_ABORTIFHUNG,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE, SW_SHOWNORMAL, WM_CLOSE, WM_ENDSESSION,
-    WM_NULL, WM_QUERYENDSESSION, WM_TIMER,
+    FindWindowW, GetForegroundWindow, IsHungAppWindow, IsIconic, KillTimer, PostMessageW,
+    SendMessageTimeoutW, SetTimer, SetWindowPos, ShowWindow, ENDSESSION_CLOSEAPP, HWND_TOP,
+    SMTO_ABORTIFHUNG, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE, SW_SHOWNORMAL, WM_CLOSE,
+    WM_ENDSESSION, WM_NULL, WM_QUERYENDSESSION, WM_TIMER,
 };
 
 use crate::core::traits::{
@@ -207,6 +208,8 @@ pub struct LayoutKeeper {
     /// Groups to rebuild again on the next tick, after a desktop move that
     /// Windows only reports a moment later.
     reapply: Vec<String>,
+    /// Explorer restarted, so its taskbar buttons are in its own order.
+    explorer: explorer::Rebuild,
     /// The strip needs fresh data on the next tick.
     arrange_stale: bool,
     guard: guard::Guard,
@@ -267,6 +270,7 @@ impl Default for LayoutKeeper {
             tray_tip: None,
             shared_titles: BTreeMap::new(),
             reapply: Vec::new(),
+            explorer: explorer::Rebuild::default(),
             arrange_stale: false,
             guard: guard::Guard::default(),
             last_saved: None,
@@ -877,6 +881,52 @@ impl LayoutKeeper {
         }
     }
 
+    /// Explorer rebuilt the taskbar, so each group's buttons are in its order,
+    /// not ours. Once the taskbar is back, sends each group's order again:
+    /// only the windows on this desktop, and nothing else is restored. A
+    /// group the crash guard holds is left alone, because its windows were
+    /// just replaced and its order is not to be trusted.
+    fn put_back_after_explorer(&mut self) {
+        let live = self.refresh();
+        let taskbar = unsafe { FindWindowW(wide("Shell_TrayWnd").as_ptr(), std::ptr::null()) };
+        match self
+            .explorer
+            .step(self.ticks, !taskbar.is_null(), live.len())
+        {
+            explorer::Step::Wait => {}
+            explorer::Step::GiveUp => {
+                log::warn!("Explorer restarted, but the taskbar did not come back in time");
+            }
+            explorer::Step::Apply => {
+                if self.restore.is_running() || self.finishing.is_some() {
+                    log::info!(
+                        "Explorer restarted while a restore is under way; the restore puts the taskbar order back"
+                    );
+                    return;
+                }
+                let held = self.guard.held();
+                let keys: Vec<String> = self
+                    .groups
+                    .iter()
+                    .filter(|(key, group)| group.handles().len() > 1 && !held.contains(*key))
+                    .map(|(key, _)| key.clone())
+                    .collect();
+                for key in &keys {
+                    if let Some(group) = self.groups.get_mut(key) {
+                        group.invalidate();
+                    }
+                    self.apply_group(key, false);
+                }
+                if !keys.is_empty() {
+                    log::info!(
+                        "Explorer restarted: put the taskbar order of {} apps back",
+                        keys.len()
+                    );
+                }
+            }
+        }
+    }
+
     /// Moves the front window one place along its taskbar group.
     fn shift_front(&mut self, step: isize) {
         if self.refuses("moving the front window in its group") {
@@ -1484,6 +1534,9 @@ impl LayoutKeeper {
         }
         if std::mem::take(&mut self.arrange_stale) {
             host::refresh_arrange();
+        }
+        if self.explorer.due(self.ticks) {
+            self.put_back_after_explorer();
         }
         self.run_checks();
         if let Some(finish) = self.finishing.take() {
@@ -3308,6 +3361,13 @@ impl WinCraftPlugin for LayoutKeeper {
         }
         parts.push(moves);
         Some(parts.join(" \u{b7} "))
+    }
+
+    fn on_taskbar_created(&mut self) {
+        if self.refuses("putting the taskbar order back after Explorer restarted") {
+            return;
+        }
+        self.explorer.restarted(self.ticks);
     }
 
     fn on_windows_message(&mut self, msg: u32, wparam: WPARAM, lparam: LPARAM) {
@@ -5239,6 +5299,22 @@ mod tests {
         keeper.tick();
         assert!(keeper.reapply.is_empty() && !keeper.arrange_stale);
         assert_eq!(keeper.refused, 1, "the taskbar reorder was turned down");
+    }
+
+    #[test]
+    fn a_restart_of_explorer_starts_the_wait_unless_the_instance_is_read_only() {
+        let (mut keeper, _) = watching_nothing("explorer-restart");
+        keeper.read_only = false;
+        keeper.ticks = 40;
+        keeper.on_taskbar_created();
+        assert!(!keeper.explorer.due(44));
+        assert!(keeper.explorer.due(45));
+
+        let (mut test_copy, _) = watching_nothing("explorer-restart-read-only");
+        test_copy.read_only = true;
+        test_copy.on_taskbar_created();
+        assert!(!test_copy.explorer.due(1000));
+        assert_eq!(test_copy.refused, 1);
     }
 
     #[test]

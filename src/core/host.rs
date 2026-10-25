@@ -2366,7 +2366,12 @@ unsafe extern "system" fn wnd_proc(
 fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     let taskbar_created = TASKBAR_CREATED.with(|cell| cell.get());
     if taskbar_created != 0 && msg == taskbar_created {
-        with_host_or_later(hwnd, msg, wparam, lparam, |host| host.tray.add());
+        with_host_or_later(hwnd, msg, wparam, lparam, |host| {
+            host.tray.add();
+            for slot in host.plugins.slots.iter_mut().filter(|slot| slot.enabled) {
+                slot.plugin.on_taskbar_created();
+            }
+        });
         return 0;
     }
     let shell_hook = SHELL_HOOK.with(|cell| cell.get());

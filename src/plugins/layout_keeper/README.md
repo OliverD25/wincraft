@@ -302,6 +302,13 @@ each taskbar group and makes the taskbar match it. New windows join at the end, 
 Windows adds them; a window that stays closed for one save interval is
 dropped from the list.
 
+When Explorer restarts (it rebuilds every taskbar button in its own order),
+LayoutKeeper waits 5 seconds for the taskbar to come back and puts each
+group's order back on the desktop you are on. It tries once more at 15
+seconds if the taskbar was slow or more windows had appeared. It restores
+nothing else and moves no window. Groups the crash guard holds are left
+alone, and a test instance does nothing.
+
 ### When the saved order is not what the taskbar shows
 
 The saved order is that list, never a reading of the taskbar. With taskbar
@@ -322,7 +329,9 @@ cases, and a restore then puts back the list, not what was on screen:
 - **A new order for another desktop, made in the Arrange strip.** It is
   saved at once but reaches that desktop's buttons only at the next restore
   (see **Arrange windows**).
-- **Explorer restarting**, which rebuilds every button in its own order, and
+- **Explorer restarting**, which rebuilds every button in its own order
+  (LayoutKeeper puts its list back a few seconds later, as described above,
+  but not for other desktops), and
   changes made inside Explorer by other tools, such as the Windhawk mod
   "Taskbar Thumbnail Reorder".
 - **A window moved to another desktop without WinCraft**, in Task View for

@@ -138,6 +138,7 @@ The About page lists the kinds the build you are running can draw.
 | `on_settings_changed` | After the user changes one of your settings. |
 | `hotkey_actions` | To register your hotkeys, and to list them in the palette and on your page. |
 | `on_hotkey(id)` | When one of your hotkeys is pressed. |
+| `on_taskbar_created` | When Explorer restarts and builds a new taskbar. It is still empty then, so wait a few seconds before touching its buttons. |
 | `tray_actions` | Every time the tray menu opens. Only your **first** tray action goes into the tray menu; every tray action appears in the palette. |
 | `on_tray_action(id)` | When your menu entry or its palette entry is chosen. |
 | `tray_toggles` | Every time the tray menu opens. Ticked on/off entries, shown after your first tray action, for a setting people switch often. Choosing one calls `on_tray_action` with its id, so keep it apart from your tray action ids (and below 100). Call `host::save_setting` to keep the new value. |
