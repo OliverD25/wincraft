@@ -572,6 +572,8 @@ struct Shared {
     /// The only monitor whose windows the strip shows, for a hover strip on
     /// a taskbar that lists just those.
     only_monitor: Option<usize>,
+    /// Which windows each taskbar lists, read when the strip opens.
+    taskbars: MultiMonitor,
     /// The monitor whose empty rail the keyboard has just moved a window to;
     /// the rail stays unfolded until the next key.
     rail_focus: Option<usize>,
@@ -581,6 +583,8 @@ struct Shared {
     monitor: Option<Monitor>,
     focused_once: bool,
     thumbs: HashMap<isize, Option<Thumbnail>>,
+    /// The pictures of the By monitor view's ghosts.
+    ghost_thumbs: HashMap<isize, Option<Thumbnail>>,
     /// The part of each window its picture shows; its shape is the card's.
     /// Missing for a window Windows gives no picture of.
     sources: HashMap<isize, Rect>,
@@ -662,7 +666,10 @@ impl Shared {
                     self.others.shown(count),
                     count > 0,
                     limit,
-                    self.only_monitor,
+                    by_monitor::Scope {
+                        only: self.only_monitor,
+                        taskbars: self.taskbars,
+                    },
                 )
             }
             (Some(group), Some(snapshot)) => {
@@ -705,6 +712,7 @@ impl Arrange {
                 zones: Vec::new(),
                 card_hits: Vec::new(),
                 only_monitor: None,
+                taskbars: MultiMonitor::default(),
                 rail_focus: None,
                 to_host,
                 closed: false,
@@ -712,6 +720,7 @@ impl Arrange {
                 monitor: None,
                 focused_once: false,
                 thumbs: HashMap::new(),
+                ghost_thumbs: HashMap::new(),
                 sources: HashMap::new(),
                 peek: Peek::default(),
                 hover: Hover::default(),
@@ -746,10 +755,12 @@ impl Arrange {
         shared.card_hits.clear();
         shared.anchor = shared.snapshot.as_ref().and_then(|s| s.anchor);
         // Read again at every hover: the user may have changed the setting.
+        shared.taskbars = MultiMonitor::read();
+        let taskbars = shared.taskbars;
         shared.only_monitor = shared
             .snapshot
             .as_ref()
-            .and_then(|s| only_monitor(s.anchor, &s.monitors, MultiMonitor::read()));
+            .and_then(|s| only_monitor(s.anchor, &s.monitors, taskbars));
         shared.monitor = match shared.anchor {
             Some(button) => Monitor::at(POINT {
                 x: (button[0] + button[2]) / 2,
@@ -804,6 +815,7 @@ impl Arrange {
             shared.drag = None;
             shared.others.reset();
             shared.thumbs.clear();
+            shared.ghost_thumbs.clear();
             shared.sources.clear();
             shared.hide_peek();
             shared.forced_peek = None;
@@ -1006,6 +1018,9 @@ struct Pending {
     dest: Rect,
     clip: Rect,
     opacity: u8,
+    /// For a ghost in the By monitor view, whose window also has its own
+    /// card: a picture has one place, so a ghost needs a picture of its own.
+    ghost: bool,
 }
 
 /// What a view's body did this frame, for the parts both views share.
@@ -1063,6 +1078,7 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
             );
         });
         shared.thumbs.clear();
+        shared.ghost_thumbs.clear();
         shared.hide_peek();
         return;
     };
@@ -1096,6 +1112,9 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
 
     shared
         .thumbs
+        .retain(|hwnd, _| group.windows.iter().any(|window| window.hwnd == *hwnd));
+    shared
+        .ghost_thumbs
         .retain(|hwnd, _| group.windows.iter().any(|window| window.hwnd == *hwnd));
     let ctx = ui.ctx().clone();
     if refresh_sources(shared, &group) {
@@ -1425,6 +1444,7 @@ fn flat(
                                             dest: picture,
                                             clip: ui.clip_rect(),
                                             opacity: 255,
+                                            ghost: false,
                                         });
                                     }
                                     if response.clicked() {
@@ -1662,6 +1682,7 @@ fn float_picture(
             dest: area.shrink(1.0),
             clip: Rect::EVERYTHING,
             opacity: 204,
+            ghost: false,
         });
     }
 }
@@ -1690,9 +1711,21 @@ fn desktop_name<'a>(desktops: &'a [ArrangeDesktop], id: &str) -> &'a str {
 /// The window's picture, registered on first use. Only possible once the
 /// strip's own window exists, since it is the destination.
 fn thumbnail(shared: &mut Shared, hwnd: isize) -> Option<&mut Thumbnail> {
-    let destination = shared.window as HWND;
-    shared
-        .thumbs
+    registered(&mut shared.thumbs, shared.window, hwnd)
+}
+
+/// The second picture of a window that a ghost shows.
+fn ghost_thumbnail(shared: &mut Shared, hwnd: isize) -> Option<&mut Thumbnail> {
+    registered(&mut shared.ghost_thumbs, shared.window, hwnd)
+}
+
+fn registered(
+    thumbs: &mut HashMap<isize, Option<Thumbnail>>,
+    window: isize,
+    hwnd: isize,
+) -> Option<&mut Thumbnail> {
+    let destination = window as HWND;
+    thumbs
         .entry(hwnd)
         .or_insert_with(|| {
             (!destination.is_null())
@@ -1738,19 +1771,30 @@ fn place_pictures(
     dragged: Option<isize>,
     pixels_per_point: f32,
 ) {
-    let placed: Vec<isize> = pending.iter().map(|p| p.hwnd).collect();
-    for (hwnd, thumb) in shared.thumbs.iter_mut() {
-        if let Some(thumb) = thumb {
-            if !placed.contains(hwnd) {
+    for (thumbs, ghost) in [
+        (&mut shared.thumbs, false),
+        (&mut shared.ghost_thumbs, true),
+    ] {
+        for (hwnd, thumb) in thumbs.iter_mut() {
+            let placed = pending.iter().any(|p| p.hwnd == *hwnd && p.ghost == ghost);
+            if let Some(thumb) = thumb.as_mut().filter(|_| !placed) {
                 thumb.place(None);
             }
         }
     }
     for item in pending {
-        let covered =
-            floating.is_some_and(|rect| Some(item.hwnd) != dragged && rect.intersects(item.dest));
+        // The dragged window's own picture rides with the pointer; its
+        // ghost stays behind like any other.
+        let covered = floating.is_some_and(|rect| {
+            (item.ghost || Some(item.hwnd) != dragged) && rect.intersects(item.dest)
+        });
         let known = shared.sources.get(&item.hwnd).copied();
-        let Some(thumb) = thumbnail(shared, item.hwnd) else {
+        let thumb = if item.ghost {
+            ghost_thumbnail(shared, item.hwnd)
+        } else {
+            thumbnail(shared, item.hwnd)
+        };
+        let Some(thumb) = thumb else {
             continue;
         };
         let Some(size) = thumb.source_size() else {

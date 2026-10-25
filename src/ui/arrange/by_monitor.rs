@@ -7,10 +7,11 @@ use egui::{pos2, vec2, Rect, Response, Sense, Shape, StrokeKind, Ui, UiBuilder, 
 
 use super::{
     card_look, card_menu, ctrl_drop, ctrl_hint, ctrl_mark, ctrl_place, ctrl_target, float_picture,
-    hit_rect, line_width, name_card, nudge, number_chip, others, others_link, paint_look,
-    picture_width, taskbar_numbers, thumbnail, visible_flags, wrap, Drag, Frame, Pending, Shared,
-    NUMBER_GAP, SAME_TITLE_HINT, SLACK,
+    ghost_thumbnail, hit_rect, line_width, name_card, nudge, number_chip, order_with_place, others,
+    others_link, paint_look, picture_width, place_in_row, taskbar_numbers, thumbnail,
+    visible_flags, wrap, Drag, Frame, Pending, Shared, NUMBER_GAP, SAME_TITLE_HINT, SLACK,
 };
+use crate::core::taskbar_scope::MultiMonitor;
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{
     ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeMonitor, ArrangeSnapshot, ArrangeWindow,
@@ -30,8 +31,6 @@ const COLUMN_GAP: f32 = 16.0;
 /// Between two rows of monitors stacked one above the other.
 const ROW_GAP: f32 = 16.0;
 pub const MIN_TRACK: f32 = 200.0;
-/// The most of a band a column that is not the widest one may take.
-const MAX_SHARE: f32 = 0.5;
 /// A monitor with no windows, folded into a narrow rail.
 const RAIL: f32 = 40.0;
 /// A rail while a card is dragged, or while the keyboard is on it.
@@ -58,6 +57,22 @@ const MIN_PANEL: f32 = 680.0;
 const NOT_CURRENT: f32 = 0.85;
 const DISCONNECTED: f32 = 0.45;
 const DRAGGED: f32 = 0.6;
+/// A stand-in in the primary column for a window on another monitor.
+const GHOST_WIDTH: f32 = 84.0;
+/// Its edge strip, with the arrow and the monitor's name.
+const GHOST_EDGE: f32 = 18.0;
+const GHOST_PICTURE: f32 = 58.0;
+/// DWM cannot draw a picture in grey, so a ghost's picture is only faded.
+const GHOST_OPACITY: f32 = 0.4;
+const GHOST_ARROW: f32 = 12.0;
+const GHOST_PAD: f32 = 6.0;
+/// Above the number chip and below the title.
+const GHOST_TOP: f32 = 5.0;
+const GHOST_SIDE: f32 = 6.0;
+const GHOST_CHIP: f32 = 16.0;
+const GHOST_LINE: f32 = 12.0 * 1.3;
+const GHOST_TITLE_GAP: f32 = 4.0;
+const GHOST_TITLE_ROWS: usize = 3;
 
 /// Rows of monitor columns, each row left to right, as places in
 /// `monitors`. Connected monitors are sorted by the left edge of their work
@@ -106,6 +121,8 @@ pub struct Col {
     primary: bool,
     /// A connected monitor with no windows, folded into a narrow rail.
     rail: bool,
+    /// The monitor's width in pixels, which sets its share of the row.
+    screen: f32,
 }
 
 /// The columns of each row of monitors. A monitor with no windows becomes a
@@ -129,13 +146,14 @@ pub fn columns(
                     let count = bands.iter().map(|band| band.cells[r][c].len()).sum();
                     let widest = bands
                         .iter()
-                        .map(|band| line_width(&cell_widths(&band.cells[r][c], widths)))
+                        .map(|band| line_width(&flow_widths(&band.flow((r, c)), widths)))
                         .fold(card_width(None), f32::max);
                     Col {
                         need: INSET + widest,
                         count,
                         primary: monitor.primary && monitor.connected,
                         rail: monitor.connected && count == 0,
+                        screen: (monitor.rect[2] - monitor.rect[0]).max(0) as f32,
                     }
                 })
                 .collect();
@@ -173,13 +191,24 @@ fn rail_width(open: f32) -> f32 {
     RAIL + (RAIL_OPEN - RAIL) * open
 }
 
+/// The width of a column that is not the winner: what one line of its cards
+/// needs, at most its monitor's share of `available` (its part of the
+/// width of all the row's monitors), and at least MIN_TRACK.
+fn capped(col: &Col, cols: &[Col], available: f32) -> f32 {
+    let total: f32 = cols.iter().map(|col| col.screen).sum();
+    let share = if total > 0.0 && col.screen > 0.0 {
+        available * (col.screen / total)
+    } else {
+        available
+    };
+    col.need.min(share).max(MIN_TRACK)
+}
+
 /// Each column's width out of `available`. A rail is as wide as its `open`
-/// says. A column takes what one line of its cards needs, at least
-/// MIN_TRACK and at most half of `available`. The winner takes what is
-/// left, also at least MIN_TRACK: when even that does not fit, the columns
-/// add up to more than `available` and the row scrolls sideways.
+/// says. Any other column is `capped`. The winner takes what is left, also
+/// at least MIN_TRACK: when even that does not fit, the columns add up to
+/// more than `available` and the row scrolls sideways.
 pub fn tracks(cols: &[Col], open: &[f32], available: f32) -> Vec<f32> {
-    let cap = (available * MAX_SHARE).max(MIN_TRACK);
     let mut widths: Vec<f32> = cols
         .iter()
         .enumerate()
@@ -187,12 +216,17 @@ pub fn tracks(cols: &[Col], open: &[f32], available: f32) -> Vec<f32> {
             if col.rail {
                 rail_width(open.get(index).copied().unwrap_or(0.0))
             } else {
-                col.need.clamp(MIN_TRACK, cap)
+                capped(col, cols, available)
             }
         })
         .collect();
     if let Some(winner) = winner(cols) {
-        let others: f32 = widths.iter().sum::<f32>() - widths[winner];
+        let others: f32 = widths
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != winner)
+            .map(|(_, width)| width)
+            .sum();
         widths[winner] = (available - others).max(MIN_TRACK);
     }
     widths
@@ -210,21 +244,43 @@ pub fn card_width(source: Option<Vec2>) -> f32 {
     picture_width(source, THUMB_HEIGHT) + 2.0 * CARD_PAD
 }
 
-/// The widths of a cell's cards, from every window's card width.
-fn cell_widths(cell: &[usize], widths: &[f32]) -> Vec<f32> {
-    cell.iter().map(|member| widths[*member]).collect()
+/// One thing in a cell's flow: a window's own card, or the ghost of a
+/// window on another monitor, as places in the group's windows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Item {
+    Card(usize),
+    Ghost(usize),
 }
 
-/// The cell's cards in lines that fit in a column `track` wide.
-fn cell_lines(cell: &[usize], widths: &[f32], track: f32) -> Vec<std::ops::Range<usize>> {
-    wrap(&cell_widths(cell, widths), track - INSET)
+impl Item {
+    pub fn member(self) -> usize {
+        match self {
+            Item::Card(member) | Item::Ghost(member) => member,
+        }
+    }
 }
 
-fn cell_height(cell: &[usize], widths: &[f32], track: f32) -> f32 {
-    if cell.is_empty() {
+/// The widths of a cell's cards and ghosts, from every window's card width.
+fn flow_widths(flow: &[Item], widths: &[f32]) -> Vec<f32> {
+    flow.iter()
+        .map(|item| match item {
+            Item::Card(member) => widths[*member],
+            Item::Ghost(_) => GHOST_WIDTH,
+        })
+        .collect()
+}
+
+/// A cell's cards and ghosts, `widths` wide, in lines that fit in a column
+/// `track` wide.
+fn cell_lines(widths: &[f32], track: f32) -> Vec<std::ops::Range<usize>> {
+    wrap(widths, track - INSET)
+}
+
+fn cell_height(widths: &[f32], track: f32) -> f32 {
+    if widths.is_empty() {
         return EMPTY;
     }
-    let lines = cell_lines(cell, widths, track).len() as f32;
+    let lines = cell_lines(widths, track).len() as f32;
     lines * CARD_HEIGHT + (lines - 1.0) * CARD_GAP
 }
 
@@ -241,11 +297,57 @@ pub struct Band {
     /// `monitor_rows`: `cells[row][column]`, each in taskbar order, as
     /// places in the group's windows.
     pub cells: Vec<Vec<Vec<usize>>>,
+    /// The cell that shows `ghosts`: the primary monitor's, while the main
+    /// taskbar lists every window.
+    pub ghost_cell: Option<(usize, usize)>,
+    /// The windows of the other connected monitors' columns, in taskbar
+    /// order, as places in the group's windows.
+    pub ghosts: Vec<usize>,
 }
 
 impl Band {
     pub fn count(&self) -> usize {
         self.cells.iter().flatten().map(Vec::len).sum()
+    }
+
+    /// A cell's cards and, in the ghost cell, the ghosts among them, in
+    /// taskbar order: the group's order is the taskbar's.
+    pub fn flow(&self, cell: (usize, usize)) -> Vec<Item> {
+        let mut items: Vec<Item> = self.cells[cell.0][cell.1]
+            .iter()
+            .map(|member| Item::Card(*member))
+            .collect();
+        if self.ghost_cell == Some(cell) {
+            items.extend(self.ghosts.iter().map(|member| Item::Ghost(*member)));
+            items.sort_by_key(|item| item.member());
+        }
+        items
+    }
+
+    /// Where a place among the cell's cards other than `moved` is in its
+    /// flow without `moved`: the keys move among cards and step over
+    /// ghosts. Before the card at `index`, after the last card, or in a cell
+    /// with no other card where `moved` falls by taskbar order.
+    pub fn flow_index(&self, cell: (usize, usize), moved: usize, index: usize) -> usize {
+        let flow: Vec<usize> = self
+            .flow(cell)
+            .iter()
+            .map(|item| item.member())
+            .filter(|member| *member != moved)
+            .collect();
+        let cards: Vec<usize> = self.cells[cell.0][cell.1]
+            .iter()
+            .copied()
+            .filter(|member| *member != moved)
+            .collect();
+        match (cards.get(index), cards.last()) {
+            (Some(next), _) => flow.iter().position(|m| m == next).unwrap_or(flow.len()),
+            (None, Some(last)) => flow
+                .iter()
+                .position(|m| m == last)
+                .map_or(flow.len(), |p| p + 1),
+            (None, None) => flow.iter().filter(|m| **m < moved).count(),
+        }
     }
 
     /// "Desktop 1 · 12 windows".
@@ -310,6 +412,8 @@ pub fn bands(
         number: current.map(|index| index + 1),
         current: true,
         cells: empty.clone(),
+        ghost_cell: None,
+        ghosts: Vec::new(),
     });
     for (index, desktop) in desktops.iter().enumerate() {
         if !desktop.current {
@@ -319,6 +423,8 @@ pub fn bands(
                 number: Some(index + 1),
                 current: false,
                 cells: empty.clone(),
+                ghost_cell: None,
+                ghosts: Vec::new(),
             });
         }
     }
@@ -338,6 +444,60 @@ pub fn bands(
     bands
 }
 
+/// The primary monitor's cell, when its column shows ghosts of the windows
+/// on the other monitors: only while the main taskbar lists every window,
+/// the strip is not limited to one monitor, and another monitor is
+/// connected.
+pub fn ghost_cell(
+    monitors: &[ArrangeMonitor],
+    rows: &[Vec<usize>],
+    taskbars: MultiMonitor,
+    only: Option<usize>,
+) -> Option<(usize, usize)> {
+    if only.is_some() || taskbars.shows_only_own(true) {
+        return None;
+    }
+    let connected = rows
+        .iter()
+        .flatten()
+        .filter(|monitor| monitors[**monitor].connected)
+        .count();
+    if connected < 2 {
+        return None;
+    }
+    let primary = monitors
+        .iter()
+        .position(|monitor| monitor.primary && monitor.connected)?;
+    cell_of(rows, primary)
+}
+
+/// Gives each band the ghosts of `cell`: every window in another connected
+/// monitor's column. A disconnected monitor's windows are where they were
+/// saved, not on a monitor, so they get none.
+fn add_ghosts(
+    bands: &mut [Band],
+    rows: &[Vec<usize>],
+    monitors: &[ArrangeMonitor],
+    cell: Option<(usize, usize)>,
+) {
+    for band in bands {
+        let mut ghosts: Vec<usize> = match cell {
+            None => Vec::new(),
+            Some(home) => band
+                .cells
+                .iter()
+                .enumerate()
+                .flat_map(|(r, row)| row.iter().enumerate().map(move |(c, cell)| ((r, c), cell)))
+                .filter(|(at, _)| *at != home && monitors[rows[at.0][at.1]].connected)
+                .flat_map(|(_, cell)| cell.iter().copied())
+                .collect(),
+        };
+        ghosts.sort_unstable();
+        band.ghost_cell = cell;
+        band.ghosts = ghosts;
+    }
+}
+
 /// The height of a band whose rows have these column widths, with cards
 /// `widths` wide. A desktop with none of the group's windows is its header
 /// alone.
@@ -347,22 +507,22 @@ fn band_height(band: &Band, cols: &[Vec<Col>], tracks: &[Vec<f32>], widths: &[f3
         return header + BAND_TOP;
     }
     let mut height = header + HEADER_GAP + BAND_BOTTOM;
-    for (r, row) in band.cells.iter().enumerate() {
+    for (r, (cols, tracks)) in cols.iter().zip(tracks).enumerate() {
         if r > 0 {
             height += ROW_GAP;
         }
-        height += row_height(row, &cols[r], &tracks[r], widths);
+        height += row_height(band, r, cols, tracks, widths);
     }
     height
 }
 
-/// A row of monitor columns: the label, then the tallest column, but tall
-/// enough for a rail to be a rail.
-fn row_height(row: &[Vec<usize>], cols: &[Col], tracks: &[f32], widths: &[f32]) -> f32 {
-    let tallest = row
+/// A band's row `r` of monitor columns: the label, then the tallest column,
+/// but tall enough for a rail to be a rail.
+fn row_height(band: &Band, r: usize, cols: &[Col], tracks: &[f32], widths: &[f32]) -> f32 {
+    let tallest = tracks
         .iter()
-        .zip(tracks)
-        .map(|(cell, track)| cell_height(cell, widths, *track))
+        .enumerate()
+        .map(|(c, track)| cell_height(&flow_widths(&band.flow((r, c)), widths), *track))
         .fold(0.0, f32::max);
     let height = LABEL + LABEL_GAP + tallest;
     if cols.iter().any(|col| col.rail) {
@@ -387,7 +547,7 @@ pub fn natural_width(cols: &[Vec<Col>]) -> f32 {
     cols.iter()
         .map(|row| {
             let winner = winner(row);
-            let fit = |cap: f32| -> f32 {
+            let fit = |available: f32| -> f32 {
                 row.iter()
                     .enumerate()
                     .map(|(index, col)| {
@@ -396,12 +556,12 @@ pub fn natural_width(cols: &[Vec<Col>]) -> f32 {
                         } else if Some(index) == winner {
                             col.need.max(MIN_TRACK)
                         } else {
-                            col.need.clamp(MIN_TRACK, cap.max(MIN_TRACK))
+                            capped(col, row, available)
                         }
                     })
                     .sum()
             };
-            let available = fit(fit(f32::INFINITY) * MAX_SHARE);
+            let available = fit(fit(f32::INFINITY));
             available + COLUMN_GAP * row.len().saturating_sub(1) as f32 + 2.0 * SIDE
         })
         .fold(MIN_PANEL, f32::max)
@@ -442,14 +602,23 @@ struct Model {
     widths: Vec<f32>,
 }
 
+/// Which windows the strip shows and lists where: all of them or only the
+/// `only` monitor's, and which windows each taskbar lists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Scope {
+    pub only: Option<usize>,
+    pub taskbars: MultiMonitor,
+}
+
 impl Model {
     fn new(
         group: &ArrangeGroup,
         snapshot: &ArrangeSnapshot,
         widths: &[f32],
         shown: bool,
-        only: Option<usize>,
+        scope: Scope,
     ) -> Self {
+        let Scope { only, taskbars } = scope;
         let monitors = &snapshot.monitors;
         let used = |index: usize| match only {
             Some(only) => index == only,
@@ -470,9 +639,26 @@ impl Model {
         {
             cell.retain(|member| flags[*member]);
         }
-        let bands = visible(all.clone(), shown);
+        add_ghosts(
+            &mut all,
+            &rows,
+            monitors,
+            ghost_cell(monitors, &rows, taskbars, only),
+        );
+        let mut bands = visible(all.clone(), shown);
+        let cols = columns(&bands, &rows, monitors, widths);
+        // A primary monitor with none of the group's windows folds into a
+        // rail like any other, and its ghosts go with it.
+        let folded = bands
+            .first()
+            .and_then(|band| band.ghost_cell)
+            .is_some_and(|(r, c)| cols[r][c].rail);
+        if folded {
+            add_ghosts(&mut all, &rows, monitors, None);
+            add_ghosts(&mut bands, &rows, monitors, None);
+        }
         Self {
-            cols: columns(&bands, &rows, monitors, widths),
+            cols,
             rows,
             bands,
             all,
@@ -488,9 +674,9 @@ pub fn panel_for(
     shown: bool,
     link: bool,
     limit: Vec2,
-    only: Option<usize>,
+    scope: Scope,
 ) -> Vec2 {
-    let model = Model::new(group, snapshot, widths, shown, only);
+    let model = Model::new(group, snapshot, widths, shown, scope);
     panel_size(&model.bands, &model.cols, widths, link, limit)
 }
 
@@ -535,14 +721,15 @@ pub fn locate(bands: &[Band], member: usize) -> Option<Spot> {
 }
 
 /// The group's windows in their new taskbar order once `moved` is put at
-/// `spot`: right before the window at `spot.index` among the cell's other
-/// windows, or right after the last of them. In a cell with no other window
-/// it keeps its place. Every other window keeps its order.
+/// `spot`: right before the window at `spot.index` among the other cards
+/// and ghosts of the cell, or right after the last of them. In a cell with
+/// no other window it keeps its place. Every other window keeps its order.
 pub fn order_after(count: usize, bands: &[Band], moved: usize, spot: Spot) -> Vec<usize> {
     let mut order: Vec<usize> = (0..count).filter(|member| *member != moved).collect();
-    let others: Vec<usize> = bands[spot.band].cells[spot.cell.0][spot.cell.1]
+    let others: Vec<usize> = bands[spot.band]
+        .flow(spot.cell)
         .iter()
-        .copied()
+        .map(|item| item.member())
         .filter(|member| *member != moved)
         .collect();
     let at = match others.get(spot.index) {
@@ -559,11 +746,40 @@ pub fn order_after(count: usize, bands: &[Band], moved: usize, spot: Spot) -> Ve
     order
 }
 
+/// The place in its taskbar row (from 1) that `moved` takes at `spot` in
+/// its own desktop's band: just before the card or ghost at `spot.index`
+/// among the cell's others, or just after the last of them. None in a cell
+/// with no other window.
+fn row_place(
+    group: &ArrangeGroup,
+    desktops: &[ArrangeDesktop],
+    band: &Band,
+    moved: usize,
+    spot: Spot,
+) -> Option<usize> {
+    let others: Vec<usize> = band
+        .flow(spot.cell)
+        .iter()
+        .map(|item| item.member())
+        .filter(|member| *member != moved)
+        .collect();
+    let (neighbour, after) = match others.get(spot.index) {
+        Some(next) => (*next, false),
+        None => (*others.last()?, true),
+    };
+    let (own, _) = place_in_row(group, desktops, moved)?;
+    let (place, _) = place_in_row(group, desktops, neighbour)?;
+    // Without `moved` in the row, the neighbour moves up one place.
+    let place = if own < place { place - 1 } else { place };
+    Some(if after { place + 1 } else { place })
+}
+
 /// What putting `moved` at `spot` means: a move to the band's desktop when
 /// it is another one, a move to the column's monitor when that is another
 /// one, then the group's new order.
 pub fn drop_actions(
     group: &ArrangeGroup,
+    desktops: &[ArrangeDesktop],
     bands: &[Band],
     rows: &[Vec<usize>],
     monitors: &[ArrangeMonitor],
@@ -588,11 +804,20 @@ pub fn drop_actions(
             monitor: monitors[target].device.clone(),
         });
     }
-    let order: Vec<isize> = order_after(group.windows.len(), bands, moved, spot)
-        .into_iter()
-        .map(|member| group.windows[member].hwnd)
-        .collect();
     let now: Vec<isize> = group.windows.iter().map(|window| window.hwnd).collect();
+    let order: Vec<isize> =
+        if from.map(|from| from.band) == Some(spot.band) && to.ghost_cell == Some(spot.cell) {
+            // Beside a ghost on its own desktop: the same number change the
+            // menu makes, so the windows of other desktops keep their slots.
+            row_place(group, desktops, to, moved, spot)
+                .and_then(|place| order_with_place(group, desktops, moved, place))
+                .unwrap_or_else(|| now.clone())
+        } else {
+            order_after(group.windows.len(), bands, moved, spot)
+                .into_iter()
+                .map(|member| group.windows[member].hwnd)
+                .collect()
+        };
     if order != now || !actions.is_empty() {
         actions.push(ArrangeAction::Reorder {
             group: group.key.clone(),
@@ -648,13 +873,15 @@ pub fn step(
 ) -> Option<Step> {
     let here = locate(bands, cursor)?;
     let connected = |(r, c): (usize, usize)| monitors[rows[r][c]].connected;
-    let end = |band: usize, cell: (usize, usize)| {
+    let to = |band: usize, cell: (usize, usize), card: usize| {
         Step::Move(Spot {
             band,
             cell,
-            index: bands[band].cells[cell.0][cell.1].len(),
+            index: bands[band].flow_index(cell, cursor, card),
         })
     };
+    let end =
+        |band: usize, cell: (usize, usize)| to(band, cell, bands[band].cells[cell.0][cell.1].len());
     match key {
         Key::Up | Key::Down => {
             let walk = walk(bands);
@@ -669,13 +896,10 @@ pub fn step(
         Key::Left => here
             .index
             .checked_sub(1)
-            .map(|index| Step::Move(Spot { index, ..here })),
+            .map(|index| to(here.band, here.cell, index)),
         Key::Right => {
             let len = bands[here.band].cells[here.cell.0][here.cell.1].len();
-            (here.index + 1 < len).then_some(Step::Move(Spot {
-                index: here.index + 1,
-                ..here
-            }))
+            (here.index + 1 < len).then(|| to(here.band, here.cell, here.index + 1))
         }
         Key::ShiftLeft | Key::ShiftRight => {
             let cells: Vec<(usize, usize)> = rows
@@ -824,7 +1048,11 @@ pub fn body(
     let others_count = others::count(group, &snapshot.desktops, &visible);
     let shown = shared.others.shown(others_count);
     let widths = shared.widths(group, card_width);
-    let model = Model::new(group, snapshot, &widths, shown, shared.only_monitor);
+    let scope = Scope {
+        only: shared.only_monitor,
+        taskbars: shared.taskbars,
+    };
+    let model = Model::new(group, snapshot, &widths, shown, scope);
     let mut frame = Frame::default();
     let walk = walk(&model.bands);
     let member_of = |hwnd: isize| group.windows.iter().position(|w| w.hwnd == hwnd);
@@ -868,6 +1096,7 @@ pub fn body(
             } else if let Some(spot) = target {
                 frame.actions.extend(drop_actions(
                     group,
+                    &snapshot.desktops,
                     &model.bands,
                     &model.rows,
                     &snapshot.monitors,
@@ -1118,20 +1347,20 @@ impl Draw<'_> {
         }
 
         ui.add_space(HEADER_GAP);
-        for (r, row) in band.cells.iter().enumerate() {
+        for (r, row_tracks) in tracks.iter().enumerate() {
             if r > 0 {
                 ui.add_space(ROW_GAP);
             }
-            let height = row_height(row, &self.model.cols[r], &tracks[r], &self.model.widths);
+            let height = row_height(band, r, &self.model.cols[r], row_tracks, &self.model.widths);
             let needed = 2.0 * SIDE
-                + tracks[r].iter().sum::<f32>()
-                + COLUMN_GAP * tracks[r].len().saturating_sub(1) as f32;
+                + row_tracks.iter().sum::<f32>()
+                + COLUMN_GAP * row_tracks.len().saturating_sub(1) as f32;
             let at = |rect: Rect| RowAt {
                 band_index: b,
                 row: r,
                 band,
                 rect,
-                tracks: &tracks[r],
+                tracks: row_tracks,
                 alpha,
             };
             if needed <= width + 0.5 {
@@ -1169,6 +1398,7 @@ impl Draw<'_> {
             x += track + COLUMN_GAP;
             let monitor = &self.monitors[self.model.rows[r][c]];
             let cell = &band.cells[r][c];
+            let flow = band.flow((r, c));
             let mut painter = ui.painter().clone();
             painter.multiply_opacity(alpha);
             if self.model.cols[r][c].rail {
@@ -1201,19 +1431,26 @@ impl Draw<'_> {
             );
 
             let top = inner.top() + LABEL + LABEL_GAP;
-            let widths = &self.model.widths;
-            let mut cards: Vec<(usize, Rect)> = Vec::new();
-            for (line, members) in cell_lines(cell, widths, *track).into_iter().enumerate() {
+            let widths = flow_widths(&flow, &self.model.widths);
+            let mut placed: Vec<(Item, Rect)> = Vec::new();
+            for (line, items) in cell_lines(&widths, *track).into_iter().enumerate() {
                 let mut x = inner.left();
-                for member in &cell[members] {
-                    let at = pos2(x, top + line as f32 * (CARD_HEIGHT + CARD_GAP));
-                    x += widths[*member] + CARD_GAP;
-                    cards.push((
-                        *member,
-                        Rect::from_min_size(at, vec2(widths[*member], CARD_HEIGHT)),
+                for at in items {
+                    let min = pos2(x, top + line as f32 * (CARD_HEIGHT + CARD_GAP));
+                    x += widths[at] + CARD_GAP;
+                    placed.push((
+                        flow[at],
+                        Rect::from_min_size(min, vec2(widths[at], CARD_HEIGHT)),
                     ));
                 }
             }
+            let cards: Vec<(usize, Rect)> = placed
+                .iter()
+                .filter_map(|(item, rect)| match item {
+                    Item::Card(member) => Some((*member, *rect)),
+                    Item::Ghost(_) => None,
+                })
+                .collect();
             for (member, card_rect) in &cards {
                 self.hits
                     .push((self.group.windows[*member].hwnd, *card_rect));
@@ -1228,15 +1465,20 @@ impl Draw<'_> {
                 }
                 self.card(ui, shared, frame, member, card_rect, card_alpha);
             }
+            for (item, ghost_rect) in &placed {
+                if let Item::Ghost(member) = item {
+                    self.ghost_card(ui, shared, frame, *member, *ghost_rect, alpha);
+                }
+            }
             let target_here = self
                 .target
                 .filter(|spot| spot.band == b && spot.cell == (r, c));
-            let others: Vec<Rect> = cards
+            let others: Vec<Rect> = placed
                 .iter()
-                .filter(|(member, _)| Some(*member) != self.dragged)
+                .filter(|(item, _)| Some(item.member()) != self.dragged)
                 .map(|(_, rect)| *rect)
                 .collect();
-            if cell.is_empty() && monitor.connected {
+            if flow.is_empty() && monitor.connected {
                 let empty =
                     Rect::from_min_size(pos2(inner.left(), top), vec2(inner.width(), EMPTY));
                 drop_box(
@@ -1255,7 +1497,10 @@ impl Draw<'_> {
                 cell: Some((r, c)),
                 rect: column,
                 open: monitor.connected,
-                cards,
+                cards: placed
+                    .iter()
+                    .map(|(item, rect)| (item.member(), *rect))
+                    .collect(),
             });
         }
     }
@@ -1319,6 +1564,7 @@ impl Draw<'_> {
                 dest: picture,
                 clip: ui.clip_rect(),
                 opacity: (255.0 * alpha).round() as u8,
+                ghost: false,
             });
         } else {
             name_card(&painter, picture, &window.label, "");
@@ -1385,6 +1631,147 @@ impl Draw<'_> {
             response = response.on_hover_cursor(egui::CursorIcon::Grab);
         }
         self.interact(shared, frame, member, &response);
+    }
+
+    /// A stand-in in the primary column for a window on another monitor, at
+    /// its taskbar place: an edge strip with an arrow toward that monitor
+    /// and its name, then a faded picture, the number and the title. It
+    /// cannot be dragged; a click picks the window's own card.
+    fn ghost_card(
+        &mut self,
+        ui: &mut Ui,
+        shared: &mut Shared,
+        frame: &mut Frame,
+        member: usize,
+        rect: Rect,
+        alpha: f32,
+    ) {
+        let tokens = Tokens::get(ui.ctx());
+        let window = &self.group.windows[member];
+        let Some(monitor) = column_of(window, self.monitors).and_then(|m| self.monitors.get(m))
+        else {
+            return;
+        };
+        let left = self
+            .monitors
+            .iter()
+            .find(|primary| primary.primary && primary.connected)
+            .is_some_and(|primary| points_left(monitor, primary));
+        let response = ui.interact(
+            rect,
+            egui::Id::new(("arrange-ghost", window.hwnd)),
+            Sense::click(),
+        );
+        let mut painter = ui.painter().clone();
+        painter.multiply_opacity(alpha);
+        let rule = theme::stroke(ui.ctx(), 1.0, tokens.border);
+        dashed_box(ui, &painter, rect, false);
+
+        let edge = Rect::from_min_size(rect.min, vec2(GHOST_EDGE, rect.height()));
+        let x = edge.right() - 0.5;
+        painter.extend(Shape::dashed_line(
+            &[pos2(x, rect.top()), pos2(x, rect.bottom())],
+            rule,
+            4.0,
+            3.0,
+        ));
+        let arrow = Rect::from_min_size(
+            pos2(edge.center().x - GHOST_ARROW / 2.0, rect.top() + GHOST_PAD),
+            Vec2::splat(GHOST_ARROW),
+        );
+        let icon = if left {
+            Icon::ArrowLeft
+        } else {
+            Icon::ArrowRight
+        };
+        icons::paint(&painter, arrow, icon, tokens.text_disabled);
+        let names = painter.with_clip_rect(Rect::from_min_max(
+            pos2(edge.left(), arrow.bottom() + GHOST_PAD),
+            pos2(edge.right(), rect.bottom() - GHOST_PAD),
+        ));
+        let name = names.layout_no_wrap(
+            monitor.label.clone(),
+            theme::regular(12.0),
+            tokens.text_disabled,
+        );
+        // Turned a quarter anticlockwise, it reads upward from its pivot, its
+        // bottom left corner.
+        let at = pos2(
+            edge.center().x - name.size().y / 2.0,
+            rect.bottom() - GHOST_PAD,
+        );
+        names.add(
+            egui::epaint::TextShape::new(at, name, tokens.text_disabled)
+                .with_angle(-std::f32::consts::FRAC_PI_2),
+        );
+
+        let picture_box = Rect::from_min_max(
+            pos2(edge.right(), rect.top()),
+            pos2(rect.right(), rect.top() + GHOST_PICTURE),
+        );
+        let y = picture_box.bottom() - 0.5;
+        painter.extend(Shape::dashed_line(
+            &[pos2(picture_box.left(), y), pos2(picture_box.right(), y)],
+            rule,
+            4.0,
+            3.0,
+        ));
+        let picture = picture_box.shrink(1.0);
+        let has_picture = !self.menu_open
+            && ghost_thumbnail(shared, window.hwnd)
+                .is_some_and(|thumb| thumb.source_size().is_some());
+        if has_picture {
+            frame.pending.push(Pending {
+                hwnd: window.hwnd,
+                dest: picture,
+                clip: ui.clip_rect(),
+                opacity: (255.0 * GHOST_OPACITY * alpha).round() as u8,
+                ghost: true,
+            });
+        } else {
+            let mut faded = painter.clone();
+            faded.multiply_opacity(GHOST_OPACITY);
+            name_card(&faded, picture, &window.label, "");
+        }
+
+        let chip = ghost_chip(
+            ui,
+            &painter,
+            pos2(
+                picture_box.left() + GHOST_SIDE,
+                picture_box.bottom() + GHOST_TOP,
+            ),
+            self.numbers[member],
+        );
+        let title_top = chip.bottom() + GHOST_TITLE_GAP;
+        let rows = ghost_title_rows(rect.bottom() - GHOST_TOP - title_top);
+        if rows > 0 {
+            let mut job = text::job(
+                &window.label,
+                theme::regular(12.0),
+                tokens.text_secondary,
+                Some(GHOST_LINE),
+            );
+            job.wrap = TextWrapping {
+                max_width: picture_box.width() - 2.0 * GHOST_SIDE,
+                max_rows: rows,
+                break_anywhere: false,
+                overflow_character: Some('\u{2026}'),
+            };
+            let galley = painter.layout_job(job);
+            painter.galley(
+                pos2(picture_box.left() + GHOST_SIDE, title_top),
+                galley,
+                tokens.text_secondary,
+            );
+        }
+
+        let response =
+            response.on_hover_text(format!("{} \u{b7} on {}", window.label, monitor.label));
+        if response.clicked() {
+            shared.cursor = Some(window.hwnd);
+            shared.rail_focus = None;
+        }
     }
 
     /// Clicks, drags, the menu and the hover peek of one card.
@@ -1506,6 +1893,38 @@ fn label_row(
         )
         .on_hover_text(&monitor.name);
     }
+}
+
+/// Whether a ghost's arrow points left: its monitor stands left of the
+/// primary one.
+fn points_left(monitor: &ArrangeMonitor, primary: &ArrangeMonitor) -> bool {
+    monitor.rect[0] + monitor.rect[2] < primary.rect[0] + primary.rect[2]
+}
+
+/// How many whole lines of a ghost's title fit in `room`, at most three.
+fn ghost_title_rows(room: f32) -> usize {
+    ((room.max(0.0) / GHOST_LINE).floor() as usize).min(GHOST_TITLE_ROWS)
+}
+
+/// A ghost's taskbar number in a dashed chip; returns its rectangle.
+fn ghost_chip(ui: &Ui, painter: &egui::Painter, at: egui::Pos2, number: usize) -> Rect {
+    let tokens = Tokens::get(ui.ctx());
+    let galley = painter.layout_no_wrap(
+        number.to_string(),
+        theme::regular(12.0),
+        tokens.text_disabled,
+    );
+    let chip = Rect::from_min_size(
+        at,
+        vec2((galley.size().x + 10.0).max(GHOST_CHIP), GHOST_CHIP),
+    );
+    dashed_box(ui, painter, chip, false);
+    painter.galley(
+        chip.center() - galley.size() / 2.0,
+        galley,
+        tokens.text_disabled,
+    );
+    chip
 }
 
 /// A 1 px dashed outline, in the accent while a card is about to land in it.
@@ -1842,6 +2261,7 @@ fn keyboard(
             shared.rail_focus = rail_at(&model.cols, &model.rows, spot.cell);
             frame.actions.extend(drop_actions(
                 group,
+                desktops,
                 bands,
                 &model.rows,
                 monitors,
@@ -1934,6 +2354,7 @@ mod tests {
             count,
             primary: false,
             rail: false,
+            screen: 1920.0,
         }
     }
 
@@ -1953,11 +2374,26 @@ mod tests {
     }
 
     #[test]
-    fn a_column_is_held_between_200_and_half_of_the_band() {
-        // 120 is too little; 900 is more than half of 1400. The winner is
-        // the third column, which gets what they leave.
-        let widths = tracks(&[col(120.0, 1), col(900.0, 2), col(250.0, 3)], &[], 1400.0);
-        assert_eq!(widths, [MIN_TRACK, 700.0, 500.0]);
+    fn a_column_is_held_between_200_and_its_monitors_share_of_the_band() {
+        // Three monitors of the same width: each share is 500 of 1500. 120
+        // is too little; 900 is more than its share. The winner is the
+        // third column, which gets what they leave.
+        let widths = tracks(&[col(120.0, 1), col(900.0, 2), col(250.0, 3)], &[], 1500.0);
+        assert_eq!(widths, [MIN_TRACK, 500.0, 800.0]);
+        // Monitors 1920, 3840 and 2560 wide share 1664 as 384, 768 and
+        // 512: the wide monitor's column may take more than the others.
+        let mut cols = [col(700.0, 1), col(900.0, 2), col(250.0, 3)];
+        for (col, screen) in cols.iter_mut().zip([1920.0, 3840.0, 2560.0]) {
+            col.screen = screen;
+        }
+        let widths = tracks(&cols, &[], 1664.0);
+        assert!(close(widths[0], 384.0));
+        assert!(close(widths[1], 768.0));
+        assert!(close(widths[2], 512.0));
+        // A share under 200 still leaves the column 200.
+        let mut narrow = [col(400.0, 1), col(300.0, 3)];
+        narrow[0].screen = 100.0;
+        assert_eq!(tracks(&narrow, &[], 1000.0)[0], MIN_TRACK);
         // Too narrow for both: each keeps 200 and the row scrolls.
         let widths = tracks(&[col(220.0, 1), col(300.0, 3)], &[], 380.0);
         assert_eq!(widths, [MIN_TRACK; 2]);
@@ -2031,6 +2467,8 @@ mod tests {
                 number: None,
                 current: true,
                 cells: vec![vec![Vec::new(); row.len()]],
+                ghost_cell: None,
+                ghosts: Vec::new(),
             };
             columns(&[band], &[row], &monitors, &widths)
         };
@@ -2053,6 +2491,8 @@ mod tests {
             number: None,
             current: true,
             cells: vec![vec![vec![0], vec![], vec![], vec![]]],
+            ghost_cell: None,
+            ghosts: Vec::new(),
         };
         let cols = columns(&[band], &rows, &monitors, &[179.0]);
         let rails: Vec<bool> = cols[0].iter().map(|col| col.rail).collect();
@@ -2061,17 +2501,25 @@ mod tests {
 
     #[test]
     fn a_rail_row_is_at_least_150_high() {
-        let row = [Vec::new(), Vec::new()];
+        let band = Band {
+            desktop: String::new(),
+            title: String::new(),
+            number: None,
+            current: true,
+            cells: vec![vec![Vec::new(), Vec::new()]],
+            ghost_cell: None,
+            ghosts: Vec::new(),
+        };
         let tracks = [40.0, 300.0];
         // Windows are only on another desktop: this band's row would be
         // 18 + 8 + 112 high.
         const { assert!(LABEL + LABEL_GAP + EMPTY < RAIL_MIN_HEIGHT) };
         assert_eq!(
-            row_height(&row, &[rail_col(), col(200.0, 1)], &tracks, &SAME),
+            row_height(&band, 0, &[rail_col(), col(200.0, 1)], &tracks, &SAME),
             RAIL_MIN_HEIGHT
         );
         assert_eq!(
-            row_height(&row, &[col(200.0, 0), col(200.0, 1)], &tracks, &SAME),
+            row_height(&band, 0, &[col(200.0, 0), col(200.0, 1)], &tracks, &SAME),
             LABEL + LABEL_GAP + EMPTY
         );
     }
@@ -2083,6 +2531,8 @@ mod tests {
             number: Some(1),
             current: true,
             cells: vec![vec![vec![], vec![0, 1], vec![]]],
+            ghost_cell: None,
+            ghosts: Vec::new(),
         }]
     }
 
@@ -2119,7 +2569,7 @@ mod tests {
         }];
         let landing = drop_spot(pos2(1000.0, 150.0), &zones, 1, (0, 1)).expect("a spot");
         assert_eq!(landing, spot(0, (0, 2), 0));
-        let actions = drop_actions(&group, &bands, &rows, &monitors, 1, landing);
+        let actions = drop_actions(&group, &desktops(), &bands, &rows, &monitors, 1, landing);
         assert_eq!(
             actions[0],
             ArrangeAction::MoveToMonitor {
@@ -2272,7 +2722,7 @@ mod tests {
         assert_eq!(tracks[0], MIN_TRACK);
         assert_eq!(tracks[2], MIN_TRACK);
         // Two cards fit side by side in the middle column, not three.
-        assert_eq!(cell_lines(&[0, 1, 2], &SAME, tracks[1]), [0..2, 2..3]);
+        assert_eq!(cell_lines(&SAME[..3], tracks[1]), [0..2, 2..3]);
 
         // Never wider than the limit, nor taller.
         let small = panel_size(&one_each, &cols, &SAME, false, vec2(800.0, 300.0));
@@ -2303,15 +2753,12 @@ mod tests {
         // A 240 column holds 227 of cards: a 60 and a 140 side by side
         // (208), then a 230 that only fits alone.
         let widths = [60.0, 140.0, 230.0, 60.0];
+        assert_eq!(cell_lines(&widths, 240.0), [0..2, 2..3, 3..4]);
         assert_eq!(
-            cell_lines(&[0, 1, 2, 3], &widths, 240.0),
-            [0..2, 2..3, 3..4]
-        );
-        assert_eq!(
-            cell_height(&[0, 1, 2, 3], &widths, 240.0),
+            cell_height(&widths, 240.0),
             3.0 * CARD_HEIGHT + 2.0 * CARD_GAP
         );
-        assert_eq!(cell_height(&[], &widths, 240.0), EMPTY);
+        assert_eq!(cell_height(&[], 240.0), EMPTY);
         // The widest cell on one line sets the panel's width.
         let band = Band {
             desktop: String::new(),
@@ -2319,6 +2766,8 @@ mod tests {
             number: None,
             current: true,
             cells: vec![vec![vec![0, 1, 2]]],
+            ghost_cell: None,
+            ghosts: Vec::new(),
         };
         let cols = columns(&[band], &[vec![0]], &desk(), &widths);
         let width = natural_width(&cols);
@@ -2405,6 +2854,8 @@ mod tests {
                 number: Some(2),
                 current: true,
                 cells: vec![vec![vec![0, 1], vec![2, 3, 4], vec![]]],
+                ghost_cell: None,
+                ghosts: Vec::new(),
             },
             Band {
                 desktop: "d0".to_string(),
@@ -2412,6 +2863,8 @@ mod tests {
                 number: Some(1),
                 current: false,
                 cells: vec![vec![vec![], vec![5], vec![]]],
+                ghost_cell: None,
+                ghosts: Vec::new(),
             },
         ]
     }
@@ -2540,19 +2993,37 @@ mod tests {
             anchor: None,
         };
         let widths = [179.0; 5];
-        let all = Model::new(&group, &snapshot, &widths, false, None);
+        let all = Model::new(
+            &group,
+            &snapshot,
+            &widths,
+            false,
+            scope(None, MultiMonitor::default()),
+        );
         assert_eq!(all.rows, [vec![1, 0, 2]]);
-        let right = Model::new(&group, &snapshot, &widths, false, Some(2));
+        let right = Model::new(
+            &group,
+            &snapshot,
+            &widths,
+            false,
+            scope(Some(2), MultiMonitor::default()),
+        );
         assert_eq!(right.rows, [vec![2]]);
         // One column in its row: no rail, and it takes the whole row.
         assert_eq!(right.cols.len(), 1);
         assert_eq!(right.cols[0].len(), 1);
         assert!(!right.cols[0][0].rail);
-        assert!(!Model::new(&group, &snapshot, &widths, false, Some(3))
-            .cols
-            .iter()
-            .flatten()
-            .any(|col| col.rail));
+        assert!(!Model::new(
+            &group,
+            &snapshot,
+            &widths,
+            false,
+            scope(Some(3), MultiMonitor::default())
+        )
+        .cols
+        .iter()
+        .flatten()
+        .any(|col| col.rail));
         assert_eq!(right.bands[0].cells, [vec![vec![1, 3]]]);
         assert_eq!(walk(&right.bands), [1, 3]);
         // A drop inside the one column reorders the whole group.
@@ -2577,7 +3048,15 @@ mod tests {
             ("d1", Some(0), None),
             ("d0", Some(0), None),
         ]);
-        let actions = drop_actions(&group, &bands, &rows, &monitors, 1, spot(1, (0, 1), 1));
+        let actions = drop_actions(
+            &group,
+            &desktops(),
+            &bands,
+            &rows,
+            &monitors,
+            1,
+            spot(1, (0, 1), 1),
+        );
         assert_eq!(
             actions[0],
             ArrangeAction::MoveToDesktop {
@@ -2601,7 +3080,16 @@ mod tests {
             }
         );
         // Dropped where it already is: nothing to do.
-        assert!(drop_actions(&group, &bands, &rows, &monitors, 3, spot(0, (0, 1), 1)).is_empty());
+        assert!(drop_actions(
+            &group,
+            &desktops(),
+            &bands,
+            &rows,
+            &monitors,
+            3,
+            spot(0, (0, 1), 1)
+        )
+        .is_empty());
     }
 
     #[test]
@@ -2619,7 +3107,15 @@ mod tests {
         ]);
         // Window 3, on the primary monitor, to the empty right column.
         assert_eq!(
-            drop_actions(&group, &bands, &rows, &monitors, 3, spot(0, (0, 2), 0)),
+            drop_actions(
+                &group,
+                &desktops(),
+                &bands,
+                &rows,
+                &monitors,
+                3,
+                spot(0, (0, 2), 0)
+            ),
             [
                 ArrangeAction::MoveToMonitor {
                     hwnd: 103,
@@ -2647,7 +3143,15 @@ mod tests {
         // Dropped on the primary column: that is where it is, but the
         // plugin hears of it, so the saved monitor follows.
         assert_eq!(
-            drop_actions(&group, &bands, &rows, &monitors, 0, spot(0, (0, 1), 0)),
+            drop_actions(
+                &group,
+                &desktops(),
+                &bands,
+                &rows,
+                &monitors,
+                0,
+                spot(0, (0, 1), 0)
+            ),
             [
                 ArrangeAction::MoveToMonitor {
                     hwnd: 100,
@@ -2805,6 +3309,310 @@ mod tests {
         assert_eq!(
             drop_spot(pos2(500.0, 420.0), &zones, 0, (0, 1)),
             Some(spot(1, (0, 1), 0))
+        );
+    }
+
+    fn scope(only: Option<usize>, taskbars: MultiMonitor) -> Scope {
+        Scope { only, taskbars }
+    }
+
+    fn taskbars(mode: u32) -> MultiMonitor {
+        MultiMonitor::from_values(Some(1), Some(mode))
+    }
+
+    #[test]
+    fn only_the_primary_column_gets_ghosts_and_only_when_its_taskbar_lists_all() {
+        let monitors = desk();
+        let rows = monitor_rows(&monitors, &every);
+        // The primary monitor is the centre column.
+        assert_eq!(
+            ghost_cell(&monitors, &rows, taskbars(0), None),
+            Some((0, 1))
+        );
+        assert_eq!(
+            ghost_cell(&monitors, &rows, taskbars(1), None),
+            Some((0, 1))
+        );
+        assert_eq!(ghost_cell(&monitors, &rows, taskbars(2), None), None);
+        // One taskbar only: it lists every window.
+        let one_taskbar = MultiMonitor::from_values(Some(0), Some(2));
+        assert_eq!(
+            ghost_cell(&monitors, &rows, one_taskbar, None),
+            Some((0, 1))
+        );
+        // A hover strip limited to a secondary taskbar's own monitor.
+        assert_eq!(ghost_cell(&monitors, &rows, taskbars(1), Some(2)), None);
+        // A single monitor, even with a disconnected one beside it.
+        let single = vec![monitor([0, 0, 1920, 1080], 48, true), disconnected()];
+        let single_rows = monitor_rows(&single, &every);
+        assert_eq!(ghost_cell(&single, &single_rows, taskbars(0), None), None);
+    }
+
+    /// Six windows of one desktop: 1 and 3 on the right monitor, 4 on the
+    /// left, the others on the primary one.
+    fn spread() -> (ArrangeGroup, ArrangeSnapshot) {
+        let on = |hwnd: isize, monitor: usize| ArrangeWindow {
+            hwnd,
+            label: format!("w{hwnd}"),
+            desktop: "d1".to_string(),
+            monitor: None,
+            on_monitor: Some(monitor),
+            saved_monitor: Some(monitor),
+            renamed: false,
+            same_title: false,
+            attention: false,
+        };
+        let group = ArrangeGroup {
+            key: "claude.exe".to_string(),
+            label: "Claude".to_string(),
+            windows: vec![on(0, 0), on(1, 2), on(2, 0), on(3, 2), on(4, 1), on(5, 0)],
+        };
+        let snapshot = ArrangeSnapshot {
+            plugin: "layout_keeper".to_string(),
+            groups: vec![group.clone()],
+            desktops: vec![ArrangeDesktop {
+                id: "d1".to_string(),
+                name: "Work".to_string(),
+                current: true,
+            }],
+            focus: 0,
+            watched: Vec::new(),
+            preview: true,
+            can_rename: false,
+            monitors: desk(),
+            view: crate::core::ui_bridge::ArrangeView::ByMonitor,
+            anchor: None,
+        };
+        (group, snapshot)
+    }
+
+    fn spread_model(mode: u32) -> Model {
+        let (group, snapshot) = spread();
+        Model::new(
+            &group,
+            &snapshot,
+            &[179.0; 6],
+            false,
+            scope(None, taskbars(mode)),
+        )
+    }
+
+    #[test]
+    fn ghosts_sit_at_their_windows_taskbar_numbers() {
+        let (group, snapshot) = spread();
+        let model = spread_model(1);
+        let band = &model.bands[0];
+        assert_eq!(band.ghost_cell, Some((0, 1)));
+        let flow = band.flow((0, 1));
+        assert_eq!(
+            flow,
+            [
+                Item::Card(0),
+                Item::Ghost(1),
+                Item::Card(2),
+                Item::Ghost(3),
+                Item::Ghost(4),
+                Item::Card(5),
+            ]
+        );
+        // Left to right, the column reads the taskbar's numbers in order.
+        let numbers = taskbar_numbers(&group, &snapshot.desktops);
+        let read: Vec<usize> = flow.iter().map(|item| numbers[item.member()]).collect();
+        assert_eq!(read, [1, 2, 3, 4, 5, 6]);
+        // The other columns have no ghosts, and ghosts are not counted.
+        assert_eq!(band.flow((0, 2)), [Item::Card(1), Item::Card(3)]);
+        assert_eq!(model.cols[0][1].count, 3);
+        // Three cards and three ghosts on one line.
+        let need = INSET + 3.0 * 179.0 + 3.0 * GHOST_WIDTH + 5.0 * CARD_GAP;
+        assert!(close(model.cols[0][1].need, need));
+        // Every taskbar lists only its own windows: no ghosts.
+        assert!(spread_model(2).bands[0].ghosts.is_empty());
+    }
+
+    #[test]
+    fn a_primary_monitor_without_windows_folds_into_a_rail_without_ghosts() {
+        let (mut group, mut snapshot) = spread();
+        group.windows.retain(|window| window.on_monitor != Some(0));
+        snapshot.groups = vec![group.clone()];
+        let model = Model::new(
+            &group,
+            &snapshot,
+            &[179.0; 3],
+            false,
+            scope(None, taskbars(0)),
+        );
+        assert!(model.cols[0][1].rail);
+        assert_eq!(model.bands[0].ghost_cell, None);
+        assert!(model.bands[0].ghosts.is_empty());
+    }
+
+    #[test]
+    fn a_disconnected_monitors_windows_get_no_ghosts() {
+        let mut monitors = desk();
+        monitors.push(disconnected());
+        let rows = monitor_rows(&monitors, &every);
+        let mut bands = bands(
+            &group(&[("d1", Some(0), Some(3)), ("d1", Some(2), None)]),
+            &desktops(),
+            &monitors,
+            &rows,
+        );
+        add_ghosts(&mut bands, &rows, &monitors, Some((0, 1)));
+        assert_eq!(bands[0].ghosts, [1]);
+    }
+
+    #[test]
+    fn the_keys_walk_past_ghosts_and_move_among_cards() {
+        let (group, snapshot) = spread();
+        let model = spread_model(1);
+        let monitors = &snapshot.monitors;
+        // Only real cards: the left column, the primary one, the right one.
+        assert_eq!(walk(&model.bands), [4, 0, 2, 5, 1, 3]);
+        let step = |cursor: usize, key: Key| step(&model.bands, &model.rows, monitors, cursor, key);
+        assert_eq!(step(0, Key::Down), Some(Step::Select(2)));
+        assert_eq!(step(5, Key::Down), Some(Step::Select(1)));
+        // Window 5 one card to the left: before window 2, past ghosts 3, 4.
+        let Some(Step::Move(left)) = step(5, Key::Left) else {
+            panic!("expected a move");
+        };
+        assert_eq!(left, spot(0, (0, 1), 2));
+        assert_eq!(
+            drop_actions(
+                &group,
+                &snapshot.desktops,
+                &model.bands,
+                &model.rows,
+                monitors,
+                5,
+                left
+            ),
+            [ArrangeAction::Reorder {
+                group: "claude.exe".to_string(),
+                order: vec![0, 1, 5, 2, 3, 4],
+            }]
+        );
+        // Window 4 from the left monitor to the end of the primary column:
+        // after its last card.
+        assert_eq!(
+            step(4, Key::ShiftRight),
+            Some(Step::Move(spot(0, (0, 1), 5)))
+        );
+    }
+
+    #[test]
+    fn a_drop_beside_a_ghost_takes_the_place_next_to_its_window() {
+        let (group, snapshot) = spread();
+        let model = spread_model(1);
+        let drop = |moved: usize, index: usize| {
+            drop_actions(
+                &group,
+                &snapshot.desktops,
+                &model.bands,
+                &model.rows,
+                &snapshot.monitors,
+                moved,
+                spot(0, (0, 1), index),
+            )
+        };
+        let reorder = |order: Vec<isize>| ArrangeAction::Reorder {
+            group: "claude.exe".to_string(),
+            order,
+        };
+        // Window 0 after ghost 3: before ghost 4, so number 4.
+        assert_eq!(drop(0, 3), [reorder(vec![1, 2, 3, 0, 4, 5])]);
+        // Window 2 before ghost 1: number 2.
+        assert_eq!(drop(2, 1), [reorder(vec![0, 2, 1, 3, 4, 5])]);
+        // Past the last item: the last number.
+        assert_eq!(drop(0, 5), [reorder(vec![1, 2, 3, 4, 5, 0])]);
+        // Window 1 from the right monitor, before ghost 4: it moves to the
+        // primary monitor and takes number 4.
+        assert_eq!(
+            drop(1, 3),
+            [
+                ArrangeAction::MoveToMonitor {
+                    hwnd: 1,
+                    monitor: snapshot.monitors[0].device.clone()
+                },
+                reorder(vec![0, 2, 3, 1, 4, 5]),
+            ]
+        );
+        // Back where it is: nothing to do.
+        assert!(drop(2, 2).is_empty());
+    }
+
+    #[test]
+    fn a_drop_beside_a_ghost_keeps_other_desktops_in_their_slots() {
+        let (mut group, mut snapshot) = spread();
+        group.windows[2].desktop = "d0".to_string();
+        snapshot.desktops.push(ArrangeDesktop {
+            id: "d0".to_string(),
+            name: "Home".to_string(),
+            current: false,
+        });
+        snapshot.groups = vec![group.clone()];
+        let model = Model::new(
+            &group,
+            &snapshot,
+            &[179.0; 6],
+            false,
+            scope(None, taskbars(0)),
+        );
+        // Window 5 before ghost 1, on this desktop's row 0 1 3 4 5.
+        let actions = drop_actions(
+            &group,
+            &snapshot.desktops,
+            &model.bands,
+            &model.rows,
+            &snapshot.monitors,
+            5,
+            spot(0, (0, 1), 1),
+        );
+        assert_eq!(
+            actions,
+            [ArrangeAction::Reorder {
+                group: "claude.exe".to_string(),
+                order: vec![0, 5, 2, 1, 3, 4],
+            }]
+        );
+    }
+
+    #[test]
+    fn a_ghost_points_toward_its_monitor_and_its_title_fits_whole_lines() {
+        let monitors = desk();
+        assert!(points_left(&monitors[1], &monitors[0]));
+        assert!(!points_left(&monitors[2], &monitors[0]));
+        // Below the 58 px picture, the 16 px chip and the gaps: 40 px.
+        let room =
+            CARD_HEIGHT - GHOST_PICTURE - GHOST_TOP - GHOST_CHIP - GHOST_TITLE_GAP - GHOST_TOP;
+        assert_eq!(ghost_title_rows(room), 2);
+        assert_eq!(ghost_title_rows(100.0), 3);
+        assert_eq!(ghost_title_rows(-4.0), 0);
+    }
+
+    #[test]
+    fn a_drag_lands_beside_ghosts_like_beside_cards() {
+        let at = |x: f32, w: f32| Rect::from_min_size(pos2(x, 26.0), vec2(w, CARD_HEIGHT));
+        let zones = vec![Zone {
+            band: 0,
+            cell: Some((0, 1)),
+            rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 200.0)),
+            open: true,
+            // A card, a ghost, a card.
+            cards: vec![
+                (0, at(13.0, 179.0)),
+                (1, at(200.0, 84.0)),
+                (2, at(292.0, 179.0)),
+            ],
+        }];
+        // Over the ghost's right half: after it, before card 2.
+        assert_eq!(
+            drop_spot(pos2(270.0, 60.0), &zones, 5, (0, 1)),
+            Some(spot(0, (0, 1), 2))
+        );
+        // Over its left half: before it.
+        assert_eq!(
+            drop_spot(pos2(210.0, 60.0), &zones, 5, (0, 1)),
+            Some(spot(0, (0, 1), 1))
         );
     }
 }
