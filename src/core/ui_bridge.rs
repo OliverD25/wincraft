@@ -43,8 +43,8 @@ pub enum HostCommand {
     OpenLayout,
     OpenLog,
     OpenConfig,
-    CheckForUpdates,
-    UpdateNow,
+    /// Check now, and install a newer release at once.
+    UpdateWinCraft,
     TogglePlugin(usize),
     Exit,
 }

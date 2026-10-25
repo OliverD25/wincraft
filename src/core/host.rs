@@ -163,8 +163,12 @@ struct Updates {
     failed: Option<String>,
     /// The version that started this one and waits to hear it is healthy.
     healthy_pending: Option<String>,
-    /// A test scene's `--update-now`: update as soon as the check finds one.
+    /// Update as soon as the check finds a newer release: About's Update
+    /// now, the palette's "Update WinCraft" or a test scene's `--update-now`.
     auto_update: bool,
+    /// The palette's "Update WinCraft" started this check, so its answer is
+    /// said in a notice whatever it is.
+    report: bool,
     /// What About shows under "What's new": the notes of this version.
     installed_notes: Option<String>,
     tx: Sender<UpdateEvent>,
@@ -184,6 +188,7 @@ impl Default for Updates {
             failed: None,
             healthy_pending: None,
             auto_update: false,
+            report: false,
             installed_notes: None,
             tx,
             rx,
@@ -214,6 +219,7 @@ impl Updates {
         self.checking = false;
         let manual = std::mem::take(&mut self.manual);
         let auto_update = std::mem::take(&mut self.auto_update);
+        let report = std::mem::take(&mut self.report);
         let mut after = AfterCheck::default();
         let checked = match result {
             Ok(checked) => checked,
@@ -221,6 +227,10 @@ impl Updates {
                 log::info!("update check failed: {err}");
                 if manual {
                     self.status = UpdateStatus::Offline;
+                }
+                if report {
+                    after.notice =
+                        Some("WinCraft could not check for updates. Is the PC online?".to_string());
                 }
                 return after;
             }
@@ -232,6 +242,9 @@ impl Updates {
                 log::info!("update check: no release is published yet");
                 self.status = UpdateStatus::NoRelease;
                 self.newer = None;
+                if report {
+                    after.notice = Some("No WinCraft release is published yet".to_string());
+                }
             }
             Checked::UpToDate(tag) => {
                 log::info!("update check: {tag} is the newest release, nothing to update");
@@ -240,6 +253,12 @@ impl Updates {
                 // The check keeps the notes when the newest release is this one.
                 after.reload_notes = true;
                 config.latest = tag;
+                if report {
+                    after.notice = Some(format!(
+                        "WinCraft is up to date ({})",
+                        env!("CARGO_PKG_VERSION")
+                    ));
+                }
             }
             Checked::Newer(release) => {
                 log::info!("update check: {} is available", release.tag);
@@ -250,6 +269,12 @@ impl Updates {
                         release.tag.trim_start_matches(['v', 'V'])
                     ));
                     config.latest = release.tag.clone();
+                }
+                if report && auto_update {
+                    after.notice = Some(format!(
+                        "Updating WinCraft to {}. It restarts when the new version is in place.",
+                        release.tag.trim_start_matches(['v', 'V'])
+                    ));
                 }
                 self.newer = Some(release);
                 after.update_now = auto_update;
@@ -632,7 +657,7 @@ impl Host {
                 .unwrap_or(false),
             config_path: config::config_path(),
             log_path: config::log_path(),
-            commands: self.plugins.palette_entries(&plugins, &update),
+            commands: self.plugins.palette_entries(&plugins),
             plugins,
             search: self.config.search.clone(),
             tips: self.config.tips.clone(),
@@ -725,6 +750,23 @@ impl Host {
         if tidy {
             update::remove_leftovers_soon(install::dir());
         }
+    }
+
+    /// The palette's "Update WinCraft": choosing it is the consent. It
+    /// checks now and installs a newer release at once, by the same path as
+    /// About's Update now; any other answer is said in a notice.
+    fn update_from_palette(&mut self) {
+        if self.updates.busy {
+            log::info!("update WinCraft: an update is already running");
+            return;
+        }
+        if let Some(reason) = self.updates.blocked.clone() {
+            self.update_notice(&format!("This WinCraft cannot update itself: {reason}"));
+            return;
+        }
+        self.updates.auto_update = true;
+        self.updates.report = true;
+        self.check_for_updates(true);
     }
 
     /// Downloads on its own thread; the swap and the restart follow in
@@ -1101,8 +1143,7 @@ impl Host {
             }
             CommandId::Host(HostCommand::OpenConfig) => open_in_notepad(&config::config_path()),
             CommandId::Host(HostCommand::OpenLog) => open_in_notepad(&config::log_path()),
-            CommandId::Host(HostCommand::CheckForUpdates) => self.check_for_updates(true),
-            CommandId::Host(HostCommand::UpdateNow) => self.update_now(),
+            CommandId::Host(HostCommand::UpdateWinCraft) => self.update_from_palette(),
             CommandId::Host(HostCommand::Exit) => self.shutdown(),
             CommandId::Host(HostCommand::TogglePlugin(index)) => {
                 if index < self.plugins.slots.len() {
@@ -1701,7 +1742,7 @@ impl PluginSet {
             .unwrap_or("")
     }
 
-    fn palette_entries(&self, plugins: &[PluginInfo], update: &UpdateView) -> Vec<PaletteEntry> {
+    fn palette_entries(&self, plugins: &[PluginInfo]) -> Vec<PaletteEntry> {
         let mut entries = Vec::new();
         let host_group = "WinCraft".to_string();
         for (command, label) in [
@@ -1711,7 +1752,7 @@ impl PluginSet {
             (HostCommand::OpenAbout, "About WinCraft"),
             (HostCommand::OpenConfig, "Open the config file"),
             (HostCommand::OpenLog, "Open the log file"),
-            (HostCommand::CheckForUpdates, "Check for updates"),
+            (HostCommand::UpdateWinCraft, "Update WinCraft"),
             (HostCommand::Exit, "Quit WinCraft"),
         ] {
             entries.push(PaletteEntry {
@@ -1721,27 +1762,10 @@ impl PluginSet {
                 hint: String::new(),
                 disabled: false,
                 plugin: None,
-                subtitle: None,
+                subtitle: (command == HostCommand::UpdateWinCraft)
+                    .then(|| "Checks now and installs a newer version at once".to_string()),
             });
         }
-        // Not listed when this copy cannot update itself: a dimmed row would
-        // say "plugin off", which is wrong here.
-        if let (Some(release), None) = (&update.available, &update.blocked) {
-            let version = release.tag.strip_prefix('v').unwrap_or(&release.tag);
-            entries.insert(
-                6,
-                PaletteEntry {
-                    id: CommandId::Host(HostCommand::UpdateNow),
-                    group: host_group.clone(),
-                    label: format!("Update to {version}"),
-                    hint: String::new(),
-                    disabled: false,
-                    plugin: None,
-                    subtitle: Some("Downloads, checks and restarts WinCraft".to_string()),
-                },
-            );
-        }
-
         for (index, slot) in self.slots.iter().enumerate() {
             let meta = slot.plugin.metadata();
             let group = meta.name.to_string();
@@ -3190,7 +3214,7 @@ mod tests {
                 page_action: None,
             }]
         };
-        let off = set.palette_entries(&plugins(&set), &UpdateView::default());
+        let off = set.palette_entries(&plugins(&set));
         let mine: Vec<(&str, &str, bool)> = off
             .iter()
             .filter(|entry| entry.group == "Fake A")
@@ -3211,7 +3235,7 @@ mod tests {
             8
         );
         set.enable(0);
-        let on = set.palette_entries(&plugins(&set), &UpdateView::default());
+        let on = set.palette_entries(&plugins(&set));
         let toggle = on.iter().find(|entry| entry.group == "Fake A").unwrap();
         assert_eq!(toggle.label, "Turn Fake A off");
         assert_eq!(toggle.id, CommandId::Host(HostCommand::TogglePlugin(0)));
@@ -3222,7 +3246,7 @@ mod tests {
     }
 
     #[test]
-    fn the_palette_offers_an_update_only_when_a_newer_release_is_known_and_allowed() {
+    fn the_palette_has_one_update_command_whatever_is_known() {
         let data = Scratch::new("update-entries");
         let (log, keyboard) = (diary(), FakeKeys::default());
         let set = plugin_set(
@@ -3230,54 +3254,22 @@ mod tests {
             &keyboard,
             &data,
         );
-        let labels = |update: &UpdateView| -> Vec<(String, String)> {
-            set.palette_entries(&[], update)
-                .into_iter()
-                .filter(|entry| entry.group == "WinCraft")
-                .map(|entry| (entry.label, entry.subtitle.unwrap_or_default()))
-                .collect()
-        };
-        let newer = NewRelease {
-            tag: "v0.17.9".to_string(),
-            notes: String::new(),
-            page: String::new(),
-        };
-
-        let none = labels(&UpdateView::default());
-        assert!(none.iter().any(|(label, _)| label == "Check for updates"));
-        assert!(!none.iter().any(|(label, _)| label.starts_with("Update to")));
-
-        let known = labels(&UpdateView {
-            available: Some(newer.clone()),
-            ..Default::default()
-        });
-        let update = known
-            .iter()
-            .find(|(label, _)| label.starts_with("Update to"));
+        let updates: Vec<PaletteEntry> = set
+            .palette_entries(&[])
+            .into_iter()
+            .filter(|entry| entry.group == "WinCraft" && entry.label.contains("pdate"))
+            .collect();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].label, "Update WinCraft");
+        assert_eq!(updates[0].id, CommandId::Host(HostCommand::UpdateWinCraft));
         assert_eq!(
-            update,
-            Some(&(
-                "Update to 0.17.9".to_string(),
-                "Downloads, checks and restarts WinCraft".to_string()
-            ))
+            updates[0].subtitle.as_deref(),
+            Some("Checks now and installs a newer version at once")
         );
-        assert!(known.iter().any(|(label, _)| label == "Check for updates"));
-
-        let blocked = labels(&UpdateView {
-            available: Some(newer),
-            blocked: Some("a development build".to_string()),
-            ..Default::default()
-        });
-        assert!(!blocked
-            .iter()
-            .any(|(label, _)| label.starts_with("Update to")));
-        assert!(blocked
-            .iter()
-            .any(|(label, _)| label == "Check for updates"));
     }
 
     #[test]
-    fn the_update_commands_reach_the_update_code_and_the_snapshot_lists_them() {
+    fn update_wincraft_waits_for_a_running_update_and_says_why_it_cannot() {
         let data = Scratch::new("update-commands");
         let (log, keyboard) = (diary(), FakeKeys::default());
         let (mut host, ui) = test_host(
@@ -3285,21 +3277,85 @@ mod tests {
             &keyboard,
             &data,
         );
-        host.updates.busy = true;
         host.updates.newer = Some(release("v0.17.9"));
         host.publish();
         let listed = snapshots(&ui).pop().unwrap().commands;
-        assert!(listed.iter().any(|entry| entry.label == "Update to 0.17.9"));
+        assert!(listed.iter().any(|entry| entry.label == "Update WinCraft"));
+        assert!(!listed
+            .iter()
+            .any(|entry| entry.label.starts_with("Update to")));
 
-        // Busy: neither command starts a download or a second check.
+        // Busy: no second download and no second check.
+        host.updates.busy = true;
         host.handle_request(HostRequest::RunCommand(CommandId::Host(
-            HostCommand::UpdateNow,
+            HostCommand::UpdateWinCraft,
         )));
-        host.handle_request(HostRequest::RunCommand(CommandId::Host(
-            HostCommand::CheckForUpdates,
-        )));
-        assert!(host.updates.busy && !host.updates.checking);
+        assert!(!host.updates.checking && !host.updates.auto_update);
         assert_eq!(host.updates.status, UpdateStatus::Idle);
+
+        // A copy that cannot update itself checks nothing.
+        host.updates.busy = false;
+        host.updates.blocked = Some("a development build".to_string());
+        host.handle_request(HostRequest::RunCommand(CommandId::Host(
+            HostCommand::UpdateWinCraft,
+        )));
+        assert!(!host.updates.checking && !host.updates.auto_update && !host.updates.report);
+    }
+
+    #[test]
+    fn update_wincraft_says_every_answer_and_installs_a_newer_one() {
+        let asked = || Updates {
+            manual: true,
+            auto_update: true,
+            report: true,
+            ..Updates::default()
+        };
+        let mut config = UpdateConfig::default();
+        let version = env!("CARGO_PKG_VERSION");
+
+        let mut updates = asked();
+        let after = updates.checked(
+            Ok(Checked::UpToDate(format!("v{version}"))),
+            &mut config,
+            100,
+        );
+        assert_eq!(
+            after.notice,
+            Some(format!("WinCraft is up to date ({version})"))
+        );
+        assert!(!after.update_now);
+
+        let mut updates = asked();
+        let after = updates.checked(Ok(Checked::Newer(release("v9.9.9"))), &mut config, 100);
+        assert!(after.update_now, "installed at once");
+        assert_eq!(
+            after.notice.as_deref(),
+            Some("Updating WinCraft to 9.9.9. It restarts when the new version is in place.")
+        );
+
+        let mut updates = asked();
+        let after = updates.checked(Err("no network".to_string()), &mut config, 100);
+        assert_eq!(
+            after.notice.as_deref(),
+            Some("WinCraft could not check for updates. Is the PC online?")
+        );
+
+        let mut updates = asked();
+        let after = updates.checked(Ok(Checked::NoRelease), &mut config, 100);
+        assert_eq!(
+            after.notice.as_deref(),
+            Some("No WinCraft release is published yet")
+        );
+        assert!(!updates.report, "said once");
+
+        // A daily check stays quiet when nothing is new.
+        let mut daily = Updates::default();
+        let after = daily.checked(
+            Ok(Checked::UpToDate(format!("v{version}"))),
+            &mut config,
+            200,
+        );
+        assert_eq!(after.notice, None);
     }
 
     fn release(tag: &str) -> Release {

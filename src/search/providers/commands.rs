@@ -169,11 +169,7 @@ mod tests {
     fn the_bang_prefix_lists_every_command_and_only_commands() {
         let commands = [
             host_entry(HostCommand::OpenSettings, "WinCraft", "Open settings"),
-            host_entry(
-                HostCommand::CheckForUpdates,
-                "WinCraft",
-                "Check for updates",
-            ),
+            host_entry(HostCommand::UpdateWinCraft, "WinCraft", "Update WinCraft"),
             entry("ScreenDimmer", "Wake all monitors", true),
         ];
         let context = Context {
@@ -187,7 +183,7 @@ mod tests {
         let titles: Vec<&str> = all.items.iter().map(|item| item.title.as_str()).collect();
         assert_eq!(
             titles,
-            ["Open settings", "Check for updates", "Wake all monitors"],
+            ["Open settings", "Update WinCraft", "Wake all monitors"],
             "host commands first, in the host's order, then each plugin"
         );
 
@@ -196,15 +192,10 @@ mod tests {
     }
 
     #[test]
-    fn typing_upd_finds_the_update_commands() {
+    fn typing_upd_finds_the_one_update_command() {
         let commands = [
             host_entry(HostCommand::OpenSettings, "WinCraft", "Open settings"),
-            host_entry(
-                HostCommand::CheckForUpdates,
-                "WinCraft",
-                "Check for updates",
-            ),
-            host_entry(HostCommand::UpdateNow, "WinCraft", "Update to 0.17.9"),
+            host_entry(HostCommand::UpdateWinCraft, "WinCraft", "Update WinCraft"),
         ];
         let context = Context {
             commands: &commands,
@@ -215,12 +206,11 @@ mod tests {
             let found = router.search(prefix, text, &context);
             found.items.iter().any(|item| item.title == title)
         };
-        assert!(has(&mut router, None, "upd", "Check for updates"));
-        assert!(has(&mut router, None, "update", "Update to 0.17.9"));
-        assert!(has(&mut router, None, "check", "Check for updates"));
+        assert!(has(&mut router, None, "upd", "Update WinCraft"));
+        assert!(has(&mut router, None, "update", "Update WinCraft"));
         let found = router.search(Some("!"), "upd", &context);
         let titles: Vec<&str> = found.items.iter().map(|item| item.title.as_str()).collect();
-        assert!(titles.contains(&"Check for updates") && titles.contains(&"Update to 0.17.9"));
+        assert_eq!(titles, ["Update WinCraft"]);
         assert!(!titles.contains(&"Open settings"));
     }
 

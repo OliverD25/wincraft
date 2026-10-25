@@ -75,9 +75,11 @@ the program and your settings.
 WinCraft asks GitHub once a day whether a newer release exists, and About's
 "Check for updates" asks at once. A newer one shows a tray notification once,
 an "Update to …" item in the tray menu, and its release notes on the About
-page. The command palette has the same two steps: "Check for updates", and
-"Update to …" once a newer release is known. Nothing changes until you click
-**Update now** or run that command.
+page. Nothing changes until you click **Update now** or run the palette
+command **Update WinCraft**. That command checks at once and, when a newer
+release exists, installs it straight away, the same way Update now does. When
+there is nothing newer, a notification says "WinCraft is up to date"; when
+this copy cannot update itself, it says why.
 
 Update now downloads `wincraft.exe` and `SHA256SUMS.txt` from the release,
 checks the checksum, puts the new exe in place and restarts WinCraft. A bar
