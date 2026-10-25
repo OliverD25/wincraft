@@ -26,6 +26,7 @@ use crate::ui::widgets::empty_state::empty_state;
 use crate::ui::widgets::{choice, focus, text};
 
 mod by_monitor;
+mod compact;
 mod hold;
 mod others;
 
@@ -748,6 +749,9 @@ struct Shared {
     /// The taskbar button a hover opened the strip above. Such a strip
     /// leaves the keyboard with the window in front.
     anchor: Option<[i32; 4]>,
+    /// The compact popup's left edge while it is closed, kept when the other
+    /// desktops open so its own cards stay where they are.
+    compact_left: Option<i32>,
 }
 
 impl Shared {
@@ -835,6 +839,16 @@ impl Shared {
         }
     }
 
+    /// Whether the group on screen is shown in the compact popup.
+    fn compact(&self) -> bool {
+        match (self.group(), &self.snapshot) {
+            (Some(group), Some(snapshot)) => {
+                compact::applies(group, &snapshot.desktops, &self.visible(group))
+            }
+            _ => false,
+        }
+    }
+
     /// Which of the group's windows are on screen.
     fn visible(&self, group: &ArrangeGroup) -> Vec<bool> {
         let monitors = self.snapshot.as_ref().map_or(&[][..], |s| &s.monitors);
@@ -847,6 +861,9 @@ impl Shared {
             .map(|monitor| monitor.limit())
             .unwrap_or(vec2(1600.0, 900.0));
         match (self.group(), &self.snapshot) {
+            (Some(group), Some(snapshot)) if self.compact() => {
+                compact::panel_size(self, group, snapshot).min(limit)
+            }
             (Some(group), Some(snapshot)) if self.view() == ArrangeView::ByMonitor => {
                 let count = self.others_count();
                 let widths = self.widths(group, by_monitor::card_width);
@@ -929,6 +946,7 @@ impl Arrange {
                 asked_at: None,
                 note: None,
                 anchor: None,
+                compact_left: None,
             })),
             palette_hwnd,
         }
@@ -953,6 +971,7 @@ impl Arrange {
         shared.wants_keyboard = false;
         shared.select_window = None;
         shared.asked_at = Some(Instant::now());
+        shared.compact_left = None;
         shared.note = None;
         shared.snapshot = Some(snapshot);
         shared.holds.clear();
@@ -1131,10 +1150,17 @@ impl Arrange {
             }
             let panel = shared.panel();
             if let (Some(monitor), true) = (shared.monitor, shared.window != 0) {
-                keep_placed(
-                    shared.window as HWND,
-                    monitor.rect_for(panel, shared.anchor),
-                );
+                let mut rect = monitor.rect_for(panel, shared.anchor);
+                if shared.compact() {
+                    if shared.others.shown(shared.others_count()) {
+                        if let Some(left) = shared.compact_left {
+                            rect[0] = compact::keep_left(left, rect[2], monitor.work);
+                        }
+                    } else {
+                        shared.compact_left = Some(rect[0]);
+                    }
+                }
+                keep_placed(shared.window as HWND, rect);
             }
 
             let (escape, focused) = ui
@@ -1440,13 +1466,14 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
         _ => Rect::from_min_size(content.min, vec2(content.width(), SWITCHER)),
     };
     let visible = shared.visible(&group);
-    let (chosen_group, chosen_view) = toolbar(ui, bar, &snapshot, &group, view, &visible);
+    let compact = compact::applies(&group, &snapshot.desktops, &visible);
+    let (chosen_group, chosen_view) = if compact {
+        (None, None)
+    } else {
+        toolbar(ui, bar, &snapshot, &group, view, &visible)
+    };
     if let Some(index) = chosen_group {
-        shared.key = Some(snapshot.groups[index].key.clone());
-        shared.cursor = None;
-        shared.drag = None;
-        shared.hide_peek();
-        ui.ctx().request_repaint();
+        switch_group(ui.ctx(), shared, &snapshot, index);
     }
     if let Some(chosen) = chosen_view {
         if let Some(snapshot) = shared.snapshot.as_mut() {
@@ -1497,6 +1524,13 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
         shared.cursor_ghost = false;
     }
     let mut frame = match view {
+        _ if compact => {
+            let (frame, chosen) = compact::body(ui, shared, &group, &snapshot, panel, menu_open);
+            if let Some(index) = chosen {
+                switch_group(&ctx, shared, &snapshot, index);
+            }
+            frame
+        }
         ArrangeView::ByMonitor => by_monitor::body(ui, shared, &group, &snapshot, panel, menu_open),
         _ => {
             let mut rows_area = content;
@@ -1580,6 +1614,21 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
         });
         shared.closed = true;
     }
+}
+
+/// Another group picked in the strip's app picker.
+fn switch_group(
+    ctx: &egui::Context,
+    shared: &mut Shared,
+    snapshot: &ArrangeSnapshot,
+    index: usize,
+) {
+    shared.key = Some(snapshot.groups[index].key.clone());
+    shared.cursor = None;
+    shared.drag = None;
+    shared.others.reset();
+    shared.hide_peek();
+    ctx.request_repaint();
 }
 
 /// The group list, the view switch and, where there is room, how many
