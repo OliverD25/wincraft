@@ -1532,7 +1532,10 @@ fn toolbar(
         .scope_builder(UiBuilder::new().max_rect(area), |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing = vec2(12.0, 0.0);
-                let picked = choice::dropdown(ui, "arrange-group", &labels, current)
+                // App names such as "Chrome · Google Gemini WebAPP" need more
+                // than the normal width; the toolbar has room to the right.
+                let max = (area.width() * 0.4).min(480.0);
+                let picked = choice::dropdown_fit(ui, "arrange-group", &labels, current, max)
                     .filter(|index| Some(*index) != current);
                 let switched = choice::segmented(ui, &VIEWS, Some(shown)).map(|index| {
                     if index == 0 {

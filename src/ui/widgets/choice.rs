@@ -122,6 +122,37 @@ pub fn dropdown(
     )
 }
 
+/// A dropdown as wide as its longest option needs, from the normal width up to
+/// `max_width`, for options as long as a window title.
+pub fn dropdown_fit(
+    ui: &mut Ui,
+    id_salt: &str,
+    options: &[&str],
+    selected: Option<usize>,
+    max_width: f32,
+) -> Option<usize> {
+    let widest = options
+        .iter()
+        .map(|option| {
+            ui.painter()
+                .layout_no_wrap(option.to_string(), theme::regular(14.0), Color32::WHITE)
+                .size()
+                .x
+        })
+        .fold(0.0, f32::max);
+    let width = fit_width(widest, max_width);
+    dropdown_sized(ui, id_salt, options, selected, "", vec2(width, HEIGHT))
+}
+
+/// Text plus the left padding and the chevron's room on the right.
+fn fit_width(widest_text: f32, max_width: f32) -> f32 {
+    (widest_text + 10.0 + TEXT_GAP + 14.0 + 10.0)
+        .ceil()
+        .clamp(DROPDOWN_WIDTH, max_width.max(DROPDOWN_WIDTH))
+}
+
+const TEXT_GAP: f32 = 12.0;
+
 /// The same dropdown at another size, with a word in front of the value, such
 /// as "Sort: ".
 pub fn dropdown_sized(
@@ -155,7 +186,12 @@ pub fn dropdown_sized(
             theme::stroke(ui.ctx(), 1.0, tokens.border),
             StrokeKind::Inside,
         );
-        painter.text(
+        // A value longer than the box stops short of the chevron.
+        let text_area = Rect::from_min_max(
+            rect.min,
+            pos2(rect.right() - 10.0 - 14.0 - TEXT_GAP / 2.0, rect.bottom()),
+        );
+        painter.with_clip_rect(text_area).text(
             pos2(rect.left() + 10.0, rect.center().y),
             egui::Align2::LEFT_CENTER,
             &current,
@@ -206,4 +242,20 @@ pub fn dropdown_sized(
         pending::choose(ui, pending_id, index);
     }
     chosen
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_fitted_dropdown_grows_with_its_text_between_the_limits() {
+        assert_eq!(fit_width(20.0, 480.0), DROPDOWN_WIDTH);
+        assert_eq!(
+            fit_width(250.0, 480.0),
+            250.0 + 10.0 + TEXT_GAP + 14.0 + 10.0
+        );
+        assert_eq!(fit_width(900.0, 480.0), 480.0);
+        assert_eq!(fit_width(900.0, 100.0), DROPDOWN_WIDTH);
+    }
 }
