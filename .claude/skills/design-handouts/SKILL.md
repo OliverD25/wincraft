@@ -31,3 +31,4 @@ This file holds WinCraft's own facts and decisions.
 | design_handoff_arrange_strip (strip by monitor and desktop) | 2026-10-17, via DesignSync | plan `wincraft-arrange-by-monitor.md` |
 | Plugins Grid.dc.html (option 3a, Plugins + Store tile grid) | 2026-10-25, via DesignSync (page, no README) | plan `wincraft-plugins-grid.md` |
 | Arrange Strip Width Options.dc.html (2b, rails for empty monitors) | 2026-10-25, via DesignSync (page, no README) | plan `wincraft-strip-widths.md` |
+| Arrange Strip.dc.html (ghosts for other monitors in the primary column) | 2026-10-25, via DesignSync (page, no README) | plan `wincraft-strip-ghosts.md` |

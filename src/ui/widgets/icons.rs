@@ -7,6 +7,8 @@ pub enum Icon {
     Search,
     ChevronDown,
     ChevronRight,
+    ArrowLeft,
+    ArrowRight,
     Refresh,
     ExternalLink,
     FolderOpen,
@@ -94,6 +96,14 @@ fn paths(icon: Icon) -> Vec<Path> {
         ],
         Icon::ChevronDown => vec![Path::start(6.0, 9.0).line(12.0, 15.0).line(18.0, 9.0)],
         Icon::ChevronRight => vec![Path::start(9.0, 18.0).line(15.0, 12.0).line(9.0, 6.0)],
+        Icon::ArrowLeft => vec![
+            Path::start(12.0, 19.0).line(5.0, 12.0).line(12.0, 5.0),
+            Path::start(19.0, 12.0).line(5.0, 12.0),
+        ],
+        Icon::ArrowRight => vec![
+            Path::start(5.0, 12.0).line(19.0, 12.0),
+            Path::start(12.0, 5.0).line(19.0, 12.0).line(12.0, 19.0),
+        ],
         // The handout's refresh-cw: a 312° arc with an arrow head at the top right.
         Icon::Refresh => vec![
             Path::arc(pos2(12.0, 12.0), 9.0, 0.0, 312.0),
