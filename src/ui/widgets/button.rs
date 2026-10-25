@@ -12,6 +12,7 @@ pub enum Kind {
 }
 
 const HEIGHT: f32 = 32.0;
+const SMALL_HEIGHT: f32 = 28.0;
 const PADDING: f32 = 12.0;
 const ICON: f32 = 13.0;
 const ICON_GAP: f32 = 6.0;
@@ -20,17 +21,33 @@ pub fn button(ui: &mut Ui, label: &str, kind: Kind) -> Response {
     with_icon(ui, label, kind, None)
 }
 
+/// The button of a tile footer: 28 high, 13 px text.
+pub fn small(ui: &mut Ui, label: &str, kind: Kind) -> Response {
+    draw(ui, label, kind, None, SMALL_HEIGHT, 13.0)
+}
+
 /// Outlined, never filled: colour lives in the stroke and the label, and the
 /// only fills are the translucent hover and pressed tints.
 pub fn with_icon(ui: &mut Ui, label: &str, kind: Kind, icon: Option<Icon>) -> Response {
+    draw(ui, label, kind, icon, HEIGHT, 14.0)
+}
+
+fn draw(
+    ui: &mut Ui,
+    label: &str,
+    kind: Kind,
+    icon: Option<Icon>,
+    height: f32,
+    font_size: f32,
+) -> Response {
     let tokens = Tokens::get(ui.ctx());
     let galley = ui.painter().layout_no_wrap(
         label.to_string(),
-        theme::regular(14.0),
+        theme::regular(font_size),
         Color32::PLACEHOLDER,
     );
     let icon_width = if icon.is_some() { ICON + ICON_GAP } else { 0.0 };
-    let size = vec2(PADDING * 2.0 + icon_width + galley.size().x, HEIGHT);
+    let size = vec2(PADDING * 2.0 + icon_width + galley.size().x, height);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
 
     if ui.is_rect_visible(rect) {

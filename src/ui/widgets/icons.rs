@@ -17,6 +17,8 @@ pub enum Icon {
     Lightbulb,
     Close,
     Check,
+    Keyboard,
+    LayoutGrid,
 }
 
 struct Path {
@@ -177,6 +179,46 @@ fn paths(icon: Icon) -> Vec<Path> {
             Path::start(9.0, 18.0).line(15.0, 18.0),
             Path::start(10.0, 22.0).line(14.0, 22.0),
         ],
+        Icon::Keyboard => {
+            let mut paths = vec![
+                Path::start(4.0, 4.0)
+                    .line(20.0, 4.0)
+                    .corner(22.0, 4.0, 22.0, 6.0)
+                    .line(22.0, 18.0)
+                    .corner(22.0, 20.0, 20.0, 20.0)
+                    .line(4.0, 20.0)
+                    .corner(2.0, 20.0, 2.0, 18.0)
+                    .line(2.0, 6.0)
+                    .corner(2.0, 4.0, 4.0, 4.0),
+                Path::start(7.0, 16.0).line(17.0, 16.0),
+            ];
+            for (x, y) in [
+                (6.0, 8.0),
+                (10.0, 8.0),
+                (14.0, 8.0),
+                (18.0, 8.0),
+                (8.0, 12.0),
+                (12.0, 12.0),
+                (16.0, 12.0),
+            ] {
+                paths.push(Path::start(x - 0.5, y).line(x + 0.5, y));
+            }
+            paths
+        }
+        Icon::LayoutGrid => [(3.0, 3.0), (14.0, 3.0), (14.0, 14.0), (3.0, 14.0)]
+            .into_iter()
+            .map(|(x, y)| {
+                Path::start(x + 1.0, y)
+                    .line(x + 6.0, y)
+                    .corner(x + 7.0, y, x + 7.0, y + 1.0)
+                    .line(x + 7.0, y + 6.0)
+                    .corner(x + 7.0, y + 7.0, x + 6.0, y + 7.0)
+                    .line(x + 1.0, y + 7.0)
+                    .corner(x, y + 7.0, x, y + 6.0)
+                    .line(x, y + 1.0)
+                    .corner(x, y, x + 1.0, y)
+            })
+            .collect(),
         Icon::Close => vec![
             Path::start(18.0, 6.0).line(6.0, 18.0),
             Path::start(6.0, 6.0).line(18.0, 18.0),
@@ -193,8 +235,14 @@ fn paths(icon: Icon) -> Vec<Path> {
 /// Lucide's stroke is 2 units wide on its 24-unit grid; it scales with the
 /// icon rather than snapping, so a 13 px icon keeps its drawn weight.
 pub fn paint(painter: &Painter, rect: Rect, icon: Icon, colour: Color32) {
+    paint_weighted(painter, rect, icon, colour, 2.0);
+}
+
+/// The same icon with a lighter or heavier line, in Lucide's 24-unit grid.
+/// Large icons use 1.5, because 2 looks clumsy at 40 px.
+pub fn paint_weighted(painter: &Painter, rect: Rect, icon: Icon, colour: Color32, weight: f32) {
     let scale = rect.width().min(rect.height()) / 24.0;
-    let stroke = Stroke::new(2.0 * scale, colour);
+    let stroke = Stroke::new(weight * scale, colour);
     for path in paths(icon) {
         let points = path
             .points

@@ -14,6 +14,13 @@ pub struct PluginMetadata {
     pub version: &'static str,
     /// `include_str!("README.md")`, so a plugin without one fails to compile.
     pub readme: &'static str,
+    /// One short word that groups the plugin on the Plugins page and in the
+    /// store, such as "Windows" or "Input". Reuse a word another plugin
+    /// already uses when it fits.
+    pub category: &'static str,
+    /// A 16:9 picture for the plugin's tile, as a path inside the repository.
+    /// `None` shows the category's icon instead.
+    pub thumbnail: Option<&'static str>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

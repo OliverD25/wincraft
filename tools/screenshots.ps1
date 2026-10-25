@@ -161,6 +161,9 @@ $scenes = @(
     @{ Name = 'palette-help';           Args = @('--open-palette=?');                      Window = 'palette' },
     @{ Name = 'settings-general';       Args = @('--open-settings=general');               Window = 'settings' },
     @{ Name = 'settings-plugins';       Args = @('--open-settings=plugins');               Window = 'settings' },
+    # The store lists the plugins of the public index, or the ones built into
+    # this copy when the machine is offline; the wait lets the fetch finish.
+    @{ Name = 'settings-store';         Args = @('--open-settings=store');                 Window = 'settings'; Settle = 2500 },
     @{ Name = 'settings-layout-keeper'; Args = @('--open-settings=plugin:layout_keeper');  Window = 'settings' },
     # The Layout page over a made-up saved layout (see Write-LayoutSeed).
     @{ Name = 'settings-layout';        Args = @('--open-settings=layout');                Window = 'settings'; Settle = 2500; Seed = 'full'; Helper = $true },

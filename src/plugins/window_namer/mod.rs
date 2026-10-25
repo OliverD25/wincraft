@@ -806,6 +806,8 @@ impl WinCraftPlugin for WindowNamer {
             author: "community",
             version: "1.0.0",
             readme: include_str!("README.md"),
+            category: "Windows",
+            thumbnail: None,
         }
     }
 

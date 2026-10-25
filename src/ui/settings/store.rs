@@ -3,16 +3,17 @@ use std::sync::Arc;
 
 use crate::core::clock;
 use crate::core::theme::Tokens;
-use crate::core::ui_bridge::{HostChannel, HostRequest, PluginInfo, UiSnapshot};
+use crate::core::ui_bridge::{HostChannel, HostRequest, UiSnapshot};
 use crate::store::github;
 use crate::store::index::{self, IndexEntry, PluginIndex, Source};
+use crate::ui::settings::catalog::{self, Card, Sort, StoreAction, StoreState, Tone, View};
 use crate::ui::settings::{self as page, SettingsState};
-use crate::ui::widgets::badge::badge;
+use crate::ui::widgets::badge;
 use crate::ui::widgets::button::{self, Kind};
 use crate::ui::widgets::empty_state::empty_state;
-use crate::ui::widgets::icons::{self, Icon};
-use crate::ui::widgets::row::{settings_row, RowText};
+use crate::ui::widgets::icons::Icon;
 use crate::ui::widgets::text;
+use crate::ui::widgets::tile::Part;
 
 /// What the status line at the bottom of the page reports.
 #[derive(Clone, Debug)]
@@ -30,6 +31,8 @@ enum Message {
 }
 
 pub struct Store {
+    /// The search, category and sort the tile grid is showing.
+    view: View,
     index: Option<PluginIndex>,
     status: Option<Status>,
     open_plugin: Option<String>,
@@ -43,6 +46,7 @@ impl Default for Store {
     fn default() -> Self {
         let (tx, rx) = channel();
         Self {
+            view: View::sorted_by(Sort::Name),
             index: None,
             status: None,
             open_plugin: None,
@@ -166,7 +170,7 @@ fn status_line(ui: &mut egui::Ui, status: &Status) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
         text::status_dot(ui, colour, filled);
-        text::secondary(ui, &message, text_colour);
+        text::caption(ui, &message, text_colour);
     });
 }
 
@@ -199,40 +203,54 @@ pub fn show(
     }
 }
 
-fn store_badge(
+/// The button a store tile or the detail page offers for one plugin.
+fn state_button(
     ui: &mut egui::Ui,
-    installed: Option<&PluginInfo>,
-    needs_version: &str,
+    state: &StoreState,
+    plugin_id: &str,
     to_host: &Arc<HostChannel>,
+    small: bool,
 ) {
-    let tokens = Tokens::get(ui.ctx());
-    match installed {
-        Some(plugin) if plugin.enabled => {
-            badge(ui, "Enabled", tokens.success, tokens.success);
+    if let Some(spec) = state.button() {
+        let clicked = if small {
+            button::small(ui, spec.label, spec.kind)
+        } else {
+            button::button(ui, spec.label, spec.kind)
         }
-        Some(plugin) => {
-            badge(
-                ui,
-                "Installed, disabled",
-                tokens.text_disabled,
-                tokens.text_secondary,
-            );
-            if button::button(ui, "Enable", Kind::Primary).clicked() {
-                to_host.send(HostRequest::SetPluginEnabled {
-                    id: plugin.id.clone(),
+        .clicked();
+        if clicked {
+            match spec.action {
+                StoreAction::Enable => to_host.send(HostRequest::SetPluginEnabled {
+                    id: plugin_id.to_string(),
                     enabled: true,
-                });
-            }
-        }
-        None => {
-            let label = format!("Needs WinCraft {needs_version}");
-            badge(ui, &label, tokens.warning, tokens.warning);
-            if button::button(ui, "Get update", Kind::Secondary).clicked() {
-                ui.ctx()
-                    .open_url(egui::OpenUrl::new_tab(github::releases_url()));
+                }),
+                StoreAction::OpenReleases => ui
+                    .ctx()
+                    .open_url(egui::OpenUrl::new_tab(github::releases_url())),
             }
         }
     }
+}
+
+fn state_badge(ui: &mut egui::Ui, state: &StoreState) {
+    let tokens = Tokens::get(ui.ctx());
+    if let Some(spec) = state.badge() {
+        let (stroke, text_colour) = match spec.tone {
+            Tone::Good => (tokens.success, tokens.success),
+            Tone::Quiet => (tokens.text_disabled, tokens.text_secondary),
+            Tone::Warn => (tokens.warning, tokens.warning),
+        };
+        badge::tall(ui, &spec.label, stroke, text_colour);
+    }
+}
+
+fn state_of(entry_id: &str, snapshot: &UiSnapshot, catalogue: &PluginIndex) -> StoreState {
+    let installed = snapshot
+        .plugins
+        .iter()
+        .find(|plugin| plugin.id == entry_id)
+        .map(|plugin| plugin.enabled);
+    StoreState::of(installed, &catalogue.wincraft_version, &snapshot.version)
 }
 
 fn list(
@@ -241,24 +259,23 @@ fn list(
     state: &mut SettingsState,
     to_host: &Arc<HostChannel>,
 ) {
-    let tokens = Tokens::get(ui.ctx());
     let ctx = ui.ctx().clone();
+    let subtitle = match &state.store.index {
+        Some(catalogue) if !catalogue.plugins.is_empty() => format!(
+            "{} {} from the community index.",
+            catalog::count_in_words(catalogue.plugins.len()),
+            plural(catalogue.plugins.len())
+        ),
+        _ => "Plugins from the community index.".to_string(),
+    };
     let mut refresh = false;
-    page::page_header(
-        ui,
-        "Plugin Store",
-        None,
-        "Plugins from the public index. Installing writes to the plugins folder only.",
-        |ui| {
-            refresh =
-                button::with_icon(ui, "Refresh", Kind::Secondary, Some(Icon::Refresh)).clicked();
-        },
-    );
+    catalog::page_title(ui, "Plugin Store", &subtitle, |ui| {
+        refresh = button::with_icon(ui, "Refresh", Kind::Secondary, Some(Icon::Refresh)).clicked();
+    });
     if refresh {
         state.store.refresh(&ctx);
     }
-    ui.add_space(16.0);
-    ui.spacing_mut().item_spacing.y = 0.0;
+    ui.add_space(20.0);
 
     let Some(catalogue) = state.store.index.clone() else {
         if let Some(Status::Failed(err)) = &state.store.status {
@@ -266,18 +283,32 @@ fn list(
         }
         return;
     };
-    for entry in &catalogue.plugins {
-        let installed = snapshot.plugins.iter().find(|plugin| plugin.id == entry.id);
-        let meta = format!("{} \u{00B7} {}", entry.version, entry.author);
-        let text = RowText::new(&entry.name)
-            .meta(&meta)
-            .desc(&entry.description, tokens.text_secondary);
-        let row = settings_row(ui, &entry.id, text, true, |ui| {
-            store_badge(ui, installed, &catalogue.wincraft_version, to_host);
-            ui.add_space(4.0);
-            icons::show(ui, Icon::ChevronRight, 14.0, tokens.text_disabled);
-        });
-        if row.clicked() {
+    let cards: Vec<Card> = catalogue
+        .plugins
+        .iter()
+        .map(|entry| {
+            let installed = snapshot.plugins.iter().find(|plugin| plugin.id == entry.id);
+            Card::from_entry(entry, installed)
+        })
+        .collect();
+    catalog::toolbar(ui, &mut state.store.view, &cards, "Search the store", true);
+    let order = catalog::visible(&cards, &state.store.view);
+    if order.is_empty() {
+        empty_state(ui, "No plugin matches", "Try other words, or choose All.");
+        return;
+    }
+
+    let picked = catalog::tiles(ui, &cards, &order, false, |ui, card, part| {
+        if part == Part::Footer {
+            let tile_state = state_of(&card.id, snapshot, &catalogue);
+            // Right to left: the button ends up on the right of the badge.
+            state_button(ui, &tile_state, &card.id, to_host, true);
+            state_badge(ui, &tile_state);
+        }
+    });
+    if let Some(picked) = picked {
+        // Space opens a tile here as Enter does; there is no switch to flip.
+        if let Some(entry) = catalogue.plugins.get(picked.card) {
             open(state, &ctx, entry);
         }
     }
@@ -333,16 +364,18 @@ fn detail(
     }
 
     ui.add_space(12.0);
-    ui.horizontal(|ui| {
-        let installed = snapshot.plugins.iter().find(|plugin| plugin.id == entry.id);
-        let needs = state
-            .store
-            .index
-            .as_ref()
-            .map(|catalogue| catalogue.wincraft_version.clone())
-            .unwrap_or_default();
-        store_badge(ui, installed, &needs, to_host);
-    });
+    let tile_state = state
+        .store
+        .index
+        .as_ref()
+        .map(|catalogue| state_of(&entry.id, snapshot, catalogue));
+    if let Some(tile_state) = tile_state {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            state_badge(ui, &tile_state);
+            state_button(ui, &tile_state, &entry.id, to_host, false);
+        });
+    }
 
     ui.add_space(20.0);
     if !state.store.readme_note.is_empty() {
@@ -350,5 +383,96 @@ fn detail(
     }
     if let Some(readme) = state.store.readme.clone() {
         state.readme.boxed(ui, &readme);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::ThemeChoice;
+    use crate::core::theme;
+    use crate::core::ui_bridge::PluginInfo;
+
+    fn entry(id: &str, category: &str) -> IndexEntry {
+        IndexEntry {
+            id: id.to_string(),
+            name: id.to_uppercase(),
+            version: "1.0.0".to_string(),
+            author: "community".to_string(),
+            description: "Does one useful thing.".to_string(),
+            readme: format!("src/plugins/{id}/README.md"),
+            category: category.to_string(),
+            thumbnail: None,
+        }
+    }
+
+    fn installed(id: &str, enabled: bool) -> PluginInfo {
+        PluginInfo {
+            id: id.to_string(),
+            name: id.to_uppercase(),
+            version: "1.0.0".to_string(),
+            author: "community".to_string(),
+            description: String::new(),
+            readme: String::new(),
+            category: String::new(),
+            enabled,
+            config_path: Default::default(),
+            hotkeys: Vec::new(),
+            fields: Vec::new(),
+            status: None,
+            page_action: None,
+        }
+    }
+
+    #[test]
+    fn the_store_draws_a_tile_for_every_state_and_sends_nothing_by_itself() {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx, ThemeChoice::Dark);
+        let bridge = crate::core::ui_bridge::create();
+        let snapshot = UiSnapshot {
+            version: "0.20.2".to_string(),
+            plugins: vec![installed("on", true), installed("off", false)],
+            ..UiSnapshot::default()
+        };
+        let mut state = SettingsState::default();
+        state.store.index = Some(PluginIndex {
+            wincraft_version: "0.21.0".to_string(),
+            plugins: vec![
+                entry("on", "Windows"),
+                entry("off", "Input"),
+                entry("new", "Keyboard"),
+            ],
+        });
+        state.store.status = Some(Status::Loaded {
+            count: 3,
+            at: "09:30".to_string(),
+        });
+        for _ in 0..3 {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                list(ui, &snapshot, &mut state, &bridge.to_host);
+            });
+            output.textures_delta.clear();
+        }
+        assert!(bridge.host_rx.try_recv().is_err());
+        assert_eq!(state.store.open_plugin, None);
+    }
+
+    #[test]
+    fn a_plugin_the_index_lists_but_this_build_lacks_needs_a_newer_wincraft() {
+        let snapshot = UiSnapshot {
+            version: "0.20.2".to_string(),
+            plugins: vec![installed("on", true)],
+            ..UiSnapshot::default()
+        };
+        let index = PluginIndex {
+            wincraft_version: "0.21.0".to_string(),
+            plugins: Vec::new(),
+        };
+        assert_eq!(state_of("on", &snapshot, &index), StoreState::Enabled);
+        assert_eq!(
+            state_of("new", &snapshot, &index),
+            StoreState::NeedsUpdate("0.21.0".to_string())
+        );
     }
 }

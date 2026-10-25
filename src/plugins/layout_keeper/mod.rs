@@ -2699,6 +2699,8 @@ impl WinCraftPlugin for LayoutKeeper {
             author: "community",
             version: "1.2.1",
             readme: include_str!("README.md"),
+            category: "Windows",
+            thumbnail: None,
         }
     }
 

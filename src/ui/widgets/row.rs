@@ -8,22 +8,12 @@ use crate::ui::widgets::{focus, text};
 
 pub struct RowText<'a> {
     pub label: &'a str,
-    pub meta: Option<&'a str>,
     pub desc: Option<(&'a str, Color32)>,
 }
 
 impl<'a> RowText<'a> {
     pub fn new(label: &'a str) -> Self {
-        Self {
-            label,
-            meta: None,
-            desc: None,
-        }
-    }
-
-    pub fn meta(mut self, meta: &'a str) -> Self {
-        self.meta = Some(meta);
-        self
+        Self { label, desc: None }
     }
 
     pub fn desc(mut self, desc: &'a str, colour: Color32) -> Self {
@@ -49,26 +39,19 @@ struct Measured {
 fn left_column(ui: &mut Ui, row: &RowText) {
     let tokens = Tokens::get(ui.ctx());
     ui.spacing_mut().item_spacing.y = 2.0;
-    let mut job = text::job(
+    let job = text::job(
         row.label,
         theme::regular(14.0),
         tokens.text_primary,
         Some(20.0),
     );
-    if let Some(meta) = row.meta {
-        job.append(
-            meta,
-            8.0,
-            text::format(theme::mono(12.0), tokens.text_disabled, Some(20.0)),
-        );
-    }
     text::wrapped(ui, job);
     if let Some((desc, colour)) = row.desc {
         text::secondary(ui, desc, colour);
     }
 }
 
-/// A settings row: label, optional mono meta and description on the left,
+/// A settings row: label and optional description on the left,
 /// controls on the right in the order they are added, at least 52 high, with
 /// a 1 px rule under it. egui lays out in one pass, so the controls' width
 /// and the text height are measured and remembered, and a change in either

@@ -1,5 +1,6 @@
 mod about;
 mod bookmarks;
+mod catalog;
 mod general;
 mod layout;
 mod plugins;
@@ -210,6 +211,8 @@ impl Readme {
 pub struct SettingsState {
     pub page: Page,
     pub open_plugin: Option<String>,
+    /// The Plugins page's search and category chips.
+    pub plugins_view: catalog::View,
     pub capture: Option<capture::Session>,
     pub readme: Readme,
     pub store: store::Store,
@@ -464,23 +467,6 @@ impl Settings {
                         );
                     });
                     ui.add_space(20.0);
-                    // Typing in a box or recording a hotkey keeps the arrows.
-                    let free = !ui.ctx().egui_wants_keyboard_input() && state.capture.is_none();
-                    let step = ui.ctx().input(|i| {
-                        if !free || i.modifiers.any() {
-                            0
-                        } else if i.key_pressed(egui::Key::ArrowDown) {
-                            1
-                        } else if i.key_pressed(egui::Key::ArrowUp) {
-                            -1
-                        } else {
-                            0
-                        }
-                    });
-                    if let Some(page) = next_page(state.page, step) {
-                        state.page = page;
-                        state.open_plugin = None;
-                    }
                     for (page, label) in PAGES {
                         if row::nav_item(ui, label, state.page == *page).clicked() {
                             state.page = *page;
@@ -509,6 +495,26 @@ impl Settings {
                     Page::Store => store::show(ui, snapshot, state, to_host),
                     Page::About => about::show(ui, snapshot, state, to_host),
                 });
+
+            // After the page, so a tile grid that has focus takes the arrows
+            // first. Typing in a box or recording a hotkey keeps them too.
+            let free = !ui.ctx().egui_wants_keyboard_input() && state.capture.is_none();
+            let step = ui.ctx().input(|i| {
+                if !free || i.modifiers.any() {
+                    0
+                } else if i.key_pressed(egui::Key::ArrowDown) {
+                    1
+                } else if i.key_pressed(egui::Key::ArrowUp) {
+                    -1
+                } else {
+                    0
+                }
+            });
+            if let Some(page) = next_page(state.page, step) {
+                state.page = page;
+                state.open_plugin = None;
+                ui.ctx().request_repaint();
+            }
 
             if ui.ctx().input(|i| i.viewport().close_requested()) {
                 *closed = true;

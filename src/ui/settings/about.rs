@@ -414,6 +414,7 @@ mod tests {
             author: String::new(),
             description: String::new(),
             readme: String::new(),
+            category: String::new(),
             config_path: Default::default(),
             fields: Vec::new(),
             status: None,

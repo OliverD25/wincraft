@@ -112,15 +112,36 @@ pub fn dropdown(
     options: &[&str],
     selected: Option<usize>,
 ) -> Option<usize> {
+    dropdown_sized(
+        ui,
+        id_salt,
+        options,
+        selected,
+        "",
+        vec2(DROPDOWN_WIDTH, HEIGHT),
+    )
+}
+
+/// The same dropdown at another size, with a word in front of the value, such
+/// as "Sort: ".
+pub fn dropdown_sized(
+    ui: &mut Ui,
+    id_salt: &str,
+    options: &[&str],
+    selected: Option<usize>,
+    prefix: &str,
+    size: egui::Vec2,
+) -> Option<usize> {
     let tokens = Tokens::get(ui.ctx());
     let pending_id = ui.id().with(("dropdown-pending", id_salt));
     let selected = shown_index(ui, pending_id, selected);
-    let (rect, response) = ui.allocate_exact_size(vec2(DROPDOWN_WIDTH, HEIGHT), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let response = response.on_hover_cursor(CursorIcon::PointingHand);
     let current = selected
         .and_then(|index| options.get(index))
         .copied()
         .unwrap_or("\u{2014}");
+    let current = format!("{prefix}{current}");
 
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
@@ -137,7 +158,7 @@ pub fn dropdown(
         painter.text(
             pos2(rect.left() + 10.0, rect.center().y),
             egui::Align2::LEFT_CENTER,
-            current,
+            &current,
             theme::regular(14.0),
             tokens.text_primary,
         );
@@ -152,7 +173,7 @@ pub fn dropdown(
     let mut chosen = None;
     egui::Popup::menu(&response)
         .id(ui.id().with(("dropdown", id_salt)))
-        .width(DROPDOWN_WIDTH)
+        .width(size.x)
         .show(|ui| {
             for (index, option) in options.iter().enumerate() {
                 let (row, row_response) =

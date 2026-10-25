@@ -29,7 +29,9 @@ screenshots.
   About, with a page per plugin: its options, its hotkeys, its config file
   and its README.
 - **Plugin store** — what exists, what this copy has, and what needs a newer
-  WinCraft.
+  WinCraft. The Plugins page and the store show plugins as tiles that you can
+  search (`Ctrl+F`) and filter by category; the arrow keys move between tiles,
+  `Enter` opens one, and on the Plugins page `Space` switches it on or off.
 - **Tray icon** — open the palette, open settings, one main action per
   enabled plugin, and quit. Everything else is in the settings window.
 

@@ -26,6 +26,12 @@ pub struct IndexEntry {
     pub author: String,
     pub description: String,
     pub readme: String,
+    /// Missing in an index written before categories existed.
+    #[serde(default)]
+    pub category: String,
+    /// Path of the tile picture, when the plugin has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<String>,
 }
 
 pub fn generate() -> PluginIndex {
@@ -42,6 +48,8 @@ pub fn generate() -> PluginIndex {
                     author: meta.author.to_string(),
                     description: meta.description.to_string(),
                     readme: format!("src/plugins/{}/README.md", meta.id),
+                    category: meta.category.to_string(),
+                    thumbnail: meta.thumbnail.map(str::to_string),
                 }
             })
             .collect(),
@@ -184,6 +192,63 @@ mod tests {
             committed, generated,
             "plugins.json is out of date; run: wincraft --write-plugin-index"
         );
+    }
+
+    #[test]
+    fn an_index_with_a_category_and_a_thumbnail_survives_a_round_trip() {
+        let index = PluginIndex {
+            wincraft_version: "1.2.3".to_string(),
+            plugins: vec![
+                IndexEntry {
+                    id: "a".to_string(),
+                    name: "A".to_string(),
+                    version: "1.0.0".to_string(),
+                    author: "community".to_string(),
+                    description: "First.".to_string(),
+                    readme: "src/plugins/a/README.md".to_string(),
+                    category: "Windows".to_string(),
+                    thumbnail: Some("src/plugins/a/thumbnail.png".to_string()),
+                },
+                IndexEntry {
+                    id: "b".to_string(),
+                    name: "B".to_string(),
+                    version: "1.0.0".to_string(),
+                    author: "community".to_string(),
+                    description: "Second.".to_string(),
+                    readme: "src/plugins/b/README.md".to_string(),
+                    category: "Input".to_string(),
+                    thumbnail: None,
+                },
+            ],
+        };
+        let text = to_json(&index);
+        assert!(text.contains("\"category\": \"Windows\""));
+        assert_eq!(
+            text.matches("\"thumbnail\":").count(),
+            1,
+            "none is left out"
+        );
+        assert_eq!(parse(&text).unwrap(), index);
+    }
+
+    #[test]
+    fn an_index_from_before_categories_still_reads() {
+        let old = r#"{"wincraft_version":"0.19.0","plugins":[{"id":"a","name":"A","version":"1.0.0","author":"x","description":"d","readme":"r"}]}"#;
+        let index = parse(old).expect("an old index parses");
+        assert_eq!(index.plugins[0].category, "");
+        assert_eq!(index.plugins[0].thumbnail, None);
+    }
+
+    #[test]
+    fn every_plugin_has_a_category() {
+        for plugin in plugins::load_active_plugins() {
+            let meta = plugin.metadata();
+            assert!(
+                !meta.category.trim().is_empty(),
+                "{} has no category",
+                meta.id
+            );
+        }
     }
 
     #[test]

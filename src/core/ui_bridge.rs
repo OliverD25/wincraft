@@ -509,6 +509,8 @@ pub struct PluginInfo {
     pub author: String,
     pub description: String,
     pub readme: String,
+    /// The word that groups the plugin, from its metadata.
+    pub category: String,
     pub enabled: bool,
     pub config_path: PathBuf,
     pub hotkeys: Vec<HotkeyInfo>,

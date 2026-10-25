@@ -1,6 +1,7 @@
 pub mod badge;
 pub mod button;
 pub mod capture;
+pub mod chips;
 pub mod choice;
 pub mod empty_state;
 pub mod field;
@@ -11,7 +12,9 @@ pub mod input;
 pub mod keycap;
 pub mod pending;
 pub mod row;
+pub mod search_box;
 pub mod slider;
 pub mod text;
+pub mod tile;
 pub mod tip;
 pub mod toggle;
