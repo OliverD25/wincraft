@@ -199,6 +199,7 @@ fn main() {
         "--update-now",
         "--show-update-notice",
         "--show-update-progress",
+        "--allow-hide-popup",
     ] {
         if !has_flag(&args, flag) {
             continue;
@@ -213,6 +214,8 @@ fn main() {
             scene.update_notice = true;
         } else if flag == "--show-update-progress" {
             scene.update_progress = true;
+        } else if flag == "--allow-hide-popup" {
+            scene.allow_hide_popup = true;
         } else {
             scene.restore_panel = true;
         }

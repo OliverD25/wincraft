@@ -441,6 +441,52 @@ new order for windows on other desktops is saved at once but reaches their
 taskbar at the next restore; the strip says so while other desktops are
 shown.
 
+### The strip instead of Windows' taskbar preview
+
+This is off until you switch it on. Turn on **Show the Arrange strip instead
+of Windows' taskbar preview** in Settings → Plugins → LayoutKeeper, or use
+the tick **Arrange strip on taskbar hover** in the tray menu, or the palette
+command **Switch the Arrange strip on taskbar hover on or off**. It works at
+once, and switching it off gives you Windows' own preview back at once.
+
+With it on:
+
+- **Rest the mouse** on the taskbar button of an app with 2 or more windows
+  (on any desktop). After the **Hover delay** (0.4 s unless you change it,
+  from 0.2 to 1.5 s) the Arrange strip opens above that button, on that
+  monitor, with the same view as `Win+Alt+A`. Windows' own preview for that
+  hover is hidden, also each time Windows tries to show it again.
+- **Apps with one window** keep Windows' own preview. So do apps
+  LayoutKeeper does not watch (see **Programs** and **Never touch**).
+- **Move the mouse up** into the strip: it stays open. It closes half a
+  second after the mouse has left both the button and the strip. Moving to
+  another app's button moves the strip to that app.
+- **Click** a picture to switch to that window; the strip closes. Drag and
+  right-click work as in the strip you open with `Win+Alt+A`.
+- **Esc**, a click anywhere outside the strip, or a click on the taskbar
+  button closes it. Clicking the button then does what it always does.
+- The strip does not take the keyboard from the window you are working in.
+  Click once inside the strip to use its keys (arrows, D, Enter).
+- **Win+number and Alt+Tab work exactly as before.** Windows' preview is
+  never hidden while a Windows key or Alt is down, within 1.5 s of
+  Win+number, within half a second of letting go of a Windows key or of
+  pressing an arrow key, Tab, Enter, Space or Esc, or while a mouse button is
+  down. Pressing a Windows key or Alt also closes the strip.
+
+WinCraft only hides Windows' preview window, the way any program can; it
+never moves it, changes Explorer or changes a setting. If WinCraft stops,
+Windows shows its own preview again on the next hover.
+
+It costs almost nothing while you do not use it: away from the taskbar,
+WinCraft looks at the mouse position 10 times a second and does nothing
+else. Only while the mouse is on a taskbar does it look more often, and only
+once the mouse rests there does it ask Windows which button it is on.
+
+A test copy of WinCraft (`WINCRAFT_INSTANCE`) opens the strip on hover but
+never hides Windows' preview, so a test cannot touch your real taskbar; the
+log says "hiding Windows' taskbar preview skipped". The flag
+`--allow-hide-popup` lets a test copy hide it, for a test you watch.
+
 ### Without the mouse
 
 Without the mouse, bring a window to the front and press **Move window
@@ -499,3 +545,5 @@ of the run only watches to prove that. The report goes to a
 | Restore which window is in front | on | Also restore the front-to-back order. |
 | Restore monitors | on | Also move each window back to its saved monitor; a window whose monitor is not connected stays where it is. |
 | Preview window on hover | on | Resting the mouse on a picture in the Arrange strip shows that window on its monitor. |
+| Show the Arrange strip instead of Windows' taskbar preview | off | Resting the mouse on the taskbar button of an app with 2 or more windows opens the Arrange strip above it (see **The strip instead of Windows' taskbar preview**). Also in the tray menu and the palette. |
+| Hover delay (seconds) | 0.4 | How long the mouse rests on a taskbar button before that strip opens, from 0.2 to 1.5. |

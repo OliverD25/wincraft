@@ -151,6 +151,14 @@ from [MScholtes' VirtualDesktop](https://github.com/MScholtes/VirtualDesktop)
 (MIT). They change between Windows builds; if they do not answer as expected,
 LayoutKeeper turns desktop moves off for the session and says so on its page.
 
+**The strip instead of Windows' taskbar preview** (off until you switch it
+on in LayoutKeeper's settings, the tray menu or the palette): resting the
+mouse on the taskbar button of an app with 2 or more windows opens the
+Arrange strip above that button instead of Windows' own preview, after 0.4 s
+(the **Hover delay** setting, 0.2 to 1.5 s). Apps with one window keep
+Windows' preview. Win+number and Alt+Tab work exactly as before. Switching it
+off gives Windows' preview back at once.
+
 To reorder with the mouse, use the Arrange strip. Dragging inside the
 taskbar's thumbnail flyout is not possible from outside Explorer on Windows 11
 24H2, because the flyout exposes no accessible thumbnail items (probed on

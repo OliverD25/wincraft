@@ -203,6 +203,23 @@ pub struct ArrangeSnapshot {
     pub monitors: Vec<ArrangeMonitor>,
     /// The view the user picked last, kept in the plugin's settings.
     pub view: ArrangeView,
+    /// The taskbar button the mouse rests on, when a hover opened the strip
+    /// (left, top, right, bottom in physical pixels). The strip then sits
+    /// above it and leaves the keyboard with the window in front.
+    pub anchor: Option<[i32; 4]>,
+}
+
+static ARRANGE_WINDOW: AtomicIsize = AtomicIsize::new(0);
+
+/// The UI thread says which window is the Arrange strip, or 0 once it is
+/// gone.
+pub fn set_arrange_window(hwnd: isize) {
+    ARRANGE_WINDOW.store(hwnd, Ordering::Relaxed);
+}
+
+/// The Arrange strip's window while it is on screen.
+pub fn arrange_window() -> Option<isize> {
+    Some(ARRANGE_WINDOW.load(Ordering::Relaxed)).filter(|hwnd| *hwnd != 0)
 }
 
 /// What the strip asks the plugin to do.
@@ -384,6 +401,7 @@ pub enum UiCommand {
     ShowArrange(ArrangeSnapshot),
     /// A fresh list for the Arrange window, if it is still open.
     ArrangeUpdate(ArrangeSnapshot),
+    HideArrange,
     /// The Layout page's data; None when no plugin keeps a layout.
     LayoutUpdate(Option<LayoutSnapshot>),
     HideAll,

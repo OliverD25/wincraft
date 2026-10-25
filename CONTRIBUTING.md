@@ -140,6 +140,7 @@ The About page lists the kinds the build you are running can draw.
 | `on_hotkey(id)` | When one of your hotkeys is pressed. |
 | `tray_actions` | Every time the tray menu opens. Only your **first** tray action goes into the tray menu; every tray action appears in the palette. |
 | `on_tray_action(id)` | When your menu entry or its palette entry is chosen. |
+| `tray_toggles` | Every time the tray menu opens. Ticked on/off entries, shown after your first tray action, for a setting people switch often. Choosing one calls `on_tray_action` with its id, so keep it apart from your tray action ids (and below 100). Call `host::save_setting` to keep the new value. |
 | `palette_commands` | For entries that are neither a hotkey nor a tray item. |
 | `on_palette_command(id)` | When one of those is chosen. |
 | `search_providers` | Once at startup, whether the plugin is on or not. Extra sources of palette results; see below. |
@@ -161,6 +162,16 @@ reached through the palette.
 
 `host::notify(title, text)` shows a tray balloon. It is safe to call from any
 callback: the balloon appears once the host's message loop comes round.
+
+`host::save_setting(plugin_id, key, value)` changes one of your own settings
+and saves it, as if the user had changed it on your page; you hear of it
+through `on_settings_changed`. Use it for a tray toggle or a palette command
+that flips a setting.
+
+`host::open_arrange_at(app, button)` opens the Arrange strip on an app,
+centred above its taskbar button, without taking the keyboard from the
+window in front; `host::close_arrange()` closes the strip. LayoutKeeper's
+hover strip uses them.
 
 `host::set_tray_tip(Some(text))` sets the tray icon's tooltip (Windows keeps
 the first 127 characters) and `host::set_tray_tip(None)` puts the plain name
@@ -409,6 +420,7 @@ it is a separate instance:
   | `--ask-name=<hwnd>` | The palette's rename box for that window (WindowNamer). Nothing is renamed without Enter. |
   | `--show-tip=<id>` | Lets that in-app tip show. A test instance shows no tip otherwise, so no other scene carries one. `bookmark-ctrl-b` is the hint over a folder or file row (pair it with a query that selects one, such as `--open-palette=/C:\Windows\`); `bookmark-saved` opens the palette on the confirmation that follows saving a bookmark, with no Enter needed. |
   | `--show-restore-panel` | LayoutKeeper's please-wait panel with sample progress, and nothing else. A flag without a value. |
+  | `--allow-hide-popup` | Lets LayoutKeeper's hover strip hide Windows' taskbar preview. Without it a test instance opens the strip on hover but never hides the preview, and logs "hiding Windows' taskbar preview skipped". Use it only for a test you watch: it acts on your real taskbar. A flag without a value. |
   | `--ddc-test=<what>` | ScreenDimmer's DDC/CI check on real monitors, printed step by step, then exit; no tray icon, no plugins. `list` only reads each monitor's power mode and brightness. `left`, `centre` or `right` turns that monitor off the way Auto does, keeps it so for 10 s and brings it back; `wake-left` and so on only wakes it. Run it only with the person at the PC: it really turns a screen off. |
   | `--update-now` | Checks for an update at once and installs what it finds, as if Update now were clicked. With `WINCRAFT_RELEASES_URL` pointing at a fake releases API on this PC and `WINCRAFT_INSTALL_DIR` (or a scratch `LOCALAPPDATA`) giving the test instance an install folder of its own, the whole update and its rollback run without the internet. A flag without a value. |
   | `--rename-window=<hwnd>:<name>` | Renames that window through WindowNamer at start, for a live test on a window the test owns. Never point it at a window you did not create. |

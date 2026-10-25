@@ -40,19 +40,9 @@ pub fn app_under_cursor() -> Option<String> {
 
 /// The app ID of the taskbar button at a screen point, in physical pixels.
 pub fn app_at(x: i32, y: i32) -> Option<String> {
-    let point = POINT { x, y };
-    if !on_taskbar(point) {
-        return None;
-    }
-    // The caller owns windows and a message loop; asking explorer across
-    // processes on a thread of its own means a slow explorer only costs the
-    // timeout, never a hung host.
-    let (sender, receiver) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = sender.send(on_worker(point));
-    });
+    let receiver = lookup(x, y)?;
     match receiver.recv_timeout(TIMEOUT) {
-        Ok(Ok(id)) => id,
+        Ok(Ok(button)) => button.map(|button| button.app),
         Ok(Err(reason)) => {
             log::debug!("taskbar button lookup failed: {reason}");
             None
@@ -62,6 +52,35 @@ pub fn app_at(x: i32, y: i32) -> Option<String> {
             None
         }
     }
+}
+
+/// A taskbar app button: its app ID, without the `Appid: ` prefix, and
+/// where it is (left, top, right, bottom in physical pixels).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Button {
+    pub app: String,
+    pub rect: [i32; 4],
+}
+
+/// Where the answer to `lookup` arrives.
+pub type Lookup = mpsc::Receiver<Result<Option<Button>, String>>;
+
+/// Starts asking which button is at a point, without waiting for the
+/// answer; `None` when the point is not on a taskbar at all. The answer is
+/// `Ok(None)` when the point is on a taskbar but not on an app button.
+pub fn lookup(x: i32, y: i32) -> Option<Lookup> {
+    let point = POINT { x, y };
+    if !on_taskbar(point) {
+        return None;
+    }
+    // The caller owns windows and a message loop; asking explorer across
+    // processes on a thread of its own means a slow explorer only costs the
+    // caller what it chooses to wait, never a hung host.
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(on_worker(point));
+    });
+    Some(receiver)
 }
 
 /// Whether a point is on the main or a secondary taskbar.
@@ -77,7 +96,7 @@ pub fn on_taskbar(point: POINT) -> bool {
     )
 }
 
-fn on_worker(point: POINT) -> Result<Option<String>, String> {
+fn on_worker(point: POINT) -> Result<Option<Button>, String> {
     let hr = unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32) };
     if hr < 0 {
         return Err(format!("COM did not start ({})", com::hex(hr)));
@@ -87,13 +106,26 @@ fn on_worker(point: POINT) -> Result<Option<String>, String> {
     result
 }
 
-fn button_at(point: POINT) -> Result<Option<String>, String> {
+fn button_at(point: POINT) -> Result<Option<Button>, String> {
     let automation = Automation::new()?;
     let mut element = automation.element_from_point(point.x, point.y)?;
     for _ in 0..MAX_DEPTH {
         if uia::class_name(&element).as_deref() == Some(BUTTON_CLASS) {
-            let id = uia::automation_id(&element);
-            return Ok(id.map(|id| strip_prefix(&id).to_string()));
+            let Some(id) = uia::automation_id(&element) else {
+                return Ok(None);
+            };
+            // A button whose place cannot be read is only as wide as the
+            // point, which still names the app.
+            let rect = uia::bounding_rect(&element).unwrap_or([
+                point.x,
+                point.y,
+                point.x + 1,
+                point.y + 1,
+            ]);
+            return Ok(Some(Button {
+                app: strip_prefix(&id).to_string(),
+                rect,
+            }));
         }
         match automation.parent(&element) {
             Some(parent) => element = parent,

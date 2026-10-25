@@ -15,7 +15,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{
-    ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeSnapshot, ArrangeView, HostChannel,
+    self, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeSnapshot, ArrangeView, HostChannel,
     HostRequest, PeekCard,
 };
 use crate::ui::dwm_thumbs::{self, Placement, Thumbnail};
@@ -171,6 +171,10 @@ impl Monitor {
     fn under_pointer() -> Option<Self> {
         let mut point = POINT { x: 0, y: 0 };
         unsafe { GetCursorPos(&mut point) };
+        Self::at(point)
+    }
+
+    fn at(point: POINT) -> Option<Self> {
         let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
         let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
         info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
@@ -203,6 +207,31 @@ impl Monitor {
         let bottom = self.work[3] - (TASKBAR_GAP * self.scale).round() as i32;
         let top = (bottom - height).max(self.work[1]);
         [left, top, width, height]
+    }
+
+    /// The window rectangle for a panel opened by a hover: centred on the
+    /// taskbar button, kept inside the screen's sides, and just above the
+    /// taskbar (or below it, for a taskbar at the top).
+    fn above_button(&self, panel: Vec2, button: [i32; 4]) -> [i32; 4] {
+        let width = (panel.x * self.scale).round() as i32;
+        let height = (panel.y * self.scale).round() as i32;
+        let gap = (TASKBAR_GAP * self.scale).round() as i32;
+        let centre = (button[0] + button[2]) / 2;
+        let right_most = (self.work[2] - width).max(self.work[0]);
+        let left = (centre - width / 2).clamp(self.work[0], right_most);
+        let top = if (button[1] + button[3]) / 2 < self.work[1] {
+            (self.work[1] + gap).min((self.work[3] - height).max(self.work[1]))
+        } else {
+            (self.work[3] - gap - height).max(self.work[1])
+        };
+        [left, top, width, height]
+    }
+
+    fn rect_for(&self, panel: Vec2, anchor: Option<[i32; 4]>) -> [i32; 4] {
+        match anchor {
+            Some(button) => self.above_button(panel, button),
+            None => self.window_rect(panel),
+        }
     }
 }
 
@@ -240,6 +269,9 @@ struct Shared {
     keep_open_until: Option<Instant>,
     /// Whether the other desktops are shown; closed whenever the strip opens.
     others: others::Others,
+    /// The taskbar button a hover opened the strip above. Such a strip
+    /// leaves the keyboard with the window in front.
+    anchor: Option<[i32; 4]>,
 }
 
 impl Shared {
@@ -329,6 +361,7 @@ impl Arrange {
                 forced_peek: None,
                 keep_open_until: None,
                 others: others::Others::default(),
+                anchor: None,
             })),
             palette_hwnd,
         }
@@ -353,7 +386,14 @@ impl Arrange {
         shared.row_rects.clear();
         shared.card_rects.clear();
         shared.zones.clear();
-        shared.monitor = Monitor::under_pointer();
+        shared.anchor = shared.snapshot.as_ref().and_then(|s| s.anchor);
+        shared.monitor = match shared.anchor {
+            Some(button) => Monitor::at(POINT {
+                x: (button[0] + button[2]) / 2,
+                y: (button[1] + button[3]) / 2,
+            }),
+            None => Monitor::under_pointer(),
+        };
     }
 
     /// Takes fresh data and keeps the same taskbar group on screen.
@@ -395,6 +435,8 @@ impl Arrange {
         if let Ok(mut shared) = self.shared.lock() {
             shared.closed = false;
             shared.window = 0;
+            ui_bridge::set_arrange_window(0);
+            shared.anchor = None;
             shared.drag = None;
             shared.others.reset();
             shared.thumbs.clear();
@@ -406,18 +448,18 @@ impl Arrange {
     pub fn show(&self, ctx: &egui::Context, icon: Option<Arc<egui::IconData>>) {
         let shared = Arc::clone(&self.shared);
         let palette_hwnd = self.palette_hwnd;
-        let panel = self
+        let (panel, hovered) = self
             .shared
             .lock()
-            .map(|shared| shared.panel())
-            .unwrap_or(EMPTY_PANEL);
+            .map(|shared| (shared.panel(), shared.anchor.is_some()))
+            .unwrap_or((EMPTY_PANEL, false));
         let mut builder = egui::ViewportBuilder::default()
             .with_title(TITLE)
             .with_decorations(false)
             .with_window_level(egui::WindowLevel::AlwaysOnTop)
             .with_taskbar(false)
             .with_resizable(false)
-            .with_active(true)
+            .with_active(!hovered)
             .with_inner_size(panel);
         if let Some(icon) = icon {
             builder = builder.with_icon(icon);
@@ -433,12 +475,18 @@ impl Arrange {
                 if shared.window != 0 {
                     let border = theme::colorref(Tokens::get(ui.ctx()).border);
                     dwm_thumbs::round_corners(shared.window as HWND, border);
-                    shared.to_host.send(HostRequest::FocusWindow(shared.window));
+                    ui_bridge::set_arrange_window(shared.window);
+                    if shared.anchor.is_none() {
+                        shared.to_host.send(HostRequest::FocusWindow(shared.window));
+                    }
                 }
             }
             let panel = shared.panel();
             if let (Some(monitor), true) = (shared.monitor, shared.window != 0) {
-                keep_placed(shared.window as HWND, monitor.window_rect(panel));
+                keep_placed(
+                    shared.window as HWND,
+                    monitor.rect_for(panel, shared.anchor),
+                );
             }
 
             let (escape, focused) = ui
@@ -1679,6 +1727,52 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn a_hover_strip_is_centred_above_its_button() {
+        // A 4K monitor at 150 %, taskbar 72 px tall at the bottom.
+        let monitor = Monitor {
+            work: [0, 0, 3840, 2088],
+            scale: 1.5,
+        };
+        let panel = vec2(400.0, 200.0);
+        let [left, top, width, height] = monitor.above_button(panel, [1900, 2088, 1972, 2160]);
+        assert_eq!((width, height), (600, 300));
+        assert_eq!(left + width / 2, 1936, "centred on the button");
+        assert_eq!(top + height, 2088 - 18, "just above the taskbar");
+    }
+
+    #[test]
+    fn a_hover_strip_stays_inside_the_screen_edges() {
+        let monitor = Monitor {
+            work: [-1920, 0, 0, 1032],
+            scale: 1.0,
+        };
+        let panel = vec2(800.0, 200.0);
+        let near_left = monitor.above_button(panel, [-1900, 1032, -1860, 1080]);
+        assert_eq!(near_left[0], -1920);
+        let near_right = monitor.above_button(panel, [-60, 1032, -20, 1080]);
+        assert_eq!(near_right[0] + near_right[2], 0);
+        let wider_than_screen = monitor.above_button(vec2(2400.0, 200.0), [-960, 1032, -920, 1080]);
+        assert_eq!(wider_than_screen[0], -1920);
+        let too_tall = monitor.above_button(vec2(400.0, 1400.0), [-960, 1032, -920, 1080]);
+        assert_eq!(too_tall[1], 0, "never above the top of the screen");
+    }
+
+    #[test]
+    fn a_taskbar_at_the_top_gets_the_strip_below_it() {
+        let monitor = Monitor {
+            work: [0, 48, 1920, 1080],
+            scale: 1.0,
+        };
+        let rect = monitor.above_button(vec2(400.0, 200.0), [900, 0, 948, 48]);
+        assert_eq!(rect[1], 48 + 12);
+        assert_eq!(
+            monitor.rect_for(vec2(400.0, 200.0), None),
+            monitor.window_rect(vec2(400.0, 200.0)),
+            "Win+Alt+A keeps its place"
+        );
     }
 
     #[test]

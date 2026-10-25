@@ -5,15 +5,16 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use super::super::geometry::Rect;
+pub use crate::plugins::layout_keeper::hover_preview::keys::{
+    decide, Decision, Inputs, Reason, POPUP_CLASS, POPUP_TITLE,
+};
+pub use crate::plugins::layout_keeper::hover_preview::popup::Method;
 
 pub const DEFAULT_SECONDS: u64 = 60;
 pub const MIN_SECONDS: u64 = 5;
 pub const MAX_SECONDS: u64 = 600;
 const FLAG: &str = "--test-hide-popup";
 const DRY_RUN: &str = "--dry-run";
-
-pub const POPUP_CLASS: &str = "XamlExplorerHostIslandWindow";
-pub const POPUP_TITLE: &str = "Task Switching";
 
 /// Where method (c) puts the popup. Windows itself parks minimized windows
 /// at -32000, so nothing on a real monitor is ever there.
@@ -25,15 +26,6 @@ pub const EFFECT_MS: u64 = 50;
 pub const RESHOW_MS: u64 = 1000;
 /// The longest the last part of the run, which only watches, may be.
 pub const WATCH_MS: u64 = 10_000;
-/// A popup that opens this soon after Win+key was pressed was opened by
-/// the keyboard. Repeated Win+number presses come well inside it.
-pub const WIN_COMBO_MS: u64 = 1500;
-/// After a Windows key is released, the popup it opened may still be
-/// opening.
-pub const WIN_RELEASE_MS: u64 = 500;
-/// Any other key this recent means the keyboard may be driving the
-/// taskbar (Win+T, then the arrow keys).
-pub const RECENT_KEY_MS: u64 = 500;
 pub const CLEAN_MEDIAN_MS: u64 = 30;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,29 +78,6 @@ pub fn took_effect(visible: bool, cloak: u32, rect: Rect) -> bool {
     !visible || cloak != 0 || is_offscreen(rect)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Method {
-    ShowWindowAsync,
-    SetWindowPosHide,
-    MoveOffScreen,
-}
-
-impl Method {
-    pub const ALL: [Method; 3] = [
-        Method::ShowWindowAsync,
-        Method::SetWindowPosHide,
-        Method::MoveOffScreen,
-    ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Method::ShowWindowAsync => "(a) ShowWindowAsync SW_HIDE",
-            Method::SetWindowPosHide => "(b) SetWindowPos SWP_HIDEWINDOW",
-            Method::MoveOffScreen => "(c) SetWindowPos off-screen",
-        }
-    }
-}
-
 /// Tries the methods in order and keeps the first that works for the rest
 /// of the run.
 #[derive(Debug, Default)]
@@ -136,73 +105,6 @@ impl Picker {
             self.next += 1;
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Reason {
-    WinKey,
-    AltKey,
-    RecentKey,
-    MouseButton,
-    NotOnButton,
-}
-
-impl Reason {
-    pub fn text(self) -> &'static str {
-        match self {
-            Reason::WinKey => "left alone (Win+number)",
-            Reason::AltKey => "left alone (Alt is held, maybe Alt+Tab)",
-            Reason::RecentKey => "left alone (a key was pressed just before)",
-            Reason::MouseButton => "left alone (a mouse button is down)",
-            Reason::NotOnButton => "left alone (the cursor is not on a taskbar app button)",
-        }
-    }
-}
-
-/// What the keyboard and mouse were doing when the popup appeared. Times
-/// are milliseconds ago, `None` when it never happened in this run.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Inputs {
-    pub win_down: bool,
-    pub since_win_combo: Option<u64>,
-    pub since_win_up: Option<u64>,
-    pub alt_down: bool,
-    pub since_key: Option<u64>,
-    pub mouse_button_down: bool,
-    pub on_app_button: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Decision {
-    Hide,
-    LeaveAlone(Reason),
-}
-
-/// Hide only a popup that a mouse hover opened: the cursor rests on an
-/// app button, no mouse button is down, and no key, least of all a
-/// Windows key, had a part in it. Win+number shows the same popup and
-/// must keep working, so the keyboard always wins.
-pub fn decide(inputs: &Inputs) -> Decision {
-    let within = |since: Option<u64>, limit: u64| since.is_some_and(|ms| ms <= limit);
-    if inputs.win_down
-        || within(inputs.since_win_combo, WIN_COMBO_MS)
-        || within(inputs.since_win_up, WIN_RELEASE_MS)
-    {
-        return Decision::LeaveAlone(Reason::WinKey);
-    }
-    if inputs.alt_down {
-        return Decision::LeaveAlone(Reason::AltKey);
-    }
-    if within(inputs.since_key, RECENT_KEY_MS) {
-        return Decision::LeaveAlone(Reason::RecentKey);
-    }
-    if inputs.mouse_button_down {
-        return Decision::LeaveAlone(Reason::MouseButton);
-    }
-    if !inputs.on_app_button {
-        return Decision::LeaveAlone(Reason::NotOnButton);
-    }
-    Decision::Hide
 }
 
 /// The middle value, the mean of the two middle ones for an even count.
@@ -491,77 +393,6 @@ mod tests {
         }
         assert_eq!(picker.current(), None);
         assert_eq!(picker.winner(), None);
-    }
-
-    fn hover_inputs() -> Inputs {
-        Inputs {
-            on_app_button: true,
-            ..Inputs::default()
-        }
-    }
-
-    #[test]
-    fn a_hover_opened_popup_is_hidden() {
-        assert_eq!(decide(&hover_inputs()), Decision::Hide);
-        let old_keys = Inputs {
-            since_win_combo: Some(5000),
-            since_win_up: Some(5000),
-            since_key: Some(5000),
-            ..hover_inputs()
-        };
-        assert_eq!(decide(&old_keys), Decision::Hide);
-    }
-
-    #[test]
-    fn a_windows_key_or_a_recent_win_number_leaves_it_alone() {
-        let alone = Decision::LeaveAlone(Reason::WinKey);
-        let down = Inputs {
-            win_down: true,
-            ..hover_inputs()
-        };
-        assert_eq!(decide(&down), alone);
-        let combo = Inputs {
-            since_win_combo: Some(1200),
-            ..hover_inputs()
-        };
-        assert_eq!(decide(&combo), alone);
-        let released = Inputs {
-            since_win_up: Some(300),
-            ..hover_inputs()
-        };
-        assert_eq!(decide(&released), alone);
-        let with_button = Inputs {
-            mouse_button_down: true,
-            ..down
-        };
-        assert_eq!(
-            decide(&with_button),
-            alone,
-            "the Windows key is named first"
-        );
-    }
-
-    #[test]
-    fn a_mouse_button_alt_or_another_key_leaves_it_alone() {
-        let button = Inputs {
-            mouse_button_down: true,
-            ..hover_inputs()
-        };
-        assert_eq!(decide(&button), Decision::LeaveAlone(Reason::MouseButton));
-        let alt = Inputs {
-            alt_down: true,
-            ..hover_inputs()
-        };
-        assert_eq!(decide(&alt), Decision::LeaveAlone(Reason::AltKey));
-        let key = Inputs {
-            since_key: Some(100),
-            ..hover_inputs()
-        };
-        assert_eq!(decide(&key), Decision::LeaveAlone(Reason::RecentKey));
-        assert_eq!(
-            decide(&Inputs::default()),
-            Decision::LeaveAlone(Reason::NotOnButton)
-        );
     }
 
     #[test]

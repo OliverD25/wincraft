@@ -34,6 +34,14 @@ pub struct TrayAction {
     pub label: &'static str,
 }
 
+/// An on/off entry with a tick in the tray menu. Choosing it calls
+/// `on_tray_action` with its id, which shares the tray ids' space.
+pub struct TrayToggle {
+    pub id: u32,
+    pub label: &'static str,
+    pub on: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FieldKind {
     Toggle,
@@ -154,6 +162,12 @@ pub trait WinCraftPlugin {
 
     fn on_tray_action(&mut self, action_id: u32) {
         let _ = action_id;
+    }
+
+    /// Ticked entries for the tray menu, shown after the plugin's first
+    /// tray action. For a setting people switch often.
+    fn tray_toggles(&self) -> Vec<TrayToggle> {
+        Vec::new()
     }
 
     fn settings_fields(&self) -> Vec<SettingField> {

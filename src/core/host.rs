@@ -119,6 +119,9 @@ struct Host {
     /// A test scene's group and peek for the next time the strip opens.
     arrange_focus: Option<String>,
     peek_card: Option<PeekCard>,
+    /// The hovered taskbar button the next strip opens above: its app and
+    /// its place.
+    arrange_anchor: Option<(String, [i32; 4])>,
     updates: Updates,
     /// The "Updated to" panel while it is on screen.
     update_notice: Option<UpdateNotice>,
@@ -296,6 +299,9 @@ pub struct SceneFlags {
     pub ask_name: Option<isize>,
     /// Show LayoutKeeper's please-wait panel with sample progress.
     pub restore_panel: bool,
+    /// Let the hover strip hide Windows' taskbar preview, for a supervised
+    /// live test of it.
+    pub allow_hide_popup: bool,
     /// A folder, file or address to open the palette's bookmark box for.
     pub ask_bookmark: Option<String>,
     /// Check for updates at once and install what the check finds.
@@ -308,6 +314,7 @@ pub struct SceneFlags {
 }
 
 static DEMO_RESTORE_PANEL: AtomicBool = AtomicBool::new(false);
+static ALLOW_HIDE_POPUP: AtomicBool = AtomicBool::new(false);
 static STARTED_AGAIN: AtomicBool = AtomicBool::new(false);
 
 /// True when something other than the sign-in task started this process: an
@@ -337,6 +344,9 @@ thread_local! {
     static ARRANGE_WANTED: Cell<bool> = const { Cell::new(false) };
     static PROMPT: RefCell<Option<Prompt>> = const { RefCell::new(None) };
     static ARRANGE_STALE: Cell<bool> = const { Cell::new(false) };
+    static ARRANGE_ANCHOR: RefCell<Option<(String, [i32; 4])>> = const { RefCell::new(None) };
+    static ARRANGE_CLOSE: Cell<bool> = const { Cell::new(false) };
+    static SETTINGS_WANTED: RefCell<Vec<(String, String, Value)>> = const { RefCell::new(Vec::new()) };
     static RETRY: RefCell<Vec<(u32, WPARAM, LPARAM)>> = const { RefCell::new(Vec::new()) };
     /// The message the WndProc is working on, so the log can name a message
     /// that found the host busy.
@@ -345,6 +355,7 @@ thread_local! {
 
 pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: StartupFlags) {
     DEMO_RESTORE_PANEL.store(flags.scene.restore_panel, Ordering::Relaxed);
+    ALLOW_HIDE_POPUP.store(flags.scene.allow_hide_popup, Ordering::Relaxed);
     STARTED_AGAIN.store(
         flags.restarted || flags.updated_from.is_some() || flags.update_failed.is_some(),
         Ordering::Relaxed,
@@ -405,6 +416,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         balloon_click: BalloonClick::Detector,
         arrange_focus: flags.scene.arrange_focus.clone(),
         peek_card: flags.scene.peek_card,
+        arrange_anchor: None,
         updates: Updates::default(),
         update_notice: None,
         autostart_note: autostart::hands_off_note(),
@@ -555,12 +567,24 @@ impl Host {
             .iter()
             .enumerate()
             .filter(|(_, slot)| slot.enabled)
-            .filter_map(|(index, slot)| {
-                let action = slot.plugin.tray_actions().into_iter().next()?;
-                Some(entry(
-                    MENU_PLUGIN_ACTION_BASE + index as u32 * 100 + action.id,
-                    action.label,
-                ))
+            .flat_map(|(index, slot)| {
+                let base = MENU_PLUGIN_ACTION_BASE + index as u32 * 100;
+                let first = slot
+                    .plugin
+                    .tray_actions()
+                    .into_iter()
+                    .next()
+                    .map(|action| entry(base + action.id, action.label));
+                let toggles =
+                    slot.plugin
+                        .tray_toggles()
+                        .into_iter()
+                        .map(move |toggle| MenuItem::Entry {
+                            id: base + toggle.id,
+                            label: toggle.label.to_string(),
+                            checked: toggle.on,
+                        });
+                first.into_iter().chain(toggles)
             })
             .collect();
         if !primary.is_empty() {
@@ -962,12 +986,17 @@ impl Host {
     /// Asks the first enabled plugin that keeps a window order for its groups
     /// and sends them to the Arrange window.
     fn send_arrange(&mut self, open: bool) {
-        // Read before the plugin builds its groups, so the mouse is still
-        // where it was when the hotkey came.
-        let hovered = if open {
-            taskbar::app_under_cursor()
+        let anchor = if open {
+            self.arrange_anchor.take()
         } else {
             None
+        };
+        // Read before the plugin builds its groups, so the mouse is still
+        // where it was when the hotkey came.
+        let hovered = match (&anchor, open) {
+            (Some((app, _)), _) => Some(app.clone()),
+            (None, true) => taskbar::app_under_cursor(),
+            (None, false) => None,
         };
         let found = self.plugins.slots.iter_mut().find_map(|slot| {
             if !slot.enabled {
@@ -1002,7 +1031,11 @@ impl Host {
                 }
                 (None, Some(index)) => {
                     focus = index;
-                    "taskbar button under cursor"
+                    if anchor.is_some() {
+                        "mouse resting on its taskbar button"
+                    } else {
+                        "taskbar button under cursor"
+                    }
                 }
                 (None, None) => "front window",
             };
@@ -1021,6 +1054,7 @@ impl Host {
             can_rename: self.plugins.is_on(NAMER_ID),
             monitors: groups.monitors,
             view: groups.view,
+            anchor: anchor.map(|(_, rect)| rect),
         };
         self.to_ui.send(if open {
             UiCommand::ShowArrange(snapshot)
@@ -1889,6 +1923,39 @@ pub fn open_arrange() {
     plugin_changed();
 }
 
+/// Opens the Arrange strip on `app`, centred above its taskbar button at
+/// `button` (left, top, right, bottom in physical pixels), without taking
+/// the keyboard from the window in front. Safe to call from any callback.
+pub fn open_arrange_at(app: String, button: [i32; 4]) {
+    ARRANGE_ANCHOR.with(|cell| *cell.borrow_mut() = Some((app, button)));
+    open_arrange();
+}
+
+/// Closes the Arrange strip if it is open. Safe to call from any callback.
+pub fn close_arrange() {
+    ARRANGE_CLOSE.with(|cell| cell.set(true));
+    plugin_changed();
+}
+
+/// Changes one of a plugin's own settings and saves it, as if the user had
+/// changed it on the plugin's page; the plugin hears of it through
+/// `on_settings_changed`. Safe to call from any callback.
+pub fn save_setting(plugin: &str, key: &str, value: Value) {
+    SETTINGS_WANTED.with(|queue| {
+        queue
+            .borrow_mut()
+            .push((plugin.to_string(), key.to_string(), value))
+    });
+    plugin_changed();
+}
+
+/// True in a test instance started with `--allow-hide-popup`: LayoutKeeper's
+/// hover strip may hide Windows' taskbar preview, which a test instance
+/// otherwise never touches.
+pub fn allow_hide_popup() -> bool {
+    ALLOW_HIDE_POPUP.load(Ordering::Relaxed)
+}
+
 /// Sends the Arrange strip fresh data if it is open, for changes that show
 /// a moment after the plugin made them. Safe to call from any callback.
 pub fn refresh_arrange() {
@@ -2147,8 +2214,11 @@ struct PluginRequests {
     notices: Vec<(String, String)>,
     tip: Option<Option<String>>,
     arrange: bool,
+    anchor: Option<(String, [i32; 4])>,
+    close: bool,
     stale: bool,
     prompt: Option<Prompt>,
+    settings: Vec<(String, String, Value)>,
 }
 
 impl PluginRequests {
@@ -2157,8 +2227,11 @@ impl PluginRequests {
             notices: NOTICES.with(|queue| std::mem::take(&mut *queue.borrow_mut())),
             tip: TRAY_TIP.with(|cell| cell.borrow_mut().take()),
             arrange: ARRANGE_WANTED.with(|cell| cell.replace(false)),
+            anchor: ARRANGE_ANCHOR.with(|cell| cell.borrow_mut().take()),
+            close: ARRANGE_CLOSE.with(|cell| cell.replace(false)),
             stale: ARRANGE_STALE.with(|cell| cell.replace(false)),
             prompt: PROMPT.with(|cell| cell.borrow_mut().take()),
+            settings: SETTINGS_WANTED.with(|queue| std::mem::take(&mut *queue.borrow_mut())),
         }
     }
 }
@@ -2310,7 +2383,14 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
                     host.balloon_click = BalloonClick::Nothing;
                     host.tray.balloon(title, text);
                 }
+                for (plugin, key, value) in requests.settings {
+                    host.plugins.set_setting(&plugin, &key, value);
+                }
+                if requests.close {
+                    host.to_ui.send(UiCommand::HideArrange);
+                }
                 if requests.arrange {
+                    host.arrange_anchor = requests.anchor;
                     host.send_arrange(true);
                 } else if requests.stale {
                     host.send_arrange(false);
@@ -2432,7 +2512,7 @@ mod tests {
 
     use std::rc::Rc;
 
-    use crate::core::traits::{HotkeyAction, PaletteCommand, TrayAction};
+    use crate::core::traits::{HotkeyAction, PaletteCommand, TrayAction, TrayToggle};
     use crate::core::ui_bridge::LayoutAction;
 
     /// Stands in for RegisterHotKey: keys another app holds, and keys
@@ -2568,6 +2648,14 @@ mod tests {
 
         fn on_tray_action(&mut self, action_id: u32) {
             self.note(format!("tray {} {action_id}", self.id));
+        }
+
+        fn tray_toggles(&self) -> Vec<TrayToggle> {
+            vec![TrayToggle {
+                id: 5,
+                label: "Feature",
+                on: true,
+            }]
         }
 
         fn palette_commands(&self) -> Vec<PaletteCommand> {
@@ -3330,6 +3418,7 @@ mod tests {
             balloon_click: BalloonClick::Nothing,
             arrange_focus: None,
             peek_card: None,
+            arrange_anchor: None,
             updates: Updates::default(),
             update_notice: None,
             autostart_note: None,
@@ -3381,6 +3470,57 @@ mod tests {
         )));
         assert!(host.plugins.slots[0].enabled);
         assert_eq!(snapshots(&ui).len(), 1);
+    }
+
+    #[test]
+    fn the_tray_menu_shows_the_first_action_and_the_ticked_toggles() {
+        let data = Scratch::new("tray-toggles");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let (host, _ui) = test_host(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        let entries: Vec<(u32, String, bool)> = host
+            .menu_items()
+            .into_iter()
+            .filter_map(|item| match item {
+                MenuItem::Entry { id, label, checked } => Some((id, label, checked)),
+                MenuItem::Separator => None,
+            })
+            .collect();
+        let base = MENU_PLUGIN_ACTION_BASE;
+        assert!(entries.contains(&(base + 1, "Go".to_string(), false)));
+        assert!(entries.contains(&(base + 5, "Feature".to_string(), true)));
+        assert!(
+            !entries.iter().any(|(_, label, _)| label == "Open"),
+            "only the first tray action"
+        );
+    }
+
+    #[test]
+    fn a_plugin_can_open_the_strip_on_a_button_close_it_and_save_a_setting() {
+        open_arrange_at("Chrome.UserData.Profile3".to_string(), [1, 2, 3, 4]);
+        close_arrange();
+        save_setting("fake_a", "level", serde_json::json!(4));
+        let requests = PluginRequests::take();
+        assert!(requests.arrange);
+        assert_eq!(
+            requests.anchor,
+            Some(("Chrome.UserData.Profile3".to_string(), [1, 2, 3, 4]))
+        );
+        assert!(requests.close);
+        assert_eq!(
+            requests.settings,
+            [(
+                "fake_a".to_string(),
+                "level".to_string(),
+                serde_json::json!(4)
+            )]
+        );
+        let again = PluginRequests::take();
+        assert!(!again.arrange && !again.close && again.anchor.is_none());
+        assert!(again.settings.is_empty());
     }
 
     #[test]

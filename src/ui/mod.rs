@@ -210,6 +210,13 @@ impl App {
                     self.arrange.update(snapshot);
                     ctx.request_repaint_of(arrange::viewport_id());
                 }
+                UiCommand::HideArrange => {
+                    if self.arrange_open {
+                        self.arrange_open = false;
+                        self.arrange.hidden();
+                        log::info!("arrange windows hidden");
+                    }
+                }
                 UiCommand::LayoutUpdate(layout) => {
                     self.settings.set_layout(layout);
                     ctx.request_repaint_of(settings::viewport_id());
