@@ -28,9 +28,10 @@ screenshots.
 - **Settings window** — General, Plugins, Layout, Bookmarks, Plugin Store and
   About, with a page per plugin: its options, its hotkeys, its config file
   and its README.
-- **Themes** — Classic (the default), Terminal, Paper and High contrast, each
-  in dark and light. Settings → General → Appearance shows a tile with a small
-  picture of each one. Point at a tile and every WinCraft window shows that
+- **Themes** — Classic (the default), Fluent, Terminal, Paper and High
+  contrast, each in dark and light. Fluent's glass is solid for now.
+  Settings → General → Appearance shows a tile with a small picture of each
+  one. Point at a tile and every WinCraft window shows that
   theme; move away and it goes back; click to keep it. Mode (System, Dark or
   Light) is a separate choice. While Windows high contrast is on, WinCraft
   uses High contrast.
@@ -420,7 +421,7 @@ in the log.
 | Key | Meaning |
 |---|---|
 | `start_with_windows` | Mirrors the "Start with Windows" switch. It is a logon task in Task Scheduler; see below. |
-| `theme` | `classic`, `terminal`, `paper` or `high-contrast`. An unknown word gives Classic. Before 0.20.11 this key held the mode; such a file is read as Classic with that mode. |
+| `theme` | `classic`, `fluent`, `terminal`, `paper` or `high-contrast`. An unknown word gives Classic. Before 0.20.11 this key held the mode; such a file is read as Classic with that mode. |
 | `mode` | `system`, `light` or `dark`. An unknown word gives System. |
 | `palette_hotkey` | What opens the command palette. |
 | `search.prefixes` | The prefix of each palette search source. Change one to move it, set it to `""` to switch that prefix off. A source left out keeps its built-in prefix. Use symbols: a letter as a prefix would catch every search that starts with it. |
