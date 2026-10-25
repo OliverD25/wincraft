@@ -35,7 +35,7 @@ use crate::core::windows_list::class_name;
 use crate::core::{taskbar, ui_bridge, wide};
 use keys::POPUP_CLASS;
 use machine::{contains, Answer, Button, Gate, Look, Machine, Point, Rect};
-pub use machine::{delay_ms, Command, DEFAULT_DELAY_MS};
+pub use machine::{delay_ms, Command, DEFAULT_DELAY_MS, OLD_DEFAULT_DELAY_SECONDS};
 use popup::Method;
 
 /// The host window is shared; "LK" and 2 keep it clear of LayoutKeeper's

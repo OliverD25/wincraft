@@ -19,8 +19,10 @@ pub const MOVE_PX: i32 = 4;
 pub const LEAVE_GRACE_MS: u64 = 500;
 /// A strip that has not shown by then is given up on.
 pub const OPEN_TIMEOUT_MS: u64 = 3000;
-pub const DEFAULT_DELAY_MS: u64 = 400;
-pub const MIN_DELAY_MS: u64 = 200;
+pub const DEFAULT_DELAY_MS: u64 = 150;
+/// Until 0.20.9 the default was 0.4 s, so a saved 0.4 is not a choice.
+pub const OLD_DEFAULT_DELAY_SECONDS: f64 = 0.4;
+pub const MIN_DELAY_MS: u64 = 50;
 pub const MAX_DELAY_MS: u64 = 1500;
 /// Apps with fewer windows keep Windows' own preview.
 pub const MIN_WINDOWS: usize = 2;
@@ -571,13 +573,13 @@ mod tests {
 
     #[test]
     fn the_delay_comes_from_the_setting_within_its_range() {
-        assert_eq!(delay_ms(None), 400);
+        assert_eq!(delay_ms(None), 150);
         assert_eq!(delay_ms(Some(0.4)), 400);
         assert_eq!(delay_ms(Some(1.0)), 1000);
-        assert_eq!(delay_ms(Some(0.05)), 200);
+        assert_eq!(delay_ms(Some(0.01)), 50);
         assert_eq!(delay_ms(Some(9.0)), 1500);
-        assert_eq!(delay_ms(Some(f64::NAN)), 400);
-        assert_eq!(delay_ms(Some(-1.0)), 200);
+        assert_eq!(delay_ms(Some(f64::NAN)), 150);
+        assert_eq!(delay_ms(Some(-1.0)), 50);
     }
 
     #[test]
@@ -602,6 +604,7 @@ mod tests {
     #[test]
     fn the_strip_opens_after_the_rest_delay() {
         let mut machine = on();
+        machine.delay_ms = 400;
         rest_on(&mut machine, 2);
         assert!(machine.step(&look(300, ON_BUTTON)).is_empty());
         assert_eq!(machine.app(), Some("Chrome.UserData.Profile3"));
@@ -623,6 +626,7 @@ mod tests {
     #[test]
     fn small_moves_on_the_button_do_not_restart_the_delay() {
         let mut machine = on();
+        machine.delay_ms = 400;
         rest_on(&mut machine, 2);
         assert!(machine.step(&look(200, (1030, 2050))).is_empty());
         assert_eq!(machine.step(&look(400, (1040, 2070))).len(), 1);

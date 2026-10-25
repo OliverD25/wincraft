@@ -2567,6 +2567,18 @@ fn migrate_default(settings: &mut serde_json::Value, key: &str, old: u64, new: u
     true
 }
 
+fn migrate_hover_delay(settings: &mut serde_json::Value) -> bool {
+    let stored = settings
+        .get(HOVER_DELAY_KEY)
+        .and_then(|value| value.as_f64());
+    if stored != Some(hover_preview::OLD_DEFAULT_DELAY_SECONDS) {
+        return false;
+    }
+    settings[HOVER_DELAY_KEY] =
+        serde_json::Value::from(hover_preview::DEFAULT_DELAY_MS as f64 / 1000.0);
+    true
+}
+
 /// The browsers keep their product name in front of each web app's name:
 /// "Chrome · Gemini".
 fn browser_name(exe: &str) -> Option<&'static str> {
@@ -2804,9 +2816,9 @@ impl WinCraftPlugin for LayoutKeeper {
                 label: "Hover delay (seconds)",
                 help: "How long the mouse rests on a taskbar button before the Arrange strip opens.",
                 kind: FieldKind::Slider {
-                    min: 0.2,
+                    min: 0.05,
                     max: 1.5,
-                    step: 0.1,
+                    step: 0.05,
                 },
             },
         ]
@@ -2833,6 +2845,13 @@ impl WinCraftPlugin for LayoutKeeper {
         ) {
             log::info!(
                 "restore_window_minutes was the old default {OLD_DEFAULT_RESTORE_MINUTES}; now {DEFAULT_RESTORE_MINUTES}"
+            );
+        }
+        if migrate_hover_delay(settings) {
+            log::info!(
+                "hover_delay_seconds was the old default {}; now {}",
+                hover_preview::OLD_DEFAULT_DELAY_SECONDS,
+                hover_preview::DEFAULT_DELAY_MS as f64 / 1000.0
             );
         }
     }
@@ -3771,12 +3790,22 @@ mod tests {
     }
 
     #[test]
+    fn a_saved_old_default_hover_delay_becomes_the_new_default() {
+        let mut old = serde_json::json!({ HOVER_DELAY_KEY: 0.4 });
+        assert!(migrate_hover_delay(&mut old));
+        assert_eq!(old[HOVER_DELAY_KEY], 0.15);
+        let mut chosen = serde_json::json!({ HOVER_DELAY_KEY: 0.8 });
+        assert!(!migrate_hover_delay(&mut chosen));
+        assert_eq!(chosen[HOVER_DELAY_KEY], 0.8);
+    }
+
+    #[test]
     fn the_hover_strip_is_off_by_default_and_switches_at_once() {
         let mut keeper = read_only();
         keeper.apply_settings(&LayoutKeeper::default().default_settings());
         assert!(!keeper.hover_strip);
         assert!(!keeper.hover.is_on());
-        assert_eq!(keeper.hover_delay_ms, 400);
+        assert_eq!(keeper.hover_delay_ms, 150);
 
         keeper.apply_settings(&serde_json::json!({
             HOVER_STRIP_KEY: true,

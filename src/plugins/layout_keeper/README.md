@@ -530,8 +530,8 @@ once, and switching it off gives you Windows' own preview back at once.
 With it on:
 
 - **Rest the mouse** on the taskbar button of an app with 2 or more windows
-  (on any desktop). After the **Hover delay** (0.4 s unless you change it,
-  from 0.2 to 1.5 s) the Arrange strip opens above that button, on that
+  (on any desktop). After the **Hover delay** (0.15 s unless you change it,
+  from 0.05 to 1.5 s) the Arrange strip opens above that button, on that
   monitor, with the same view as `Win+Alt+A`. Windows' own preview for that
   hover is hidden, also each time Windows tries to show it again.
 - **A secondary monitor's taskbar lists only its own windows, and so does
@@ -653,4 +653,4 @@ of the run only watches to prove that. The report goes to a
 | Restore monitors | on | Also move each window back to its saved monitor; a window whose monitor is not connected stays where it is. |
 | Preview window on hover | on | Resting the mouse on a picture in the Arrange strip shows that window on its monitor. |
 | Show the Arrange strip instead of Windows' taskbar preview | off | Resting the mouse on the taskbar button of an app with 2 or more windows opens the Arrange strip above it (see **The strip instead of Windows' taskbar preview**). Also in the tray menu and the palette. |
-| Hover delay (seconds) | 0.4 | How long the mouse rests on a taskbar button before that strip opens, from 0.2 to 1.5. |
+| Hover delay (seconds) | 0.15 | How long the mouse rests on a taskbar button before that strip opens, from 0.05 to 1.5. |
