@@ -64,7 +64,8 @@ pub fn app_at(x: i32, y: i32) -> Option<String> {
     }
 }
 
-fn on_taskbar(point: POINT) -> bool {
+/// Whether a point is on the main or a secondary taskbar.
+pub fn on_taskbar(point: POINT) -> bool {
     let hwnd = unsafe { WindowFromPoint(point) };
     if hwnd.is_null() {
         return false;

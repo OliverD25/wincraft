@@ -11,6 +11,7 @@
 //! closed. The report goes to `%LOCALAPPDATA%\WinCraft` and to stdout.
 
 mod geometry;
+pub mod hide_test;
 mod report;
 mod scan;
 
@@ -29,9 +30,9 @@ use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, FindWindowW, GetMessageW, IsWindowVisible, PeekMessageW, PostThreadMessageW,
-    SetWindowsHookExW, UnhookWindowsHookEx, HC_ACTION, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE,
-    WH_MOUSE_LL, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE,
-    WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP,
+    SetWindowsHookExW, UnhookWindowsHookEx, HC_ACTION, HOOKPROC, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE,
+    WH_MOUSE_LL, WINDOWS_HOOK_ID, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
+    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP,
 };
 
 use crate::core::{clock, com, config, wide};
@@ -69,7 +70,7 @@ pub fn run(seconds: u64) -> i32 {
     ));
 
     let mut recorder = Recorder::default();
-    let hook = start_hook();
+    let hook = start_hook(WH_MOUSE_LL, Some(mouse_hook));
     recorder.add(
         0,
         Sample::Note(match hook {
@@ -258,21 +259,15 @@ impl Hook {
 /// A low-level hook is called through the message loop of the thread that
 /// set it, so it gets a thread that does nothing else: a slow tick can then
 /// never hold up the user's mouse.
-fn start_hook() -> Option<Hook> {
+fn start_hook(id: WINDOWS_HOOK_ID, procedure: HOOKPROC) -> Option<Hook> {
     let (sender, receiver) = mpsc::channel();
     let thread = std::thread::spawn(move || {
         let mut msg: MSG = unsafe { std::mem::zeroed() };
         // Makes the thread's message queue, so the WM_QUIT posted later
         // has somewhere to go.
         unsafe { PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE) };
-        let hook = unsafe {
-            SetWindowsHookExW(
-                WH_MOUSE_LL,
-                Some(mouse_hook),
-                GetModuleHandleW(std::ptr::null()),
-                0,
-            )
-        };
+        let hook =
+            unsafe { SetWindowsHookExW(id, procedure, GetModuleHandleW(std::ptr::null()), 0) };
         let _ = sender.send((unsafe { GetCurrentThreadId() }, !hook.is_null()));
         if hook.is_null() {
             return;

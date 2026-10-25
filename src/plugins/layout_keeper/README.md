@@ -467,6 +467,14 @@ reordering by hand, but it changes the order inside Explorer where WinCraft
 cannot see it, so the next restore replaces its changes with LayoutKeeper's
 saved order.
 
+`wincraft --test-hide-popup[=<seconds>]` (60 s unless given; add
+`--dry-run` to hide nothing) tests whether WinCraft can hide the taskbar's
+hover popup the moment a mouse hover opens it. A popup opened by the keyboard
+(Win+number, Alt+Tab) is always left alone. Only plain hides are used, so
+Explorer shows the popup again on the next hover by itself, and the last part
+of the run only watches to prove that. The report goes to a
+`hide-popup-test-*.txt` file in `%LOCALAPPDATA%\WinCraft`.
+
 ## Hotkeys
 
 | Action | Default |

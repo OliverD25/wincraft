@@ -286,12 +286,12 @@ fn group_of(app: &str) -> Group {
     }
 }
 
-fn cursor_pos() -> Option<(i32, i32)> {
+pub(super) fn cursor_pos() -> Option<(i32, i32)> {
     let mut point = POINT { x: 0, y: 0 };
     (unsafe { GetCursorPos(&mut point) } != 0).then_some((point.x, point.y))
 }
 
-fn top_level_windows() -> Vec<HWND> {
+pub(super) fn top_level_windows() -> Vec<HWND> {
     let mut found: Vec<HWND> = Vec::new();
     unsafe extern "system" fn collect(hwnd: HWND, found: LPARAM) -> BOOL {
         let found = unsafe { &mut *(found as *mut Vec<HWND>) };
@@ -330,7 +330,7 @@ fn to_rect(rect: RECT) -> Rect {
     [rect.left, rect.top, rect.right, rect.bottom]
 }
 
-fn window_rect(hwnd: HWND) -> Rect {
+pub(super) fn window_rect(hwnd: HWND) -> Rect {
     let mut rect: RECT = unsafe { std::mem::zeroed() };
     if unsafe { GetWindowRect(hwnd, &mut rect) } == 0 {
         return [0; 4];
