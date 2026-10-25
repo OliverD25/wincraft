@@ -8,8 +8,8 @@ use egui::{pos2, vec2, Rect, Response, Sense, Shape, StrokeKind, Ui, UiBuilder, 
 use super::{
     card_look, card_menu, ctrl_drop, ctrl_hint, ctrl_mark, ctrl_place, ctrl_target, float_picture,
     hit_rect, line_width, name_card, nudge, number_chip, others, others_link, paint_look,
-    picture_width, taskbar_numbers, thumbnail, wrap, Drag, Frame, Pending, Shared, NUMBER_GAP,
-    SAME_TITLE_HINT, SLACK,
+    picture_width, taskbar_numbers, thumbnail, visible_flags, wrap, Drag, Frame, Pending, Shared,
+    NUMBER_GAP, SAME_TITLE_HINT, SLACK,
 };
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{
@@ -378,18 +378,34 @@ struct Model {
 }
 
 impl Model {
-    fn new(group: &ArrangeGroup, snapshot: &ArrangeSnapshot, widths: &[f32], shown: bool) -> Self {
+    fn new(
+        group: &ArrangeGroup,
+        snapshot: &ArrangeSnapshot,
+        widths: &[f32],
+        shown: bool,
+        only: Option<usize>,
+    ) -> Self {
         let monitors = &snapshot.monitors;
-        let used = |index: usize| {
-            monitors[index].connected
-                || group
-                    .windows
-                    .iter()
-                    .any(|window| column_of(window, monitors) == Some(index))
+        let used = |index: usize| match only {
+            Some(only) => index == only,
+            None => {
+                monitors[index].connected
+                    || group
+                        .windows
+                        .iter()
+                        .any(|window| column_of(window, monitors) == Some(index))
+            }
         };
         let rows = monitor_rows(monitors, &used);
         let weights = rows.iter().map(|row| weights(monitors, row)).collect();
-        let all = bands(group, &snapshot.desktops, monitors, &rows);
+        let mut all = bands(group, &snapshot.desktops, monitors, &rows);
+        let flags = visible_flags(group, monitors, only);
+        for cell in all
+            .iter_mut()
+            .flat_map(|band| band.cells.iter_mut().flatten())
+        {
+            cell.retain(|member| flags[*member]);
+        }
         Self {
             rows,
             weights,
@@ -407,8 +423,9 @@ pub fn panel_for(
     shown: bool,
     link: bool,
     limit: Vec2,
+    only: Option<usize>,
 ) -> Vec2 {
-    let model = Model::new(group, snapshot, widths, shown);
+    let model = Model::new(group, snapshot, widths, shown, only);
     panel_size(&model.bands, &model.weights, widths, link, limit)
 }
 
@@ -722,10 +739,11 @@ pub fn body(
     menu_open: bool,
 ) -> Frame {
     let ctx = ui.ctx().clone();
-    let others_count = others::count(group, &snapshot.desktops);
+    let visible = visible_flags(group, &snapshot.monitors, shared.only_monitor);
+    let others_count = others::count(group, &snapshot.desktops, &visible);
     let shown = shared.others.shown(others_count);
     let widths = shared.widths(group, card_width);
-    let model = Model::new(group, snapshot, &widths, shown);
+    let model = Model::new(group, snapshot, &widths, shown, shared.only_monitor);
     let mut frame = Frame::default();
     let walk = walk(&model.bands);
     let member_of = |hwnd: isize| group.windows.iter().position(|w| w.hwnd == hwnd);
@@ -2058,6 +2076,58 @@ mod tests {
             .iter()
             .all(|w| w.on_monitor == w.saved_monitor));
         assert_eq!(group.windows[1].on_monitor, Some(2));
+    }
+
+    #[test]
+    fn a_limited_strip_has_one_column_with_only_that_monitors_windows() {
+        let monitors = desk();
+        let on = |hwnd: isize, monitor: usize| ArrangeWindow {
+            hwnd,
+            label: format!("w{hwnd}"),
+            desktop: "d1".to_string(),
+            monitor: None,
+            on_monitor: Some(monitor),
+            saved_monitor: Some(monitor),
+            renamed: false,
+            same_title: false,
+            attention: false,
+        };
+        let group = ArrangeGroup {
+            key: "claude.exe".to_string(),
+            label: "Claude".to_string(),
+            windows: vec![on(0, 0), on(1, 2), on(2, 0), on(3, 2), on(4, 1)],
+        };
+        let snapshot = ArrangeSnapshot {
+            plugin: "layout_keeper".to_string(),
+            groups: vec![group.clone()],
+            desktops: vec![ArrangeDesktop {
+                id: "d1".to_string(),
+                name: "Work".to_string(),
+                current: true,
+            }],
+            focus: 0,
+            watched: Vec::new(),
+            preview: true,
+            can_rename: false,
+            monitors,
+            view: crate::core::ui_bridge::ArrangeView::ByMonitor,
+            anchor: None,
+        };
+        let widths = [179.0; 5];
+        let all = Model::new(&group, &snapshot, &widths, false, None);
+        assert_eq!(all.rows, [vec![1, 0, 2]]);
+        let right = Model::new(&group, &snapshot, &widths, false, Some(2));
+        assert_eq!(right.rows, [vec![2]]);
+        assert_eq!(right.weights.len(), 1);
+        assert_eq!(right.bands[0].cells, [vec![vec![1, 3]]]);
+        assert_eq!(walk(&right.bands), [1, 3]);
+        // A drop inside the one column reorders the whole group.
+        let spot = Spot {
+            band: 0,
+            cell: (0, 0),
+            index: 0,
+        };
+        assert_eq!(order_after(5, &right.bands, 3, spot), [0, 3, 1, 2, 4]);
     }
 
     #[test]

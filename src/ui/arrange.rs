@@ -13,10 +13,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetWindowRect, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE,
 };
 
+use crate::core::taskbar_scope::MultiMonitor;
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{
-    self, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeSnapshot, ArrangeView, ArrangeWindow,
-    HostChannel, HostRequest, PeekCard,
+    self, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeMonitor, ArrangeSnapshot,
+    ArrangeView, ArrangeWindow, HostChannel, HostRequest, PeekCard,
 };
 use crate::ui::dwm_thumbs::{self, Placement, Thumbnail};
 use crate::ui::peek::{self, Hover, Peek, Step};
@@ -265,10 +266,85 @@ pub fn ctrl_hint(place: Option<usize>) -> String {
     }
 }
 
+/// The monitor a hover strip is limited to: the one whose taskbar it sits
+/// on, when Windows lists only that monitor's windows on that taskbar. None
+/// for a strip opened by the hotkey (no `anchor`) and for a taskbar that
+/// lists every window.
+pub fn only_monitor(
+    anchor: Option<[i32; 4]>,
+    monitors: &[ArrangeMonitor],
+    setting: MultiMonitor,
+) -> Option<usize> {
+    let button = anchor?;
+    let (x, y) = ((button[0] + button[2]) / 2, (button[1] + button[3]) / 2);
+    let at = monitors.iter().position(|m| {
+        m.connected && x >= m.rect[0] && x < m.rect[2] && y >= m.rect[1] && y < m.rect[3]
+    })?;
+    setting.shows_only_own(monitors[at].primary).then_some(at)
+}
+
+/// Which of the group's windows the strip shows: all of them, or only those
+/// on the `only` monitor (a window of unknown place counts as on the main
+/// one).
+pub fn visible_flags(
+    group: &ArrangeGroup,
+    monitors: &[ArrangeMonitor],
+    only: Option<usize>,
+) -> Vec<bool> {
+    let Some(only) = only else {
+        return vec![true; group.windows.len()];
+    };
+    let main = monitors.iter().position(|m| m.primary && m.connected);
+    group
+        .windows
+        .iter()
+        .map(|window| by_monitor::column_of(window, monitors).or(main) == Some(only))
+        .collect()
+}
+
+/// `rows` with only the windows that are shown. This desktop's row stays
+/// even when empty; another desktop's row goes when nothing in it is shown.
+fn only_visible(rows: Vec<Row>, visible: &[bool]) -> Vec<Row> {
+    rows.into_iter()
+        .enumerate()
+        .filter_map(|(at, mut row)| {
+            row.members.retain(|member| visible[*member]);
+            (at == 0 || !row.members.is_empty()).then_some(row)
+        })
+        .collect()
+}
+
+/// The group's order once the shown windows are in `shown`'s order: they
+/// keep the places the shown windows had, so a window that is not shown stays
+/// where it was.
+pub fn merge_order(full: &[isize], shown: &[isize]) -> Vec<isize> {
+    let wanted: Vec<isize> = shown
+        .iter()
+        .copied()
+        .filter(|hwnd| full.contains(hwnd))
+        .collect();
+    let mut merged = full.to_vec();
+    let slots: Vec<usize> = full
+        .iter()
+        .enumerate()
+        .filter(|(_, hwnd)| wanted.contains(hwnd))
+        .map(|(at, _)| at)
+        .collect();
+    for (slot, hwnd) in slots.into_iter().zip(wanted) {
+        merged[slot] = hwnd;
+    }
+    merged
+}
+
 /// The rows on screen: only this desktop's until the other desktops are
-/// shown.
-fn shown_rows(group: &ArrangeGroup, desktops: &[ArrangeDesktop], shown: bool) -> Vec<Row> {
-    let mut rows = rows(group, desktops);
+/// shown, and only the windows that are shown.
+fn shown_rows(
+    group: &ArrangeGroup,
+    desktops: &[ArrangeDesktop],
+    shown: bool,
+    visible: &[bool],
+) -> Vec<Row> {
+    let mut rows = only_visible(rows(group, desktops), visible);
     if !shown {
         rows.truncate(1);
     }
@@ -493,6 +569,9 @@ struct Shared {
     /// Every card drawn last frame, for finding the card a Ctrl drop lands
     /// on. By window handle, so it survives the group changing.
     card_hits: Vec<(isize, Rect)>,
+    /// The only monitor whose windows the strip shows, for a hover strip on
+    /// a taskbar that lists just those.
+    only_monitor: Option<usize>,
     to_host: Arc<HostChannel>,
     closed: bool,
     window: isize,
@@ -551,9 +630,17 @@ impl Shared {
     /// How many other desktops have windows of the group on screen.
     fn others_count(&self) -> usize {
         match (self.group(), &self.snapshot) {
-            (Some(group), Some(snapshot)) => others::count(group, &snapshot.desktops),
+            (Some(group), Some(snapshot)) => {
+                others::count(group, &snapshot.desktops, &self.visible(group))
+            }
             _ => 0,
         }
+    }
+
+    /// Which of the group's windows are on screen.
+    fn visible(&self, group: &ArrangeGroup) -> Vec<bool> {
+        let monitors = self.snapshot.as_ref().map_or(&[][..], |s| &s.monitors);
+        visible_flags(group, monitors, self.only_monitor)
     }
 
     fn panel(&self) -> Vec2 {
@@ -572,11 +659,17 @@ impl Shared {
                     self.others.shown(count),
                     count > 0,
                     limit,
+                    self.only_monitor,
                 )
             }
             (Some(group), Some(snapshot)) => {
                 let count = self.others_count();
-                let rows = shown_rows(group, &snapshot.desktops, self.others.shown(count));
+                let rows = shown_rows(
+                    group,
+                    &snapshot.desktops,
+                    self.others.shown(count),
+                    &self.visible(group),
+                );
                 let widths = self.widths(group, card_width);
                 let min_width = 2.0 * PADDING + TOOLBAR_CONTROLS + SLACK;
                 let mut size = panel_size(&rows, &widths, count > 0, min_width, limit);
@@ -608,6 +701,7 @@ impl Arrange {
                 card_rects: Vec::new(),
                 zones: Vec::new(),
                 card_hits: Vec::new(),
+                only_monitor: None,
                 to_host,
                 closed: false,
                 window: 0,
@@ -647,6 +741,11 @@ impl Arrange {
         shared.zones.clear();
         shared.card_hits.clear();
         shared.anchor = shared.snapshot.as_ref().and_then(|s| s.anchor);
+        // Read again at every hover: the user may have changed the setting.
+        shared.only_monitor = shared
+            .snapshot
+            .as_ref()
+            .and_then(|s| only_monitor(s.anchor, &s.monitors, MultiMonitor::read()));
         shared.monitor = match shared.anchor {
             Some(button) => Monitor::at(POINT {
                 x: (button[0] + button[2]) / 2,
@@ -697,6 +796,7 @@ impl Arrange {
             shared.window = 0;
             ui_bridge::set_arrange_window(0);
             shared.anchor = None;
+            shared.only_monitor = None;
             shared.drag = None;
             shared.others.reset();
             shared.thumbs.clear();
@@ -967,7 +1067,8 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
         ArrangeView::ByMonitor => by_monitor::toolbar_rect(panel),
         _ => Rect::from_min_size(content.min, vec2(content.width(), SWITCHER)),
     };
-    let (chosen_group, chosen_view) = toolbar(ui, bar, &snapshot, &group, view);
+    let visible = shared.visible(&group);
+    let (chosen_group, chosen_view) = toolbar(ui, bar, &snapshot, &group, view, &visible);
     if let Some(index) = chosen_group {
         shared.key = Some(snapshot.groups[index].key.clone());
         shared.cursor = None;
@@ -999,7 +1100,7 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     }
     let ppp = ctx.pixels_per_point();
     let menu_open = egui::Popup::is_any_open(&ctx);
-    let others_count = others::count(&group, &snapshot.desktops);
+    let others_count = others::count(&group, &snapshot.desktops, &visible);
     if others_count > 0
         && !menu_open
         && shared.drag.is_none()
@@ -1087,6 +1188,7 @@ fn toolbar(
     snapshot: &ArrangeSnapshot,
     group: &ArrangeGroup,
     view: ArrangeView,
+    visible: &[bool],
 ) -> (Option<usize>, Option<ArrangeView>) {
     let tokens = Tokens::get(ui.ctx());
     let labels: Vec<&str> = snapshot.groups.iter().map(|g| g.label.as_str()).collect();
@@ -1114,7 +1216,14 @@ fn toolbar(
         })
         .inner;
     let connected = snapshot.monitors.iter().filter(|m| m.connected).count();
-    let line = summary(connected, snapshot.desktops.len(), group.windows.len());
+    let shown = visible.iter().filter(|v| **v).count();
+    // A strip limited to one monitor counts that monitor only.
+    let monitors = if shown < group.windows.len() {
+        1
+    } else {
+        connected
+    };
+    let line = summary(monitors, snapshot.desktops.len(), shown);
     let galley = ui
         .painter()
         .layout_no_wrap(line, theme::regular(13.0), tokens.text_secondary);
@@ -1159,8 +1268,9 @@ fn flat(
     menu_open: bool,
 ) -> Frame {
     let tokens = Tokens::get(ui.ctx());
-    let others_count = others::count(group, desktops);
-    let rows = shown_rows(group, desktops, shared.others.shown(others_count));
+    let visible = shared.visible(group);
+    let others_count = others::count(group, desktops, &visible);
+    let rows = shown_rows(group, desktops, shared.others.shown(others_count), &visible);
     let ctx = ui.ctx().clone();
     let can_rename = shared.snapshot.as_ref().is_some_and(|s| s.can_rename);
     let pointer = ctx.pointer_latest_pos();
@@ -1680,14 +1790,14 @@ fn drop_actions(
             desktop: to.desktop.clone(),
         });
     }
-    let order: Vec<isize> = dropped_order(rows, dragged, target)
+    let shown: Vec<isize> = dropped_order(rows, dragged, target)
         .into_iter()
         .map(|member| group.windows[member].hwnd)
         .collect();
-    let now: Vec<isize> = rows
-        .iter()
-        .flat_map(|row| row.members.iter().map(|m| group.windows[*m].hwnd))
-        .collect();
+    let now: Vec<isize> = group.windows.iter().map(|w| w.hwnd).collect();
+    // Windows that are not in the rows (another desktop's, or another
+    // monitor's in a limited strip) keep their places.
+    let order = merge_order(&now, &shown);
     if order != now || !actions.is_empty() {
         actions.push(ArrangeAction::Reorder {
             group: group.key.clone(),
@@ -2531,18 +2641,18 @@ mod tests {
     fn the_flat_view_shows_only_this_desktop_until_the_others_are_shown() {
         let desktops = [desktop("a", "Home", true), desktop("b", "Work", false)];
         let group = group(&["a", "b", "b"]);
-        assert_eq!(shown_rows(&group, &desktops, false).len(), 1);
-        assert_eq!(shown_rows(&group, &desktops, true).len(), 2);
+        assert_eq!(shown_rows(&group, &desktops, false, &[true; 3]).len(), 1);
+        assert_eq!(shown_rows(&group, &desktops, true, &[true; 3]).len(), 2);
         let limit = vec2(5000.0, 5000.0);
         let shut = panel_size(
-            &shown_rows(&group, &desktops, false),
+            &shown_rows(&group, &desktops, false, &[true; 3]),
             &SAME,
             true,
             0.0,
             limit,
         );
         let open = panel_size(
-            &shown_rows(&group, &desktops, true),
+            &shown_rows(&group, &desktops, true, &[true; 3]),
             &SAME,
             true,
             0.0,
@@ -2551,7 +2661,7 @@ mod tests {
         assert!(shut.y < open.y);
         // The footnote about other desktops needs a second row.
         let alone = panel_size(
-            &shown_rows(&group, &desktops, false),
+            &shown_rows(&group, &desktops, false, &[true; 3]),
             &SAME,
             false,
             0.0,
@@ -2820,5 +2930,160 @@ mod tests {
     fn the_ctrl_hint_names_the_number_or_asks_for_a_card() {
         assert_eq!(ctrl_hint(Some(2)), "Change number only: takes number 2");
         assert!(ctrl_hint(None).starts_with("Change number only"));
+    }
+
+    fn screen(rect: [i32; 4], primary: bool) -> ArrangeMonitor {
+        ArrangeMonitor {
+            device: String::new(),
+            label: String::new(),
+            name: String::new(),
+            rect,
+            work: rect,
+            primary,
+            connected: true,
+        }
+    }
+
+    /// The primary monitor, one to its left and one to its right.
+    fn three_screens() -> Vec<ArrangeMonitor> {
+        vec![
+            screen([0, 0, 3840, 2160], true),
+            screen([-1920, 0, 0, 1080], false),
+            screen([3840, 0, 6400, 2880], false),
+        ]
+    }
+
+    const RIGHT_BUTTON: [i32; 4] = [5000, 2830, 5048, 2880];
+    const MAIN_BUTTON: [i32; 4] = [1900, 2100, 1948, 2160];
+
+    #[test]
+    fn a_secondary_taskbar_limits_the_strip_to_its_monitor_in_mode_1() {
+        let screens = three_screens();
+        let mode = |enabled, mode| MultiMonitor::from_values(Some(enabled), Some(mode));
+        assert_eq!(
+            only_monitor(Some(RIGHT_BUTTON), &screens, mode(1, 1)),
+            Some(2)
+        );
+        assert_eq!(only_monitor(Some(MAIN_BUTTON), &screens, mode(1, 1)), None);
+    }
+
+    #[test]
+    fn every_taskbar_limits_the_strip_in_mode_2_and_none_in_mode_0() {
+        let screens = three_screens();
+        let mode = |enabled, mode| MultiMonitor::from_values(Some(enabled), Some(mode));
+        assert_eq!(
+            only_monitor(Some(MAIN_BUTTON), &screens, mode(1, 2)),
+            Some(0)
+        );
+        assert_eq!(
+            only_monitor(Some(RIGHT_BUTTON), &screens, mode(1, 2)),
+            Some(2)
+        );
+        assert_eq!(only_monitor(Some(RIGHT_BUTTON), &screens, mode(1, 0)), None);
+        assert_eq!(only_monitor(Some(MAIN_BUTTON), &screens, mode(1, 0)), None);
+    }
+
+    #[test]
+    fn one_taskbar_a_hotkey_strip_or_an_unknown_place_limit_nothing() {
+        let screens = three_screens();
+        let mode_2 = MultiMonitor::from_values(Some(1), Some(2));
+        let one_taskbar = MultiMonitor::from_values(Some(0), Some(2));
+        assert_eq!(
+            only_monitor(Some(RIGHT_BUTTON), &screens, one_taskbar),
+            None
+        );
+        assert_eq!(only_monitor(None, &screens, mode_2), None, "Win+Alt+A");
+        assert_eq!(
+            only_monitor(Some([9000, 0, 9040, 40]), &screens, mode_2),
+            None
+        );
+        let mut gone = three_screens();
+        gone[2].connected = false;
+        assert_eq!(only_monitor(Some(RIGHT_BUTTON), &gone, mode_2), None);
+    }
+
+    fn on_screens(places: &[Option<usize>]) -> ArrangeGroup {
+        let mut group = group(&vec!["work"; places.len()]);
+        for (window, place) in group.windows.iter_mut().zip(places) {
+            window.on_monitor = *place;
+            window.saved_monitor = *place;
+        }
+        group
+    }
+
+    #[test]
+    fn a_limited_strip_shows_the_windows_of_its_monitor() {
+        let screens = three_screens();
+        // Windows 1 and 3 are on the right monitor; 4 has no known place and
+        // counts as on the main one.
+        let group = on_screens(&[Some(0), Some(2), Some(1), Some(2), None]);
+        assert_eq!(
+            visible_flags(&group, &screens, Some(2)),
+            [false, true, false, true, false]
+        );
+        assert_eq!(
+            visible_flags(&group, &screens, Some(0)),
+            [true, false, false, false, true]
+        );
+        assert_eq!(visible_flags(&group, &screens, None), [true; 5]);
+    }
+
+    #[test]
+    fn the_shown_windows_keep_their_own_numbers() {
+        let desktops = [desktop("work", "Work", true)];
+        let screens = three_screens();
+        let group = on_screens(&[Some(0), Some(2), Some(0), Some(2), Some(0), Some(2)]);
+        let visible = visible_flags(&group, &screens, Some(2));
+        let rows = shown_rows(&group, &desktops, false, &visible);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].members, [1, 3, 5]);
+        // Numbers come from the whole row, so they skip: 2, 4 and 6.
+        let numbers = taskbar_numbers(&group, &desktops);
+        let shown: Vec<usize> = rows[0].members.iter().map(|m| numbers[*m]).collect();
+        assert_eq!(shown, [2, 4, 6]);
+    }
+
+    #[test]
+    fn another_desktops_row_goes_when_none_of_its_windows_are_shown() {
+        let desktops = [
+            desktop("home", "Home", false),
+            desktop("work", "Work", true),
+        ];
+        let group = group(&["work", "home", "work", "home"]);
+        let visible = [true, false, true, false];
+        assert_eq!(shown_rows(&group, &desktops, true, &visible).len(), 1);
+        assert_eq!(shown_rows(&group, &desktops, true, &[true; 4]).len(), 2);
+    }
+
+    #[test]
+    fn reordering_shown_windows_keeps_the_others_where_they_were() {
+        assert_eq!(
+            merge_order(&[0, 1, 2, 3, 4, 5], &[4, 2]),
+            [0, 1, 4, 3, 2, 5]
+        );
+        assert_eq!(merge_order(&[0, 1, 2, 3], &[0, 1, 2, 3]), [0, 1, 2, 3]);
+        // A handle that is not in the group is ignored.
+        assert_eq!(merge_order(&[0, 1, 2], &[2, 9, 0]), [2, 1, 0]);
+        assert_eq!(merge_order(&[0, 1, 2], &[]), [0, 1, 2]);
+    }
+
+    #[test]
+    fn a_drop_in_a_limited_strip_reorders_the_whole_group() {
+        let desktops = [desktop("work", "Work", true)];
+        let screens = three_screens();
+        let group = on_screens(&[Some(0), Some(2), Some(0), Some(2), Some(0), Some(2)]);
+        let visible = visible_flags(&group, &screens, Some(0));
+        let rows = shown_rows(&group, &desktops, false, &visible);
+        assert_eq!(rows[0].members, [0, 2, 4]);
+        // Window 4 dropped first: the right-monitor windows 1, 3, 5 stay.
+        let actions = drop_actions(&group, &rows, 4, (0, 0));
+        assert_eq!(
+            actions,
+            [ArrangeAction::Reorder {
+                group: "chrome.exe".to_string(),
+                order: vec![4, 1, 0, 3, 2, 5]
+            }]
+        );
+        assert!(drop_actions(&group, &rows, 0, (0, 0)).is_empty());
     }
 }

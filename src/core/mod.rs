@@ -20,6 +20,7 @@ pub mod release_notes;
 pub mod session;
 pub mod sha256;
 pub mod taskbar;
+pub mod taskbar_scope;
 pub mod theme;
 pub mod tips;
 pub mod traits;

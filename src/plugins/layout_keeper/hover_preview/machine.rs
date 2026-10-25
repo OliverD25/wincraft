@@ -44,7 +44,7 @@ pub fn delay_ms(seconds: Option<f64>) -> u64 {
 pub struct Button {
     pub app: String,
     pub rect: Rect,
-    /// The app's windows on every desktop.
+    /// The app's windows on every desktop that this taskbar shows.
     pub windows: usize,
 }
 

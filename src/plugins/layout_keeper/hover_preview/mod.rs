@@ -119,9 +119,10 @@ impl HoverPreview {
         out
     }
 
-    /// One look at the mouse and keys. `windows_of` counts an app's windows
-    /// on every desktop, from its taskbar app ID.
-    pub fn tick(&mut self, windows_of: &dyn Fn(&str) -> usize) -> Vec<Command> {
+    /// One look at the mouse and keys. `windows_of` counts the windows of an
+    /// app that the taskbar button at the given rectangle shows, from its
+    /// taskbar app ID.
+    pub fn tick(&mut self, windows_of: &dyn Fn(&str, Rect) -> usize) -> Vec<Command> {
         if !self.machine.on {
             return Vec::new();
         }
@@ -200,7 +201,7 @@ impl HoverPreview {
         out
     }
 
-    fn take_answer(&mut self, windows_of: &dyn Fn(&str) -> usize) -> Option<Answer> {
+    fn take_answer(&mut self, windows_of: &dyn Fn(&str, Rect) -> usize) -> Option<Answer> {
         if let Some(answer) = self.answer.take() {
             return Some(answer);
         }
@@ -220,7 +221,7 @@ impl HoverPreview {
             }
         };
         let button = button.map(|button| Button {
-            windows: windows_of(&button.app),
+            windows: windows_of(&button.app, button.rect),
             app: button.app,
             rect: button.rect,
         });

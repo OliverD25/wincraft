@@ -60,12 +60,18 @@ impl Others {
     }
 }
 
-/// How many other desktops have windows of the group.
-pub fn count(group: &ArrangeGroup, desktops: &[ArrangeDesktop]) -> usize {
+/// How many other desktops have windows of the group that are shown.
+pub fn count(group: &ArrangeGroup, desktops: &[ArrangeDesktop], visible: &[bool]) -> usize {
     desktops
         .iter()
         .filter(|desktop| !desktop.current)
-        .filter(|desktop| group.windows.iter().any(|w| w.desktop == desktop.id))
+        .filter(|desktop| {
+            group
+                .windows
+                .iter()
+                .zip(visible)
+                .any(|(w, shown)| *shown && w.desktop == desktop.id)
+        })
         .count()
 }
 
@@ -173,6 +179,8 @@ mod tests {
             desktop("c", false),
             desktop("d", false),
         ];
-        assert_eq!(count(&group, &desktops), 2);
+        assert_eq!(count(&group, &desktops, &[true; 4]), 2);
+        // Windows that are not shown do not make a desktop count.
+        assert_eq!(count(&group, &desktops, &[true, false, true, false]), 1);
     }
 }

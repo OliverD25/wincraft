@@ -35,7 +35,9 @@ use crate::core::ui_bridge::{
     ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeView, ArrangeWindow,
     LayoutAction, LayoutApp, LayoutEntry, LayoutRef, LayoutSnapshot,
 };
-use crate::core::{appid, clock, host, instance, session, taskbar, wide, window_names};
+use crate::core::{
+    appid, clock, host, instance, session, taskbar, taskbar_scope, wide, window_names,
+};
 use crate::search::providers::apps;
 use desktops::{Desktop, DesktopId};
 use identity::Rect;
@@ -348,7 +350,9 @@ impl LayoutKeeper {
 
     fn hover_tick(&mut self) {
         let groups = &self.groups;
-        let commands = self.hover.tick(&|app| windows_of(groups, app));
+        let commands = self
+            .hover
+            .tick(&|app, button| windows_on_taskbar(groups, app, button));
         run_hover(commands);
     }
 
@@ -2627,6 +2631,30 @@ fn windows_of(groups: &BTreeMap<String, OrderModel>, app: &str) -> usize {
         .filter(|(key, _)| taskbar::same_app(app, key))
         .map(|(_, model)| model.windows().count())
         .sum()
+}
+
+/// How many windows the taskbar button at `button` lists for the app. A
+/// secondary taskbar may list only the windows on its own monitor (see
+/// `taskbar_scope`); the main one lists them all, and so does a taskbar
+/// whose monitor cannot be found.
+fn windows_on_taskbar(groups: &BTreeMap<String, OrderModel>, app: &str, button: Rect) -> usize {
+    let monitors = monitors::list();
+    let Some(hovered) = monitors::index_of(button, &monitors) else {
+        return windows_of(groups, app);
+    };
+    let own_only =
+        taskbar_scope::MultiMonitor::read().shows_only_own(monitors[hovered].is_primary());
+    if !own_only {
+        return windows_of(groups, app);
+    }
+    let primary = monitors.iter().position(|m| m.is_primary()).unwrap_or(0);
+    let on: Vec<usize> = groups
+        .iter()
+        .filter(|(key, _)| taskbar::same_app(app, key))
+        .flat_map(|(_, model)| model.windows())
+        .map(|(_, identity)| monitors::index_of(identity.rect, &monitors).unwrap_or(primary))
+        .collect();
+    taskbar_scope::count_shown(&on, hovered, true)
 }
 
 /// The palette entry's second line: what the switch is now.

@@ -517,7 +517,33 @@ With it on:
   from 0.2 to 1.5 s) the Arrange strip opens above that button, on that
   monitor, with the same view as `Win+Alt+A`. Windows' own preview for that
   hover is hidden, also each time Windows tries to show it again.
-- **Apps with one window** keep Windows' own preview. So do apps
+- **A secondary monitor's taskbar lists only its own windows, and so does
+  the strip.** Windows decides which windows each taskbar shows in Settings,
+  Personalization, Taskbar, Multiple displays ("Show my taskbar apps on").
+  WinCraft reads that choice (`MMTaskbarEnabled` and `MMTaskbarMode`) every
+  time you rest the mouse on a button, and shows what that taskbar shows:
+  - *All taskbars* (mode 0): every taskbar lists all windows, and so does
+    the strip.
+  - *Main taskbar and taskbar where window is open* (mode 1): the main
+    taskbar lists all windows, a secondary taskbar only the windows on its
+    own monitor.
+  - *Taskbar where window is open* (mode 2): every taskbar, the main one
+    too, lists only the windows on its own monitor.
+  - *Only the main taskbar exists* (the "Show taskbar on all displays"
+    switch is off): the strip lists all windows.
+
+  A strip limited to one monitor shows that monitor's windows only: in By
+  monitor a single column, in Flat the cards of those windows, and the other
+  desktops link and the window count follow the same limit. The numbers on
+  the cards stay the numbers of the whole row, so they can skip (7, then
+  12): they are what Win+number goes through. Dragging inside such a strip
+  reorders as always; windows that are not shown keep their places. A window
+  cannot be dragged to another monitor there, because only one is shown.
+  `Win+Alt+A` always shows everything.
+- **Apps with one window** keep Windows' own preview. "One window" counts
+  the windows that taskbar would list: an app with two windows on the main
+  monitor and one on the right monitor keeps Windows' own preview on the
+  right monitor's taskbar in mode 1 or 2. So do apps
   LayoutKeeper does not watch (see **Programs** and **Never touch**).
 - **Move the mouse up** into the strip: it stays open. It closes half a
   second after the mouse has left both the button and the strip. Moving to
