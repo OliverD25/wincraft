@@ -572,6 +572,9 @@ struct Shared {
     /// The only monitor whose windows the strip shows, for a hover strip on
     /// a taskbar that lists just those.
     only_monitor: Option<usize>,
+    /// The monitor whose empty rail the keyboard has just moved a window to;
+    /// the rail stays unfolded until the next key.
+    rail_focus: Option<usize>,
     to_host: Arc<HostChannel>,
     closed: bool,
     window: isize,
@@ -702,6 +705,7 @@ impl Arrange {
                 zones: Vec::new(),
                 card_hits: Vec::new(),
                 only_monitor: None,
+                rail_focus: None,
                 to_host,
                 closed: false,
                 window: 0,

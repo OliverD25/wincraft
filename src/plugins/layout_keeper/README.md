@@ -389,14 +389,20 @@ as always.
 desktop: this desktop first, its name in the accent colour, then (when
 shown) the others in Task View order, slightly faded. A desktop with none of the app's windows
 is just its header. Inside a band there is one column per monitor, from left
-to right as the monitors stand, each as wide as its monitor is next to the
-others (never narrower than 240 pixels; if the columns still do not fit, that
-band scrolls sideways). Monitors stacked one above the other get a row of
-columns each. A column's label gives the monitor's place ("Left",
+to right as the monitors stand. A column is as wide as its windows need to sit
+in one row (never narrower than 200 pixels and never wider than half of the
+band); the column with the most windows takes all the space that is left, and
+the main monitor's column wins a tie. The size of the monitors does not
+matter. If the columns still do not fit, that band scrolls sideways. Monitors
+stacked one above the other get a row of columns each. A column's label gives the monitor's place ("Left",
 "Centre", "Right"; "Monitor 4" and so on with four or more), its resolution,
 a **Primary** chip for the main monitor and how many windows it has; the
-monitor's own name is its tooltip. A column with no windows shows a dashed
-box to drop a window into.
+monitor's own name is its tooltip. A monitor with no windows, while other
+monitors have some, folds into a narrow dashed rail (40 pixels) with its name
+written upward and the word "empty". While you drag a picture, every rail
+opens to a full column with a dashed box ("Drop a window here") and closes
+again when you let go. A strip that shows one monitor only, or has no windows
+at all, keeps ordinary columns.
 
 - **Drag** a picture to another monitor's column to move the window there
   now, at the same size and place relative to the screen (a maximized
@@ -412,7 +418,8 @@ box to drop a window into.
   a new place.
 - **Keyboard:** ↑ and ↓ pick a window, across columns and desktops; ← and →
   move it within its column; Shift+← and Shift+→ move it to the end of the
-  next monitor's column; Shift+↑ and Shift+↓ move it to the next desktop, on
+  next monitor's column (a rail counts, and it opens while the window lands
+  on it); Shift+↑ and Shift+↓ move it to the next desktop, on
   the same monitor (or the main one when its own is unplugged). Enter
   switches to the window, D shows or hides the other desktops, Esc closes the
   strip, Alt+← and Alt+→ give it the next lower or higher number (see

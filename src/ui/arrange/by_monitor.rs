@@ -29,7 +29,18 @@ const HEADER_GAP: f32 = 10.0;
 const COLUMN_GAP: f32 = 16.0;
 /// Between two rows of monitors stacked one above the other.
 const ROW_GAP: f32 = 16.0;
-pub const MIN_TRACK: f32 = 240.0;
+pub const MIN_TRACK: f32 = 200.0;
+/// The most of a band a column that is not the widest one may take.
+const MAX_SHARE: f32 = 0.5;
+/// A monitor with no windows, folded into a narrow rail.
+const RAIL: f32 = 40.0;
+/// A rail while a card is dragged, or while the keyboard is on it.
+const RAIL_OPEN: f32 = 200.0;
+const RAIL_ANIMATION: f32 = 0.15;
+const RAIL_MIN_HEIGHT: f32 = 150.0;
+const RAIL_ICON: f32 = 14.0;
+const RAIL_PAD: f32 = 8.0;
+const RAIL_TEXT_GAP: f32 = 6.0;
 /// A column's 1 px rule and the 12 px after it.
 const INSET: f32 = 13.0;
 const LABEL: f32 = 18.0;
@@ -84,73 +95,114 @@ pub fn monitor_rows(monitors: &[ArrangeMonitor], shown: &dyn Fn(usize) -> bool) 
     rows
 }
 
-/// How wide each column of a row wants to be, relatively: its monitor's
-/// width in pixels. A disconnected monitor's size is not known any more; it
-/// gets the narrowest connected one's.
-pub fn weights(monitors: &[ArrangeMonitor], row: &[usize]) -> Vec<f32> {
-    let width = |monitor: &ArrangeMonitor| (monitor.rect[2] - monitor.rect[0]).max(1) as f32;
-    let narrowest = monitors
-        .iter()
-        .filter(|monitor| monitor.connected)
-        .map(width)
-        .reduce(f32::min)
-        .unwrap_or(1920.0);
-    row.iter()
-        .map(|index| {
-            let monitor = &monitors[*index];
-            if monitor.connected {
-                width(monitor)
-            } else {
-                narrowest
+/// One monitor column of a row, as far as its width goes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Col {
+    /// The width its cards need on one line, rule and padding included. The
+    /// widest of all the bands on screen.
+    need: f32,
+    /// How many windows it holds, in all the bands on screen.
+    count: usize,
+    primary: bool,
+    /// A connected monitor with no windows, folded into a narrow rail.
+    rail: bool,
+}
+
+/// The columns of each row of monitors. A monitor with no windows becomes a
+/// rail, but only when there is another column in its row that has some:
+/// a strip limited to one monitor, or a row with nothing in it, keeps
+/// ordinary columns. A disconnected monitor is never a rail.
+pub fn columns(
+    bands: &[Band],
+    rows: &[Vec<usize>],
+    monitors: &[ArrangeMonitor],
+    widths: &[f32],
+) -> Vec<Vec<Col>> {
+    rows.iter()
+        .enumerate()
+        .map(|(r, row)| {
+            let mut cols: Vec<Col> = row
+                .iter()
+                .enumerate()
+                .map(|(c, monitor)| {
+                    let monitor = &monitors[*monitor];
+                    let count = bands.iter().map(|band| band.cells[r][c].len()).sum();
+                    let widest = bands
+                        .iter()
+                        .map(|band| line_width(&cell_widths(&band.cells[r][c], widths)))
+                        .fold(card_width(None), f32::max);
+                    Col {
+                        need: INSET + widest,
+                        count,
+                        primary: monitor.primary && monitor.connected,
+                        rail: monitor.connected && count == 0,
+                    }
+                })
+                .collect();
+            if cols.len() < 2 || cols.iter().all(|col| col.count == 0) {
+                for col in &mut cols {
+                    col.rail = false;
+                }
             }
+            cols
         })
         .collect()
 }
 
-/// Each column's width out of `available`, in proportion to its weight but
-/// never under MIN_TRACK: a column that would be narrower gets MIN_TRACK and
-/// the others share what is left. When even that does not fit, the columns
+/// The column that takes the space the others leave: the one with the most
+/// windows, the primary monitor's when several tie, else the leftmost.
+fn winner(cols: &[Col]) -> Option<usize> {
+    let most = cols
+        .iter()
+        .filter(|col| !col.rail)
+        .map(|col| col.count)
+        .max()?;
+    let tied = || {
+        cols.iter()
+            .enumerate()
+            .filter(|(_, col)| !col.rail && col.count == most)
+    };
+    tied()
+        .find(|(_, col)| col.primary)
+        .or_else(|| tied().next())
+        .map(|(index, _)| index)
+}
+
+/// A rail `open` of the way (0 to 1) from folded to unfolded.
+fn rail_width(open: f32) -> f32 {
+    RAIL + (RAIL_OPEN - RAIL) * open
+}
+
+/// Each column's width out of `available`. A rail is as wide as its `open`
+/// says. A column takes what one line of its cards needs, at least
+/// MIN_TRACK and at most half of `available`. The winner takes what is
+/// left, also at least MIN_TRACK: when even that does not fit, the columns
 /// add up to more than `available` and the row scrolls sideways.
-pub fn tracks(weights: &[f32], available: f32) -> Vec<f32> {
-    let mut fixed = vec![false; weights.len()];
-    loop {
-        let fixed_width = fixed.iter().filter(|f| **f).count() as f32 * MIN_TRACK;
-        let free_weight: f32 = weights
-            .iter()
-            .zip(&fixed)
-            .filter(|(_, fixed)| !**fixed)
-            .map(|(weight, _)| *weight)
-            .sum();
-        let left = (available - fixed_width).max(0.0);
-        let widths: Vec<f32> = weights
-            .iter()
-            .zip(&fixed)
-            .map(|(weight, fixed)| {
-                if *fixed || free_weight <= 0.0 {
-                    MIN_TRACK
-                } else {
-                    left * weight / free_weight
-                }
-            })
-            .collect();
-        let mut changed = false;
-        for (index, width) in widths.iter().enumerate() {
-            if !fixed[index] && *width < MIN_TRACK {
-                fixed[index] = true;
-                changed = true;
+pub fn tracks(cols: &[Col], open: &[f32], available: f32) -> Vec<f32> {
+    let cap = (available * MAX_SHARE).max(MIN_TRACK);
+    let mut widths: Vec<f32> = cols
+        .iter()
+        .enumerate()
+        .map(|(index, col)| {
+            if col.rail {
+                rail_width(open.get(index).copied().unwrap_or(0.0))
+            } else {
+                col.need.clamp(MIN_TRACK, cap)
             }
-        }
-        if !changed {
-            return widths;
-        }
+        })
+        .collect();
+    if let Some(winner) = winner(cols) {
+        let others: f32 = widths.iter().sum::<f32>() - widths[winner];
+        widths[winner] = (available - others).max(MIN_TRACK);
     }
+    widths
 }
 
 /// The columns of a row that is `width` wide, side padding and gaps taken
 /// out first.
-fn row_tracks(weights: &[f32], width: f32) -> Vec<f32> {
-    let gaps = COLUMN_GAP * weights.len().saturating_sub(1) as f32;
-    tracks(weights, width - 2.0 * SIDE - gaps)
+fn row_tracks(cols: &[Col], open: &[f32], width: f32) -> Vec<f32> {
+    let gaps = COLUMN_GAP * cols.len().saturating_sub(1) as f32;
+    tracks(cols, open, width - 2.0 * SIDE - gaps)
 }
 
 /// A card's width for a window whose picture shows `source`.
@@ -289,7 +341,7 @@ pub fn bands(
 /// The height of a band whose rows have these column widths, with cards
 /// `widths` wide. A desktop with none of the group's windows is its header
 /// alone.
-fn band_height(band: &Band, tracks: &[Vec<f32>], widths: &[f32]) -> f32 {
+fn band_height(band: &Band, cols: &[Vec<Col>], tracks: &[Vec<f32>], widths: &[f32]) -> f32 {
     let header = 1.0 + BAND_TOP + BAND_HEADER;
     if band.count() == 0 {
         return header + BAND_TOP;
@@ -299,14 +351,25 @@ fn band_height(band: &Band, tracks: &[Vec<f32>], widths: &[f32]) -> f32 {
         if r > 0 {
             height += ROW_GAP;
         }
-        let tallest = row
-            .iter()
-            .zip(&tracks[r])
-            .map(|(cell, track)| cell_height(cell, widths, *track))
-            .fold(0.0, f32::max);
-        height += LABEL + LABEL_GAP + tallest;
+        height += row_height(row, &cols[r], &tracks[r], widths);
     }
     height
+}
+
+/// A row of monitor columns: the label, then the tallest column, but tall
+/// enough for a rail to be a rail.
+fn row_height(row: &[Vec<usize>], cols: &[Col], tracks: &[f32], widths: &[f32]) -> f32 {
+    let tallest = row
+        .iter()
+        .zip(tracks)
+        .map(|(cell, track)| cell_height(cell, widths, *track))
+        .fold(0.0, f32::max);
+    let height = LABEL + LABEL_GAP + tallest;
+    if cols.iter().any(|col| col.rail) {
+        height.max(RAIL_MIN_HEIGHT)
+    } else {
+        height
+    }
 }
 
 /// The bands on screen: only this desktop's until the other desktops are
@@ -318,26 +381,27 @@ pub fn visible(mut bands: Vec<Band>, shown: bool) -> Vec<Band> {
     bands
 }
 
-/// The width at which every column holds its windows, `widths` wide, on
-/// one line, or at least MIN_PANEL.
-pub fn natural_width(bands: &[Band], weights: &[Vec<f32>], widths: &[f32]) -> f32 {
-    weights
-        .iter()
-        .enumerate()
-        .map(|(r, row)| {
-            let total: f32 = row.iter().sum();
-            let available = row
-                .iter()
-                .enumerate()
-                .map(|(c, weight)| {
-                    let widest = bands
-                        .iter()
-                        .map(|band| line_width(&cell_widths(&band.cells[r][c], widths)))
-                        .fold(card_width(None), f32::max);
-                    let needed = (INSET + widest).max(MIN_TRACK);
-                    needed * total / weight
-                })
-                .fold(0.0, f32::max);
+/// The width at which every column holds its windows on one line, rails
+/// folded, or at least MIN_PANEL.
+pub fn natural_width(cols: &[Vec<Col>]) -> f32 {
+    cols.iter()
+        .map(|row| {
+            let winner = winner(row);
+            let fit = |cap: f32| -> f32 {
+                row.iter()
+                    .enumerate()
+                    .map(|(index, col)| {
+                        if col.rail {
+                            RAIL
+                        } else if Some(index) == winner {
+                            col.need.max(MIN_TRACK)
+                        } else {
+                            col.need.clamp(MIN_TRACK, cap.max(MIN_TRACK))
+                        }
+                    })
+                    .sum()
+            };
+            let available = fit(fit(f32::INFINITY) * MAX_SHARE);
             available + COLUMN_GAP * row.len().saturating_sub(1) as f32 + 2.0 * SIDE
         })
         .fold(MIN_PANEL, f32::max)
@@ -349,16 +413,16 @@ pub fn natural_width(bands: &[Band], weights: &[Vec<f32>], widths: &[f32]) -> f3
 /// `widths` is each window's card width.
 pub fn panel_size(
     bands: &[Band],
-    weights: &[Vec<f32>],
+    cols: &[Vec<Col>],
     widths: &[f32],
     link: bool,
     limit: Vec2,
 ) -> Vec2 {
-    let width = (natural_width(bands, weights, widths) + SLACK).min(limit.x);
-    let tracks: Vec<Vec<f32>> = weights.iter().map(|row| row_tracks(row, width)).collect();
+    let width = (natural_width(cols) + SLACK).min(limit.x);
+    let tracks: Vec<Vec<f32>> = cols.iter().map(|row| row_tracks(row, &[], width)).collect();
     let bands_height: f32 = bands
         .iter()
-        .map(|band| band_height(band, &tracks, widths))
+        .map(|band| band_height(band, cols, &tracks, widths))
         .sum();
     let link = if link { others::LINK_HEIGHT } else { 0.0 };
     let height = TOOLBAR + bands_height + link + FOOTER + SLACK;
@@ -368,7 +432,8 @@ pub fn panel_size(
 /// Everything the view is laid out from.
 struct Model {
     rows: Vec<Vec<usize>>,
-    weights: Vec<Vec<f32>>,
+    /// What each column's width comes from, shaped like `rows`.
+    cols: Vec<Vec<Col>>,
     /// The bands on screen.
     bands: Vec<Band>,
     /// Every band, for a key that moves a window to a hidden desktop.
@@ -397,7 +462,6 @@ impl Model {
             }
         };
         let rows = monitor_rows(monitors, &used);
-        let weights = rows.iter().map(|row| weights(monitors, row)).collect();
         let mut all = bands(group, &snapshot.desktops, monitors, &rows);
         let flags = visible_flags(group, monitors, only);
         for cell in all
@@ -406,10 +470,11 @@ impl Model {
         {
             cell.retain(|member| flags[*member]);
         }
+        let bands = visible(all.clone(), shown);
         Self {
+            cols: columns(&bands, &rows, monitors, widths),
             rows,
-            weights,
-            bands: visible(all.clone(), shown),
+            bands,
             all,
             widths: widths.to_vec(),
         }
@@ -426,7 +491,7 @@ pub fn panel_for(
     only: Option<usize>,
 ) -> Vec2 {
     let model = Model::new(group, snapshot, widths, shown, only);
-    panel_size(&model.bands, &model.weights, widths, link, limit)
+    panel_size(&model.bands, &model.cols, widths, link, limit)
 }
 
 pub fn toolbar_rect(panel: Rect) -> Rect {
@@ -535,6 +600,18 @@ pub fn drop_actions(
         });
     }
     actions
+}
+
+/// Whether a rail is unfolded: while any card is dragged, and while the
+/// keyboard is on that rail.
+fn rail_wanted(dragging: bool, focus: Option<usize>, monitor: usize) -> bool {
+    dragging || focus == Some(monitor)
+}
+
+/// The monitor behind `cell` when its column is a rail.
+fn rail_at(cols: &[Vec<Col>], rows: &[Vec<usize>], cell: (usize, usize)) -> Option<usize> {
+    let col = cols.get(cell.0)?.get(cell.1)?;
+    col.rail.then(|| rows[cell.0][cell.1])
 }
 
 /// A key the view answers.
@@ -725,6 +802,10 @@ struct Draw<'a> {
     numbers: Vec<usize>,
     dragged: Option<usize>,
     target: Option<Spot>,
+    /// How far each rail is unfolded, shaped like `rows`.
+    open: Vec<Vec<f32>>,
+    /// The monitor whose rail the keyboard is on.
+    rail_focus: Option<usize>,
     zones: Vec<Zone>,
     /// Every card drawn, with its window handle, for a Ctrl drop.
     hits: Vec<(isize, Rect)>,
@@ -807,6 +888,41 @@ pub fn body(
         pos2(panel.max.x, panel.max.y - FOOTER),
     );
     frame.area = area;
+    let rails: Vec<usize> = model
+        .rows
+        .iter()
+        .zip(&model.cols)
+        .flat_map(|(row, cols)| row.iter().zip(cols).filter(|(_, col)| col.rail))
+        .map(|(monitor, _)| *monitor)
+        .collect();
+    if shared
+        .rail_focus
+        .is_some_and(|monitor| !rails.contains(&monitor))
+    {
+        shared.rail_focus = None;
+    }
+    let open: Vec<Vec<f32>> = model
+        .rows
+        .iter()
+        .zip(&model.cols)
+        .map(|(row, cols)| {
+            row.iter()
+                .zip(cols)
+                .map(|(monitor, col)| {
+                    if !col.rail {
+                        return 0.0;
+                    }
+                    let device = snapshot.monitors[*monitor].device.as_str();
+                    ctx.animate_bool_with_time_and_easing(
+                        egui::Id::new(("arrange-rail", device)),
+                        rail_wanted(dragging, shared.rail_focus, *monitor),
+                        RAIL_ANIMATION,
+                        egui::emath::easing::cubic_out,
+                    )
+                })
+                .collect()
+        })
+        .collect();
     let mut draw = Draw {
         group,
         monitors: &snapshot.monitors,
@@ -817,6 +933,8 @@ pub fn body(
         numbers: taskbar_numbers(group, &snapshot.desktops),
         dragged: dragged.filter(|_| dragging),
         target: target.filter(|_| dragging && !ctrl),
+        open,
+        rail_focus: shared.rail_focus,
         zones: Vec::new(),
         hits: Vec::new(),
     };
@@ -942,9 +1060,10 @@ impl Draw<'_> {
         let alpha = if band.current { 1.0 } else { NOT_CURRENT };
         let tracks: Vec<Vec<f32>> = self
             .model
-            .weights
+            .cols
             .iter()
-            .map(|row| row_tracks(row, width))
+            .zip(&self.open)
+            .map(|(cols, open)| row_tracks(cols, open, width))
             .collect();
         let (header, _) =
             ui.allocate_exact_size(vec2(width, 1.0 + BAND_TOP + BAND_HEADER), Sense::hover());
@@ -1003,12 +1122,7 @@ impl Draw<'_> {
             if r > 0 {
                 ui.add_space(ROW_GAP);
             }
-            let tallest = row
-                .iter()
-                .zip(&tracks[r])
-                .map(|(cell, track)| cell_height(cell, &self.model.widths, *track))
-                .fold(0.0, f32::max);
-            let height = LABEL + LABEL_GAP + tallest;
+            let height = row_height(row, &self.model.cols[r], &tracks[r], &self.model.widths);
             let needed = 2.0 * SIDE
                 + tracks[r].iter().sum::<f32>()
                 + COLUMN_GAP * tracks[r].len().saturating_sub(1) as f32;
@@ -1057,6 +1171,21 @@ impl Draw<'_> {
             let cell = &band.cells[r][c];
             let mut painter = ui.painter().clone();
             painter.multiply_opacity(alpha);
+            if self.model.cols[r][c].rail {
+                let lit = self
+                    .target
+                    .is_some_and(|spot| spot.band == b && spot.cell == (r, c))
+                    || self.rail_focus == Some(self.model.rows[r][c]);
+                rail(ui, &painter, column, monitor, self.open[r][c], lit);
+                self.zones.push(Zone {
+                    band: b,
+                    cell: Some((r, c)),
+                    rect: column,
+                    open: true,
+                    cards: Vec::new(),
+                });
+                continue;
+            }
             painter.vline(
                 column.left(),
                 column.y_range(),
@@ -1110,7 +1239,13 @@ impl Draw<'_> {
             if cell.is_empty() && monitor.connected {
                 let empty =
                     Rect::from_min_size(pos2(inner.left(), top), vec2(inner.width(), EMPTY));
-                drop_box(ui, &painter, empty, target_here.is_some());
+                drop_box(
+                    ui,
+                    &painter,
+                    empty,
+                    target_here.is_some(),
+                    "Drop a window here to move it to this monitor",
+                );
             }
             if let Some(spot) = target_here {
                 insertion_bar(ui, &others, spot.index, pos2(inner.left(), top));
@@ -1373,11 +1508,10 @@ fn label_row(
     }
 }
 
-/// The dashed box of a column with no windows, outlined in the accent while
-/// a card is about to land in it.
-fn drop_box(ui: &Ui, painter: &egui::Painter, rect: Rect, target: bool) {
+/// A 1 px dashed outline, in the accent while a card is about to land in it.
+fn dashed_box(ui: &Ui, painter: &egui::Painter, rect: Rect, lit: bool) {
     let tokens = Tokens::get(ui.ctx());
-    let colour = if target { tokens.accent } else { tokens.border };
+    let colour = if lit { tokens.accent } else { tokens.border };
     let stroke = theme::stroke(ui.ctx(), 1.0, colour);
     let r = rect.shrink(0.5);
     let corners = [
@@ -1388,12 +1522,106 @@ fn drop_box(ui: &Ui, painter: &egui::Painter, rect: Rect, target: bool) {
         r.left_top(),
     ];
     painter.extend(Shape::dashed_line(&corners, stroke, 4.0, 3.0));
-    let mut job = text::job(
-        "Drop a window here to move it to this monitor",
-        theme::regular(12.0),
-        tokens.text_disabled,
-        None,
-    );
+}
+
+/// A monitor with no windows. Folded, it is a narrow dashed strip with the
+/// monitor's icon and its name, written upward. While `open` it is a
+/// column wide, with the same dashed box to drop a window into.
+fn rail(
+    ui: &Ui,
+    painter: &egui::Painter,
+    rect: Rect,
+    monitor: &ArrangeMonitor,
+    open: f32,
+    lit: bool,
+) {
+    let tokens = Tokens::get(ui.ctx());
+    dashed_box(ui, painter, rect, lit);
+    if open < 1.0 {
+        let mut folded = painter.with_clip_rect(rect);
+        folded.multiply_opacity(1.0 - open);
+        let icon_top = rect.top() + RAIL_PAD;
+        icons::paint(
+            &folded,
+            Rect::from_min_size(
+                pos2(rect.center().x - RAIL_ICON / 2.0, icon_top),
+                Vec2::splat(RAIL_ICON),
+            ),
+            Icon::Monitor,
+            tokens.text_disabled,
+        );
+        let name = folded.layout_no_wrap(
+            monitor.label.clone(),
+            theme::semibold(12.0),
+            tokens.text_secondary,
+        );
+        let empty = folded.layout_no_wrap(
+            "empty".to_string(),
+            theme::regular(12.0),
+            tokens.text_disabled,
+        );
+        let top = icon_top + RAIL_ICON + RAIL_PAD;
+        let total = name.size().x + RAIL_TEXT_GAP + empty.size().x;
+        // Turned a quarter anticlockwise, the text starts at its pivot and
+        // reads upward: the pivot is its bottom left corner.
+        for (galley, bottom, colour) in [
+            (name, top + total, tokens.text_secondary),
+            (empty.clone(), top + empty.size().x, tokens.text_disabled),
+        ] {
+            let at = pos2(rect.center().x - galley.size().y / 2.0, bottom);
+            folded.add(
+                egui::epaint::TextShape::new(at, galley, colour)
+                    .with_angle(-std::f32::consts::FRAC_PI_2),
+            );
+        }
+    }
+    if open > 0.0 {
+        let mut unfolded = painter.with_clip_rect(rect);
+        unfolded.multiply_opacity(open);
+        let icon = Rect::from_min_size(
+            pos2(rect.left() + RAIL_PAD, rect.top() + RAIL_PAD),
+            Vec2::splat(RAIL_ICON),
+        );
+        icons::paint(&unfolded, icon, Icon::Monitor, tokens.text_disabled);
+        let name = unfolded.layout_no_wrap(
+            monitor.label.clone(),
+            theme::semibold(12.0),
+            tokens.text_secondary,
+        );
+        unfolded.galley(
+            pos2(icon.right() + 6.0, icon.center().y - name.size().y / 2.0),
+            name,
+            tokens.text_secondary,
+        );
+        let below = Rect::from_min_max(pos2(rect.left(), icon.bottom() + RAIL_PAD), rect.max);
+        let mut job = text::job(
+            "Drop a window here",
+            theme::regular(12.0),
+            tokens.text_disabled,
+            None,
+        );
+        job.wrap = TextWrapping {
+            max_width: (rect.width() - 24.0).max(0.0),
+            max_rows: 2,
+            break_anywhere: false,
+            overflow_character: Some('\u{2026}'),
+        };
+        job.halign = egui::Align::Center;
+        let galley = unfolded.layout_job(job);
+        unfolded.galley(
+            pos2(below.center().x, below.center().y - galley.size().y / 2.0),
+            galley,
+            tokens.text_disabled,
+        );
+    }
+}
+
+/// The dashed box of a column with no windows, outlined in the accent while
+/// a card is about to land in it.
+fn drop_box(ui: &Ui, painter: &egui::Painter, rect: Rect, target: bool, label: &str) {
+    let tokens = Tokens::get(ui.ctx());
+    dashed_box(ui, painter, rect, target);
+    let mut job = text::job(label, theme::regular(12.0), tokens.text_disabled, None);
     job.wrap = TextWrapping {
         max_width: rect.width() - 24.0,
         max_rows: 3,
@@ -1602,12 +1830,16 @@ fn keyboard(
     } else {
         &model.bands
     };
+    if pressed.is_some() {
+        shared.rail_focus = None;
+    }
     match pressed.and_then(|key| step(bands, &model.rows, monitors, cursor, key)) {
         Some(Step::Select(member)) => shared.cursor = Some(group.windows[member].hwnd),
         Some(Step::Move(spot)) => {
             if spot.band >= model.bands.len() {
                 shared.others.expand();
             }
+            shared.rail_focus = rail_at(&model.cols, &model.rows, spot.cell);
             frame.actions.extend(drop_actions(
                 group,
                 bands,
@@ -1694,39 +1926,207 @@ mod tests {
         monitors.push(disconnected());
         assert_eq!(monitor_rows(&monitors, &every), [vec![1, 0, 2, 3]]);
         assert_eq!(monitor_rows(&monitors, &|i| i != 3), [vec![1, 0, 2]]);
-        // It is as wide as the narrowest connected monitor.
+    }
+
+    fn col(need: f32, count: usize) -> Col {
+        Col {
+            need,
+            count,
+            primary: false,
+            rail: false,
+        }
+    }
+
+    fn rail_col() -> Col {
+        Col {
+            rail: true,
+            ..col(INSET + card_width(None), 0)
+        }
+    }
+
+    #[test]
+    fn a_column_takes_what_one_line_of_its_cards_needs() {
+        // The busiest column takes what is left of 1400.
+        let widths = tracks(&[col(300.0, 1), col(700.0, 5), col(260.0, 2)], &[], 1400.0);
+        assert_eq!(widths, [300.0, 840.0, 260.0]);
+        assert!(close(widths.iter().sum(), 1400.0));
+    }
+
+    #[test]
+    fn a_column_is_held_between_200_and_half_of_the_band() {
+        // 120 is too little; 900 is more than half of 1400. The winner is
+        // the third column, which gets what they leave.
+        let widths = tracks(&[col(120.0, 1), col(900.0, 2), col(250.0, 3)], &[], 1400.0);
+        assert_eq!(widths, [MIN_TRACK, 700.0, 500.0]);
+        // Too narrow for both: each keeps 200 and the row scrolls.
+        let widths = tracks(&[col(220.0, 1), col(300.0, 3)], &[], 380.0);
+        assert_eq!(widths, [MIN_TRACK; 2]);
+        assert!(widths.iter().sum::<f32>() > 380.0);
+        assert!(tracks(&[], &[], 600.0).is_empty());
+    }
+
+    #[test]
+    fn a_tie_for_the_most_windows_goes_to_the_primary_monitor() {
+        let mut cols = [col(300.0, 2), col(300.0, 2), col(300.0, 1)];
+        // No primary among the tied: the leftmost takes the rest.
+        assert_eq!(tracks(&cols, &[], 1000.0), [400.0, 300.0, 300.0]);
+        cols[1].primary = true;
+        assert_eq!(tracks(&cols, &[], 1000.0), [300.0, 400.0, 300.0]);
+        // A primary monitor with fewer windows does not win.
+        cols[2].count = 3;
+        assert_eq!(tracks(&cols, &[], 1000.0), [300.0, 300.0, 400.0]);
+    }
+
+    #[test]
+    fn a_monitor_without_windows_is_a_rail_beside_columns_with_some() {
+        let monitors = desk();
+        let rows = monitor_rows(&monitors, &every);
+        let widths = [179.0; 10];
+        let one = |members: &[(&str, Option<usize>, Option<usize>)]| {
+            let bands = bands(&group(members), &desktops(), &monitors, &rows);
+            columns(&bands, &rows, &monitors, &widths)
+        };
+        let rails = |cols: &[Vec<Col>]| cols[0].iter().map(|col| col.rail).collect::<Vec<_>>();
+        // Windows on the primary monitor only: the left and right ones fold.
+        let cols = one(&[("d1", Some(0), None), ("d1", Some(0), None)]);
+        assert_eq!(rails(&cols), [true, false, true]);
+        assert_eq!(cols[0][1].count, 2);
+        assert!(cols[0][1].primary);
+        // A window on another desktop keeps its monitor's column.
+        let cols = one(&[("d1", Some(0), None), ("d0", Some(1), None)]);
+        assert_eq!(rails(&cols), [false, false, true]);
+    }
+
+    #[test]
+    fn rails_are_40_wide_and_the_busiest_column_gives_way_when_they_open() {
+        let cols = [rail_col(), col(500.0, 4), rail_col()];
+        assert_eq!(tracks(&cols, &[0.0, 0.0, 0.0], 1000.0), [40.0, 920.0, 40.0]);
+        assert_eq!(tracks(&cols, &[], 1000.0), [40.0, 920.0, 40.0]);
+        let open = tracks(&cols, &[1.0, 0.0, 1.0], 1000.0);
+        assert_eq!(open, [RAIL_OPEN, 600.0, RAIL_OPEN]);
+        let half = tracks(&cols, &[0.5, 0.0, 0.0], 1000.0);
+        assert_eq!(half, [120.0, 840.0, 40.0]);
+        assert_eq!(rail_width(0.0), 40.0);
+        assert_eq!(rail_width(1.0), 200.0);
+    }
+
+    #[test]
+    fn rails_open_while_a_card_is_dragged_and_while_the_keyboard_is_on_them() {
+        assert!(!rail_wanted(false, None, 2));
+        assert!(rail_wanted(true, None, 2));
+        assert!(rail_wanted(true, Some(0), 2));
+        // The keyboard unfolds only the rail it is on.
+        assert!(rail_wanted(false, Some(2), 2));
+        assert!(!rail_wanted(false, Some(0), 2));
+    }
+
+    #[test]
+    fn a_strip_of_one_column_or_of_empty_columns_has_no_rails() {
+        let monitors = desk();
+        let widths = [179.0; 10];
+        let empty = |row: Vec<usize>| {
+            let band = Band {
+                desktop: String::new(),
+                title: String::new(),
+                number: None,
+                current: true,
+                cells: vec![vec![Vec::new(); row.len()]],
+            };
+            columns(&[band], &[row], &monitors, &widths)
+        };
+        // A hover strip limited to one taskbar: the one column takes it all.
+        let one = empty(vec![2]);
+        assert!(!one[0][0].rail);
+        assert_eq!(row_tracks(&one[0], &[], 1000.0), [1000.0 - 2.0 * SIDE]);
+        // Nothing anywhere: ordinary columns with their drop boxes.
+        assert!(empty(vec![1, 0, 2])[0].iter().all(|col| !col.rail));
+    }
+
+    #[test]
+    fn a_disconnected_monitor_is_never_a_rail() {
+        let mut monitors = desk();
+        monitors.push(disconnected());
+        let rows = monitor_rows(&monitors, &every);
+        let band = Band {
+            desktop: String::new(),
+            title: String::new(),
+            number: None,
+            current: true,
+            cells: vec![vec![vec![0], vec![], vec![], vec![]]],
+        };
+        let cols = columns(&[band], &rows, &monitors, &[179.0]);
+        let rails: Vec<bool> = cols[0].iter().map(|col| col.rail).collect();
+        assert_eq!(rails, [false, true, true, false]);
+    }
+
+    #[test]
+    fn a_rail_row_is_at_least_150_high() {
+        let row = [Vec::new(), Vec::new()];
+        let tracks = [40.0, 300.0];
+        // Windows are only on another desktop: this band's row would be
+        // 18 + 8 + 112 high.
+        const { assert!(LABEL + LABEL_GAP + EMPTY < RAIL_MIN_HEIGHT) };
         assert_eq!(
-            weights(&monitors, &[1, 0, 2, 3]),
-            [1920.0, 3840.0, 2560.0, 1920.0]
+            row_height(&row, &[rail_col(), col(200.0, 1)], &tracks, &SAME),
+            RAIL_MIN_HEIGHT
+        );
+        assert_eq!(
+            row_height(&row, &[col(200.0, 0), col(200.0, 1)], &tracks, &SAME),
+            LABEL + LABEL_GAP + EMPTY
         );
     }
 
-    #[test]
-    fn column_widths_follow_monitor_widths() {
-        // The design's example: 1920 / 3440 / 1920.
-        let widths = tracks(&[1920.0, 3440.0, 1920.0], 1400.0);
-        assert!(close(widths.iter().sum(), 1400.0));
-        assert!(close(widths[1] / widths[0], 3440.0 / 1920.0));
-        assert!(close(widths[0], widths[2]));
-
-        // This PC: 1920 / 3840 / 2560.
-        let widths = tracks(&[1920.0, 3840.0, 2560.0], 2000.0);
-        assert!(close(widths[0], 2000.0 * 1920.0 / 8320.0));
-        assert!(close(widths[1], 2000.0 * 3840.0 / 8320.0));
-        assert!(close(widths[2], 2000.0 * 2560.0 / 8320.0));
+    fn one_busy_monitor() -> Vec<Band> {
+        vec![Band {
+            desktop: "d1".to_string(),
+            title: "This desktop".to_string(),
+            number: Some(1),
+            current: true,
+            cells: vec![vec![vec![], vec![0, 1], vec![]]],
+        }]
     }
 
     #[test]
-    fn a_column_is_never_narrower_than_240() {
-        // 1920 of 7280 at 900 would be 237: the side columns are held at
-        // 240 and the middle one gets the rest.
-        let widths = tracks(&[1920.0, 3440.0, 1920.0], 900.0);
-        assert_eq!(widths, [MIN_TRACK, 420.0, MIN_TRACK]);
-        // Too narrow for all three: each keeps 240 and the row scrolls.
-        let widths = tracks(&[1920.0, 3440.0, 1920.0], 600.0);
-        assert_eq!(widths, [MIN_TRACK; 3]);
-        assert!(widths.iter().sum::<f32>() > 600.0);
-        assert!(tracks(&[], 600.0).is_empty());
+    fn the_keys_can_land_on_a_rail_and_it_holds_the_focus() {
+        let monitors = desk();
+        let rows = monitor_rows(&monitors, &every);
+        let bands = one_busy_monitor();
+        let cols = columns(&bands, &rows, &monitors, &[179.0; 2]);
+        let Some(Step::Move(spot)) = step(&bands, &rows, &monitors, 0, Key::ShiftRight) else {
+            panic!("expected a move");
+        };
+        assert_eq!(spot.cell, (0, 2));
+        // The rail on the right belongs to monitor 2.
+        assert_eq!(rail_at(&cols, &rows, spot.cell), Some(2));
+        // A column with windows is not a rail.
+        assert_eq!(rail_at(&cols, &rows, (0, 1)), None);
+        assert_eq!(rail_at(&cols, &rows, (3, 0)), None);
+    }
+
+    #[test]
+    fn a_drop_on_a_rail_moves_the_window_to_its_monitor() {
+        let monitors = desk();
+        let rows = monitor_rows(&monitors, &every);
+        let bands = one_busy_monitor();
+        let group = group(&[("d1", Some(0), None), ("d1", Some(0), None)]);
+        // The rail of the right monitor, as the zone it leaves behind.
+        let zones = vec![Zone {
+            band: 0,
+            cell: Some((0, 2)),
+            rect: Rect::from_min_size(pos2(900.0, 0.0), vec2(200.0, 300.0)),
+            open: true,
+            cards: Vec::new(),
+        }];
+        let landing = drop_spot(pos2(1000.0, 150.0), &zones, 1, (0, 1)).expect("a spot");
+        assert_eq!(landing, spot(0, (0, 2), 0));
+        let actions = drop_actions(&group, &bands, &rows, &monitors, 1, landing);
+        assert_eq!(
+            actions[0],
+            ArrangeAction::MoveToMonitor {
+                hwnd: 101,
+                monitor: monitors[2].device.clone()
+            }
+        );
     }
 
     fn desktops() -> Vec<ArrangeDesktop> {
@@ -1798,21 +2198,22 @@ mod tests {
             &rows,
         );
         assert_eq!(bands[1].count(), 0);
-        let tracks = vec![row_tracks(&weights(&monitors, &rows[0]), 1200.0)];
+        let cols = columns(&bands[..1], &rows, &monitors, &SAME);
+        let tracks = vec![row_tracks(&cols[0], &[], 1200.0)];
         assert_eq!(
-            band_height(&bands[1], &tracks, &SAME),
+            band_height(&bands[1], &cols, &tracks, &SAME),
             1.0 + BAND_TOP + BAND_HEADER + BAND_TOP
         );
-        // One card in the primary column; the empty ones show the 112 high
-        // drop target, which is the taller of the two.
+        // One card in the primary column; the empty monitors are rails as
+        // high as the row.
         assert_eq!(
-            band_height(&bands[0], &tracks, &SAME),
+            band_height(&bands[0], &cols, &tracks, &SAME),
             1.0 + BAND_TOP
                 + BAND_HEADER
                 + HEADER_GAP
                 + LABEL
                 + LABEL_GAP
-                + CARD_HEIGHT.max(EMPTY)
+                + CARD_HEIGHT
                 + BAND_BOTTOM
         );
     }
@@ -1847,10 +2248,10 @@ mod tests {
     fn the_panel_is_as_wide_as_one_line_of_cards_per_column_needs() {
         let monitors = desk();
         let rows = monitor_rows(&monitors, &every);
-        let weights: Vec<Vec<f32>> = rows.iter().map(|row| weights(&monitors, row)).collect();
         let one_each = bands(
             &group(&[
                 ("d1", Some(1), None),
+                ("d1", Some(0), None),
                 ("d1", Some(0), None),
                 ("d1", Some(2), None),
             ]),
@@ -1858,22 +2259,43 @@ mod tests {
             &monitors,
             &rows,
         );
-        // The 1920 column is the narrowest share; it needs 240, so the
-        // three tracks need 240 * 8320 / 1920.
-        let available = MIN_TRACK * 8320.0 / 1920.0;
+        let cols = columns(&one_each, &rows, &monitors, &SAME);
         assert_eq!(card_size().x, SAME[0]);
-        let width = natural_width(&one_each, &weights, &SAME);
-        assert!(close(width, available + 2.0 * COLUMN_GAP + 2.0 * SIDE));
-        let size = panel_size(&one_each, &weights, &SAME, false, vec2(5000.0, 5000.0));
+        // The left and right columns need one card (192) and are held at
+        // 200; the primary one, the busiest, needs two cards.
+        let needed = MIN_TRACK + (INSET + 2.0 * SAME[0] + CARD_GAP) + MIN_TRACK;
+        let width = natural_width(&cols);
+        assert!(close(width, needed + 2.0 * COLUMN_GAP + 2.0 * SIDE));
+        let size = panel_size(&one_each, &cols, &SAME, false, vec2(5000.0, 5000.0));
         assert!(close(size.x, width + SLACK));
-        let tracks = row_tracks(&weights[0], size.x);
-        assert!(tracks[0] >= MIN_TRACK);
-        // Two cards fit side by side in the centre column, not three.
+        let tracks = row_tracks(&cols[0], &[], size.x);
+        assert_eq!(tracks[0], MIN_TRACK);
+        assert_eq!(tracks[2], MIN_TRACK);
+        // Two cards fit side by side in the middle column, not three.
         assert_eq!(cell_lines(&[0, 1, 2], &SAME, tracks[1]), [0..2, 2..3]);
 
         // Never wider than the limit, nor taller.
-        let small = panel_size(&one_each, &weights, &SAME, false, vec2(800.0, 300.0));
+        let small = panel_size(&one_each, &cols, &SAME, false, vec2(800.0, 300.0));
         assert_eq!(small, vec2(800.0, 300.0));
+    }
+
+    #[test]
+    fn rails_leave_the_panel_at_its_minimum_width() {
+        let monitors = desk();
+        let rows = monitor_rows(&monitors, &every);
+        let bands = bands(
+            &group(&[("d1", Some(0), None)]),
+            &desktops(),
+            &monitors,
+            &rows,
+        );
+        let cols = columns(&bands, &rows, &monitors, &SAME);
+        // Two 40 px rails and one column of one card: well under MIN_PANEL.
+        assert!(close(natural_width(&cols), MIN_PANEL));
+        let tracks = row_tracks(&cols[0], &[], MIN_PANEL + SLACK);
+        assert_eq!(tracks[0], RAIL);
+        assert_eq!(tracks[2], RAIL);
+        assert!(tracks[1] > MIN_TRACK);
     }
 
     #[test]
@@ -1882,14 +2304,14 @@ mod tests {
         // (208), then a 230 that only fits alone.
         let widths = [60.0, 140.0, 230.0, 60.0];
         assert_eq!(
-            cell_lines(&[0, 1, 2, 3], &widths, MIN_TRACK),
+            cell_lines(&[0, 1, 2, 3], &widths, 240.0),
             [0..2, 2..3, 3..4]
         );
         assert_eq!(
-            cell_height(&[0, 1, 2, 3], &widths, MIN_TRACK),
+            cell_height(&[0, 1, 2, 3], &widths, 240.0),
             3.0 * CARD_HEIGHT + 2.0 * CARD_GAP
         );
-        assert_eq!(cell_height(&[], &widths, MIN_TRACK), EMPTY);
+        assert_eq!(cell_height(&[], &widths, 240.0), EMPTY);
         // The widest cell on one line sets the panel's width.
         let band = Band {
             desktop: String::new(),
@@ -1898,7 +2320,8 @@ mod tests {
             current: true,
             cells: vec![vec![vec![0, 1, 2]]],
         };
-        let width = natural_width(&[band], &[vec![1.0]], &widths);
+        let cols = columns(&[band], &[vec![0]], &desk(), &widths);
+        let width = natural_width(&cols);
         assert!(close(width, MIN_PANEL.max(INSET + 446.0 + 2.0 * SIDE)));
     }
 
@@ -1948,12 +2371,15 @@ mod tests {
 
     #[test]
     fn the_collapsed_panel_is_shorter_and_the_link_adds_a_line() {
-        let weights = vec![vec![1.0, 1.0, 1.0]];
+        let monitors = vec![monitor([0, 0, 1920, 1080], 48, true); 3];
+        let rows = vec![vec![0, 1, 2]];
+        let cols_of = |bands: &[Band]| columns(bands, &rows, &monitors, &SAME);
         let limit = vec2(5000.0, 5000.0);
         let all = three_columns();
-        let open = panel_size(&all, &weights, &SAME, true, limit);
-        let shut = panel_size(&visible(all.clone(), false), &weights, &SAME, true, limit);
-        let bare = panel_size(&visible(all, false), &weights, &SAME, false, limit);
+        let shown = visible(all.clone(), false);
+        let open = panel_size(&all, &cols_of(&all), &SAME, true, limit);
+        let shut = panel_size(&shown, &cols_of(&shown), &SAME, true, limit);
+        let bare = panel_size(&shown, &cols_of(&shown), &SAME, false, limit);
         assert!(shut.y < open.y);
         assert!(close(shut.y - bare.y, others::LINK_HEIGHT));
     }
@@ -2118,7 +2544,15 @@ mod tests {
         assert_eq!(all.rows, [vec![1, 0, 2]]);
         let right = Model::new(&group, &snapshot, &widths, false, Some(2));
         assert_eq!(right.rows, [vec![2]]);
-        assert_eq!(right.weights.len(), 1);
+        // One column in its row: no rail, and it takes the whole row.
+        assert_eq!(right.cols.len(), 1);
+        assert_eq!(right.cols[0].len(), 1);
+        assert!(!right.cols[0][0].rail);
+        assert!(!Model::new(&group, &snapshot, &widths, false, Some(3))
+            .cols
+            .iter()
+            .flatten()
+            .any(|col| col.rail));
         assert_eq!(right.bands[0].cells, [vec![vec![1, 3]]]);
         assert_eq!(walk(&right.bands), [1, 3]);
         // A drop inside the one column reorders the whole group.

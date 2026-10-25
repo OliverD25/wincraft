@@ -2385,7 +2385,11 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
             log::info!(
                 "attention: window {lparam:#x} \"{}\" flashed{}",
                 crate::core::windows_list::window_text(lparam as HWND),
-                if lparam == foreground { " (in front, not marked)" } else { "" }
+                if lparam == foreground {
+                    " (in front, not marked)"
+                } else {
+                    ""
+                }
             );
         }
         let changed = ATTENTION.with(|attention| {
