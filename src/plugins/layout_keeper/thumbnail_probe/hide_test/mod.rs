@@ -111,7 +111,10 @@ pub fn run(options: Options) -> i32 {
                 note(
                     &mut log,
                     t_ms,
-                    &format!("popup window {hwnd:?} found, shown={shown}"),
+                    &format!(
+                        "popup window {hwnd:?} found, shown={shown}, title \"{}\"",
+                        window_title(hwnd)
+                    ),
                 );
                 popups.push(Popup {
                     hwnd,
@@ -133,14 +136,10 @@ pub fn run(options: Options) -> i32 {
 
         for popup in &mut popups {
             let shown = is_shown(popup.hwnd);
-            if shown && !popup.shown && window_title(popup.hwnd) != POPUP_TITLE {
-                let title = window_title(popup.hwnd);
-                note(
-                    &mut log,
-                    t_ms,
-                    &format!("another Explorer window of the same class shown: \"{title}\""),
-                );
-            } else if shown && !popup.shown {
+            // Explorer sets the "Task Switching" title only after showing the
+            // window, so the class decides; Alt+Tab and Win+number, which use the
+            // same window, are left alone by the key rules in `decide`.
+            if shown && !popup.shown {
                 if now >= act_until {
                     totals.after_shows += 1;
                     note(&mut log, t_ms, "after test: popup shown normally");
