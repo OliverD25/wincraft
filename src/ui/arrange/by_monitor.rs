@@ -60,20 +60,19 @@ const DISCONNECTED: f32 = 0.45;
 const DRAGGED: f32 = 0.6;
 /// A stand-in in the primary column for a window on another monitor.
 const GHOST_WIDTH: f32 = 84.0;
-/// Its edge strip, with the arrow and the monitor's name.
-const GHOST_EDGE: f32 = 18.0;
-const GHOST_PICTURE: f32 = 58.0;
+/// Its name strip: the monitor pill, the title written upward and the
+/// number.
+const GHOST_STRIP: f32 = 20.0;
+const GHOST_PILL: f32 = 14.0;
+const GHOST_ARROW: f32 = 8.0;
+/// Above the pill's arrow and below its letter.
+const GHOST_PILL_PAD: f32 = 3.0;
+const GHOST_TOP: f32 = 4.0;
+const GHOST_BOTTOM: f32 = 5.0;
+const GHOST_GAP: f32 = 5.0;
+const GHOST_CHIP: f32 = 16.0;
 /// DWM cannot draw a picture in grey, so a ghost's picture is only faded.
 const GHOST_OPACITY: f32 = 0.4;
-const GHOST_ARROW: f32 = 12.0;
-const GHOST_PAD: f32 = 6.0;
-/// Above the number chip and below the title.
-const GHOST_TOP: f32 = 5.0;
-const GHOST_SIDE: f32 = 6.0;
-const GHOST_CHIP: f32 = 16.0;
-const GHOST_LINE: f32 = 12.0 * 1.3;
-const GHOST_TITLE_GAP: f32 = 4.0;
-const GHOST_TITLE_ROWS: usize = 3;
 
 /// Rows of monitor columns, each row left to right, as places in
 /// `monitors`. Connected monitors are sorted by the left edge of their work
@@ -1650,9 +1649,10 @@ impl Draw<'_> {
     }
 
     /// A stand-in in the primary column for a window on another monitor, at
-    /// its taskbar place: an edge strip with an arrow toward that monitor
-    /// and its name, then a faded picture, the number and the title. It
-    /// cannot be dragged; a click picks the window's own card.
+    /// its taskbar place: a narrow name strip (a pill with an arrow toward
+    /// that monitor and its first letter, the title written upward, the
+    /// number), then the window's faded picture filling the rest. It cannot
+    /// be dragged; a click picks the window's own card.
     fn ghost_card(
         &mut self,
         ui: &mut Ui,
@@ -1680,19 +1680,40 @@ impl Draw<'_> {
         );
         let mut painter = ui.painter().clone();
         painter.multiply_opacity(alpha);
-        let rule = theme::stroke(ui.ctx(), 1.0, tokens.border);
         dashed_box(ui, &painter, rect, false);
 
-        let edge = Rect::from_min_size(rect.min, vec2(GHOST_EDGE, rect.height()));
-        let x = edge.right() - 0.5;
+        let strip = Rect::from_min_size(rect.min, vec2(GHOST_STRIP, rect.height()));
+        let x = strip.right() - 0.5;
         painter.extend(Shape::dashed_line(
             &[pos2(x, rect.top()), pos2(x, rect.bottom())],
-            rule,
+            theme::stroke(ui.ctx(), 1.0, tokens.border),
             4.0,
             3.0,
         ));
+
+        let letter = painter.layout_no_wrap(
+            monitor_letter(&monitor.label),
+            theme::semibold(12.0),
+            tokens.text_disabled,
+        );
+        let pill = Rect::from_min_size(
+            pos2(strip.center().x - GHOST_PILL / 2.0, rect.top() + GHOST_TOP),
+            vec2(
+                GHOST_PILL,
+                GHOST_PILL_PAD + GHOST_ARROW + letter.size().y + GHOST_PILL_PAD,
+            ),
+        );
+        painter.rect_stroke(
+            pill,
+            7,
+            theme::stroke(ui.ctx(), 1.0, tokens.text_disabled),
+            StrokeKind::Inside,
+        );
         let arrow = Rect::from_min_size(
-            pos2(edge.center().x - GHOST_ARROW / 2.0, rect.top() + GHOST_PAD),
+            pos2(
+                pill.center().x - GHOST_ARROW / 2.0,
+                pill.top() + GHOST_PILL_PAD,
+            ),
             Vec2::splat(GHOST_ARROW),
         );
         let icon = if left {
@@ -1701,85 +1722,60 @@ impl Draw<'_> {
             Icon::ArrowRight
         };
         icons::paint(&painter, arrow, icon, tokens.text_disabled);
-        let names = painter.with_clip_rect(Rect::from_min_max(
-            pos2(edge.left(), arrow.bottom() + GHOST_PAD),
-            pos2(edge.right(), rect.bottom() - GHOST_PAD),
-        ));
-        let name = names.layout_no_wrap(
-            monitor.label.clone(),
-            theme::regular(12.0),
-            tokens.text_disabled,
-        );
-        // Turned a quarter anticlockwise, it reads upward from its pivot, its
-        // bottom left corner.
-        let at = pos2(
-            edge.center().x - name.size().y / 2.0,
-            rect.bottom() - GHOST_PAD,
-        );
-        names.add(
-            egui::epaint::TextShape::new(at, name, tokens.text_disabled)
-                .with_angle(-std::f32::consts::FRAC_PI_2),
-        );
+        let letter_at = pos2(pill.center().x - letter.size().x / 2.0, arrow.bottom());
+        painter.galley(letter_at, letter, tokens.text_disabled);
 
-        let picture_box = Rect::from_min_max(
-            pos2(edge.right(), rect.top()),
-            pos2(rect.right(), rect.top() + GHOST_PICTURE),
+        let chip = ghost_chip(
+            ui,
+            &painter,
+            strip.center().x,
+            rect.bottom() - GHOST_BOTTOM,
+            self.numbers[member],
         );
-        let y = picture_box.bottom() - 0.5;
-        painter.extend(Shape::dashed_line(
-            &[pos2(picture_box.left(), y), pos2(picture_box.right(), y)],
-            rule,
-            4.0,
-            3.0,
-        ));
-        let picture = picture_box.shrink(1.0);
+        let free = (chip.top() - GHOST_GAP) - (pill.bottom() + GHOST_GAP);
+        if free > 0.0 {
+            let mut job = text::job(
+                &window.label,
+                theme::regular(12.0),
+                tokens.text_secondary,
+                None,
+            );
+            job.wrap = TextWrapping {
+                max_width: free,
+                max_rows: 1,
+                break_anywhere: true,
+                overflow_character: Some('\u{2026}'),
+            };
+            let title = painter.layout_job(job);
+            // Turned a quarter anticlockwise, it reads upward from its pivot,
+            // its bottom left corner.
+            let at = pos2(
+                strip.center().x - title.size().y / 2.0,
+                chip.top() - GHOST_GAP,
+            );
+            painter.add(
+                egui::epaint::TextShape::new(at, title, tokens.text_secondary)
+                    .with_angle(-std::f32::consts::FRAC_PI_2),
+            );
+        }
+
+        let picture_box = Rect::from_min_max(pos2(strip.right(), rect.top()), rect.max).shrink(1.0);
         let has_picture = !self.menu_open
             && ghost_thumbnail(shared, window.hwnd)
                 .is_some_and(|thumb| thumb.source_size().is_some());
         if has_picture {
+            let source = shared.sources.get(&window.hwnd).map(|source| source.size());
             frame.pending.push(Pending {
                 hwnd: window.hwnd,
-                dest: picture,
-                clip: ui.clip_rect(),
+                dest: source.map_or(picture_box, |source| cover(source, picture_box)),
+                clip: picture_box.intersect(ui.clip_rect()),
                 opacity: (255.0 * GHOST_OPACITY * alpha).round() as u8,
                 ghost: true,
             });
         } else {
             let mut faded = painter.clone();
             faded.multiply_opacity(GHOST_OPACITY);
-            name_card(&faded, picture, &window.label, "");
-        }
-
-        let chip = ghost_chip(
-            ui,
-            &painter,
-            pos2(
-                picture_box.left() + GHOST_SIDE,
-                picture_box.bottom() + GHOST_TOP,
-            ),
-            self.numbers[member],
-        );
-        let title_top = chip.bottom() + GHOST_TITLE_GAP;
-        let rows = ghost_title_rows(rect.bottom() - GHOST_TOP - title_top);
-        if rows > 0 {
-            let mut job = text::job(
-                &window.label,
-                theme::regular(12.0),
-                tokens.text_secondary,
-                Some(GHOST_LINE),
-            );
-            job.wrap = TextWrapping {
-                max_width: picture_box.width() - 2.0 * GHOST_SIDE,
-                max_rows: rows,
-                break_anywhere: false,
-                overflow_character: Some('\u{2026}'),
-            };
-            let galley = painter.layout_job(job);
-            painter.galley(
-                pos2(picture_box.left() + GHOST_SIDE, title_top),
-                galley,
-                tokens.text_secondary,
-            );
+            name_card(&faded, picture_box, &window.label, "");
         }
 
         let response =
@@ -1923,22 +1919,38 @@ fn points_left(monitor: &ArrangeMonitor, primary: &ArrangeMonitor) -> bool {
     monitor.rect[0] + monitor.rect[2] < primary.rect[0] + primary.rect[2]
 }
 
-/// How many whole lines of a ghost's title fit in `room`, at most three.
-fn ghost_title_rows(room: f32) -> usize {
-    ((room.max(0.0) / GHOST_LINE).floor() as usize).min(GHOST_TITLE_ROWS)
+/// A picture of `source`'s shape that covers `area`, centred on it: the
+/// parts that stick out are cut off.
+fn cover(source: Vec2, area: Rect) -> Rect {
+    if source.x <= 0.0 || source.y <= 0.0 {
+        return area;
+    }
+    let scale = (area.width() / source.x).max(area.height() / source.y);
+    Rect::from_center_size(area.center(), source * scale)
 }
 
-/// A ghost's taskbar number in a dashed chip; returns its rectangle.
-fn ghost_chip(ui: &Ui, painter: &egui::Painter, at: egui::Pos2, number: usize) -> Rect {
+/// The letter a ghost's pill shows for its monitor: the first of its name.
+fn monitor_letter(label: &str) -> String {
+    label
+        .chars()
+        .next()
+        .map(|c| c.to_uppercase().collect())
+        .unwrap_or_default()
+}
+
+/// A ghost's taskbar number in a dashed chip, centred on `centre_x` and
+/// ending at `bottom`; returns its rectangle.
+fn ghost_chip(ui: &Ui, painter: &egui::Painter, centre_x: f32, bottom: f32, number: usize) -> Rect {
     let tokens = Tokens::get(ui.ctx());
     let galley = painter.layout_no_wrap(
         number.to_string(),
         theme::regular(12.0),
         tokens.text_disabled,
     );
-    let chip = Rect::from_min_size(
-        at,
-        vec2((galley.size().x + 10.0).max(GHOST_CHIP), GHOST_CHIP),
+    let width = (galley.size().x + 4.0).max(GHOST_CHIP);
+    let chip = Rect::from_min_max(
+        pos2(centre_x - width / 2.0, bottom - GHOST_CHIP),
+        pos2(centre_x + width / 2.0, bottom),
     );
     dashed_box(ui, painter, chip, false);
     painter.galley(
@@ -3599,16 +3611,23 @@ mod tests {
     }
 
     #[test]
-    fn a_ghost_points_toward_its_monitor_and_its_title_fits_whole_lines() {
+    fn a_ghost_points_toward_its_monitor_and_its_picture_covers_its_box() {
         let monitors = desk();
         assert!(points_left(&monitors[1], &monitors[0]));
         assert!(!points_left(&monitors[2], &monitors[0]));
-        // Below the 58 px picture, the 16 px chip and the gaps: 40 px.
-        let room =
-            CARD_HEIGHT - GHOST_PICTURE - GHOST_TOP - GHOST_CHIP - GHOST_TITLE_GAP - GHOST_TOP;
-        assert_eq!(ghost_title_rows(room), 2);
-        assert_eq!(ghost_title_rows(100.0), 3);
-        assert_eq!(ghost_title_rows(-4.0), 0);
+        assert_eq!(monitor_letter("right"), "R");
+        assert_eq!(monitor_letter(""), "");
+        // A wide window covers the 62 x 126 box: as tall, centred, cut at
+        // the sides.
+        let area = Rect::from_min_size(pos2(20.0, 0.0), vec2(62.0, 126.0));
+        let wide = cover(vec2(1600.0, 900.0), area);
+        assert!(close(wide.height(), 126.0));
+        assert!(wide.width() > 62.0);
+        assert_eq!(wide.center(), area.center());
+        let tall = cover(vec2(100.0, 1000.0), area);
+        assert!(close(tall.width(), 62.0));
+        assert!(tall.height() > 126.0);
+        assert_eq!(cover(Vec2::ZERO, area), area);
     }
 
     #[test]
