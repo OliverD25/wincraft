@@ -33,6 +33,8 @@ pub mod uia;
 pub mod update;
 pub mod update_notice;
 pub mod version_info;
+pub mod virtual_desktops;
+pub mod window_info;
 pub mod window_names;
 pub mod windows_list;
 

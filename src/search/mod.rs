@@ -94,6 +94,23 @@ pub enum Action {
         id: String,
         label: String,
     },
+    /// Puts the text on the clipboard and pastes it into the window that
+    /// was in front before the palette opened.
+    Paste(String),
+    Minimize(Vec<isize>),
+    /// Asks the windows to close, as their own close button does, so an
+    /// app can still ask to save first.
+    Close(Vec<isize>),
+    /// Moves the windows to the next monitor to the right, or round to the
+    /// first, keeping their place on the screen.
+    NextMonitor(Vec<isize>),
+    /// Shows a window on every virtual desktop, or on its own one again.
+    AllDesktops {
+        hwnd: isize,
+        on: bool,
+    },
+    /// Opens the Arrange strip with this window picked.
+    Arrange(isize),
 }
 
 /// What the palette does after a provider handled an action.

@@ -1,4 +1,3 @@
-mod desktops;
 mod explorer;
 mod guard;
 pub mod hover_preview;
@@ -35,6 +34,7 @@ use crate::core::ui_bridge::{
     ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeView, ArrangeWindow,
     LayoutAction, LayoutApp, LayoutEntry, LayoutRef, LayoutSnapshot,
 };
+use crate::core::virtual_desktops as desktops;
 use crate::core::{
     appid, clock, host, instance, session, taskbar, taskbar_scope, wide, window_names,
 };

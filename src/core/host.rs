@@ -1666,6 +1666,11 @@ impl Host {
             }
             HostRequest::RunCommand(id) => self.run_command(id),
             HostRequest::RunAction(search::Action::Command(id)) => self.run_command(id),
+            HostRequest::RunAction(search::Action::Arrange(hwnd)) => {
+                if self.send_arrange_for(true, false) {
+                    self.to_ui.send(UiCommand::ArrangeSelectWindow(hwnd));
+                }
+            }
             HostRequest::RunAction(action) => search::actions::perform(&action, self.hwnd),
             HostRequest::PromptAnswer {
                 plugin,
@@ -2770,6 +2775,7 @@ fn clear_system_frame(hwnd: HWND) {
 }
 
 fn show_palette() {
+    search::actions::remember_front();
     let palette = with_host(|host| {
         host.to_ui.send(UiCommand::ShowPalette(cursor_monitor()));
         host.palette_hwnd

@@ -1,4 +1,6 @@
-//! Reading and moving virtual desktops.
+//! Reading, moving and pinning virtual desktops. LayoutKeeper moves
+//! windows between desktops; the palette shows a window's desktop and
+//! pins it to all of them.
 //!
 //! The move chain (`Mover`) is ported from MScholtes' VirtualDesktop,
 //! https://github.com/MScholtes/VirtualDesktop, file VirtualDesktop11-24H2.cs
@@ -207,6 +209,10 @@ mod undocumented {
     pub const IID_IAPPLICATION_VIEW_COLLECTION: GUID =
         GUID::from_u128(0x1841C6D7_4F9D_42C0_AF41_8747538F10E5);
     pub const IID_IVIRTUAL_DESKTOP: GUID = GUID::from_u128(0x3F07F4BE_B107_441A_AF0F_39D82529072C);
+    pub const CLSID_VIRTUAL_DESKTOP_PINNED_APPS: GUID =
+        GUID::from_u128(0xB5A399E7_1C87_46B8_88E9_FC5747B171BD);
+    pub const IID_IVIRTUAL_DESKTOP_PINNED_APPS: GUID =
+        GUID::from_u128(0x4CE81583_1E4C_4632_A621_07A53543148F);
 
     type Placeholder = unsafe extern "system" fn();
 
@@ -249,6 +255,18 @@ mod undocumented {
         pub get_desktops: unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> HRESULT,
     }
 
+    #[repr(C)]
+    pub struct IVirtualDesktopPinnedAppsVtbl {
+        pub _base: IUnknown_Vtbl,
+        pub _is_app_id_pinned: Placeholder,
+        pub _pin_app_id: Placeholder,
+        pub _unpin_app_id: Placeholder,
+        pub is_view_pinned:
+            unsafe extern "system" fn(*mut c_void, *mut c_void, *mut i32) -> HRESULT,
+        pub pin_view: unsafe extern "system" fn(*mut c_void, *mut c_void) -> HRESULT,
+        pub unpin_view: unsafe extern "system" fn(*mut c_void, *mut c_void) -> HRESULT,
+    }
+
     /// The documented IObjectArray (shobjidl_core.h).
     #[repr(C)]
     pub struct IObjectArrayVtbl {
@@ -279,25 +297,8 @@ impl Mover {
                 "Windows build {build} predates 24H2 ({MIN_BUILD}), whose interfaces this uses"
             ));
         }
-        let shell = ComPtr::create(
-            &CLSID_IMMERSIVE_SHELL,
-            &IID_ISERVICE_PROVIDER,
-            CLSCTX_LOCAL_SERVER,
-        )
-        .map_err(|hr| format!("the immersive shell is unavailable ({})", com::hex(hr)))?;
-        let service = |sid: &GUID, iid: &GUID, what: &str| -> Result<ComPtr, String> {
-            let mut raw = std::ptr::null_mut();
-            let hr = unsafe {
-                (shell.vtable::<IServiceProviderVtbl>().query_service)(
-                    shell.as_raw(),
-                    sid,
-                    iid,
-                    &mut raw,
-                )
-            };
-            com::check(hr).map_err(|hr| format!("{what} is unavailable ({})", com::hex(hr)))?;
-            ComPtr::from_raw(raw).ok_or_else(|| format!("{what} came back empty"))
-        };
+        let shell = immersive_shell()?;
+        let service = |sid: &GUID, iid: &GUID, what: &str| shell_service(&shell, sid, iid, what);
         let mover = Self {
             internal: service(
                 &CLSID_VIRTUAL_DESKTOP_MANAGER_INTERNAL,
@@ -370,15 +371,7 @@ impl Mover {
             .find(|(id, _)| *id == target)
             .map(|(_, desktop)| desktop)
             .ok_or_else(|| format!("no desktop {target}"))?;
-        let mut raw = std::ptr::null_mut();
-        let hr = unsafe {
-            (self
-                .views
-                .vtable::<IApplicationViewCollectionVtbl>()
-                .get_view_for_hwnd)(self.views.as_raw(), hwnd, &mut raw)
-        };
-        com::check(hr).map_err(|hr| format!("GetViewForHwnd failed ({})", com::hex(hr)))?;
-        let view = ComPtr::from_raw(raw).ok_or("the window has no application view")?;
+        let view = view_of(&self.views, hwnd)?;
         let hr = unsafe {
             (self
                 .internal
@@ -388,6 +381,101 @@ impl Mover {
             )
         };
         com::check(hr).map_err(|hr| format!("MoveViewToDesktop failed ({})", com::hex(hr)))
+    }
+}
+
+fn immersive_shell() -> Result<ComPtr, String> {
+    ComPtr::create(
+        &undocumented::CLSID_IMMERSIVE_SHELL,
+        &undocumented::IID_ISERVICE_PROVIDER,
+        CLSCTX_LOCAL_SERVER,
+    )
+    .map_err(|hr| format!("the immersive shell is unavailable ({})", com::hex(hr)))
+}
+
+fn shell_service(shell: &ComPtr, sid: &GUID, iid: &GUID, what: &str) -> Result<ComPtr, String> {
+    let mut raw = std::ptr::null_mut();
+    let hr = unsafe {
+        (shell
+            .vtable::<undocumented::IServiceProviderVtbl>()
+            .query_service)(shell.as_raw(), sid, iid, &mut raw)
+    };
+    com::check(hr).map_err(|hr| format!("{what} is unavailable ({})", com::hex(hr)))?;
+    ComPtr::from_raw(raw).ok_or_else(|| format!("{what} came back empty"))
+}
+
+fn view_of(views: &ComPtr, hwnd: HWND) -> Result<ComPtr, String> {
+    let mut raw = std::ptr::null_mut();
+    let hr = unsafe {
+        (views
+            .vtable::<undocumented::IApplicationViewCollectionVtbl>()
+            .get_view_for_hwnd)(views.as_raw(), hwnd, &mut raw)
+    };
+    com::check(hr).map_err(|hr| format!("GetViewForHwnd failed ({})", com::hex(hr)))?;
+    ComPtr::from_raw(raw).ok_or_else(|| "the window has no application view".to_string())
+}
+
+/// Shows one window on every virtual desktop, or on its own again, the way
+/// Task View's "Show this window on all desktops" does.
+pub struct Pinner {
+    pinned: ComPtr,
+    views: ComPtr,
+}
+
+impl Pinner {
+    /// COM must already be running on the calling thread.
+    pub fn new() -> Result<Self, String> {
+        use undocumented::*;
+
+        let build = os_build().ok_or("the Windows build number cannot be read")?;
+        if build < MIN_BUILD {
+            return Err(format!(
+                "Windows build {build} predates 24H2 ({MIN_BUILD}), whose interfaces this uses"
+            ));
+        }
+        let shell = immersive_shell()?;
+        Ok(Self {
+            pinned: shell_service(
+                &shell,
+                &CLSID_VIRTUAL_DESKTOP_PINNED_APPS,
+                &IID_IVIRTUAL_DESKTOP_PINNED_APPS,
+                "IVirtualDesktopPinnedApps",
+            )?,
+            views: shell_service(
+                &shell,
+                &IID_IAPPLICATION_VIEW_COLLECTION,
+                &IID_IAPPLICATION_VIEW_COLLECTION,
+                "IApplicationViewCollection",
+            )?,
+        })
+    }
+
+    pub fn is_pinned(&self, hwnd: HWND) -> Result<bool, String> {
+        let view = view_of(&self.views, hwnd)?;
+        let mut pinned = 0;
+        let hr = unsafe {
+            (self
+                .pinned
+                .vtable::<undocumented::IVirtualDesktopPinnedAppsVtbl>()
+                .is_view_pinned)(self.pinned.as_raw(), view.as_raw(), &mut pinned)
+        };
+        com::check(hr).map_err(|hr| format!("IsViewPinned failed ({})", com::hex(hr)))?;
+        Ok(pinned != 0)
+    }
+
+    pub fn set_pinned(&self, hwnd: HWND, on: bool) -> Result<(), String> {
+        let view = view_of(&self.views, hwnd)?;
+        let vtable = unsafe {
+            self.pinned
+                .vtable::<undocumented::IVirtualDesktopPinnedAppsVtbl>()
+        };
+        let call = if on {
+            vtable.pin_view
+        } else {
+            vtable.unpin_view
+        };
+        let hr = unsafe { call(self.pinned.as_raw(), view.as_raw()) };
+        com::check(hr).map_err(|hr| format!("pinning the window failed ({})", com::hex(hr)))
     }
 }
 
