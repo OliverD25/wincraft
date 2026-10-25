@@ -1272,7 +1272,7 @@ fn label_row(
     if monitor.primary {
         let chip = painter.layout_no_wrap(
             "Primary".to_string(),
-            theme::regular(11.0),
+            theme::regular(12.0),
             tokens.text_disabled,
         );
         let chip_rect = Rect::from_min_size(
@@ -1374,7 +1374,7 @@ fn title_chip(
     colour: egui::Color32,
 ) -> Rect {
     let tokens = Tokens::get(painter.ctx());
-    let galley = painter.layout_no_wrap(text_line.to_string(), theme::regular(11.0), colour);
+    let galley = painter.layout_no_wrap(text_line.to_string(), theme::regular(12.0), colour);
     let chip = Rect::from_min_max(
         pos2(right - galley.size().x - 12.0, top),
         pos2(right, top + TITLE),
