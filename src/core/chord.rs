@@ -20,7 +20,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, KillTimer, PostMessageW, SetTimer, SetWindowsHookExW, UnhookWindowsHookEx,
-    KBDLLHOOKSTRUCT, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    KBDLLHOOKSTRUCT, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
+    WM_MBUTTONDOWN, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN,
 };
 
 /// The timer on the owner window that ends a wait. The owner's window
@@ -42,8 +43,27 @@ pub enum Verdict {
     Take,
     /// Left to Windows and the app in front.
     Pass,
-    /// Left to Windows, and the wait ends.
+    /// Left to Windows, and the wait ends: the caller hears of it.
     End,
+}
+
+/// What came since the caller last looked.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct News {
+    /// The keys taken, oldest first.
+    pub taken: Vec<Stroke>,
+    /// A key the rule ends the wait on, or a mouse click, came: the caller
+    /// stops the wait.
+    pub ended: bool,
+}
+
+/// Whether a low-level mouse message is a button going down, which ends a
+/// wait the way Esc does.
+pub fn is_click(message: u32) -> bool {
+    matches!(
+        message,
+        WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN
+    )
 }
 
 /// Decides about each key press while a wait runs.
@@ -73,14 +93,24 @@ pub fn is_modifier(vk: u32) -> bool {
 
 struct Wait {
     hook: isize,
+    mouse: isize,
     owner: isize,
     message: u32,
     started: Instant,
     wait: Duration,
     rule: Rule,
-    taken: Vec<Stroke>,
+    news: News,
     /// Keys whose press was kept: their release is kept too.
     held: Vec<u32>,
+}
+
+impl Wait {
+    fn end(&mut self) {
+        if !self.news.ended {
+            self.news.ended = true;
+            unsafe { PostMessageW(self.owner as HWND, self.message, 0, 0) };
+        }
+    }
 }
 
 thread_local! {
@@ -88,9 +118,11 @@ thread_local! {
 }
 
 /// Starts a wait of `wait` on this thread: each key press goes to `rule`,
-/// and a key it takes is kept and `message` is posted to `owner`. Starting
-/// again while a wait runs starts that wait over. Returns false when Windows
-/// refused the hook; keys then go to Windows as usual.
+/// and `message` is posted to `owner` for a key it takes and when the wait
+/// ends early (`take` says which). A mouse click ends the wait too; the
+/// click itself goes through. Starting again while a wait runs starts that
+/// wait over. Returns false when Windows refused the hook; keys then go to
+/// Windows as usual.
 pub fn listen(owner: isize, message: u32, wait: Duration, rule: Rule) -> bool {
     stop();
     let hook = unsafe {
@@ -105,17 +137,27 @@ pub fn listen(owner: isize, message: u32, wait: Duration, rule: Rule) -> bool {
         log::warn!("could not start waiting for the next key: the keyboard hook was refused");
         return false;
     }
+    // Without it a click only fails to end the wait; the keys still work.
+    let mouse = unsafe {
+        SetWindowsHookExW(
+            WH_MOUSE_LL,
+            Some(mouse_proc),
+            GetModuleHandleW(std::ptr::null()),
+            0,
+        )
+    };
     let ms = wait.as_millis().min(u32::MAX as u128) as u32;
     unsafe { SetTimer(owner as HWND, TIMER_ID, ms, None) };
     WAIT.with(|cell| {
         *cell.borrow_mut() = Some(Wait {
             hook: hook as isize,
+            mouse: mouse as isize,
             owner,
             message,
             started: Instant::now(),
             wait,
             rule,
-            taken: Vec::new(),
+            news: News::default(),
             held: Vec::new(),
         })
     });
@@ -128,6 +170,9 @@ pub fn stop() {
     if let Some(wait) = ended {
         unsafe {
             UnhookWindowsHookEx(wait.hook as *mut core::ffi::c_void);
+            if wait.mouse != 0 {
+                UnhookWindowsHookEx(wait.mouse as *mut core::ffi::c_void);
+            }
             KillTimer(wait.owner as HWND, TIMER_ID);
         }
     }
@@ -138,12 +183,20 @@ pub fn on_timer() {
     stop();
 }
 
-/// The keys taken since the last call, oldest first.
-pub fn take() -> Vec<Stroke> {
+/// Whether a wait runs.
+pub fn waiting() -> bool {
+    WAIT.with(|cell| cell.borrow().is_some())
+}
+
+/// What came since the last call.
+pub fn take() -> News {
     WAIT.with(|cell| {
         cell.borrow_mut()
             .as_mut()
-            .map(|wait| std::mem::take(&mut wait.taken))
+            .map(|wait| News {
+                taken: std::mem::take(&mut wait.news.taken),
+                ended: wait.news.ended,
+            })
             .unwrap_or_default()
     })
 }
@@ -196,20 +249,37 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         };
         match verdict(stroke, wait.started, wait.wait, Instant::now(), wait.rule) {
             Verdict::Take => {
-                wait.taken.push(stroke);
+                wait.news.taken.push(stroke);
                 if !wait.held.contains(&stroke.vk) {
                     wait.held.push(stroke.vk);
                 }
                 unsafe { PostMessageW(wait.owner as HWND, wait.message, 0, 0) };
                 true
             }
-            // The timer takes the hook out; doing it here, inside the
+            Verdict::Pass => false,
+            // The owner takes the hook out; doing it here, inside the
             // hook's own call, is not allowed.
-            Verdict::Pass | Verdict::End => false,
+            Verdict::End => {
+                wait.end();
+                false
+            }
         }
     });
     if swallow {
         return 1;
+    }
+    unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
+}
+
+unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code >= 0 && is_click(wparam as u32) {
+        WAIT.with(|cell| {
+            if let Ok(mut slot) = cell.try_borrow_mut() {
+                if let Some(wait) = slot.as_mut() {
+                    wait.end();
+                }
+            }
+        });
     }
     unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
 }
@@ -248,8 +318,25 @@ mod tests {
 
     #[test]
     fn nothing_is_taken_until_a_wait_starts() {
-        assert!(take().is_empty());
+        assert!(!waiting());
+        assert_eq!(take(), News::default());
         stop();
-        assert!(take().is_empty());
+        assert!(!waiting());
+    }
+
+    #[test]
+    fn a_button_going_down_is_a_click_and_moving_is_not() {
+        for message in [
+            WM_LBUTTONDOWN,
+            WM_RBUTTONDOWN,
+            WM_MBUTTONDOWN,
+            WM_XBUTTONDOWN,
+        ] {
+            assert!(is_click(message));
+        }
+        // WM_MOUSEMOVE, WM_LBUTTONUP and WM_MOUSEWHEEL.
+        for message in [0x0200, 0x0202, 0x020A] {
+            assert!(!is_click(message));
+        }
     }
 }

@@ -4,6 +4,7 @@ pub mod fuzzy;
 mod palette;
 mod peek;
 mod settings;
+pub mod taskbar_badges;
 mod widgets;
 
 use std::sync::mpsc::Receiver;
@@ -212,6 +213,10 @@ impl App {
                 }
                 UiCommand::ArrangeSelect(place) => {
                     self.arrange.select_place(place);
+                    ctx.request_repaint_of(arrange::viewport_id());
+                }
+                UiCommand::ArrangeSelectWindow(hwnd) => {
+                    self.arrange.select_window(hwnd);
                     ctx.request_repaint_of(arrange::viewport_id());
                 }
                 UiCommand::ArrangeNote(text) => {

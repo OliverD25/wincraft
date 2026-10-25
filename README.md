@@ -148,7 +148,7 @@ are marked, because a restore cannot tell them apart.
 | `Win+Alt+J` | Save the layout now |
 | `Win+Alt+[` | Move the front window one place left in its taskbar group |
 | `Win+Alt+]` | Move the front window one place right in its taskbar group |
-| `Win+Alt+A` | Open the Arrange strip: live pictures of an app's windows on this desktop, laid out by monitor like your desk; a link or `D` shows the other desktops. Drag them into order, to another desktop or to another monitor. It opens on the app whose taskbar button is under the mouse, else on the active window's app |
+| `Win+Alt+A` | Show a number over each taskbar button for 3 seconds. Press a number to open the Arrange strip for that button, or press `Win+Alt+A` again for the app in front. The strip shows live pictures of an app's windows on this desktop, laid out by monitor like your desk; a link or `D` shows the other desktops. Drag them into order, to another desktop or to another monitor |
 
 Moving windows between desktops uses undocumented Windows interfaces, ported
 from [MScholtes' VirtualDesktop](https://github.com/MScholtes/VirtualDesktop)

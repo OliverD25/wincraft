@@ -98,6 +98,32 @@ pub fn card_motion(appeared: Option<Duration>, left: Option<Duration>) -> (f32, 
     (scale, fade)
 }
 
+/// The card ↑ (`down` false) or ↓ picks from window `from`: on the nearest
+/// line of cards above or below it, the one nearest across. `cards` are the
+/// cards drawn last frame, each with its window; ghosts are not among them.
+/// None at the top or the bottom.
+pub fn card_above_or_below(cards: &[(isize, Rect)], from: isize, down: bool) -> Option<isize> {
+    let here = cards.iter().find(|(hwnd, _)| *hwnd == from)?.1;
+    let beyond = |rect: &Rect| {
+        if down {
+            rect.top() >= here.bottom() - 1.0
+        } else {
+            rect.bottom() <= here.top() + 1.0
+        }
+    };
+    let line = cards
+        .iter()
+        .filter(|(_, rect)| beyond(rect))
+        .map(|(_, rect)| rect.top())
+        .reduce(|a, b| if down { a.min(b) } else { a.max(b) })?;
+    let across = |rect: &Rect| (rect.center().x - here.center().x).abs();
+    cards
+        .iter()
+        .filter(|(_, rect)| beyond(rect) && (rect.top() - line).abs() < here.height() / 2.0)
+        .min_by(|a, b| across(&a.1).total_cmp(&across(&b.1)))
+        .map(|(hwnd, _)| *hwnd)
+}
+
 /// `rect` at `scale` of its size, around its centre.
 fn grown(rect: Rect, scale: f32) -> Rect {
     Rect::from_center_size(rect.center(), rect.size() * scale)
@@ -702,6 +728,9 @@ struct Shared {
     select: Option<usize>,
     /// Such a strip takes the keyboard, although it sits above a button.
     wants_keyboard: bool,
+    /// The window to pick once the strip has its group, for the strip the
+    /// hotkey pressed twice opened.
+    select_window: Option<isize>,
     /// A short line on screen, and since when.
     note: Option<(String, Instant)>,
     /// The taskbar button a hover opened the strip above. Such a strip
@@ -882,6 +911,7 @@ impl Arrange {
                 leaving: Vec::new(),
                 select: None,
                 wants_keyboard: false,
+                select_window: None,
                 note: None,
                 anchor: None,
             })),
@@ -906,6 +936,7 @@ impl Arrange {
         shared.leaving.clear();
         shared.select = None;
         shared.wants_keyboard = false;
+        shared.select_window = None;
         shared.note = None;
         shared.snapshot = Some(snapshot);
         shared.holds.clear();
@@ -981,6 +1012,13 @@ impl Arrange {
             if shared.window != 0 {
                 shared.to_host.send(HostRequest::FocusWindow(shared.window));
             }
+        }
+    }
+
+    /// The strip was just opened for the window in front: pick its card.
+    pub fn select_window(&self, hwnd: isize) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.select_window = Some(hwnd);
         }
     }
 
@@ -1357,6 +1395,11 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
         return;
     };
 
+    if let Some(hwnd) = shared.select_window.take() {
+        if group.windows.iter().any(|window| window.hwnd == hwnd) {
+            shared.cursor = Some(hwnd);
+        }
+    }
     if let Some(place) = shared.select.take() {
         let row = rows(&group, &snapshot.desktops);
         let picked = place
@@ -2208,6 +2251,19 @@ fn keyboard(
             i.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
         )
     });
+    let (up, down) = ctx.input_mut(|i| {
+        (
+            i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
+            i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
+        )
+    });
+    if up || down {
+        if let Some(hwnd) = card_above_or_below(&shared.card_hits, group.windows[member].hwnd, down)
+        {
+            shared.cursor = Some(hwnd);
+        }
+        return;
+    }
     if enter {
         *activate = Some(group.windows[member].hwnd);
         return;
@@ -3485,6 +3541,27 @@ mod tests {
         let grown_rect = grown(Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 50.0)), 0.9);
         assert_eq!(grown_rect.size(), vec2(90.0, 45.0));
         assert_eq!(grown_rect.center(), pos2(50.0, 25.0));
+    }
+
+    #[test]
+    fn up_and_down_pick_the_nearest_card_on_the_line_above_or_below() {
+        let card = |x: f32, y: f32| Rect::from_min_size(pos2(x, y), vec2(150.0, 100.0));
+        // Two lines in one column, and a card further down in the next.
+        let cards = [
+            (1, card(0.0, 0.0)),
+            (2, card(160.0, 0.0)),
+            (3, card(0.0, 110.0)),
+            (4, card(400.0, 0.0)),
+            (5, card(400.0, 300.0)),
+        ];
+        assert_eq!(card_above_or_below(&cards, 2, true), Some(3));
+        assert_eq!(card_above_or_below(&cards, 3, false), Some(1));
+        // From 3 down: the next line below, in the other column.
+        assert_eq!(card_above_or_below(&cards, 3, true), Some(5));
+        assert_eq!(card_above_or_below(&cards, 5, false), Some(3));
+        assert_eq!(card_above_or_below(&cards, 1, false), None);
+        assert_eq!(card_above_or_below(&cards, 5, true), None);
+        assert_eq!(card_above_or_below(&cards, 9, true), None);
     }
 
     #[test]

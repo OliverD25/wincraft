@@ -410,6 +410,8 @@ pub enum UiCommand {
     ArrangeSelect(usize),
     /// A short line the open strip shows for a moment.
     ArrangeNote(String),
+    /// The strip just opened for the window in front: pick its card.
+    ArrangeSelectWindow(isize),
     HideArrange,
     /// The Layout page's data; None when no plugin keeps a layout.
     LayoutUpdate(Option<LayoutSnapshot>),

@@ -2936,7 +2936,7 @@ impl WinCraftPlugin for LayoutKeeper {
             ACTION_SAVE_NOW => self.save_now(),
             ACTION_MOVE_LEFT => self.shift_front(-1),
             ACTION_MOVE_RIGHT => self.shift_front(1),
-            ACTION_ARRANGE => host::open_arrange(),
+            ACTION_ARRANGE => host::arrange_hotkey(),
             _ => {}
         }
     }

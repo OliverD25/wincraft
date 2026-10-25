@@ -357,12 +357,18 @@ the description in its program file, else the file name.
 
 ### Arrange windows
 
-`Win+Alt+A` (or the palette, or the button on this page) opens a strip above
-the taskbar with a live picture of every window in one app's taskbar group,
-whatever the app, like the taskbar's own thumbnails. It opens on the app
-whose taskbar button is under the mouse, on any monitor's taskbar, else on
-the active window's app: point at a button and press the hotkey to arrange
-that app without switching to it first. The list at the top left switches
+`Win+Alt+A` shows a number over each button of the main taskbar and a line
+at the bottom of the screen for 3 seconds. Press a number (with or without
+Win and Alt still held) to open the strip above that button, with that
+button's window picked; with more than ten buttons, two digits typed
+quickly make a two-digit number. Press `Win+Alt+A` again to open the strip
+for the app in front, or for the app whose taskbar button is under the
+mouse. Esc, any other key, a click or 3 seconds without a key end the wait
+and nothing opens. The palette and the button on this page open the strip
+at once.
+
+The strip shows a live picture of every window in one app's taskbar group,
+whatever the app, like the taskbar's own thumbnails. The list at the top left switches
 to every other app that has windows, most windows first; the right end of
 the toolbar counts the monitors, desktops and the app's windows. The
 pictures are drawn by Windows itself (DWM thumbnails) and stay live while
@@ -416,14 +422,17 @@ at all, keeps ordinary columns.
   its column, marked **(disconnected)**, with those windows faded; they are
   on another monitor until it is back. Drag one to another column to give it
   a new place.
-- **Keyboard:** ↑ and ↓ pick a window, across columns and desktops; ← and →
-  move it within its column; Shift+← and Shift+→ move it to the end of the
-  next monitor's column (a rail counts, and it opens while the window lands
-  on it); Shift+↑ and Shift+↓ move it to the next desktop, on
-  the same monitor (or the main one when its own is unplugged). Enter
-  switches to the window, D shows or hides the other desktops, Esc closes the
-  strip, Alt+← and Alt+→ give it the next lower or higher number (see
-  **Changing a window's number**). The footer lists the keys.
+- **Keyboard:** the arrow keys only pick a window: ← and → the one before
+  or after, ↑ and ↓ the nearest one on the line above or below, across
+  columns and desktops. Ctrl+← and Ctrl+→ move the picked window within its
+  column; Ctrl+Shift+← and Ctrl+Shift+→ move it to the end of the next
+  monitor's column (a rail counts, and it opens while the window lands on
+  it); Ctrl+Shift+↑ and Ctrl+Shift+↓ move it to the next desktop, on the same
+  monitor (or the main one when its own is unplugged). Enter switches to the
+  window, a number opens the strip for that taskbar button, D shows or hides
+  the other desktops, Esc closes the strip, Alt+← and Alt+→ give it the next
+  lower or higher number (see **Changing a window's number**). The footer
+  lists the keys.
 
 **Flat** is the strip as it was before WinCraft 0.13: one row per virtual
 desktop, this desktop first, then (when shown) the others under their names. A window
@@ -489,7 +498,8 @@ number 2 on the right monitor is still in the right column, now shown as 2.
   shown when the app has only one window on that desktop.
 - **Alt+← and Alt+→** on the picked card make its number one lower or one
   higher. Nothing happens at number 1 or at the last number. The strip must
-  have the keyboard (click once inside it, or open it with `Win+Alt+A`). The
+  have the keyboard (click once inside it, or open it with `Win+Alt+A` and a
+  number). The
   hover strip normally closes when Alt goes down, so that Alt+Tab keeps
   working; once you have clicked into the strip, Alt no longer closes it.
   Alt+Tab then still works: it moves the keyboard to another window, and the

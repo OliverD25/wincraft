@@ -94,9 +94,9 @@ const HEALTHY_TIMER: usize = 0x5743_0003;
 const NOTICE_TIMER: usize = 0x5743_0004;
 const WM_APP_NOTICE_CLICK: u32 = WM_APP + 23;
 /// Win+Alt+A, then a digit: the wait for a second digit, and the message the
-/// keyboard hook posts for a digit typed with Win+Alt still held.
+/// keyboard hook posts for a key it kept or for the end of the wait.
 const DIGIT_TIMER: usize = 0x5743_0005;
-const WM_APP_HELD_DIGIT: u32 = WM_APP + 24;
+const WM_APP_WAIT_KEY: u32 = WM_APP + 24;
 
 struct RegisteredHotkey {
     action_id: u32,
@@ -133,6 +133,8 @@ struct Host {
     digits: taskbar_number::Digits,
     buttons: Vec<taskbar::Button>,
     clock: std::time::Instant,
+    /// The number badges and the line while Win+Alt+A waits for a digit.
+    wait_hint: Option<ui::taskbar_badges::WaitHint>,
     updates: Updates,
     /// The "Updated to" panel while it is on screen.
     update_notice: Option<UpdateNotice>,
@@ -385,6 +387,7 @@ thread_local! {
     /// inner None means the plain name.
     static TRAY_TIP: RefCell<Option<Option<String>>> = const { RefCell::new(None) };
     static ARRANGE_WANTED: Cell<bool> = const { Cell::new(false) };
+    static ARRANGE_HOTKEY: Cell<bool> = const { Cell::new(false) };
     static PROMPT: RefCell<Option<Prompt>> = const { RefCell::new(None) };
     static ARRANGE_STALE: Cell<bool> = const { Cell::new(false) };
     static ARRANGE_ANCHOR: RefCell<Option<(String, [i32; 4])>> = const { RefCell::new(None) };
@@ -463,6 +466,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         digits: taskbar_number::Digits::default(),
         buttons: Vec::new(),
         clock: std::time::Instant::now(),
+        wait_hint: None,
         updates: Updates::default(),
         update_notice: None,
         autostart_note: autostart::hands_off_note(),
@@ -1148,16 +1152,16 @@ impl Host {
     /// A digit typed in the strip, or with Win+Alt still held after
     /// Win+Alt+A: the strip for that taskbar button.
     fn arrange_digit(&mut self, digit: u8) {
-        if !self.digits.waiting() {
-            self.buttons = taskbar::main_buttons().unwrap_or_else(|reason| {
-                log::info!("the taskbar's buttons could not be read: {reason}");
-                Vec::new()
-            });
+        // While Win+Alt+A waits, the badges show the buttons read when it
+        // started, and the digits must count those.
+        if !self.digits.waiting() && self.wait_hint.is_none() {
+            self.read_buttons();
         }
         let now = self.clock.elapsed().as_millis() as u64;
         match self.digits.press(digit, now, self.buttons.len()) {
             Some(number) => {
                 unsafe { KillTimer(self.hwnd, DIGIT_TIMER) };
+                self.end_wait();
                 self.open_button(number);
             }
             None => unsafe {
@@ -1174,7 +1178,77 @@ impl Host {
     fn second_digit_over(&mut self) {
         unsafe { KillTimer(self.hwnd, DIGIT_TIMER) };
         if let Some(number) = self.digits.finish() {
+            self.end_wait();
             self.open_button(number);
+        }
+    }
+
+    fn read_buttons(&mut self) {
+        self.buttons = taskbar::main_buttons().unwrap_or_else(|reason| {
+            log::info!("the taskbar's buttons could not be read: {reason}");
+            Vec::new()
+        });
+    }
+
+    /// The Arrange strip's hotkey. The first press waits 3 s for a digit,
+    /// with a number over each taskbar button; nothing opens yet. A second
+    /// press during the wait opens the strip for the window in front, with
+    /// that window picked.
+    fn arrange_hotkey(&mut self, hotkey: Hotkey, keys: &str) {
+        if self.wait_hint.is_some() || chord::waiting() {
+            self.end_wait();
+            let front = unsafe { GetForegroundWindow() } as isize;
+            log::info!("the Arrange hotkey twice: the strip for the window in front");
+            self.arrange_anchor = None;
+            self.send_arrange(true);
+            self.to_ui.send(UiCommand::ArrangeSelectWindow(front));
+            return;
+        }
+        self.read_buttons();
+        self.digits = taskbar_number::Digits::default();
+        WAIT_HOTKEY.with(|cell| cell.set(Some(hotkey)));
+        let wait = std::time::Duration::from_millis(taskbar_number::WAIT_MS);
+        if !chord::listen(self.hwnd as isize, WM_APP_WAIT_KEY, wait, wait_rule) {
+            // No hook: the digits cannot be caught, so the strip opens at
+            // once, as the hotkey did before.
+            self.arrange_anchor = None;
+            self.send_arrange(true);
+            return;
+        }
+        log::info!(
+            "the Arrange hotkey: waiting 3 s for a taskbar number ({} buttons)",
+            self.buttons.len()
+        );
+        self.wait_hint = Some(ui::taskbar_badges::WaitHint::show(
+            &self.buttons,
+            &taskbar_number::wait_line(keys),
+        ));
+    }
+
+    /// The wait after the Arrange hotkey is over: the badges and the line go,
+    /// and a first digit still waiting for a second one is dropped.
+    fn end_wait(&mut self) {
+        chord::stop();
+        if self.wait_hint.take().is_some() {
+            self.digits = taskbar_number::Digits::default();
+        }
+    }
+
+    /// Keys the hook kept during the wait, or the news that it ended.
+    fn wait_news(&mut self, news: chord::News) {
+        let hotkey = WAIT_HOTKEY.with(|cell| cell.get());
+        for stroke in news.taken {
+            let key = hotkey.map_or(taskbar_number::WaitKey::Other, |hotkey| {
+                taskbar_number::wait_key(stroke, hotkey)
+            });
+            match key {
+                taskbar_number::WaitKey::Digit(digit) => self.arrange_digit(digit),
+                taskbar_number::WaitKey::Cancel => self.end_wait(),
+                taskbar_number::WaitKey::Again | taskbar_number::WaitKey::Other => {}
+            }
+        }
+        if news.ended && !self.digits.waiting() {
+            self.end_wait();
         }
     }
 
@@ -1265,7 +1339,12 @@ impl Host {
                     return;
                 }
                 match kind {
-                    ActionKind::Hotkey => slot.plugin.on_hotkey(action),
+                    ActionKind::Hotkey => {
+                        // From the palette, not the keyboard: the action runs
+                        // at once, without the hotkey's wait for a digit.
+                        LAST_HOTKEY.with(|cell| cell.borrow_mut().take());
+                        slot.plugin.on_hotkey(action)
+                    }
                     ActionKind::Tray => slot.plugin.on_tray_action(action),
                     ActionKind::Palette => slot.plugin.on_palette_command(action),
                 }
@@ -2041,6 +2120,14 @@ pub fn ask(prompt: Prompt) {
     plugin_changed();
 }
 
+/// The Arrange strip's hotkey was pressed: wait for a taskbar number, or on
+/// a second press open the strip for the window in front. Call it from
+/// `on_hotkey`. Safe to call from any plugin callback.
+pub fn arrange_hotkey() {
+    ARRANGE_HOTKEY.with(|cell| cell.set(true));
+    plugin_changed();
+}
+
 /// Opens the Arrange windows list. Safe to call from any plugin callback.
 pub fn open_arrange() {
     ARRANGE_WANTED.with(|cell| cell.set(true));
@@ -2088,16 +2175,20 @@ pub fn refresh_arrange() {
 }
 
 thread_local! {
-    /// Whether the strip opened by Win+Alt+A has been on screen since the
-    /// wait for a held digit started.
-    static STRIP_SEEN: Cell<bool> = const { Cell::new(false) };
+    /// The Arrange strip's hotkey while it waits for a digit.
+    static WAIT_HOTKEY: Cell<Option<Hotkey>> = const { Cell::new(None) };
+    /// The hotkey that came last, as pressed and as the user names it, for
+    /// a plugin that asks for `arrange_hotkey` from its `on_hotkey`.
+    static LAST_HOTKEY: RefCell<Option<(Hotkey, String)>> = const { RefCell::new(None) };
 }
 
-/// The keyboard hook's rule after Win+Alt+A; see `held_digit`.
-fn held_digit_rule(stroke: chord::Stroke) -> chord::Verdict {
-    let open = ui_bridge::arrange_window().is_some();
-    let seen = STRIP_SEEN.with(|cell| cell.replace(cell.get() || open));
-    taskbar_number::held_digit(stroke, open, seen)
+/// The keyboard hook's rule while the Arrange hotkey waits; see
+/// `taskbar_number::wait_key`.
+fn wait_rule(stroke: chord::Stroke) -> chord::Verdict {
+    match WAIT_HOTKEY.with(|cell| cell.get()) {
+        Some(hotkey) => taskbar_number::wait_verdict(taskbar_number::wait_key(stroke, hotkey)),
+        None => chord::Verdict::End,
+    }
 }
 
 /// A shell message that a window came, went or took the front: the open
@@ -2366,6 +2457,7 @@ struct PluginRequests {
     notices: Vec<(String, String)>,
     tip: Option<Option<String>>,
     arrange: bool,
+    arrange_hotkey: bool,
     anchor: Option<(String, [i32; 4])>,
     close: bool,
     stale: bool,
@@ -2379,6 +2471,7 @@ impl PluginRequests {
             notices: NOTICES.with(|queue| std::mem::take(&mut *queue.borrow_mut())),
             tip: TRAY_TIP.with(|cell| cell.borrow_mut().take()),
             arrange: ARRANGE_WANTED.with(|cell| cell.replace(false)),
+            arrange_hotkey: ARRANGE_HOTKEY.with(|cell| cell.replace(false)),
             anchor: ARRANGE_ANCHOR.with(|cell| cell.borrow_mut().take()),
             close: ARRANGE_CLOSE.with(|cell| cell.replace(false)),
             stale: ARRANGE_STALE.with(|cell| cell.replace(false)),
@@ -2521,6 +2614,12 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
             }
             with_host_or_later(hwnd, msg, wparam, lparam, |host| {
                 if let Some((index, action_id)) = host.plugins.hotkey_target(global_id) {
+                    let pressed = host.plugins.slots[index]
+                        .registered
+                        .iter()
+                        .find(|entry| entry.global_id == global_id)
+                        .map(|entry| (entry.hotkey, entry.keys.clone()));
+                    LAST_HOTKEY.with(|cell| *cell.borrow_mut() = pressed);
                     host.plugins.slots[index].plugin.on_hotkey(action_id);
                 }
             });
@@ -2572,20 +2671,17 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
                 }
                 if requests.close {
                     host.to_ui.send(UiCommand::HideArrange);
-                    chord::stop();
+                }
+                if requests.arrange_hotkey {
+                    match LAST_HOTKEY.with(|cell| cell.borrow_mut().take()) {
+                        Some((hotkey, keys)) => host.arrange_hotkey(hotkey, &keys),
+                        None => {
+                            host.arrange_anchor = None;
+                            host.send_arrange(true);
+                        }
+                    }
                 }
                 if requests.arrange {
-                    // Win+Alt+A: a digit typed while Win+Alt are still held
-                    // is WinCraft's for a moment, not Windows' jump list.
-                    if requests.anchor.is_none() {
-                        STRIP_SEEN.with(|cell| cell.set(false));
-                        chord::listen(
-                            hwnd as isize,
-                            WM_APP_HELD_DIGIT,
-                            std::time::Duration::from_millis(taskbar_number::HELD_DIGIT_MS),
-                            held_digit_rule,
-                        );
-                    }
                     host.arrange_anchor = requests.anchor;
                     host.send_arrange(true);
                 } else if requests.stale {
@@ -2619,20 +2715,22 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
             with_host_or_later(hwnd, msg, wparam, lparam, |host| host.daily_check());
             0
         }
-        WM_APP_HELD_DIGIT => {
-            let digits: Vec<u8> = chord::take()
-                .into_iter()
-                .filter_map(|stroke| taskbar_number::digit_of(stroke.vk))
-                .collect();
-            with_host_or_later(hwnd, msg, wparam, lparam, |host| {
-                for digit in digits.iter().copied() {
-                    host.arrange_digit(digit);
-                }
-            });
+        WM_APP_WAIT_KEY => {
+            if host_is_busy() {
+                deliver_later(hwnd, msg, wparam, lparam);
+                return 0;
+            }
+            let news = chord::take();
+            with_host(|host| host.wait_news(news));
             0
         }
         WM_TIMER if wparam == chord::TIMER_ID => {
             chord::on_timer();
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| {
+                if !host.digits.waiting() {
+                    host.end_wait();
+                }
+            });
             0
         }
         WM_TIMER if wparam == DIGIT_TIMER => {
@@ -3684,6 +3782,7 @@ mod tests {
             digits: taskbar_number::Digits::default(),
             buttons: Vec::new(),
             clock: std::time::Instant::now(),
+            wait_hint: None,
             updates: Updates::default(),
             update_notice: None,
             autostart_note: None,

@@ -6,11 +6,11 @@ use egui::text::TextWrapping;
 use egui::{pos2, vec2, Rect, Response, Sense, Shape, StrokeKind, Ui, UiBuilder, Vec2};
 
 use super::{
-    card_look, card_menu, ctrl_drop, ctrl_hint, ctrl_mark, ctrl_place, ctrl_target, float_picture,
-    ghost_thumbnail, grown, hit_rect, line_width, middle_close, name_card, nudge, number_chip,
-    order_with_place, others, others_link, paint_look, picture_width, place_in_row,
-    taskbar_numbers, thumbnail, visible_flags, wrap, Drag, Frame, Pending, Shared, NUMBER_GAP,
-    SAME_TITLE_HINT, SLACK,
+    card_above_or_below, card_look, card_menu, ctrl_drop, ctrl_hint, ctrl_mark, ctrl_place,
+    ctrl_target, float_picture, ghost_thumbnail, grown, hit_rect, line_width, middle_close,
+    name_card, nudge, number_chip, order_with_place, others, others_link, paint_look,
+    picture_width, place_in_row, taskbar_numbers, thumbnail, visible_flags, wrap, Drag, Frame,
+    Pending, Shared, NUMBER_GAP, SAME_TITLE_HINT, SLACK,
 };
 use crate::core::taskbar_scope::MultiMonitor;
 use crate::core::theme::{self, Tokens};
@@ -839,17 +839,22 @@ fn rail_at(cols: &[Vec<Col>], rows: &[Vec<usize>], cell: (usize, usize)) -> Opti
     col.rail.then(|| rows[cell.0][cell.1])
 }
 
-/// A key the view answers.
+/// A key the view answers through `step`. ↑ and ↓ pick by where the cards
+/// are on screen, so the view answers them itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
-    Up,
-    Down,
-    Left,
-    Right,
-    ShiftUp,
-    ShiftDown,
-    ShiftLeft,
-    ShiftRight,
+    /// ← and →: the card before or after, in the order of the cards.
+    Prev,
+    Next,
+    /// Ctrl+← and Ctrl+→: one place within the column.
+    MoveLeft,
+    MoveRight,
+    /// Ctrl+Shift+← and Ctrl+Shift+→: the next monitor's column.
+    MonitorLeft,
+    MonitorRight,
+    /// Ctrl+Shift+↑ and Ctrl+Shift+↓: the band of the next desktop.
+    DesktopUp,
+    DesktopDown,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -858,12 +863,12 @@ pub enum Step {
     Move(Spot),
 }
 
-/// What a key does to the window `cursor`: ↑ and ↓ pick the card before or
-/// after it, across columns and bands; ← and → move it one place within its
-/// column; Shift+← and Shift+→ move it to the end of the next column of a
-/// connected monitor; Shift+↑ and Shift+↓ move it to the end of the same
-/// monitor's column in the band above or below, or of the primary monitor's
-/// when its own is disconnected.
+/// What a key does to the window `cursor`: ← and → pick the card before or
+/// after it, across columns and bands; Ctrl+← and Ctrl+→ move it one place
+/// within its column; Ctrl+Shift+← and Ctrl+Shift+→ move it to the end of
+/// the next column of a connected monitor; Ctrl+Shift+↑ and Ctrl+Shift+↓
+/// move it to the end of the same monitor's column in the band above or
+/// below, or of the primary monitor's when its own is disconnected.
 pub fn step(
     bands: &[Band],
     rows: &[Vec<usize>],
@@ -883,32 +888,32 @@ pub fn step(
     let end =
         |band: usize, cell: (usize, usize)| to(band, cell, bands[band].cells[cell.0][cell.1].len());
     match key {
-        Key::Up | Key::Down => {
+        Key::Prev | Key::Next => {
             let walk = walk(bands);
             let at = walk.iter().position(|m| *m == cursor)?;
-            let next = if key == Key::Up {
+            let next = if key == Key::Prev {
                 at.checked_sub(1)?
             } else {
                 at + 1
             };
             walk.get(next).map(|member| Step::Select(*member))
         }
-        Key::Left => here
+        Key::MoveLeft => here
             .index
             .checked_sub(1)
             .map(|index| to(here.band, here.cell, index)),
-        Key::Right => {
+        Key::MoveRight => {
             let len = bands[here.band].cells[here.cell.0][here.cell.1].len();
             (here.index + 1 < len).then(|| to(here.band, here.cell, here.index + 1))
         }
-        Key::ShiftLeft | Key::ShiftRight => {
+        Key::MonitorLeft | Key::MonitorRight => {
             let cells: Vec<(usize, usize)> = rows
                 .iter()
                 .enumerate()
                 .flat_map(|(r, row)| (0..row.len()).map(move |c| (r, c)))
                 .collect();
             let at = cells.iter().position(|cell| *cell == here.cell)?;
-            let next = if key == Key::ShiftRight {
+            let next = if key == Key::MonitorRight {
                 cells[at + 1..]
                     .iter()
                     .copied()
@@ -922,8 +927,8 @@ pub fn step(
             }?;
             Some(end(here.band, next))
         }
-        Key::ShiftUp | Key::ShiftDown => {
-            let band = if key == Key::ShiftUp {
+        Key::DesktopUp | Key::DesktopDown => {
+            let band = if key == Key::DesktopUp {
                 here.band.checked_sub(1)?
             } else {
                 here.band + 1
@@ -2131,20 +2136,39 @@ fn title_chip(
     chip
 }
 
-/// The key hints under the bands. The first is the first to go when the
-/// strip is too narrow; the D hint needs other desktops to show.
+/// The key hints under the bands, most needed first: when the strip is too
+/// narrow they go from the end. The D hint needs other desktops to show.
 fn footer_hints(others_key: bool) -> Vec<(&'static str, &'static str)> {
     let mut hints = vec![
+        ("\u{2190}\u{2192}\u{2191}\u{2193}", "Select"),
+        ("Enter", "Open"),
+        ("Ctrl + \u{2190}\u{2192}", "Move"),
+        ("Ctrl + Shift + \u{2190}\u{2192}", "Next monitor"),
+        ("Ctrl + Shift + \u{2191}\u{2193}", "Next desktop"),
         ("Alt + \u{2190}\u{2192}", "Change number"),
-        ("1\u{2013}9", "Open by taskbar number"),
-        ("\u{2190}\u{2192}", "Move within monitor"),
-        ("Shift + \u{2190}\u{2192}", "Move to next monitor"),
-        ("Shift + \u{2191}\u{2193}", "Move to next desktop"),
+        ("1\u{2013}9", "Open by number"),
     ];
     if others_key {
         hints.push(("D", "Other desktops"));
     }
     hints
+}
+
+/// How many hints, from the first, fit in `room` when they are `widths`
+/// wide and `gap` apart. "Select" and "Move" (the first and third) stay even
+/// when they do not fit, so at least `keep` are shown.
+fn hints_that_fit(widths: &[f32], gap: f32, room: f32, keep: usize) -> usize {
+    let mut used = 0.0;
+    let mut count = 0;
+    for (index, width) in widths.iter().enumerate() {
+        let wanted = used + width + if index > 0 { gap } else { 0.0 };
+        if wanted > room {
+            break;
+        }
+        used = wanted;
+        count += 1;
+    }
+    count.max(keep).min(widths.len())
 }
 
 /// The note on order and the key hints under the bands. The note is only
@@ -2159,25 +2183,32 @@ fn footer(ui: &Ui, panel: Rect, note: bool, others_key: bool) {
         theme::stroke(ui.ctx(), 1.0, tokens.border),
     );
     let centre = area.top() + 1.0 + (FOOTER - 1.0) / 2.0;
-    let hints = footer_hints(others_key);
+    let hints: Vec<_> = footer_hints(others_key)
+        .into_iter()
+        .map(|(key, label)| {
+            let label = painter.layout_no_wrap(
+                label.to_string(),
+                theme::regular(12.0),
+                tokens.text_secondary,
+            );
+            let font = if key.is_ascii() {
+                theme::regular(12.0)
+            } else {
+                theme::mono(12.0)
+            };
+            let key = painter.layout_no_wrap(key.to_string(), font, tokens.text_secondary);
+            (key, label)
+        })
+        .collect();
+    let widths: Vec<f32> = hints
+        .iter()
+        .map(|(key, label)| key.size().x + 12.0 + 6.0 + label.size().x)
+        .collect();
+    let shown = hints_that_fit(&widths, 16.0, area.width() - 2.0 * SIDE, 3);
     let mut x = area.right() - SIDE;
-    for (index, (key, label)) in hints.iter().enumerate().rev() {
-        let label = painter.layout_no_wrap(
-            label.to_string(),
-            theme::regular(12.0),
-            tokens.text_secondary,
-        );
-        let font = if key.is_ascii() {
-            theme::regular(12.0)
-        } else {
-            theme::mono(12.0)
-        };
-        let key = painter.layout_no_wrap(key.to_string(), font, tokens.text_secondary);
-        // A hint that does not fit is left out whole, not cut.
-        if x - label.size().x - 6.0 - key.size().x - 12.0 < area.left() + SIDE {
-            break;
-        }
-        x -= label.size().x;
+    for (index, (key, label)) in hints.into_iter().take(shown).enumerate().rev() {
+        let label_width = label.size().x;
+        x -= label_width;
         painter.galley(
             pos2(x, centre - label.size().y / 2.0),
             label,
@@ -2224,9 +2255,27 @@ fn footer(ui: &Ui, panel: Rect, note: bool, others_key: bool) {
     );
 }
 
-/// ↑ and ↓ pick a window, ← and → move it within its column, Shift with
-/// the arrows moves it to the next monitor or desktop, Alt with ← or →
-/// gives it the next lower or higher number without moving it anywhere
+/// The arrow keys `step` answers, the most modifiers first: a pattern with
+/// fewer modifiers also matches when more are held. Plain arrows only pick;
+/// moving a window needs Ctrl.
+fn arrow_keys() -> [(egui::Modifiers, egui::Key, Key); 8] {
+    let ctrl_shift = egui::Modifiers::CTRL | egui::Modifiers::SHIFT;
+    [
+        (ctrl_shift, egui::Key::ArrowUp, Key::DesktopUp),
+        (ctrl_shift, egui::Key::ArrowDown, Key::DesktopDown),
+        (ctrl_shift, egui::Key::ArrowLeft, Key::MonitorLeft),
+        (ctrl_shift, egui::Key::ArrowRight, Key::MonitorRight),
+        (egui::Modifiers::CTRL, egui::Key::ArrowLeft, Key::MoveLeft),
+        (egui::Modifiers::CTRL, egui::Key::ArrowRight, Key::MoveRight),
+        (egui::Modifiers::NONE, egui::Key::ArrowLeft, Key::Prev),
+        (egui::Modifiers::NONE, egui::Key::ArrowRight, Key::Next),
+    ]
+}
+
+/// The arrow keys pick a window: ← and → in the order of the cards, ↑ and ↓
+/// on the line above or below. Ctrl with ← or → moves it within its column,
+/// Ctrl+Shift with the arrows to the next monitor or desktop, Alt with ← or
+/// → gives it the next lower or higher number without moving it anywhere
 /// else, Enter switches to it. Esc is handled with the other ways to close.
 fn keyboard(
     ctx: &egui::Context,
@@ -2243,22 +2292,8 @@ fn keyboard(
     else {
         return;
     };
-    // The Shift keys first: a key without modifiers also matches with Shift.
-    let keys = [
-        (egui::Modifiers::SHIFT, egui::Key::ArrowUp, Key::ShiftUp),
-        (egui::Modifiers::SHIFT, egui::Key::ArrowDown, Key::ShiftDown),
-        (egui::Modifiers::SHIFT, egui::Key::ArrowLeft, Key::ShiftLeft),
-        (
-            egui::Modifiers::SHIFT,
-            egui::Key::ArrowRight,
-            Key::ShiftRight,
-        ),
-        (egui::Modifiers::NONE, egui::Key::ArrowUp, Key::Up),
-        (egui::Modifiers::NONE, egui::Key::ArrowDown, Key::Down),
-        (egui::Modifiers::NONE, egui::Key::ArrowLeft, Key::Left),
-        (egui::Modifiers::NONE, egui::Key::ArrowRight, Key::Right),
-    ];
-    let (alt_left, alt_right, pressed, enter) = ctx.input_mut(|i| {
+    let keys = arrow_keys();
+    let (alt_left, alt_right, pressed, up, down, enter) = ctx.input_mut(|i| {
         // Alt first: a key pattern without modifiers also matches with Alt
         // down.
         let alt_left = i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowLeft);
@@ -2271,9 +2306,19 @@ fn keyboard(
             alt_left,
             alt_right,
             pressed,
+            i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
+            i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
             i.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
         )
     });
+    if up || down {
+        shared.rail_focus = None;
+        if let Some(hwnd) = card_above_or_below(&shared.card_hits, group.windows[cursor].hwnd, down)
+        {
+            shared.cursor = Some(hwnd);
+        }
+        return;
+    }
     if enter {
         frame.activate = Some(group.windows[cursor].hwnd);
         return;
@@ -2285,7 +2330,7 @@ fn keyboard(
     }
     // A move to another desktop looks through all of them, so it also
     // works while they are hidden.
-    let bands = if matches!(pressed, Some(Key::ShiftUp | Key::ShiftDown)) {
+    let bands = if matches!(pressed, Some(Key::DesktopUp | Key::DesktopDown)) {
         &model.all
     } else {
         &model.bands
@@ -2583,7 +2628,7 @@ mod tests {
         let rows = monitor_rows(&monitors, &every);
         let bands = one_busy_monitor();
         let cols = columns(&bands, &rows, &monitors, &[179.0; 2]);
-        let Some(Step::Move(spot)) = step(&bands, &rows, &monitors, 0, Key::ShiftRight) else {
+        let Some(Step::Move(spot)) = step(&bands, &rows, &monitors, 0, Key::MonitorRight) else {
             panic!("expected a move");
         };
         assert_eq!(spot.cell, (0, 2));
@@ -2880,8 +2925,11 @@ mod tests {
         let monitors = vec![monitor([0, 0, 1920, 1080], 48, true); 3];
         let rows = vec![vec![0, 1, 2]];
         let collapsed = visible(all.clone(), false);
-        assert_eq!(step(&collapsed, &rows, &monitors, 0, Key::ShiftDown), None);
-        let Some(Step::Move(spot)) = step(&all, &rows, &monitors, 0, Key::ShiftDown) else {
+        assert_eq!(
+            step(&collapsed, &rows, &monitors, 0, Key::DesktopDown),
+            None
+        );
+        let Some(Step::Move(spot)) = step(&all, &rows, &monitors, 0, Key::DesktopDown) else {
             panic!("expected a move");
         };
         assert!(spot.band >= collapsed.len());
@@ -3235,15 +3283,18 @@ mod tests {
         let rows = monitor_rows(&monitors, &every);
         let step = |cursor: usize, key: Key| step(&bands, &rows, &monitors, cursor, key);
         assert_eq!(walk(&bands), [0, 1, 2, 3, 4, 5]);
-        assert_eq!(step(1, Key::Down), Some(Step::Select(2)));
-        assert_eq!(step(4, Key::Down), Some(Step::Select(5)));
-        assert_eq!(step(5, Key::Down), None);
-        assert_eq!(step(0, Key::Up), None);
-        assert_eq!(step(2, Key::Up), Some(Step::Select(1)));
-        assert_eq!(step(3, Key::Left), Some(Step::Move(spot(0, (0, 1), 0))));
-        assert_eq!(step(3, Key::Right), Some(Step::Move(spot(0, (0, 1), 2))));
-        assert_eq!(step(4, Key::Right), None);
-        assert_eq!(step(2, Key::Left), None);
+        assert_eq!(step(1, Key::Next), Some(Step::Select(2)));
+        assert_eq!(step(4, Key::Next), Some(Step::Select(5)));
+        assert_eq!(step(5, Key::Next), None);
+        assert_eq!(step(0, Key::Prev), None);
+        assert_eq!(step(2, Key::Prev), Some(Step::Select(1)));
+        assert_eq!(step(3, Key::MoveLeft), Some(Step::Move(spot(0, (0, 1), 0))));
+        assert_eq!(
+            step(3, Key::MoveRight),
+            Some(Step::Move(spot(0, (0, 1), 2)))
+        );
+        assert_eq!(step(4, Key::MoveRight), None);
+        assert_eq!(step(2, Key::MoveLeft), None);
         assert_eq!(
             order_after(6, &bands, 3, spot(0, (0, 1), 2)),
             [0, 1, 2, 4, 3, 5]
@@ -3260,41 +3311,41 @@ mod tests {
         };
         // Window 0 is on the left monitor: right goes to the primary's end.
         assert_eq!(
-            step(&monitors, 0, Key::ShiftRight),
+            step(&monitors, 0, Key::MonitorRight),
             Some(Step::Move(spot(0, (0, 1), 3)))
         );
-        assert_eq!(step(&monitors, 0, Key::ShiftLeft), None);
+        assert_eq!(step(&monitors, 0, Key::MonitorLeft), None);
         // From the primary to the empty right column.
         assert_eq!(
-            step(&monitors, 3, Key::ShiftRight),
+            step(&monitors, 3, Key::MonitorRight),
             Some(Step::Move(spot(0, (0, 2), 0)))
         );
         // Down to the next desktop, same monitor; up from the first is none.
         assert_eq!(
-            step(&monitors, 3, Key::ShiftDown),
+            step(&monitors, 3, Key::DesktopDown),
             Some(Step::Move(spot(1, (0, 1), 1)))
         );
         assert_eq!(
-            step(&monitors, 0, Key::ShiftDown),
+            step(&monitors, 0, Key::DesktopDown),
             Some(Step::Move(spot(1, (0, 0), 0)))
         );
-        assert_eq!(step(&monitors, 0, Key::ShiftUp), None);
+        assert_eq!(step(&monitors, 0, Key::DesktopUp), None);
         assert_eq!(
-            step(&monitors, 5, Key::ShiftUp),
+            step(&monitors, 5, Key::DesktopUp),
             Some(Step::Move(spot(0, (0, 1), 3)))
         );
         // A disconnected right monitor is skipped; its windows go down to
         // the primary column of the next desktop.
         monitors[2].connected = false;
-        assert_eq!(step(&monitors, 3, Key::ShiftRight), None);
+        assert_eq!(step(&monitors, 3, Key::MonitorRight), None);
         let mut in_gone = three_columns();
         in_gone[0].cells[0][2].push(6);
         assert_eq!(
-            super::step(&in_gone, &rows, &monitors, 6, Key::ShiftDown),
+            super::step(&in_gone, &rows, &monitors, 6, Key::DesktopDown),
             Some(Step::Move(spot(1, (0, 1), 1)))
         );
         assert_eq!(
-            super::step(&in_gone, &rows, &monitors, 6, Key::ShiftLeft),
+            super::step(&in_gone, &rows, &monitors, 6, Key::MonitorLeft),
             Some(Step::Move(spot(0, (0, 1), 3)))
         );
     }
@@ -3358,17 +3409,59 @@ mod tests {
     }
 
     #[test]
-    fn the_footer_names_the_digits_and_the_d_key_only_with_other_desktops() {
+    fn the_footer_lists_select_and_move_first_and_drops_from_the_end() {
         let keys = |others| -> Vec<&str> {
             footer_hints(others)
                 .into_iter()
                 .map(|(_, label)| label)
                 .collect()
         };
-        assert!(keys(false).contains(&"Open by taskbar number"));
+        assert_eq!(
+            keys(true),
+            [
+                "Select",
+                "Open",
+                "Move",
+                "Next monitor",
+                "Next desktop",
+                "Change number",
+                "Open by number",
+                "Other desktops"
+            ]
+        );
         assert!(!keys(false).contains(&"Other desktops"));
-        assert_eq!(keys(true).last(), Some(&"Other desktops"));
-        assert_eq!(footer_hints(false)[1].0, "1\u{2013}9");
+        assert_eq!(footer_hints(false)[6].0, "1\u{2013}9");
+        // Too narrow for all: they go from the end, and Select, Open and
+        // Move stay even when they do not fit.
+        let widths = [80.0, 60.0, 90.0, 140.0, 140.0];
+        assert_eq!(hints_that_fit(&widths, 16.0, 1000.0, 3), 5);
+        assert_eq!(hints_that_fit(&widths, 16.0, 270.0, 3), 3);
+        assert_eq!(hints_that_fit(&widths, 16.0, 450.0, 3), 4);
+        assert_eq!(hints_that_fit(&widths, 16.0, 50.0, 3), 3);
+        assert_eq!(hints_that_fit(&widths[..2], 16.0, 50.0, 3), 2);
+    }
+
+    #[test]
+    fn plain_arrows_only_pick_and_ctrl_arrows_move() {
+        let bands = three_columns();
+        let monitors = desk();
+        let rows = monitor_rows(&monitors, &every);
+        for (modifiers, _, key) in arrow_keys() {
+            let result = step(&bands, &rows, &monitors, 3, key);
+            if modifiers == egui::Modifiers::NONE {
+                assert!(matches!(result, Some(Step::Select(_))), "{key:?}");
+            } else {
+                assert!(modifiers.ctrl, "{key:?} moves, so it needs Ctrl");
+                // Up from the first desktop has nowhere to go.
+                assert!(!matches!(result, Some(Step::Select(_))), "{key:?}");
+            }
+        }
+        // The keys with more modifiers come before those with fewer.
+        let counts: Vec<usize> = arrow_keys()
+            .iter()
+            .map(|(modifiers, _, _)| usize::from(modifiers.ctrl) + usize::from(modifiers.shift))
+            .collect();
+        assert!(counts.windows(2).all(|pair| pair[0] >= pair[1]));
     }
 
     fn taskbars(mode: u32) -> MultiMonitor {
@@ -3524,10 +3617,10 @@ mod tests {
         // Only real cards: the left column, the primary one, the right one.
         assert_eq!(walk(&model.bands), [4, 0, 2, 5, 1, 3]);
         let step = |cursor: usize, key: Key| step(&model.bands, &model.rows, monitors, cursor, key);
-        assert_eq!(step(0, Key::Down), Some(Step::Select(2)));
-        assert_eq!(step(5, Key::Down), Some(Step::Select(1)));
+        assert_eq!(step(0, Key::Next), Some(Step::Select(2)));
+        assert_eq!(step(5, Key::Next), Some(Step::Select(1)));
         // Window 5 one card to the left: before window 2, past ghosts 3, 4.
-        let Some(Step::Move(left)) = step(5, Key::Left) else {
+        let Some(Step::Move(left)) = step(5, Key::MoveLeft) else {
             panic!("expected a move");
         };
         assert_eq!(left, spot(0, (0, 1), 2));
@@ -3549,7 +3642,7 @@ mod tests {
         // Window 4 from the left monitor to the end of the primary column:
         // after its last card.
         assert_eq!(
-            step(4, Key::ShiftRight),
+            step(4, Key::MonitorRight),
             Some(Step::Move(spot(0, (0, 1), 5)))
         );
     }

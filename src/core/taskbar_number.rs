@@ -1,19 +1,21 @@
 //! Win+Alt+A, then a digit: the Arrange strip for taskbar button N, the
-//! button Win+N opens. The digit may come in the strip, after the keys were
-//! let go, or while Win+Alt are still held, when Windows would take it for
-//! its own jump list. Nothing here calls Windows.
+//! button Win+N opens. Win+Alt+A only starts a wait, with a number over each
+//! taskbar button; the digit may come with Win+Alt still held, when Windows
+//! would take it for its own jump list, or after they were let go. A digit
+//! in an open strip jumps the same way. Nothing here calls Windows.
 
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_WIN};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN};
 
 use crate::core::chord::{Stroke, Verdict};
 use crate::core::taskbar::Button;
+use crate::core::traits::Hotkey;
 
 /// How long a first digit waits for a second one, when there are more than
 /// ten buttons: 1 then 1 is button 11.
 pub const SECOND_DIGIT_MS: u64 = 400;
-/// How long after Win+Alt+A a digit typed with Win+Alt still held belongs
-/// to WinCraft instead of Windows' jump list.
-pub const HELD_DIGIT_MS: u64 = 1500;
+/// How long Win+Alt+A waits for a digit.
+pub const WAIT_MS: u64 = 3000;
+const ESCAPE: u32 = 0x1B;
 
 /// The digits typed so far.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -69,21 +71,58 @@ pub fn digit_of(vk: u32) -> Option<u8> {
     (0x30..=0x39).contains(&vk).then(|| (vk - 0x30) as u8)
 }
 
-/// What the keyboard hook does with a key during the wait after Win+Alt+A:
-/// Win+Alt+digit, and nothing else, is WinCraft's while the strip is
-/// opening or open. `strip_open` is whether its window is on screen;
-/// `seen` whether it has been since the wait started, so a strip that has
-/// closed again lets the digit go to Windows.
-pub fn held_digit(stroke: Stroke, strip_open: bool, seen: bool) -> Verdict {
-    if strip_open || !seen {
-        if stroke.modifiers == MOD_WIN | MOD_ALT && digit_of(stroke.vk).is_some() {
-            Verdict::Take
-        } else {
-            Verdict::Pass
-        }
-    } else {
-        Verdict::End
+/// A key pressed during the wait after Win+Alt+A.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WaitKey {
+    /// A top-row digit, alone or with Win or Alt still held.
+    Digit(u8),
+    /// The hotkey once more: the strip for the app in front.
+    Again,
+    Cancel,
+    Other,
+}
+
+/// Which kind of key `stroke` is, while `hotkey` (Win+Alt+A, or what the
+/// user set) waits.
+pub fn wait_key(stroke: Stroke, hotkey: Hotkey) -> WaitKey {
+    let held = MOD_WIN | MOD_ALT | MOD_CONTROL | MOD_SHIFT;
+    if stroke.vk == hotkey.vk && stroke.modifiers == hotkey.modifiers & held {
+        return WaitKey::Again;
     }
+    if stroke.vk == ESCAPE {
+        return WaitKey::Cancel;
+    }
+    match digit_of(stroke.vk) {
+        Some(digit) if stroke.modifiers & !(MOD_WIN | MOD_ALT) == 0 => WaitKey::Digit(digit),
+        _ => WaitKey::Other,
+    }
+}
+
+/// What the keyboard hook does with each kind: a digit and Esc are kept, so
+/// neither Windows' jump list nor the app in front sees them. The hotkey
+/// goes on to Windows, which hands it back to WinCraft as the hotkey. Any
+/// other key goes through and ends the wait.
+pub fn wait_verdict(key: WaitKey) -> Verdict {
+    match key {
+        WaitKey::Digit(_) | WaitKey::Cancel => Verdict::Take,
+        WaitKey::Again => Verdict::Pass,
+        WaitKey::Other => Verdict::End,
+    }
+}
+
+/// The number on taskbar button `number`'s badge: the digit that opens it,
+/// 0 for button 10, and its two digits after that.
+pub fn badge_text(number: usize) -> String {
+    match number {
+        10 => "0".to_string(),
+        _ => number.to_string(),
+    }
+}
+
+/// The line at the bottom of the screen while Win+Alt+A waits. `keys` is the
+/// hotkey as the user set it.
+pub fn wait_line(keys: &str) -> String {
+    format!("WinCraft: press a taskbar number, or {keys} again for this app")
 }
 
 /// The line the strip shows for a button whose app it cannot show.
@@ -94,7 +133,6 @@ pub fn no_windows(number: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_CONTROL, MOD_SHIFT};
 
     #[test]
     fn a_digit_is_its_button_and_0_is_button_10() {
@@ -156,29 +194,59 @@ mod tests {
         assert!(button_number(&buttons, 6).is_none());
     }
 
+    const WIN_ALT_A: Hotkey = Hotkey {
+        modifiers: MOD_WIN | MOD_ALT | 0x4000,
+        vk: 0x41,
+    };
+
     #[test]
-    fn only_win_alt_digit_is_taken_and_only_while_the_strip_is_there() {
-        let stroke = |vk, modifiers| Stroke { vk, modifiers };
+    fn the_wait_takes_digits_and_esc_and_ends_on_any_other_key() {
+        let key = |vk, modifiers| wait_key(Stroke { vk, modifiers }, WIN_ALT_A);
         let win_alt = MOD_WIN | MOD_ALT;
-        assert_eq!(held_digit(stroke(0x33, win_alt), true, true), Verdict::Take);
+        // A digit with Win+Alt still held, or after they were let go.
+        assert_eq!(key(0x33, win_alt), WaitKey::Digit(3));
+        assert_eq!(key(0x30, 0), WaitKey::Digit(0));
+        assert_eq!(key(0x35, MOD_ALT), WaitKey::Digit(5));
+        assert_eq!(key(0x41, win_alt), WaitKey::Again);
+        assert_eq!(key(0x1B, 0), WaitKey::Cancel);
+        assert_eq!(key(0x1B, win_alt), WaitKey::Cancel);
+        // A plain A, a digit with Ctrl or Shift, a letter: other keys.
+        assert_eq!(key(0x41, 0), WaitKey::Other);
+        assert_eq!(key(0x33, MOD_CONTROL), WaitKey::Other);
+        assert_eq!(key(0x33, win_alt | MOD_SHIFT), WaitKey::Other);
+        assert_eq!(key(0x45, win_alt), WaitKey::Other);
+
+        assert_eq!(wait_verdict(WaitKey::Digit(3)), Verdict::Take);
+        assert_eq!(wait_verdict(WaitKey::Cancel), Verdict::Take);
+        assert_eq!(wait_verdict(WaitKey::Again), Verdict::Pass);
+        assert_eq!(wait_verdict(WaitKey::Other), Verdict::End);
+    }
+
+    #[test]
+    fn the_wait_follows_the_hotkey_the_user_set() {
+        let ctrl_alt_j = Hotkey {
+            modifiers: MOD_CONTROL | MOD_ALT,
+            vk: 0x4A,
+        };
+        let stroke = Stroke {
+            vk: 0x4A,
+            modifiers: MOD_CONTROL | MOD_ALT,
+        };
+        assert_eq!(wait_key(stroke, ctrl_alt_j), WaitKey::Again);
+        assert_eq!(wait_key(stroke, WIN_ALT_A), WaitKey::Other);
         assert_eq!(
-            held_digit(stroke(0x30, win_alt), false, false),
-            Verdict::Take
+            wait_line("Ctrl+Alt+J"),
+            "WinCraft: press a taskbar number, or Ctrl+Alt+J again for this app"
         );
-        // Other keys and other modifiers go to Windows.
-        assert_eq!(held_digit(stroke(0x41, win_alt), true, true), Verdict::Pass);
-        assert_eq!(held_digit(stroke(0x33, MOD_WIN), true, true), Verdict::Pass);
+    }
+
+    #[test]
+    fn badges_show_the_digit_that_opens_each_button() {
+        let texts: Vec<String> = (1..=12).map(badge_text).collect();
         assert_eq!(
-            held_digit(stroke(0x33, win_alt | MOD_SHIFT), true, true),
-            Verdict::Pass
+            texts,
+            ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "11", "12"]
         );
-        assert_eq!(
-            held_digit(stroke(0x33, win_alt | MOD_CONTROL), true, true),
-            Verdict::Pass
-        );
-        assert_eq!(held_digit(stroke(0x33, 0), true, true), Verdict::Pass);
-        // The strip closed again: Windows' jump list is back.
-        assert_eq!(held_digit(stroke(0x33, win_alt), false, true), Verdict::End);
     }
 
     #[test]
