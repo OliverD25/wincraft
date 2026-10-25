@@ -375,6 +375,14 @@ pictures are drawn by Windows itself (DWM thumbnails) and stay live while
 the strip is open; windows on other desktops have pictures too. A window
 Windows cannot picture shows its name instead.
 
+When the app has only one or two windows on this desktop, the strip opens
+as a small popup instead: the app's name (click it, or press Tab, to pick
+another app), those windows in their monitor's shape, and a button such as
+"+2 on Desktop 5" when the app has windows on other desktops. → from the
+last window, or the button, opens those to the right, faded until picked,
+under their desktop's name and monitor; ← from the first of them goes
+back. Enter switches to the picked window, on its own desktop.
+
 The switch next to the app list picks one of two views, and the strip keeps
 the one you picked last (`arrange_view` in the settings file). Until you
 pick one, it is **By monitor** with two or more monitors and **Flat** with
