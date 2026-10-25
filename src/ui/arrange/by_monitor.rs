@@ -1827,9 +1827,11 @@ impl Draw<'_> {
 
         let response =
             response.on_hover_text(format!("{} \u{b7} on {}", window.label, monitor.label));
+        // A click opens the window, as on its real card.
         if response.clicked() {
             pick(shared, self.group, Some(Item::Ghost(member)));
             shared.rail_focus = None;
+            frame.activate = Some(window.hwnd);
         }
         if response.middle_clicked() {
             frame.close.extend(middle_close(window.hwnd, true));
