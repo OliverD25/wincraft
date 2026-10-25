@@ -5,6 +5,7 @@ use crate::core::hotkeys;
 use crate::core::theme::{self, Tokens};
 use crate::core::tips::TipsConfig;
 use crate::core::ui_bridge::{HostChannel, HostRequest, HostSetting, UiSnapshot};
+use crate::search::ask_ai;
 use crate::search::providers::shell::{self, Shell, SHELL_NAMES};
 use crate::search::providers::web;
 use crate::ui::settings::{self as page, SettingsState};
@@ -251,7 +252,7 @@ fn search_rows(ui: &mut egui::Ui, search: &SearchConfig, to_host: &Arc<HostChann
 
     let (desc, colour) = if web::is_http(&search.web_url) {
         (
-            "What ? searches. {query} is where the words go.",
+            "What Search the web opens. {query} is where the words go.",
             tokens.text_secondary,
         )
     } else {
@@ -272,6 +273,8 @@ fn search_rows(ui: &mut egui::Ui, search: &SearchConfig, to_host: &Arc<HostChann
             }
         },
     );
+
+    ask_ai_rows(ui, search, &send);
 
     settings_row(
         ui,
@@ -322,6 +325,59 @@ fn search_rows(ui: &mut egui::Ui, search: &SearchConfig, to_host: &Arc<HostChann
     );
 }
 
+/// The AI website Ask AI opens, and the address of a custom one.
+fn ask_ai_rows(
+    ui: &mut egui::Ui,
+    search: &SearchConfig,
+    send: &dyn Fn(&dyn Fn(&mut SearchConfig)),
+) {
+    let tokens = Tokens::get(ui.ctx());
+    settings_row(
+        ui,
+        "ask-ai-site",
+        RowText::new("Ask AI site").desc(
+            "Ask AI and the ? prefix open this website in your browser with your question. WinCraft sends nothing itself.",
+            tokens.text_secondary,
+        ),
+        false,
+        |ui| {
+            let current = ask_ai::SITE_NAMES
+                .iter()
+                .position(|name| *name == search.ask_ai_site);
+            if let Some(index) =
+                choice::dropdown(ui, "ask-ai-site", &ask_ai::SITE_NAMES, current)
+            {
+                send(&|next| next.ask_ai_site = ask_ai::SITE_NAMES[index].to_string());
+            }
+        },
+    );
+    if search.ask_ai_site != ask_ai::CUSTOM {
+        return;
+    }
+    let (desc, colour) = match ask_ai::custom_problem(&search.ask_ai_custom) {
+        Some(problem) => (
+            format!("{problem} Claude is used until then."),
+            tokens.warning,
+        ),
+        None => (
+            "{query} is where the question goes.".to_string(),
+            tokens.text_secondary,
+        ),
+    };
+    settings_row(
+        ui,
+        "ask-ai-custom",
+        RowText::new("Custom AI address").desc(&desc, colour),
+        false,
+        |ui| {
+            let mut value = search.ask_ai_custom.clone();
+            if input::text(ui, "ask-ai-custom", &mut value, Face::Mono, 360.0).changed() {
+                send(&|next| next.ask_ai_custom = value.clone());
+            }
+        },
+    );
+}
+
 /// How long "Cleared" shows after the button was clicked.
 const CLEARED_NOTE: std::time::Duration = std::time::Duration::from_secs(3);
 
@@ -336,8 +392,8 @@ fn usage_rows(
     settings_row(
         ui,
         "rank-by-use",
-        RowText::new("Rank results by use").desc(
-            "Apps, commands, windows and folders you pick often move up, and WinCraft remembers what you typed for each pick. On this PC only.",
+        RowText::new("Learn from my picks").desc(
+            "Apps, commands, windows and folders you pick often move up, and the one you pick most for what you type is shown as the best match. On this PC only.",
             tokens.text_secondary,
         ),
         false,

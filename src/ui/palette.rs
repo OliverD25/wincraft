@@ -1349,6 +1349,7 @@ fn paint_icon(
                 Glyph::Calculator => Icon::Calculator,
                 Glyph::Globe => Icon::Globe,
                 Glyph::Terminal => Icon::Terminal,
+                Glyph::Sparkles => Icon::Sparkles,
             };
             if tokens.icon_tiles {
                 let tile = Rect::from_center_size(rect.center(), vec2(24.0, 24.0));

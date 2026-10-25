@@ -6,6 +6,7 @@
 //! palette changing.
 
 pub mod actions;
+pub mod ask_ai;
 pub mod bookmarks;
 pub mod icons;
 pub mod providers;
@@ -194,6 +195,7 @@ pub enum Glyph {
     Calculator,
     Globe,
     Terminal,
+    Sparkles,
 }
 
 /// Where a row's 16 px picture comes from.

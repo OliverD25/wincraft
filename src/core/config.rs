@@ -225,6 +225,14 @@ pub struct SearchConfig {
     /// Everything is not running.
     #[serde(default = "enabled_by_default")]
     pub file_search_fallback: bool,
+    /// The AI website Ask AI opens with the question: one of
+    /// `search::ask_ai::SITE_NAMES`.
+    #[serde(default = "default_ask_ai_site")]
+    pub ask_ai_site: String,
+    /// The address for the "Custom URL" site, with `{query}` where the
+    /// question goes.
+    #[serde(default)]
+    pub ask_ai_custom: String,
 }
 
 impl Default for SearchConfig {
@@ -238,6 +246,8 @@ impl Default for SearchConfig {
             rank_by_use: true,
             everything: true,
             file_search_fallback: true,
+            ask_ai_site: default_ask_ai_site(),
+            ask_ai_custom: String::new(),
         }
     }
 }
@@ -264,6 +274,10 @@ fn default_terminal_shell() -> String {
 
 fn default_web_url() -> String {
     crate::search::providers::web::DEFAULT_URL.to_string()
+}
+
+fn default_ask_ai_site() -> String {
+    crate::search::ask_ai::DEFAULT_SITE.to_string()
 }
 
 fn default_palette_hotkey() -> String {
@@ -735,6 +749,19 @@ mod tests {
         );
         let (config, _) = Config::parse(r#"{"search":{"everything":false}}"#).unwrap();
         assert!(!config.search.everything);
+    }
+
+    #[test]
+    fn ask_ai_opens_claude_until_the_file_says_otherwise() {
+        let (config, _) = Config::parse(r#"{"search":{"everything":true}}"#).unwrap();
+        assert_eq!(config.search.ask_ai_site, "Claude");
+        assert!(config.search.ask_ai_custom.is_empty());
+        let (config, _) = Config::parse(
+            r#"{"search":{"ask_ai_site":"Custom URL","ask_ai_custom":"https://x/?q={query}"}}"#,
+        )
+        .unwrap();
+        assert_eq!(config.search.ask_ai_site, "Custom URL");
+        assert_eq!(config.search.ask_ai_custom, "https://x/?q={query}");
     }
 
     #[test]

@@ -1,11 +1,13 @@
-use crate::search::{Action, Choice, Context, Glyph, IconRef, Query, ResultItem, SearchProvider};
+use crate::search::{
+    ask_ai, Action, Choice, Context, Glyph, IconRef, Query, ResultItem, SearchProvider,
+};
 
 pub const DEFAULT_URL: &str = "https://www.google.com/search?q={query}";
 
-/// Searches the web in the default browser. `?` with nothing after it is
-/// the list of prefixes, which the router answers before this is asked. The
-/// address is read from the settings on every query, so a change made in
-/// the settings window applies at once.
+/// Asks the chosen AI website, or searches the web, in the default browser.
+/// `?` with nothing after it is the list of prefixes, which the router
+/// answers before this is asked. The addresses are read from the settings on
+/// every query, so a change made in the settings window applies at once.
 pub struct Web;
 
 /// The address from the settings, or Google when it is not an http(s) one.
@@ -27,11 +29,11 @@ impl SearchProvider for Web {
     }
 
     fn name(&self) -> &'static str {
-        "Web search"
+        "Ask AI"
     }
 
     fn description(&self) -> &'static str {
-        "Search the web in your default browser"
+        "Ask an AI website, or search the web, in your default browser"
     }
 
     fn default_prefix(&self) -> Option<&'static str> {
@@ -39,7 +41,7 @@ impl SearchProvider for Web {
     }
 
     fn placeholder(&self) -> &'static str {
-        "Type what to search the web for"
+        "Type a question for AI, or words to search the web for"
     }
 
     fn needle<'a>(&self, _text: &'a str) -> &'a str {
@@ -69,6 +71,7 @@ impl SearchProvider for Web {
                 ..Default::default()
             });
         }
+        rows.push(ask_row(context, words));
         rows.push(ResultItem {
             group: "Web".to_string(),
             title: format!("Search the web for \u{201c}{words}\u{201d}"),
@@ -84,6 +87,32 @@ impl SearchProvider for Web {
     }
 }
 
+/// "Ask Claude about …": Enter opens the AI website with the question,
+/// Ctrl+Enter searches the web for it instead.
+pub fn ask_row(context: &Context, words: &str) -> ResultItem {
+    let site = ask_ai::site(context.search);
+    ResultItem {
+        group: "Web".to_string(),
+        title: format!("Ask {} about \u{201c}{words}\u{201d}", site.name),
+        subtitle: ask_ai::promise(context.search),
+        icon: IconRef::Glyph(Glyph::Sparkles),
+        enter: Some(Choice {
+            label: "Ask".to_string(),
+            action: Action::OpenUrl(ask_ai::url(context.search, words)),
+        }),
+        ctrl_enter: Some(search_choice(context, words)),
+        ..Default::default()
+    }
+}
+
+/// Searching the web for `words` with the address from the settings.
+pub fn search_choice(context: &Context, words: &str) -> Choice {
+    Choice {
+        label: "Search the web".to_string(),
+        action: Action::OpenUrl(address(usable_url(&context.search.web_url), words)),
+    }
+}
+
 /// Without a `{query}` in the template the words go on the end, which is
 /// what most search addresses expect.
 pub fn address(template: &str, words: &str) -> String {
@@ -95,7 +124,7 @@ pub fn address(template: &str, words: &str) -> String {
     }
 }
 
-fn host_of(url: &str) -> &str {
+pub fn host_of(url: &str) -> &str {
     let rest = url.split_once("://").map(|(_, rest)| rest).unwrap_or(url);
     rest.split(['/', '?']).next().unwrap_or(rest)
 }
@@ -154,7 +183,7 @@ mod tests {
             limit: 10,
         };
         let rows = Web.query(&query("https://example.com/docs"), &context);
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 3);
         assert_eq!(rows[0].title, "Open https://example.com/docs");
         assert_eq!(
             rows[0].enter.as_ref().map(|c| &c.action),
@@ -162,12 +191,49 @@ mod tests {
         );
         assert!(rows[0].bookmark.is_some());
         assert!(rows[0].score > rows[1].score);
-        // Words, or an address with words after it, are only searched for.
-        assert_eq!(Web.query(&query("rust egui"), &context).len(), 1);
+        // Words, or an address with words after it, are asked or searched for.
+        assert_eq!(Web.query(&query("rust egui"), &context).len(), 2);
         assert_eq!(
             Web.query(&query("https://example.com a b"), &context).len(),
-            1
+            2
         );
         assert!(Web.query(&query("rust"), &context)[0].bookmark.is_none());
+    }
+
+    #[test]
+    fn a_question_is_asked_first_and_searched_with_ctrl_enter() {
+        let context = crate::search::test_context();
+        let rows = Web.query(
+            &Query {
+                text: "what is a PID".to_string(),
+                prefix: Some("?".to_string()),
+                limit: 10,
+            },
+            &context,
+        );
+        assert_eq!(
+            rows[0].title,
+            "Ask Claude about \u{201c}what is a PID\u{201d}"
+        );
+        assert_eq!(
+            rows[0].subtitle,
+            "Opens Claude in your browser with this question."
+        );
+        assert_eq!(
+            rows[0].enter.as_ref().map(|c| &c.action),
+            Some(&Action::OpenUrl(
+                "https://claude.ai/new?q=what%20is%20a%20PID".to_string()
+            ))
+        );
+        assert_eq!(
+            rows[0].ctrl_enter.as_ref().map(|c| &c.action),
+            Some(&Action::OpenUrl(
+                "https://www.google.com/search?q=what%20is%20a%20PID".to_string()
+            ))
+        );
+        assert_eq!(
+            rows[1].title,
+            "Search the web for \u{201c}what is a PID\u{201d}"
+        );
     }
 }

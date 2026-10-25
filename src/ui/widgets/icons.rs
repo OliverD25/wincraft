@@ -27,6 +27,9 @@ pub enum Icon {
     TriangleAlert,
     Ellipsis,
     CircleHelp,
+    Settings,
+    Sparkles,
+    Clock,
 }
 
 struct Path {
@@ -267,6 +270,39 @@ fn paths(icon: Icon) -> Vec<Path> {
                 .corner(15.0, 11.0, 12.0, 12.0)
                 .line(12.0, 13.5),
             Path::start(11.5, 17.0).line(12.5, 17.0),
+        ],
+        // Lucide's settings cog: eight teeth round a ring, a hole in the middle.
+        Icon::Settings => {
+            let centre = pos2(12.0, 12.0);
+            let mut points = Vec::new();
+            for tooth in 0..8 {
+                let middle = tooth as f32 * 45.0;
+                for (offset, radius) in [(-20.0, 7.6), (-10.0, 10.0), (10.0, 10.0), (20.0, 7.6)] {
+                    let angle = (middle + offset).to_radians();
+                    points.push(pos2(
+                        centre.x + radius * angle.cos(),
+                        centre.y + radius * angle.sin(),
+                    ));
+                }
+            }
+            points.push(points[0]);
+            vec![Path { points }, Path::arc(centre, 3.0, 0.0, 360.0)]
+        }
+        // Lucide's sparkles: a four-pointed star with two small crosses.
+        Icon::Sparkles => vec![
+            Path::start(11.0, 2.5)
+                .corner(12.5, 9.5, 19.5, 11.0)
+                .corner(12.5, 12.5, 11.0, 19.5)
+                .corner(9.5, 12.5, 2.5, 11.0)
+                .corner(9.5, 9.5, 11.0, 2.5),
+            Path::start(20.0, 3.0).line(20.0, 7.0),
+            Path::start(18.0, 5.0).line(22.0, 5.0),
+            Path::start(4.0, 17.0).line(4.0, 21.0),
+            Path::start(2.0, 19.0).line(6.0, 19.0),
+        ],
+        Icon::Clock => vec![
+            Path::arc(pos2(12.0, 12.0), 10.0, 0.0, 360.0),
+            Path::start(12.0, 6.0).line(12.0, 12.0).line(16.0, 14.0),
         ],
         Icon::Close => vec![
             Path::start(18.0, 6.0).line(6.0, 18.0),
