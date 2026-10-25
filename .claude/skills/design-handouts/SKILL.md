@@ -34,3 +34,4 @@ This file holds WinCraft's own facts and decisions.
 | Arrange Strip.dc.html (ghosts for other monitors in the primary column) | 2026-10-25, via DesignSync (page, no README) | plan `wincraft-strip-ghosts.md` |
 | WinCraft Themes.dc.html (5 themes; tiles + hover preview chosen by the user) | 2026-10-25, via DesignSync (page, no README) | plan `wincraft-themes.md` |
 | Keyboard Shortcuts.dc.html (shortcuts editor + chords) | 2026-10-26, via DesignSync (page, no README) | plan `wincraft-shortcuts-editor.md` |
+| QuickJump.dc.html (QuickJump plugin: strips, notices, pin list, picker) | 2026-10-26, via DesignSync (page, no README) | plan `wincraft-quickjump.md` |
