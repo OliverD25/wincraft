@@ -215,14 +215,19 @@ impl HoverPreview {
                 None
             }
         };
-        Some(Answer {
-            at,
-            button: button.map(|button| Button {
-                windows: windows_of(&button.app),
-                app: button.app,
-                rect: button.rect,
-            }),
-        })
+        let button = button.map(|button| Button {
+            windows: windows_of(&button.app),
+            app: button.app,
+            rect: button.rect,
+        });
+        if let Some(button) = button.as_ref().filter(|button| !button.eligible()) {
+            log::debug!(
+                "not eligible: {}, {} windows counted",
+                button.app,
+                button.windows
+            );
+        }
+        Some(Answer { at, button })
     }
 
     fn set_timer(&mut self, ms: u32) {

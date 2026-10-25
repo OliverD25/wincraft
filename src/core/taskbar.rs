@@ -153,8 +153,35 @@ fn same_app_with(
     group_key: &str,
     folder: &dyn Fn(&str) -> Option<String>,
 ) -> bool {
-    let expanded = expand_with(strip_prefix(taskbar_id), folder);
-    expanded.to_lowercase() == group_key.to_lowercase()
+    let id = strip_prefix(taskbar_id);
+    let expanded = expand_with(id, folder);
+    if expanded.to_lowercase() == group_key.to_lowercase() {
+        return true;
+    }
+    // A Store app's button carries its package's ID, `<family>!<app>`,
+    // while its windows often name no ID and are grouped by program path.
+    match (id.split_once('!'), package_family(group_key)) {
+        (Some((family, _)), Some(from_path)) => family.to_lowercase() == from_path,
+        _ => false,
+    }
+}
+
+/// The package family name (`name_publisher`, lowercased) of a program
+/// inside a Store app's folder:
+/// `...\WindowsApps\<name>_<version>_<arch>_<resource>_<publisher>\...`.
+fn package_family(path: &str) -> Option<String> {
+    let mut parts = path.split(['\\', '/']);
+    parts.find(|part| part.eq_ignore_ascii_case("windowsapps"))?;
+    let folder = parts.next()?;
+    let pieces: Vec<&str> = folder.split('_').collect();
+    match pieces.as_slice() {
+        [name, _version, _arch, _resource, publisher]
+            if !name.is_empty() && !publisher.is_empty() =>
+        {
+            Some(format!("{name}_{publisher}").to_lowercase())
+        }
+        _ => None,
+    }
 }
 
 /// A path that may start with a known folder written as its GUID, with the
@@ -259,6 +286,44 @@ mod tests {
             r"c:\users\admin\appdata\local\viber\viber.exe",
             &no_folders
         ));
+    }
+
+    const CLAUDE_PATH: &str = r"d:\windowsapps\claude_3.6556.2.0_x64__pzs8sxrjxfjjc\app\claude.exe";
+
+    #[test]
+    fn a_store_app_matches_the_program_path_inside_its_package() {
+        assert!(same_app_with(
+            "Claude_pzs8sxrjxfjjc!Claude",
+            CLAUDE_PATH,
+            &no_folders
+        ));
+        assert!(same_app_with(
+            "Appid: Claude_pzs8sxrjxfjjc!Claude",
+            &CLAUDE_PATH.to_uppercase(),
+            &no_folders
+        ));
+        assert!(same_app_with(
+            "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App",
+            r"C:\Program Files\WindowsApps\Microsoft.WindowsTerminal_1.21.2361.0_x64__8wekyb3d8bbwe\WindowsTerminal.exe",
+            &no_folders
+        ));
+        assert!(!same_app_with(
+            "Claude_otherpublisher!Claude",
+            CLAUDE_PATH,
+            &no_folders
+        ));
+        assert!(!same_app_with(
+            "Telegram.TelegramDesktop",
+            CLAUDE_PATH,
+            &no_folders
+        ));
+        assert!(!same_app_with(
+            "Claude_pzs8sxrjxfjjc!Claude",
+            r"c:\users\admin\appdata\local\claude\claude.exe",
+            &no_folders
+        ));
+        assert_eq!(package_family(r"d:\windowsapps\odd\app.exe"), None);
+        assert_eq!(package_family(r"d:\windowsapps"), None);
     }
 
     #[test]

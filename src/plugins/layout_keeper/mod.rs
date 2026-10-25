@@ -368,7 +368,7 @@ impl LayoutKeeper {
         let on_known_desktop = |hwnd: HWND| match &self.reader {
             Some(reader) => reader
                 .read(hwnd)
-                .is_some_and(|id| registry.iter().any(|desktop| desktop.id == id)),
+                .is_some_and(|id| known_desktop(id, &registry)),
             None => true,
         };
         windows::enumerate(&|exe| self.watch.covers(exe), &on_known_desktop)
@@ -2561,6 +2561,12 @@ fn number(settings: &serde_json::Value, key: &str, min: u64, max: u64) -> Option
     Some((value.round().max(0.0) as u64).clamp(min, max))
 }
 
+/// A desktop in Task View, or "every desktop" for a window shown on all of
+/// them, which counts as on this one too.
+fn known_desktop(id: DesktopId, registry: &[Desktop]) -> bool {
+    id == DesktopId::ALL || registry.iter().any(|desktop| desktop.id == id)
+}
+
 /// How many windows the taskbar button's app has, on every desktop.
 fn windows_of(groups: &BTreeMap<String, OrderModel>, app: &str) -> usize {
     groups
@@ -3756,6 +3762,42 @@ mod tests {
         assert_eq!(windows_of(&groups, "Appid: chrome.userdata.profile3"), 2);
         assert_eq!(windows_of(&groups, "Telegram.TelegramDesktop"), 1);
         assert_eq!(windows_of(&groups, "md.obsidian"), 0);
+    }
+
+    #[test]
+    fn a_store_app_shown_on_all_desktops_counts_all_its_windows() {
+        let claude = r"d:\windowsapps\claude_3.6556.2.0_x64__pzs8sxrjxfjjc\app\claude.exe";
+        let identity = |title: &str| identity::WindowIdentity {
+            exe: claude.to_string(),
+            name: None,
+            title: title.to_string(),
+            rect: [0, 0, 800, 600],
+            maximized: false,
+            group: claude.to_string(),
+        };
+        let mut groups = BTreeMap::new();
+        groups.insert(
+            claude.to_string(),
+            OrderModel::from_matched(
+                (1..=10)
+                    .map(|n| (identity(&format!("chat {n}")), Some(n)))
+                    .collect(),
+            ),
+        );
+        assert_eq!(windows_of(&groups, "Claude_pzs8sxrjxfjjc!Claude"), 10);
+        assert_eq!(
+            windows_of(&groups, "Appid: Claude_pzs8sxrjxfjjc!Claude"),
+            10
+        );
+
+        let registry = vec![Desktop {
+            id: DesktopId::parse("{11111111-2222-3333-4444-555555555555}").expect("a GUID"),
+            name: "Desktop 1".to_string(),
+        }];
+        assert!(known_desktop(DesktopId::ALL, &registry), "all desktops");
+        assert!(known_desktop(registry[0].id, &registry));
+        let gone = DesktopId::parse("{99999999-2222-3333-4444-555555555555}").expect("a GUID");
+        assert!(!known_desktop(gone, &[]));
     }
 
     fn saved_window(title: &str, group: &str, desktop: &str, seen: Option<&str>) -> SavedWindow {
