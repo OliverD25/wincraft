@@ -440,7 +440,7 @@ it is a separate instance:
   | Flag | Opens |
   |---|---|
   | `--open-palette=<query>` | The palette with the query typed in, prefix and all: `/`, `=2+2*3`, `<chrome`, `?`. Nothing runs. |
-  | `--open-settings=<page>` | `general`, `plugins`, `layout`, `store`, `about`, or a plugin's page: `plugin:layout_keeper`. |
+  | `--open-settings=<page>` | `general`, `plugins`, `shortcuts`, `layout`, `store`, `about`, or a plugin's page: `plugin:layout_keeper`. |
   | `--open-arrange=<group>` | The Arrange strip on a group, by its place (`0` is the first) or its key. |
   | `--peek-card=<n>` | The strip with the hover peek on card `n` (from 0), or `chip` for the first card of a window that is not on the primary monitor. |
   | `--attention=<hwnd>` | Marks that window as wanting attention at start, as if it had flashed its taskbar button, so its card in the strip is orange. The window itself is not touched. |

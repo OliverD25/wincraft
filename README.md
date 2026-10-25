@@ -25,9 +25,12 @@ screenshots.
   (through Everything) and your bookmarks, and with a prefix it browses
   folders, does sums and searches the web. See
   [Command palette](#command-palette).
-- **Settings window** — General, Plugins, Layout, Bookmarks, Plugin Store and
-  About, with a page per plugin: its options, its hotkeys, its config file
-  and its README.
+- **Settings window** — General, Plugins, Keyboard shortcuts, Layout,
+  Bookmarks, Plugin Store and About, with a page per plugin: its options, its
+  hotkeys, its config file and its README.
+- **Keyboard shortcuts** — every command the palette lists can have a
+  shortcut of one key press or two in a row (a chord, such as `Win+Alt+K`,
+  then `S`). See [Keyboard shortcuts](#keyboard-shortcuts).
 - **Themes** — Classic (the default), Fluent, Terminal, Paper and High
   contrast, each in dark and light. Fluent's glass is solid for now.
   Settings → General → Appearance shows a tile with a small picture of each
@@ -206,6 +209,25 @@ makes it lose a window. [Full README](src/plugins/window_namer/README.md)
 | Hotkey | What it does |
 |---|---|
 | `Win+Alt+P` | Open the command palette |
+
+### Keyboard shortcuts
+
+Settings → Keyboard shortcuts lists every command the palette lists, grouped
+by plugin. Click a row (or select it and press Enter or F2) and press the
+keys. A second key within 3 seconds makes a chord: `Win+Alt+K, S` means
+Win+Alt+K, then S. While a chord waits, a small WinCraft line at the bottom
+of the screen says so; the second key may come with the first press's
+modifiers still held. Any other key ends the wait and goes to the app in
+front, and so does Esc or 3 seconds without a key.
+
+Before anything is saved, the page checks the keys in this order: keys
+Windows keeps (Win+L, Ctrl+Alt+Delete, Ctrl+Shift+Esc, Win+number, Alt+Tab
+and similar) are refused; a combination cannot be both a shortcut and the
+start of a chord; keys another WinCraft command has can be moved with
+Replace; keys another app holds can be saved anyway. Nothing changes until
+Enter, Save, Replace or Save anyway. Search by keys finds what uses a
+combination. In the palette, a command's shortcut shows at the right of its
+row, and Ctrl+K opens this page on that command.
 
 ## Command palette
 
@@ -424,6 +446,7 @@ in the log.
 | `theme` | `classic`, `fluent`, `terminal`, `paper` or `high-contrast`. An unknown word gives Classic. Before 0.20.11 this key held the mode; such a file is read as Classic with that mode. |
 | `mode` | `system`, `light` or `dark`. An unknown word gives System. |
 | `palette_hotkey` | What opens the command palette. |
+| `shortcuts` | Shortcuts of palette commands that have no hotkey of their own, by command id, such as `"wincraft.open-settings": "Win+Alt+K, O"`. Only what you set is here. A plugin's own hotkeys stay in its file (`plugins/<id>.json`, `hotkeys`), where an empty text means no shortcut. |
 | `search.prefixes` | The prefix of each palette search source. Change one to move it, set it to `""` to switch that prefix off. A source left out keeps its built-in prefix. Use symbols: a letter as a prefix would catch every search that starts with it. |
 | `search.web_url` | The web search address, with `{query}` where the words go. It must start with `https://` or `http://`. |
 | `search.terminal_shell` | What `>` runs commands in: `WSL bash`, `PowerShell 7`, `Windows PowerShell`, `Command Prompt` or `Custom`. |
@@ -487,6 +510,9 @@ Modifiers joined to one key with `+`, in any case:
   `Numpad0`–`Numpad9`, `NumpadPlus`, `NumpadMinus`, `NumpadMultiply`,
   `NumpadDivide`, `NumpadDecimal`, and the punctuation keys `;` `=` `,` `-` `.`
   `/` `` ` `` `[` `\` `]` `'`
+
+Two presses joined by `, ` make a chord: `Win+Alt+K, S` or
+`Win+Alt+K, Win+Alt+S`. One-press text reads exactly as before.
 
 A bare key without modifiers is accepted too, such as `F13` or `Pause`. Keep
 it to keys you never type with, because WinCraft takes that key from every
