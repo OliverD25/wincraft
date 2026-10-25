@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -68,6 +68,100 @@ const TASKBAR_GAP: f32 = 12.0;
 /// to another monitor, while it takes the focus back: a window that
 /// maximizes itself there can come to the front for a moment.
 const MOVE_GRACE: Duration = Duration::from_millis(1500);
+/// How long a card takes to come in or to go.
+const CARD_MOTION: Duration = Duration::from_millis(150);
+/// A new card starts at this part of its size.
+const CARD_GROW_FROM: f32 = 0.9;
+
+/// How far a card's motion is after `elapsed`, from 0 to 1, slowing down at
+/// the end.
+pub fn motion_progress(elapsed: Duration) -> f32 {
+    let t = (elapsed.as_secs_f32() / CARD_MOTION.as_secs_f32()).clamp(0.0, 1.0);
+    1.0 - (1.0 - t).powi(3)
+}
+
+/// A card's size, as a part of its full size, and its opacity. A card whose
+/// window came while the strip was open grows from 90 % and fades in; a
+/// card whose window is gone fades out.
+pub fn card_motion(appeared: Option<Duration>, left: Option<Duration>) -> (f32, f32) {
+    let (mut scale, mut fade) = (1.0, 1.0);
+    if let Some(elapsed) = appeared {
+        let progress = motion_progress(elapsed);
+        scale = CARD_GROW_FROM + (1.0 - CARD_GROW_FROM) * progress;
+        fade = progress;
+    }
+    if let Some(elapsed) = left {
+        fade *= 1.0 - motion_progress(elapsed);
+    }
+    (scale, fade)
+}
+
+/// `rect` at `scale` of its size, around its centre.
+fn grown(rect: Rect, scale: f32) -> Rect {
+    Rect::from_center_size(rect.center(), rect.size() * scale)
+}
+
+/// The window a middle-click closes, as in Windows' own taskbar popup: a
+/// card's window, never a ghost's, whose window has a card of its own.
+fn middle_close(hwnd: isize, ghost: bool) -> Option<isize> {
+    (!ghost).then_some(hwnd)
+}
+
+/// A window that is gone, kept on screen while its card fades out.
+#[derive(Clone, Debug)]
+struct Leaving {
+    group: String,
+    /// Its place in the group's windows.
+    place: usize,
+    window: ArrangeWindow,
+    since: Instant,
+}
+
+/// Notes the windows that came and went between two looks. A window counts
+/// as new only the first time the strip sees it, so a closed window that
+/// shows up once more does not grow in again.
+fn note_changes(
+    known: &mut HashSet<isize>,
+    appeared: &mut HashMap<isize, Instant>,
+    leaving: &mut Vec<Leaving>,
+    old: Option<&ArrangeGroup>,
+    groups: &[ArrangeGroup],
+    now: Instant,
+) {
+    for window in groups.iter().flat_map(|group| &group.windows) {
+        if known.insert(window.hwnd) {
+            appeared.insert(window.hwnd, now);
+        }
+    }
+    let Some(old) = old else {
+        return;
+    };
+    let new = groups.iter().find(|group| group.key == old.key);
+    for (place, window) in old.windows.iter().enumerate() {
+        let gone = new.is_none_or(|new| new.windows.iter().all(|w| w.hwnd != window.hwnd));
+        if gone && leaving.iter().all(|l| l.window.hwnd != window.hwnd) {
+            leaving.push(Leaving {
+                group: old.key.clone(),
+                place,
+                window: window.clone(),
+                since: now,
+            });
+        }
+    }
+}
+
+/// Puts the windows that are gone back where they were, until their cards
+/// have faded out.
+fn keep_leaving(leaving: &[Leaving], groups: &mut [ArrangeGroup]) {
+    for gone in leaving {
+        if let Some(group) = groups.iter_mut().find(|group| group.key == gone.group) {
+            if group.windows.iter().all(|w| w.hwnd != gone.window.hwnd) {
+                let at = gone.place.min(group.windows.len());
+                group.windows.insert(at, gone.window.clone());
+            }
+        }
+    }
+}
 
 pub fn viewport_id() -> egui::ViewportId {
     egui::ViewportId::from_hash_of("wincraft-arrange")
@@ -596,6 +690,11 @@ struct Shared {
     keep_open_until: Option<Instant>,
     /// Whether the other desktops are shown; closed whenever the strip opens.
     others: others::Others,
+    /// Every window the strip has shown since it opened.
+    known: HashSet<isize>,
+    /// When each window that came while the strip was open appeared.
+    appeared: HashMap<isize, Instant>,
+    leaving: Vec<Leaving>,
     /// The taskbar button a hover opened the strip above. Such a strip
     /// leaves the keyboard with the window in front.
     anchor: Option<[i32; 4]>,
@@ -605,6 +704,48 @@ impl Shared {
     fn hide_peek(&mut self) {
         self.peek.hide();
         self.hover = Hover::default();
+    }
+
+    /// A card's size and opacity now; see `card_motion`.
+    fn motion(&self, hwnd: isize) -> (f32, f32) {
+        let now = Instant::now();
+        card_motion(
+            self.appeared
+                .get(&hwnd)
+                .map(|at| now.saturating_duration_since(*at)),
+            self.leaving
+                .iter()
+                .find(|gone| gone.window.hwnd == hwnd)
+                .map(|gone| now.saturating_duration_since(gone.since)),
+        )
+    }
+
+    /// The window is gone and its card is fading out: it takes no clicks.
+    fn is_leaving(&self, hwnd: isize) -> bool {
+        self.leaving.iter().any(|gone| gone.window.hwnd == hwnd)
+    }
+
+    /// Ends the motions that are over, and the windows that have faded out.
+    fn settle_motion(&mut self) -> bool {
+        let now = Instant::now();
+        let over = |since: Instant| now.saturating_duration_since(since) >= CARD_MOTION;
+        let done: Vec<isize> = self
+            .leaving
+            .iter()
+            .filter(|gone| over(gone.since))
+            .map(|gone| gone.window.hwnd)
+            .collect();
+        if !done.is_empty() {
+            self.leaving
+                .retain(|gone| !done.contains(&gone.window.hwnd));
+            if let Some(snapshot) = self.snapshot.as_mut() {
+                for group in &mut snapshot.groups {
+                    group.windows.retain(|w| !done.contains(&w.hwnd));
+                }
+            }
+        }
+        self.appeared.retain(|_, at| !over(*at));
+        !self.leaving.is_empty() || !self.appeared.is_empty()
     }
 
     fn group(&self) -> Option<&ArrangeGroup> {
@@ -727,6 +868,9 @@ impl Arrange {
                 forced_peek: None,
                 keep_open_until: None,
                 others: others::Others::default(),
+                known: HashSet::new(),
+                appeared: HashMap::new(),
+                leaving: Vec::new(),
                 anchor: None,
             })),
             palette_hwnd,
@@ -741,6 +885,13 @@ impl Arrange {
             .groups
             .get(snapshot.focus)
             .map(|group| group.key.clone());
+        shared.known = snapshot
+            .groups
+            .iter()
+            .flat_map(|group| group.windows.iter().map(|w| w.hwnd))
+            .collect();
+        shared.appeared.clear();
+        shared.leaving.clear();
         shared.snapshot = Some(snapshot);
         shared.holds.clear();
         shared.closed = false;
@@ -775,6 +926,7 @@ impl Arrange {
         let Ok(mut shared) = self.shared.lock() else {
             return;
         };
+        let old = shared.group().cloned();
         let still_there = shared
             .key
             .as_ref()
@@ -785,7 +937,23 @@ impl Arrange {
                 .get(snapshot.focus)
                 .map(|group| group.key.clone());
         }
-        hold::filter(&mut shared.holds, &mut snapshot.groups, Instant::now());
+        let now = Instant::now();
+        hold::filter(&mut shared.holds, &mut snapshot.groups, now);
+        let Shared {
+            known,
+            appeared,
+            leaving,
+            ..
+        } = &mut *shared;
+        note_changes(
+            known,
+            appeared,
+            leaving,
+            old.as_ref(),
+            &snapshot.groups,
+            now,
+        );
+        keep_leaving(&shared.leaving, &mut snapshot.groups);
         shared.snapshot = Some(snapshot);
     }
 
@@ -814,6 +982,9 @@ impl Arrange {
             shared.only_monitor = None;
             shared.drag = None;
             shared.others.reset();
+            shared.known.clear();
+            shared.appeared.clear();
+            shared.leaving.clear();
             shared.thumbs.clear();
             shared.ghost_thumbs.clear();
             shared.sources.clear();
@@ -872,6 +1043,12 @@ impl Arrange {
             if focused == Some(true) {
                 shared.focused_once = true;
             }
+            // A middle-click on the hover strip's own taskbar button opens a
+            // new window of the app, which takes the keyboard. The strip
+            // stays, as a hover strip that was never clicked into does.
+            if focused == Some(false) && shared.anchor.is_some_and(under_cursor) {
+                shared.focused_once = false;
+            }
             let grace = shared
                 .keep_open_until
                 .and_then(|until| until.checked_duration_since(Instant::now()));
@@ -894,6 +1071,13 @@ impl Arrange {
             }
         });
     }
+}
+
+/// Whether the mouse is on this rectangle, in screen pixels.
+fn under_cursor(rect: [i32; 4]) -> bool {
+    let mut point = POINT { x: 0, y: 0 };
+    unsafe { GetCursorPos(&mut point) };
+    point.x >= rect[0] && point.x < rect[2] && point.y >= rect[1] && point.y < rect[3]
 }
 
 /// Moves the window where it belongs whenever it is not there: winit resizes
@@ -1030,6 +1214,9 @@ struct Frame {
     cards: Vec<(isize, bool)>,
     hovered: Option<isize>,
     actions: Vec<ArrangeAction>,
+    /// Windows a middle-click asked to close. Their cards stay until the
+    /// windows are really gone: an app may ask to save first.
+    close: Vec<isize>,
     activate: Option<isize>,
     /// Where the cards are; the peek ends when the pointer leaves it.
     area: Rect,
@@ -1045,6 +1232,7 @@ impl Default for Frame {
             cards: Vec::new(),
             hovered: None,
             actions: Vec::new(),
+            close: Vec::new(),
             activate: None,
             area: Rect::NOTHING,
             floating: None,
@@ -1054,6 +1242,9 @@ impl Default for Frame {
 }
 
 fn strip(ui: &mut Ui, shared: &mut Shared) {
+    if shared.settle_motion() {
+        ui.ctx().request_repaint();
+    }
     let tokens = Tokens::get(ui.ctx());
     let panel = ui.max_rect();
     let view = shared.view();
@@ -1186,6 +1377,12 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
         shared.to_host.send(HostRequest::Arrange {
             plugin: snapshot.plugin.clone(),
             action,
+        });
+    }
+    for hwnd in std::mem::take(&mut frame.close) {
+        shared.to_host.send(HostRequest::Arrange {
+            plugin: snapshot.plugin.clone(),
+            action: ArrangeAction::Close(hwnd),
         });
     }
     if moves_monitor && shared.window != 0 {
@@ -1417,6 +1614,8 @@ fn flat(
                                         && thumbnail(shared, window.hwnd)
                                             .is_some_and(|thumb| thumb.source_size().is_some());
                                     let is_cursor = shared.cursor == Some(window.hwnd);
+                                    let leaving = shared.is_leaving(window.hwnd);
+                                    let motion = shared.motion(window.hwnd);
                                     let (response, picture, rename) = card(
                                         ui,
                                         widths[member],
@@ -1427,6 +1626,8 @@ fn flat(
                                             can_rename,
                                             has_picture,
                                             is_cursor,
+                                            leaving,
+                                            motion,
                                         },
                                     );
                                     if rename {
@@ -1443,9 +1644,15 @@ fn flat(
                                             hwnd: window.hwnd,
                                             dest: picture,
                                             clip: ui.clip_rect(),
-                                            opacity: 255,
+                                            opacity: (255.0 * motion.1).round() as u8,
                                             ghost: false,
                                         });
+                                    }
+                                    if leaving {
+                                        continue;
+                                    }
+                                    if response.middle_clicked() {
+                                        frame.close.extend(middle_close(window.hwnd, false));
                                     }
                                     if response.clicked() {
                                         frame.activate = Some(window.hwnd);
@@ -2065,21 +2272,29 @@ fn card(
         can_rename,
         has_picture,
         is_cursor,
+        leaving,
+        motion: (scale, fade),
     } = info;
     let label = window.label.as_str();
     let monitor = window.monitor.as_deref();
     let same_title = window.same_title.then_some(can_rename);
     let tokens = Tokens::get(ui.ctx());
-    let (rect, response) =
-        ui.allocate_exact_size(vec2(width, CARD_HEIGHT), Sense::click_and_drag());
-    let lit = response.hovered() || is_cursor;
-    let painter = ui.painter();
+    let sense = if leaving {
+        Sense::hover()
+    } else {
+        Sense::click_and_drag()
+    };
+    let (rect, response) = ui.allocate_exact_size(vec2(width, CARD_HEIGHT), sense);
+    let lit = !leaving && (response.hovered() || is_cursor);
+    let mut faded = ui.painter().clone();
+    faded.multiply_opacity(fade);
+    let painter = &faded;
     let look = card_look(&tokens, lit.then_some(tokens.hover_bg), window.attention);
-    paint_look(painter, rect, 6, look);
+    paint_look(painter, grown(rect, scale), 6, look);
     if let Some(monitor) = monitor {
         monitor_chip(painter, rect, monitor);
     }
-    let area = picture_area(rect);
+    let area = grown(picture_area(rect), scale);
     let border = if lit { tokens.accent } else { tokens.border };
     painter.rect(
         area,
@@ -2090,11 +2305,11 @@ fn card(
     );
     let picture = area.shrink(1.0);
     if !has_picture {
-        name_card(ui.painter(), picture, label, desktop);
+        name_card(painter, picture, label, desktop);
     }
     let mut rename = false;
-    if let Some(can_rename) = same_title {
-        let chip = same_title_chip(ui.painter(), rect);
+    if let Some(can_rename) = same_title.filter(|_| !leaving) {
+        let chip = same_title_chip(painter, rect);
         let mut chip_response = ui
             .interact(chip, response.id.with("same-title"), Sense::click())
             .on_hover_text(if can_rename {
@@ -2109,12 +2324,7 @@ fn card(
     }
 
     let name_top = area.bottom() + CARD_INSET;
-    let chip = number_chip(
-        ui.painter(),
-        pos2(area.left(), name_top),
-        NAME_HEIGHT,
-        number,
-    );
+    let chip = number_chip(painter, pos2(area.left(), name_top), NAME_HEIGHT, number);
     let name_left = chip.right() + NUMBER_GAP;
     let mut job = text::job(label, theme::regular(12.0), tokens.text_primary, None);
     job.wrap = TextWrapping {
@@ -2123,9 +2333,8 @@ fn card(
         break_anywhere: true,
         overflow_character: Some('\u{2026}'),
     };
-    let galley = ui.painter().layout_job(job);
-    ui.painter()
-        .galley(pos2(name_left, name_top), galley, tokens.text_primary);
+    let galley = painter.layout_job(job);
+    painter.galley(pos2(name_left, name_top), galley, tokens.text_primary);
     (
         response.on_hover_cursor(egui::CursorIcon::Grab),
         picture,
@@ -2139,6 +2348,10 @@ struct CardInfo {
     number: usize,
     can_rename: bool,
     has_picture: bool,
+    /// The window is gone and its card fades out.
+    leaving: bool,
+    /// The card's size and opacity; see `card_motion`.
+    motion: (f32, f32),
     is_cursor: bool,
 }
 
@@ -3133,5 +3346,84 @@ mod tests {
             }]
         );
         assert!(drop_actions(&group, &rows, 0, (0, 0)).is_empty());
+    }
+
+    #[test]
+    fn a_card_motion_eases_out_over_150_ms() {
+        let ms = Duration::from_millis;
+        assert_eq!(motion_progress(ms(0)), 0.0);
+        assert_eq!(motion_progress(ms(150)), 1.0);
+        assert_eq!(motion_progress(ms(900)), 1.0);
+        // Most of the way after half the time: it slows down at the end.
+        assert!(motion_progress(ms(75)) > 0.8);
+    }
+
+    #[test]
+    fn a_new_card_grows_and_fades_in_and_a_gone_one_fades_out() {
+        let ms = Duration::from_millis;
+        assert_eq!(card_motion(None, None), (1.0, 1.0));
+        assert_eq!(card_motion(Some(ms(0)), None), (0.9, 0.0));
+        assert_eq!(card_motion(Some(ms(150)), None), (1.0, 1.0));
+        let (scale, fade) = card_motion(Some(ms(75)), None);
+        assert!(scale > 0.9 && scale < 1.0 && fade > 0.0 && fade < 1.0);
+        assert_eq!(card_motion(None, Some(ms(0))), (1.0, 1.0));
+        assert_eq!(card_motion(None, Some(ms(150))), (1.0, 0.0));
+        let grown_rect = grown(Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 50.0)), 0.9);
+        assert_eq!(grown_rect.size(), vec2(90.0, 45.0));
+        assert_eq!(grown_rect.center(), pos2(50.0, 25.0));
+    }
+
+    #[test]
+    fn a_middle_click_closes_a_cards_window_but_not_a_ghosts() {
+        assert_eq!(middle_close(7, false), Some(7));
+        assert_eq!(middle_close(7, true), None);
+    }
+
+    #[test]
+    fn new_windows_grow_in_and_gone_ones_stay_until_they_fade() {
+        let now = Instant::now();
+        let before = group(&["d1", "d1", "d1"]);
+        let mut known: HashSet<isize> = before.windows.iter().map(|w| w.hwnd).collect();
+        let mut appeared = HashMap::new();
+        let mut leaving = Vec::new();
+        // Window 1 closed, window 9 is new.
+        let mut after = before.clone();
+        after.windows.remove(1);
+        let mut new = after.windows[0].clone();
+        new.hwnd = 9;
+        after.windows.push(new);
+        let mut groups = vec![after];
+        note_changes(
+            &mut known,
+            &mut appeared,
+            &mut leaving,
+            Some(&before),
+            &groups,
+            now,
+        );
+        assert_eq!(appeared.keys().copied().collect::<Vec<_>>(), [9]);
+        assert_eq!(leaving.len(), 1);
+        assert_eq!(leaving[0].window.hwnd, 1);
+        keep_leaving(&leaving, &mut groups);
+        let order: Vec<isize> = groups[0].windows.iter().map(|w| w.hwnd).collect();
+        assert_eq!(order, [0, 1, 2, 9], "back in its old place while it fades");
+        // Seen again, it is not new and not counted as gone a second time.
+        let shown = groups[0].clone();
+        note_changes(
+            &mut known,
+            &mut appeared,
+            &mut leaving,
+            Some(&shown),
+            &groups,
+            now,
+        );
+        assert_eq!(appeared.len(), 1);
+        assert_eq!(leaving.len(), 1);
+        // A window seen before that comes back does not grow in again.
+        let mut back = groups[0].clone();
+        back.windows.retain(|w| w.hwnd != 9);
+        let mut none = HashMap::new();
+        note_changes(&mut known, &mut none, &mut Vec::new(), None, &[back], now);
+        assert!(none.is_empty());
     }
 }

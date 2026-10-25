@@ -2010,6 +2010,21 @@ pub fn refresh_arrange() {
     plugin_changed();
 }
 
+/// A shell message that a window came, went or took the front: the open
+/// Arrange strip shows a new window's card, and takes a closed one's away.
+/// A new window is often still hidden when it is created, so the moment it
+/// comes to the front counts too.
+fn window_list_changed(code: usize) -> bool {
+    const CREATED: u32 = 1;
+    const DESTROYED: u32 = 2;
+    const ACTIVATED: u32 = 4;
+    const RUDE_ACTIVATED: u32 = 0x8004;
+    matches!(
+        code as u32,
+        CREATED | DESTROYED | ACTIVATED | RUDE_ACTIVATED
+    )
+}
+
 /// Asks the host to send the settings window a fresh snapshot, for example
 /// because a plugin's `status` line changed.
 pub fn plugin_changed() {
@@ -2397,7 +2412,7 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
                 .borrow_mut()
                 .shell_message(wparam, lparam, foreground)
         });
-        if changed && ui_bridge::arrange_window().is_some() {
+        if (changed || window_list_changed(wparam)) && ui_bridge::arrange_window().is_some() {
             refresh_arrange();
         }
         return 0;
@@ -2593,6 +2608,17 @@ mod tests {
 
     use crate::core::traits::{HotkeyAction, PaletteCommand, TrayAction, TrayToggle};
     use crate::core::ui_bridge::LayoutAction;
+
+    #[test]
+    fn the_strip_hears_of_windows_that_come_go_or_take_the_front() {
+        for code in [1, 2, 4, 0x8004] {
+            assert!(window_list_changed(code), "{code:#x}");
+        }
+        // A flash, a redraw and a title change leave the list as it is.
+        for code in [0x8006, 6, 0] {
+            assert!(!window_list_changed(code), "{code:#x}");
+        }
+    }
 
     /// Stands in for RegisterHotKey: keys another app holds, and keys
     /// already registered here, are refused, as Windows refuses them.

@@ -7,9 +7,10 @@ use egui::{pos2, vec2, Rect, Response, Sense, Shape, StrokeKind, Ui, UiBuilder, 
 
 use super::{
     card_look, card_menu, ctrl_drop, ctrl_hint, ctrl_mark, ctrl_place, ctrl_target, float_picture,
-    ghost_thumbnail, hit_rect, line_width, name_card, nudge, number_chip, order_with_place, others,
-    others_link, paint_look, picture_width, place_in_row, taskbar_numbers, thumbnail,
-    visible_flags, wrap, Drag, Frame, Pending, Shared, NUMBER_GAP, SAME_TITLE_HINT, SLACK,
+    ghost_thumbnail, grown, hit_rect, line_width, middle_close, name_card, nudge, number_chip,
+    order_with_place, others, others_link, paint_look, picture_width, place_in_row,
+    taskbar_numbers, thumbnail, visible_flags, wrap, Drag, Frame, Pending, Shared, NUMBER_GAP,
+    SAME_TITLE_HINT, SLACK,
 };
 use crate::core::taskbar_scope::MultiMonitor;
 use crate::core::theme::{self, Tokens};
@@ -1516,14 +1517,18 @@ impl Draw<'_> {
     ) {
         let tokens = Tokens::get(ui.ctx());
         let window = &self.group.windows[member];
-        let response = ui.interact(
-            rect,
-            egui::Id::new(("arrange-card", window.hwnd)),
-            Sense::click_and_drag(),
-        );
+        let leaving = shared.is_leaving(window.hwnd);
+        let (scale, fade) = shared.motion(window.hwnd);
+        let alpha = alpha * fade;
+        let sense = if leaving {
+            Sense::hover()
+        } else {
+            Sense::click_and_drag()
+        };
+        let response = ui.interact(rect, egui::Id::new(("arrange-card", window.hwnd)), sense);
         let mut painter = ui.painter().clone();
         painter.multiply_opacity(alpha);
-        let is_cursor = shared.cursor == Some(window.hwnd);
+        let is_cursor = shared.cursor == Some(window.hwnd) && !leaving;
         let lit = if is_cursor {
             Some(tokens.selection_bg)
         } else if response.hovered() && self.dragged.is_none() {
@@ -1531,7 +1536,12 @@ impl Draw<'_> {
         } else {
             None
         };
-        paint_look(&painter, rect, 4, card_look(&tokens, lit, window.attention));
+        paint_look(
+            &painter,
+            grown(rect, scale),
+            4,
+            card_look(&tokens, lit, window.attention),
+        );
         if is_cursor {
             // Outside the picture, which DWM would draw over.
             painter.rect_stroke(
@@ -1541,9 +1551,12 @@ impl Draw<'_> {
                 StrokeKind::Middle,
             );
         }
-        let thumb = Rect::from_min_size(
-            rect.min + Vec2::splat(CARD_PAD),
-            vec2(rect.width() - 2.0 * CARD_PAD, THUMB_HEIGHT),
+        let thumb = grown(
+            Rect::from_min_size(
+                rect.min + Vec2::splat(CARD_PAD),
+                vec2(rect.width() - 2.0 * CARD_PAD, THUMB_HEIGHT),
+            ),
+            scale,
         );
         painter.rect(
             thumb,
@@ -1578,7 +1591,7 @@ impl Draw<'_> {
             let chip = title_chip(&painter, right, title_top, "Moved", tokens.accent);
             right = chip.left() - 4.0;
         }
-        if window.same_title {
+        if window.same_title && !leaving {
             let chip = title_chip(&painter, right, title_top, "Same title", tokens.warning);
             right = chip.left() - 4.0;
             let mut chip_response = ui
@@ -1627,6 +1640,9 @@ impl Draw<'_> {
         } else {
             response
         };
+        if leaving {
+            return;
+        }
         if self.dragged.is_none() {
             response = response.on_hover_cursor(egui::CursorIcon::Grab);
         }
@@ -1772,6 +1788,9 @@ impl Draw<'_> {
             shared.cursor = Some(window.hwnd);
             shared.rail_focus = None;
         }
+        if response.middle_clicked() {
+            frame.close.extend(middle_close(window.hwnd, true));
+        }
     }
 
     /// Clicks, drags, the menu and the hover peek of one card.
@@ -1783,6 +1802,9 @@ impl Draw<'_> {
         }
         if response.clicked() {
             frame.activate = Some(window.hwnd);
+        }
+        if response.middle_clicked() {
+            frame.close.extend(middle_close(window.hwnd, false));
         }
         if response.drag_started() {
             if let Some(at) = response.interact_pointer_pos() {
