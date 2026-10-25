@@ -369,10 +369,18 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
 - **Fonts.** The UI text is Segoe UI, read from `%WINDIR%\Fonts` when WinCraft
   starts; it is never bundled or committed. If it is missing, the bundled
   Selawik (a free, metric-compatible Segoe UI substitute) is used instead.
-  JetBrains Mono is bundled for code and file paths. Both bundled fonts are
-  under the SIL Open Font License 1.1, and their licence files sit next to them
-  in `assets/fonts/`. Use the helpers in `core::theme` (`regular`, `semibold`,
-  `mono`) rather than naming a font.
+  JetBrains Mono is bundled for code and file paths, and Lora and Cormorant
+  for the Paper theme. The Terminal theme reads Cascadia Mono (or Consolas)
+  from `%WINDIR%\Fonts`. Every bundled font is under the SIL Open Font
+  License 1.1, and its licence file sits next to it in `assets/fonts/`. Use
+  the helpers in `core::theme` (`regular`, `semibold`, `mono`) rather than
+  naming a font: the theme decides which face they give.
+- **Themes are token sets.** Colours, corner radii, the palette row height,
+  the border width and the fonts come from `core::theme::Tokens`
+  (`Tokens::get(ctx)`), never from a number in a widget. Use
+  `theme::line(ctx, colour)` for a border, so High contrast can make it
+  2 px. A new theme is one more token set in `core/theme.rs` and one more
+  `ThemeName`.
 - **Log with `log::info!`, `log::warn!`, `log::error!`.** They go to
   `%LOCALAPPDATA%\WinCraft\wincraft.log`. Use `log::debug!` for detail that
   only matters while debugging; it is off unless `WINCRAFT_DEBUG=1` is set.
