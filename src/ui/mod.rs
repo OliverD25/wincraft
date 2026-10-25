@@ -210,6 +210,14 @@ impl App {
                     self.arrange.update(snapshot);
                     ctx.request_repaint_of(arrange::viewport_id());
                 }
+                UiCommand::ArrangeSelect(place) => {
+                    self.arrange.select_place(place);
+                    ctx.request_repaint_of(arrange::viewport_id());
+                }
+                UiCommand::ArrangeNote(text) => {
+                    self.arrange.note(text);
+                    ctx.request_repaint_of(arrange::viewport_id());
+                }
                 UiCommand::HideArrange => {
                     if self.arrange_open {
                         self.arrange_open = false;

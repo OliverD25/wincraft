@@ -1,6 +1,7 @@
 pub mod appid;
 pub mod attention;
 pub mod autostart;
+pub mod chord;
 pub mod clipboard;
 pub mod clock;
 pub mod com;
@@ -20,6 +21,7 @@ pub mod release_notes;
 pub mod session;
 pub mod sha256;
 pub mod taskbar;
+pub mod taskbar_number;
 pub mod taskbar_scope;
 pub mod theme;
 pub mod tips;

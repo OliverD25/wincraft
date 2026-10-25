@@ -42,7 +42,8 @@ use crate::core::ui_bridge::{
 use crate::core::update::{self, Checked, Handover};
 use crate::core::update_notice::{self, UpdateNotice};
 use crate::core::{
-    autostart, config, hotkeys, install, instance, release_notes, taskbar, theme, wide,
+    autostart, chord, config, hotkeys, install, instance, release_notes, taskbar, taskbar_number,
+    theme, wide,
 };
 use crate::search::{self, Router, SearchProvider};
 use crate::store::github::{self, Release};
@@ -92,6 +93,10 @@ const HEALTHY_TIMER: usize = 0x5743_0003;
 /// Fades the "Updated to" notice, and the message its click posts.
 const NOTICE_TIMER: usize = 0x5743_0004;
 const WM_APP_NOTICE_CLICK: u32 = WM_APP + 23;
+/// Win+Alt+A, then a digit: the wait for a second digit, and the message the
+/// keyboard hook posts for a digit typed with Win+Alt still held.
+const DIGIT_TIMER: usize = 0x5743_0005;
+const WM_APP_HELD_DIGIT: u32 = WM_APP + 24;
 
 struct RegisteredHotkey {
     action_id: u32,
@@ -123,6 +128,11 @@ struct Host {
     /// The hovered taskbar button the next strip opens above: its app and
     /// its place.
     arrange_anchor: Option<(String, [i32; 4])>,
+    /// The digits typed after Win+Alt+A, and the main taskbar's buttons
+    /// they count.
+    digits: taskbar_number::Digits,
+    buttons: Vec<taskbar::Button>,
+    clock: std::time::Instant,
     updates: Updates,
     /// The "Updated to" panel while it is on screen.
     update_notice: Option<UpdateNotice>,
@@ -450,6 +460,9 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         arrange_focus: flags.scene.arrange_focus.clone(),
         peek_card: flags.scene.peek_card,
         arrange_anchor: None,
+        digits: taskbar_number::Digits::default(),
+        buttons: Vec::new(),
+        clock: std::time::Instant::now(),
         updates: Updates::default(),
         update_notice: None,
         autostart_note: autostart::hands_off_note(),
@@ -1132,6 +1145,69 @@ impl Host {
         }
     }
 
+    /// A digit typed in the strip, or with Win+Alt still held after
+    /// Win+Alt+A: the strip for that taskbar button.
+    fn arrange_digit(&mut self, digit: u8) {
+        if !self.digits.waiting() {
+            self.buttons = taskbar::main_buttons().unwrap_or_else(|reason| {
+                log::info!("the taskbar's buttons could not be read: {reason}");
+                Vec::new()
+            });
+        }
+        let now = self.clock.elapsed().as_millis() as u64;
+        match self.digits.press(digit, now, self.buttons.len()) {
+            Some(number) => {
+                unsafe { KillTimer(self.hwnd, DIGIT_TIMER) };
+                self.open_button(number);
+            }
+            None => unsafe {
+                SetTimer(
+                    self.hwnd,
+                    DIGIT_TIMER,
+                    taskbar_number::SECOND_DIGIT_MS as u32,
+                    None,
+                );
+            },
+        }
+    }
+
+    fn second_digit_over(&mut self) {
+        unsafe { KillTimer(self.hwnd, DIGIT_TIMER) };
+        if let Some(number) = self.digits.finish() {
+            self.open_button(number);
+        }
+    }
+
+    /// Opens the strip above taskbar button `number` with its window
+    /// picked, where the hover strip would open for that button. A number
+    /// with no button does nothing.
+    fn open_button(&mut self, number: usize) {
+        let Some((button, place)) = taskbar_number::button_number(&self.buttons, number) else {
+            log::info!("taskbar button {number} does not exist");
+            return;
+        };
+        let (app, rect) = (button.app.clone(), button.rect);
+        let shown = self.plugins.slots.iter_mut().any(|slot| {
+            slot.enabled
+                && slot.plugin.window_groups().is_some_and(|groups| {
+                    groups
+                        .groups
+                        .iter()
+                        .any(|group| taskbar::same_app(&app, &group.key))
+                })
+        });
+        if !shown {
+            log::info!("taskbar button {number} ({app}) has no windows the strip shows");
+            self.to_ui
+                .send(UiCommand::ArrangeNote(taskbar_number::no_windows(number)));
+            return;
+        }
+        log::info!("arrange opens for taskbar button {number} ({app}), window {place}");
+        self.arrange_anchor = Some((app, rect));
+        self.send_arrange(true);
+        self.to_ui.send(UiCommand::ArrangeSelect(place));
+    }
+
     /// Asks the first enabled plugin that keeps a layout for its saved
     /// windows and sends them to the Layout page.
     fn send_layout(&mut self) {
@@ -1240,6 +1316,7 @@ impl Host {
                 self.send_layout();
             }
             HostRequest::FocusWindow(hwnd) => bring_to_front(hwnd as HWND),
+            HostRequest::ArrangeDigit(digit) => self.arrange_digit(digit),
             HostRequest::ClearPaletteUsage => self.to_ui.send(UiCommand::ClearPaletteUsage),
             HostRequest::SetPluginEnabled { id, enabled } => {
                 if let Some(index) = self.plugins.index_of(&id) {
@@ -2010,6 +2087,19 @@ pub fn refresh_arrange() {
     plugin_changed();
 }
 
+thread_local! {
+    /// Whether the strip opened by Win+Alt+A has been on screen since the
+    /// wait for a held digit started.
+    static STRIP_SEEN: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The keyboard hook's rule after Win+Alt+A; see `held_digit`.
+fn held_digit_rule(stroke: chord::Stroke) -> chord::Verdict {
+    let open = ui_bridge::arrange_window().is_some();
+    let seen = STRIP_SEEN.with(|cell| cell.replace(cell.get() || open));
+    taskbar_number::held_digit(stroke, open, seen)
+}
+
 /// A shell message that a window came, went or took the front: the open
 /// Arrange strip shows a new window's card, and takes a closed one's away.
 /// A new window is often still hidden when it is created, so the moment it
@@ -2482,8 +2572,20 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
                 }
                 if requests.close {
                     host.to_ui.send(UiCommand::HideArrange);
+                    chord::stop();
                 }
                 if requests.arrange {
+                    // Win+Alt+A: a digit typed while Win+Alt are still held
+                    // is WinCraft's for a moment, not Windows' jump list.
+                    if requests.anchor.is_none() {
+                        STRIP_SEEN.with(|cell| cell.set(false));
+                        chord::listen(
+                            hwnd as isize,
+                            WM_APP_HELD_DIGIT,
+                            std::time::Duration::from_millis(taskbar_number::HELD_DIGIT_MS),
+                            held_digit_rule,
+                        );
+                    }
                     host.arrange_anchor = requests.anchor;
                     host.send_arrange(true);
                 } else if requests.stale {
@@ -2515,6 +2617,26 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         }
         WM_TIMER if wparam == UPDATE_TIMER => {
             with_host_or_later(hwnd, msg, wparam, lparam, |host| host.daily_check());
+            0
+        }
+        WM_APP_HELD_DIGIT => {
+            let digits: Vec<u8> = chord::take()
+                .into_iter()
+                .filter_map(|stroke| taskbar_number::digit_of(stroke.vk))
+                .collect();
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| {
+                for digit in digits.iter().copied() {
+                    host.arrange_digit(digit);
+                }
+            });
+            0
+        }
+        WM_TIMER if wparam == chord::TIMER_ID => {
+            chord::on_timer();
+            0
+        }
+        WM_TIMER if wparam == DIGIT_TIMER => {
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| host.second_digit_over());
             0
         }
         WM_TIMER if wparam == NOTICE_TIMER => {
@@ -3559,6 +3681,9 @@ mod tests {
             arrange_focus: None,
             peek_card: None,
             arrange_anchor: None,
+            digits: taskbar_number::Digits::default(),
+            buttons: Vec::new(),
+            clock: std::time::Instant::now(),
             updates: Updates::default(),
             update_notice: None,
             autostart_note: None,

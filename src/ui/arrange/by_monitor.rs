@@ -2131,6 +2131,22 @@ fn title_chip(
     chip
 }
 
+/// The key hints under the bands. The first is the first to go when the
+/// strip is too narrow; the D hint needs other desktops to show.
+fn footer_hints(others_key: bool) -> Vec<(&'static str, &'static str)> {
+    let mut hints = vec![
+        ("Alt + \u{2190}\u{2192}", "Change number"),
+        ("1\u{2013}9", "Open by taskbar number"),
+        ("\u{2190}\u{2192}", "Move within monitor"),
+        ("Shift + \u{2190}\u{2192}", "Move to next monitor"),
+        ("Shift + \u{2191}\u{2193}", "Move to next desktop"),
+    ];
+    if others_key {
+        hints.push(("D", "Other desktops"));
+    }
+    hints
+}
+
 /// The note on order and the key hints under the bands. The note is only
 /// true while other desktops are on screen; the D hint needs some to show.
 fn footer(ui: &Ui, panel: Rect, note: bool, others_key: bool) {
@@ -2143,16 +2159,7 @@ fn footer(ui: &Ui, panel: Rect, note: bool, others_key: bool) {
         theme::stroke(ui.ctx(), 1.0, tokens.border),
     );
     let centre = area.top() + 1.0 + (FOOTER - 1.0) / 2.0;
-    // The first hint is the first to go when the strip is too narrow.
-    let mut hints = vec![
-        ("Alt + \u{2190}\u{2192}", "Change number"),
-        ("\u{2190}\u{2192}", "Move within monitor"),
-        ("Shift + \u{2190}\u{2192}", "Move to next monitor"),
-        ("Shift + \u{2191}\u{2193}", "Move to next desktop"),
-    ];
-    if others_key {
-        hints.push(("D", "Other desktops"));
-    }
+    let hints = footer_hints(others_key);
     let mut x = area.right() - SIDE;
     for (index, (key, label)) in hints.iter().enumerate().rev() {
         let label = painter.layout_no_wrap(
@@ -3348,6 +3355,20 @@ mod tests {
 
     fn scope(only: Option<usize>, taskbars: MultiMonitor) -> Scope {
         Scope { only, taskbars }
+    }
+
+    #[test]
+    fn the_footer_names_the_digits_and_the_d_key_only_with_other_desktops() {
+        let keys = |others| -> Vec<&str> {
+            footer_hints(others)
+                .into_iter()
+                .map(|(_, label)| label)
+                .collect()
+        };
+        assert!(keys(false).contains(&"Open by taskbar number"));
+        assert!(!keys(false).contains(&"Other desktops"));
+        assert_eq!(keys(true).last(), Some(&"Other desktops"));
+        assert_eq!(footer_hints(false)[1].0, "1\u{2013}9");
     }
 
     fn taskbars(mode: u32) -> MultiMonitor {

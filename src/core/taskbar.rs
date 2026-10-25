@@ -13,7 +13,7 @@ use windows_sys::Win32::System::Com::{
 };
 use windows_sys::Win32::UI::Shell::SHGetKnownFolderPath;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetAncestor, GetCursorPos, WindowFromPoint, GA_ROOT,
+    FindWindowW, GetAncestor, GetCursorPos, WindowFromPoint, GA_ROOT,
 };
 
 use crate::core::com;
@@ -27,6 +27,11 @@ const ID_PREFIX: &str = "Appid: ";
 /// a level or two below the button itself.
 const MAX_DEPTH: usize = 5;
 const TIMEOUT: Duration = Duration::from_millis(300);
+/// Reading every button walks a good part of the taskbar's tree.
+const LIST_TIMEOUT: Duration = Duration::from_millis(1000);
+/// Enough for the taskbar's tree, which holds the buttons a few levels down.
+const LIST_DEPTH: usize = 10;
+const LIST_NODES: usize = 3000;
 
 /// The app ID of the taskbar button under the mouse, without the
 /// `Appid: ` prefix, or `None` when the mouse is not on an app button.
@@ -133,6 +138,71 @@ fn button_at(point: POINT) -> Result<Option<Button>, String> {
         }
     }
     Ok(None)
+}
+
+/// The app buttons of the main taskbar, left to right, the order Win+number
+/// counts them in. Asked on a thread of its own, like `lookup`, and waited
+/// for at most a second.
+pub fn main_buttons() -> Result<Vec<Button>, String> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let hr = unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32) };
+        if hr < 0 {
+            let _ = sender.send(Err(format!("COM did not start ({})", com::hex(hr))));
+            return;
+        }
+        let _ = sender.send(list_buttons());
+        unsafe { CoUninitialize() };
+    });
+    receiver
+        .recv_timeout(LIST_TIMEOUT)
+        .map_err(|_| format!("the taskbar gave no list of buttons within {LIST_TIMEOUT:?}"))?
+}
+
+fn list_buttons() -> Result<Vec<Button>, String> {
+    let tray = unsafe { FindWindowW(wide("Shell_TrayWnd").as_ptr(), std::ptr::null()) };
+    if tray.is_null() {
+        return Err("there is no main taskbar".to_string());
+    }
+    let automation = Automation::new()?;
+    let root = automation.element_from_handle(tray)?;
+    let mut buttons = Vec::new();
+    let mut seen = 0;
+    collect_buttons(&automation, &root, 0, &mut seen, &mut buttons);
+    buttons.sort_by_key(|button: &Button| (button.rect[0], button.rect[1]));
+    Ok(buttons)
+}
+
+fn collect_buttons(
+    automation: &Automation,
+    element: &com::ComPtr,
+    depth: usize,
+    seen: &mut usize,
+    buttons: &mut Vec<Button>,
+) {
+    *seen += 1;
+    if *seen > LIST_NODES {
+        return;
+    }
+    if uia::class_name(element).as_deref() == Some(BUTTON_CLASS) {
+        let id = uia::automation_id(element);
+        let rect = uia::bounding_rect(element);
+        if let (Some(id), Some(rect), Some(false) | None) = (id, rect, uia::is_offscreen(element)) {
+            buttons.push(Button {
+                app: strip_prefix(&id).to_string(),
+                rect,
+            });
+        }
+        return;
+    }
+    if depth >= LIST_DEPTH {
+        return;
+    }
+    let mut child = automation.first_child(element);
+    while let Some(current) = child {
+        collect_buttons(automation, &current, depth + 1, seen, buttons);
+        child = automation.next_sibling(&current);
+    }
 }
 
 fn strip_prefix(id: &str) -> &str {

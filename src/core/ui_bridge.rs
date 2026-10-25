@@ -405,6 +405,11 @@ pub enum UiCommand {
     ShowArrange(ArrangeSnapshot),
     /// A fresh list for the Arrange window, if it is still open.
     ArrangeUpdate(ArrangeSnapshot),
+    /// The strip just opened for a taskbar button: pick the window with
+    /// this number (from 1) and take the keyboard.
+    ArrangeSelect(usize),
+    /// A short line the open strip shows for a moment.
+    ArrangeNote(String),
     HideArrange,
     /// The Layout page's data; None when no plugin keeps a layout.
     LayoutUpdate(Option<LayoutSnapshot>),
@@ -457,6 +462,8 @@ pub enum HostRequest {
     /// The strip's own window, which only the host thread may bring forward
     /// right after the hotkey that opened it.
     FocusWindow(isize),
+    /// A digit typed in the strip: the strip for that taskbar button.
+    ArrangeDigit(u8),
     /// Settings' "Clear usage history": the palette forgets every pick.
     ClearPaletteUsage,
     SetPluginEnabled {

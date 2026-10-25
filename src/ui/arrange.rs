@@ -68,6 +68,8 @@ const TASKBAR_GAP: f32 = 12.0;
 /// to another monitor, while it takes the focus back: a window that
 /// maximizes itself there can come to the front for a moment.
 const MOVE_GRACE: Duration = Duration::from_millis(1500);
+/// How long a note such as "Button 4 has no windows" stays.
+const NOTE_TIME: Duration = Duration::from_secs(2);
 /// How long a card takes to come in or to go.
 const CARD_MOTION: Duration = Duration::from_millis(150);
 /// A new card starts at this part of its size.
@@ -695,6 +697,13 @@ struct Shared {
     /// When each window that came while the strip was open appeared.
     appeared: HashMap<isize, Instant>,
     leaving: Vec<Leaving>,
+    /// The taskbar number of the window to pick once the strip has its
+    /// group, for a strip opened by Win+Alt+A and a digit.
+    select: Option<usize>,
+    /// Such a strip takes the keyboard, although it sits above a button.
+    wants_keyboard: bool,
+    /// A short line on screen, and since when.
+    note: Option<(String, Instant)>,
     /// The taskbar button a hover opened the strip above. Such a strip
     /// leaves the keyboard with the window in front.
     anchor: Option<[i32; 4]>,
@@ -871,6 +880,9 @@ impl Arrange {
                 known: HashSet::new(),
                 appeared: HashMap::new(),
                 leaving: Vec::new(),
+                select: None,
+                wants_keyboard: false,
+                note: None,
                 anchor: None,
             })),
             palette_hwnd,
@@ -892,6 +904,9 @@ impl Arrange {
             .collect();
         shared.appeared.clear();
         shared.leaving.clear();
+        shared.select = None;
+        shared.wants_keyboard = false;
+        shared.note = None;
         shared.snapshot = Some(snapshot);
         shared.holds.clear();
         shared.closed = false;
@@ -957,6 +972,25 @@ impl Arrange {
         shared.snapshot = Some(snapshot);
     }
 
+    /// The strip was just opened for a taskbar button: pick the window with
+    /// this number in its row and take the keyboard.
+    pub fn select_place(&self, place: usize) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.select = Some(place);
+            shared.wants_keyboard = true;
+            if shared.window != 0 {
+                shared.to_host.send(HostRequest::FocusWindow(shared.window));
+            }
+        }
+    }
+
+    /// Shows a short line in the open strip for a moment.
+    pub fn note(&self, text: String) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.note = Some((text, Instant::now()));
+        }
+    }
+
     /// Test scenes only: peek at one card as if the mouse rested on it.
     pub fn peek_card(&self, card: PeekCard) {
         if let Ok(mut shared) = self.shared.lock() {
@@ -999,7 +1033,12 @@ impl Arrange {
         let (panel, hovered) = self
             .shared
             .lock()
-            .map(|shared| (shared.panel(), shared.anchor.is_some()))
+            .map(|shared| {
+                (
+                    shared.panel(),
+                    shared.anchor.is_some() && !shared.wants_keyboard,
+                )
+            })
             .unwrap_or((EMPTY_PANEL, false));
         let mut builder = egui::ViewportBuilder::default()
             .with_title(TITLE)
@@ -1024,7 +1063,7 @@ impl Arrange {
                     let border = theme::colorref(Tokens::get(ui.ctx()).border);
                     dwm_thumbs::round_corners(shared.window as HWND, border);
                     ui_bridge::set_arrange_window(shared.window);
-                    if shared.anchor.is_none() {
+                    if shared.anchor.is_none() || shared.wants_keyboard {
                         shared.to_host.send(HostRequest::FocusWindow(shared.window));
                     }
                 }
@@ -1071,6 +1110,50 @@ impl Arrange {
             }
         });
     }
+}
+
+/// The key of a top-row digit.
+fn digit_key(digit: u8) -> egui::Key {
+    use egui::Key;
+    [
+        Key::Num0,
+        Key::Num1,
+        Key::Num2,
+        Key::Num3,
+        Key::Num4,
+        Key::Num5,
+        Key::Num6,
+        Key::Num7,
+        Key::Num8,
+        Key::Num9,
+    ][digit.min(9) as usize]
+}
+
+/// A short line over the top of the cards, above everything, for a moment.
+fn note_line(ctx: &egui::Context, panel: Rect, text: &str) {
+    let tokens = Tokens::get(ctx);
+    let layer = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("arrange-note"),
+    ));
+    let galley = layer.layout_no_wrap(text.to_string(), theme::regular(12.0), tokens.text_primary);
+    let size = galley.size() + vec2(24.0, 12.0);
+    let rect = Rect::from_center_size(
+        pos2(panel.center().x, panel.top() + 72.0 + size.y / 2.0),
+        size,
+    );
+    layer.rect(
+        rect,
+        4,
+        tokens.elevated_bg,
+        theme::stroke(ctx, 1.0, tokens.border),
+        StrokeKind::Inside,
+    );
+    layer.galley(
+        rect.center() - galley.size() / 2.0,
+        galley,
+        tokens.text_primary,
+    );
 }
 
 /// Whether the mouse is on this rectangle, in screen pixels.
@@ -1274,6 +1357,16 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
         return;
     };
 
+    if let Some(place) = shared.select.take() {
+        let row = rows(&group, &snapshot.desktops);
+        let picked = place
+            .checked_sub(1)
+            .and_then(|at| row.first()?.members.get(at).copied());
+        if let Some(member) = picked {
+            shared.cursor = Some(group.windows[member].hwnd);
+        }
+    }
+
     let bar = match view {
         ArrangeView::ByMonitor => by_monitor::toolbar_rect(panel),
         _ => Rect::from_min_size(content.min, vec2(content.width(), SWITCHER)),
@@ -1323,6 +1416,14 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
         shared.others.toggle();
         ctx.request_repaint();
     }
+    if !menu_open && shared.drag.is_none() {
+        let digit = ctx.input_mut(|i| {
+            (0u8..=9).find(|digit| i.consume_key(egui::Modifiers::NONE, digit_key(*digit)))
+        });
+        if let Some(digit) = digit {
+            shared.to_host.send(HostRequest::ArrangeDigit(digit));
+        }
+    }
     let mut frame = match view {
         ArrangeView::ByMonitor => by_monitor::body(ui, shared, &group, &snapshot, panel, menu_open),
         _ => {
@@ -1361,6 +1462,16 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
         // Looks again now and then, so a window that closes takes its
         // peek with it even when nothing else repaints the strip.
         ctx.request_repaint_after(peek::REST);
+    }
+
+    if let Some((text, since)) = shared.note.clone() {
+        match NOTE_TIME.checked_sub(since.elapsed()) {
+            Some(left) => {
+                note_line(&ctx, panel, &text);
+                ctx.request_repaint_after(left);
+            }
+            None => shared.note = None,
+        }
     }
 
     place_pictures(shared, &frame.pending, frame.floating, frame.dragged, ppp);
