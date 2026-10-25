@@ -274,7 +274,7 @@ fn search_rows(ui: &mut egui::Ui, search: &SearchConfig, to_host: &Arc<HostChann
         },
     );
 
-    ask_ai_rows(ui, search, &send);
+    ask_ai_rows(ui, search, to_host);
 
     settings_row(
         ui,
@@ -326,11 +326,12 @@ fn search_rows(ui: &mut egui::Ui, search: &SearchConfig, to_host: &Arc<HostChann
 }
 
 /// The AI website Ask AI opens, and the address of a custom one.
-fn ask_ai_rows(
-    ui: &mut egui::Ui,
-    search: &SearchConfig,
-    send: &dyn Fn(&dyn Fn(&mut SearchConfig)),
-) {
+fn ask_ai_rows(ui: &mut egui::Ui, search: &SearchConfig, to_host: &Arc<HostChannel>) {
+    let send = |change: &dyn Fn(&mut SearchConfig)| {
+        let mut next = search.clone();
+        change(&mut next);
+        to_host.send(HostRequest::SetHostSetting(HostSetting::Search(next)));
+    };
     let tokens = Tokens::get(ui.ctx());
     settings_row(
         ui,

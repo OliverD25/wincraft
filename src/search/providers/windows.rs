@@ -91,8 +91,18 @@ impl SearchProvider for Windows {
         Some("<")
     }
 
+    fn scope(&self) -> Option<&'static str> {
+        Some("w")
+    }
+
     fn blended(&self) -> bool {
         true
+    }
+
+    /// The windows in the order Alt+Tab shows them, so the one just left is
+    /// first.
+    fn suggestions(&mut self, _context: &Context) -> Vec<ResultItem> {
+        search(&self.windows, "", 3)
     }
 
     fn placeholder(&self) -> &'static str {
@@ -172,9 +182,14 @@ pub fn search(windows: &[OpenWindow], text: &str, limit: usize) -> Vec<ResultIte
             },
             score,
             usage_key: Some(window.group.clone()),
+            open: true,
             enter: Some(Choice {
                 label: "Switch to".to_string(),
                 action: Action::Activate(window.hwnd),
+            }),
+            ctrl_enter: Some(Choice {
+                label: "Arrange in strip\u{2026}".to_string(),
+                action: Action::Arrange(window.hwnd),
             }),
             tab: Some(Completion::quiet(&window.title)),
             tab_action: window.explorer.then(|| Choice {

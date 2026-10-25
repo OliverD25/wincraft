@@ -28,6 +28,61 @@ pub fn day_month(time: SystemTime) -> String {
     format!("{} {month}", local.wDay)
 }
 
+/// A moment's local date and time, for words like "Today, 09:12".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LocalTime {
+    pub year: u16,
+    pub month: u16,
+    pub day: u16,
+    pub hour: u16,
+    pub minute: u16,
+}
+
+/// Unix seconds as local time; None before 1970 or when Windows cannot say.
+pub fn local(unix: i64) -> Option<LocalTime> {
+    let seconds = u64::try_from(unix).ok()?;
+    let local = local_system_time(UNIX_EPOCH + std::time::Duration::from_secs(seconds))?;
+    Some(LocalTime {
+        year: local.wYear,
+        month: local.wMonth,
+        day: local.wDay,
+        hour: local.wHour,
+        minute: local.wMinute,
+    })
+}
+
+/// The local month of a moment as one number, 202610 for October 2026,
+/// so "this month" can be compared; 0 when it cannot be read.
+pub fn month_key(unix: i64) -> u32 {
+    local(unix).map_or(0, |time| u32::from(time.year) * 100 + u32::from(time.month))
+}
+
+/// "Today, 09:12", "Yesterday, 18:40" or "21 Sep, 09:12".
+pub fn day_and_time(then: LocalTime, today: LocalTime, yesterday: LocalTime) -> String {
+    let same_day =
+        |a: LocalTime, b: LocalTime| (a.year, a.month, a.day) == (b.year, b.month, b.day);
+    let day = if same_day(then, today) {
+        "Today".to_string()
+    } else if same_day(then, yesterday) {
+        "Yesterday".to_string()
+    } else {
+        let month = MONTHS
+            .get(usize::from(then.month).saturating_sub(1))
+            .copied()
+            .unwrap_or("");
+        format!("{} {month}", then.day)
+    };
+    format!("{day}, {:02}:{:02}", then.hour, then.minute)
+}
+
+/// `day_and_time` for a moment in unix seconds, against the clock now.
+pub fn when(unix: i64, now: i64) -> String {
+    match (local(unix), local(now), local(now - 86_400)) {
+        (Some(then), Some(today), Some(yesterday)) => day_and_time(then, today, yesterday),
+        _ => "earlier".to_string(),
+    }
+}
+
 /// A moment as local time with its UTC offset, "2026-09-25T02:48:11+03:00",
 /// for files a person may open: it reads as the clock on the wall and is
 /// still one exact moment.
@@ -228,6 +283,42 @@ mod tests {
         let text = local_iso(now);
         assert_eq!(text.len(), 25, "{text}");
         assert_eq!(parse_iso(&text), Some(unix_seconds(now)));
+    }
+
+    fn at(year: u16, month: u16, day: u16, hour: u16, minute: u16) -> LocalTime {
+        LocalTime {
+            year,
+            month,
+            day,
+            hour,
+            minute,
+        }
+    }
+
+    #[test]
+    fn a_pick_time_reads_as_today_yesterday_or_a_date() {
+        let today = at(2026, 10, 26, 12, 0);
+        let yesterday = at(2026, 10, 25, 12, 0);
+        assert_eq!(
+            day_and_time(at(2026, 10, 26, 9, 12), today, yesterday),
+            "Today, 09:12"
+        );
+        assert_eq!(
+            day_and_time(at(2026, 10, 25, 18, 40), today, yesterday),
+            "Yesterday, 18:40"
+        );
+        assert_eq!(
+            day_and_time(at(2026, 9, 21, 7, 5), today, yesterday),
+            "21 Sep, 07:05"
+        );
+    }
+
+    #[test]
+    fn a_month_key_orders_months() {
+        // 2026-09-21 14:13 UTC is in September in every time zone.
+        assert_eq!(month_key(1_790_000_000), 202609);
+        assert_eq!(month_key(-5), 0);
+        assert!(when(1_790_000_000, 1_790_000_000).starts_with("Today, "));
     }
 
     #[test]

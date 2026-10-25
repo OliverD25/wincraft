@@ -39,8 +39,30 @@ const SAVE_GAP: Duration = Duration::from_secs(2);
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 struct Entry {
     score: f64,
-    /// Unix seconds when `score` was last brought up to date.
+    /// Unix seconds when `score` was last brought up to date, which is the
+    /// last pick.
     updated: i64,
+    /// For a typed text's pick: the local month of `in_month`, as
+    /// `clock::month_key` gives it, and the picks counted in that month.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    month: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    in_month: u32,
+}
+
+fn is_zero(value: &u32) -> bool {
+    *value == 0
+}
+
+impl Entry {
+    fn new(score: f64, updated: i64) -> Self {
+        Self {
+            score,
+            updated,
+            month: 0,
+            in_month: 0,
+        }
+    }
 }
 
 /// The rows picked after one typed text, by usage key.
@@ -155,36 +177,70 @@ impl Usage {
 
     pub fn record(&mut self, key: &str, now: i64) {
         let score = self.score(key, now) + 1.0;
-        self.entries.insert(
-            key.to_string(),
-            Entry {
-                score,
-                updated: now,
-            },
-        );
+        self.entries.insert(key.to_string(), Entry::new(score, now));
         self.dirty = true;
     }
 
     /// Remembers that `key` was run after `typed` (see `normal_text`; the
-    /// prefix is part of it). Nothing is kept for empty text.
-    pub fn record_typed(&mut self, typed: &str, key: &str, now: i64) {
+    /// prefix is part of it) in local month `month`. Nothing is kept for
+    /// empty text.
+    pub fn record_typed(&mut self, typed: &str, key: &str, now: i64, month: u32) {
         if typed.is_empty() {
             return;
         }
         let picks = self.typed.entry(typed.to_string()).or_default();
-        let score = picks
-            .get(key)
+        let before = picks.get(key).copied();
+        let score = before
             .map(|entry| decayed(entry.score, entry.updated, now))
             .unwrap_or(0.0)
             + 1.0;
+        let in_month = match before {
+            Some(entry) if entry.month == month => entry.in_month + 1,
+            _ => 1,
+        };
         picks.insert(
             key.to_string(),
             Entry {
                 score,
                 updated: now,
+                month,
+                in_month,
             },
         );
         self.dirty = true;
+    }
+
+    /// How often `key` was picked in `month` after `typed` or a longer text
+    /// starting with it, and when last; None when never.
+    pub fn picked(&self, typed: &str, key: &str, month: u32) -> Option<(u32, i64)> {
+        let mut found: Option<(u32, i64)> = None;
+        for (text, picks) in &self.typed {
+            if !text.starts_with(typed) {
+                continue;
+            }
+            if let Some(entry) = picks.get(key) {
+                let count = if entry.month == month {
+                    entry.in_month
+                } else {
+                    0
+                };
+                let (total, last) = found.unwrap_or((0, i64::MIN));
+                found = Some((total + count, last.max(entry.updated)));
+            }
+        }
+        found
+    }
+
+    /// Forgets that `key` was picked after `typed` and after every longer
+    /// text that starts with it, so it stops being the best match there.
+    /// How often it was picked overall stays.
+    pub fn forget_typed(&mut self, typed: &str, key: &str) {
+        for (text, picks) in self.typed.iter_mut() {
+            if text.starts_with(typed) && picks.remove(key).is_some() {
+                self.dirty = true;
+            }
+        }
+        self.typed.retain(|_, picks| !picks.is_empty());
     }
 
     /// How many typed texts are remembered.
@@ -680,9 +736,9 @@ mod tests {
     fn the_exact_text_beats_the_start_of_a_longer_one() {
         let mut usage = Usage::default();
         for _ in 0..5 {
-            usage.record_typed("upd", "long", T0);
+            usage.record_typed("upd", "long", T0, 1);
         }
-        usage.record_typed("up", "exact", T0);
+        usage.record_typed("up", "exact", T0, 1);
         assert_eq!(usage.remembered("up", T0), ["exact", "long"]);
         // Typing less than either: both are starts, the more picked first.
         assert_eq!(usage.remembered("u", T0), ["long", "exact"]);
@@ -693,14 +749,14 @@ mod tests {
     #[test]
     fn rows_competing_for_one_text_are_settled_by_decayed_picks() {
         let mut usage = Usage::default();
-        usage.record_typed("upd", "old", T0);
-        usage.record_typed("upd", "old", T0);
-        usage.record_typed("upd", "new", T0 + 28 * DAY);
+        usage.record_typed("upd", "old", T0, 1);
+        usage.record_typed("upd", "old", T0, 1);
+        usage.record_typed("upd", "new", T0 + 28 * DAY, 1);
         // Two picks 28 days ago are worth 0.5, one fresh pick 1.0.
         assert_eq!(usage.remembered("upd", T0 + 28 * DAY), ["new", "old"]);
         // Picked often enough, the older habit wins again.
         for _ in 0..3 {
-            usage.record_typed("upd", "old", T0 + 28 * DAY);
+            usage.record_typed("upd", "old", T0 + 28 * DAY, 1);
         }
         assert_eq!(usage.remembered("upd", T0 + 28 * DAY), ["old", "new"]);
     }
@@ -708,7 +764,7 @@ mod tests {
     #[test]
     fn empty_text_is_never_remembered_and_text_is_made_comparable() {
         let mut usage = Usage::default();
-        usage.record_typed("", "k", T0);
+        usage.record_typed("", "k", T0, 1);
         assert_eq!(usage.typed_len(), 0);
         assert_eq!(normal_text("  UpD \t"), "upd");
     }
@@ -717,7 +773,7 @@ mod tests {
     fn typed_texts_are_capped_and_the_oldest_are_dropped() {
         let mut usage = Usage::default();
         for index in 0..(MOST_TYPED + 20) {
-            usage.record_typed(&format!("t{index:04}"), "k", T0 + index as i64);
+            usage.record_typed(&format!("t{index:04}"), "k", T0 + index as i64, 1);
         }
         usage.prune_typed(T0 + 1000);
         assert_eq!(usage.typed_len(), MOST_TYPED);
@@ -731,10 +787,10 @@ mod tests {
     #[test]
     fn old_typed_picks_are_forgotten_and_one_text_keeps_a_few_rows() {
         let mut usage = Usage::default();
-        usage.record_typed("old", "k", T0 - 70 * DAY);
+        usage.record_typed("old", "k", T0 - 70 * DAY, 1);
         for index in 0..(MOST_PER_TEXT + 3) {
             for _ in 0..=index {
-                usage.record_typed("many", &format!("k{index}"), T0);
+                usage.record_typed("many", &format!("k{index}"), T0, 1);
             }
         }
         usage.prune_typed(T0);
@@ -749,7 +805,7 @@ mod tests {
         let path = scratch("typed-clear");
         let mut usage = Usage::load(path.clone());
         usage.record("apps:x", now());
-        usage.record_typed("x", "apps:x", now());
+        usage.record_typed("x", "apps:x", now(), 1);
         usage.clear();
         assert_eq!(usage.typed_len(), 0);
         assert!(usage.remembered("x", now()).is_empty());
@@ -764,7 +820,7 @@ mod tests {
         )
         .unwrap();
         let mut usage = Usage::load(path.clone());
-        usage.record_typed("upd", "commands:update", now());
+        usage.record_typed("upd", "commands:update", now(), 1);
         usage.flush();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("\"future\":{\"a\":[1,2]}"), "{text}");
@@ -838,5 +894,60 @@ mod tests {
         if !cfg!(debug_assertions) {
             assert!(added < Duration::from_millis(1), "usage added {added:?}");
         }
+    }
+
+    #[test]
+    fn a_pick_is_counted_per_month_and_its_last_time_kept() {
+        let mut usage = Usage::default();
+        usage.record_typed("c", "apps:claude", T0, 202609);
+        usage.record_typed("c", "apps:claude", T0 + DAY, 202610);
+        usage.record_typed("cl", "apps:claude", T0 + 2 * DAY, 202610);
+        assert_eq!(
+            usage.picked("c", "apps:claude", 202610),
+            Some((2, T0 + 2 * DAY)),
+            "the September pick is not this month"
+        );
+        assert_eq!(
+            usage.picked("cl", "apps:claude", 202610),
+            Some((1, T0 + 2 * DAY))
+        );
+        assert_eq!(usage.picked("c", "apps:other", 202610), None);
+    }
+
+    #[test]
+    fn forgetting_a_pick_stops_it_being_remembered_for_that_text() {
+        let mut usage = Usage::default();
+        usage.record("apps:claude", T0);
+        usage.record_typed("c", "apps:claude", T0, 1);
+        usage.record_typed("cl", "apps:claude", T0, 1);
+        usage.record_typed("c", "apps:code", T0, 1);
+        usage.record_typed("x", "apps:claude", T0, 1);
+        usage.forget_typed("c", "apps:claude");
+        assert_eq!(usage.remembered("c", T0), ["apps:code"]);
+        assert!(usage.remembered("cl", T0).is_empty());
+        assert_eq!(
+            usage.remembered("x", T0),
+            ["apps:claude"],
+            "other texts stay"
+        );
+        assert!(
+            usage.score("apps:claude", T0) > 0.0,
+            "the overall count stays"
+        );
+        assert_eq!(usage.typed_len(), 2);
+    }
+
+    #[test]
+    fn the_month_survives_a_save_and_a_load() {
+        let path = scratch("month");
+        let mut usage = Usage::load(path.clone());
+        usage.record_typed("c", "apps:claude", now(), 202610);
+        usage.record_typed("c", "apps:claude", now(), 202610);
+        usage.flush();
+        let loaded = Usage::load(path);
+        assert_eq!(
+            loaded.picked("c", "apps:claude", 202610).map(|p| p.0),
+            Some(2)
+        );
     }
 }

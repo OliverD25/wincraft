@@ -2,8 +2,22 @@ use crate::search::{
     Action, Choice, Completion, Context, Glyph, IconRef, Query, ResultItem, SearchProvider,
 };
 
-/// Arithmetic typed after `=`. Enter copies the answer.
+/// Arithmetic typed after `=`, or typed alone when it is plainly a sum.
+/// Enter copies the answer.
 pub struct Calculator;
+
+/// Whether text typed without a prefix is meant as a sum: digits with an
+/// operator between them, so "2023" or "7-zip" stays a search.
+fn looks_like_sum(text: &str) -> bool {
+    let has_digit = text.chars().any(|c| c.is_ascii_digit());
+    let has_operator = text.chars().skip(1).any(|c| {
+        matches!(
+            c,
+            '+' | '-' | '*' | '/' | '^' | '%' | '(' | '\u{2212}' | '\u{d7}' | '\u{f7}'
+        )
+    });
+    has_digit && has_operator
+}
 
 impl SearchProvider for Calculator {
     fn id(&self) -> &'static str {
@@ -30,9 +44,16 @@ impl SearchProvider for Calculator {
         ""
     }
 
+    fn blended(&self) -> bool {
+        true
+    }
+
     fn query(&mut self, query: &Query, _context: &Context) -> Vec<ResultItem> {
         let text = query.text.trim();
         if text.is_empty() {
+            return Vec::new();
+        }
+        if query.prefix.is_none() && (!looks_like_sum(text) || evaluate(text).is_err()) {
             return Vec::new();
         }
         let row = |title: String, subtitle: String| ResultItem {
@@ -40,6 +61,7 @@ impl SearchProvider for Calculator {
             title,
             subtitle,
             icon: IconRef::Glyph(Glyph::Calculator),
+            answer: true,
             ..Default::default()
         };
         match evaluate(text) {
@@ -49,6 +71,14 @@ impl SearchProvider for Calculator {
                 item.enter = Some(Choice {
                     label: "Copy".to_string(),
                     action: Action::Copy(answer.clone()),
+                });
+                item.ctrl_enter = Some(Choice {
+                    label: "Paste".to_string(),
+                    action: Action::Paste(answer.clone()),
+                });
+                item.copy = Some(Choice {
+                    label: "Copy with expression".to_string(),
+                    action: Action::Copy(format!("{text} = {answer}")),
                 });
                 item.tab = Some(Completion {
                     label: "Keep going".to_string(),
@@ -349,5 +379,34 @@ mod tests {
             found[0].tab.as_ref().map(|tab| tab.text.as_str()),
             Some("42")
         );
+        assert_eq!(
+            found[0].ctrl_enter.as_ref().map(|choice| &choice.action),
+            Some(&Action::Paste("42".to_string()))
+        );
+        assert_eq!(
+            found[0].copy.as_ref().map(|choice| &choice.action),
+            Some(&Action::Copy("6*7 = 42".to_string()))
+        );
+        assert!(found[0].answer);
+    }
+
+    #[test]
+    fn without_a_prefix_only_a_finished_sum_answers() {
+        let context = crate::search::test_context();
+        let blended = |text: &str| {
+            Calculator.query(
+                &Query {
+                    text: text.to_string(),
+                    prefix: None,
+                    limit: 8,
+                },
+                &context,
+            )
+        };
+        assert_eq!(blended("12*3")[0].title, "36");
+        assert_eq!(blended("(1+2)")[0].title, "3");
+        for search in ["2023", "7-zip", "notepad", "12*", "-5", "c++"] {
+            assert!(blended(search).is_empty(), "{search}");
+        }
     }
 }

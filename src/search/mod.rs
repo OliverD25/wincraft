@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use windows_sys::core::GUID;
 use windows_sys::Win32::System::Com::{CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED};
 
+use crate::core::clock;
 use crate::core::com::ComPtr;
 use crate::core::config::SearchConfig;
 use crate::core::ui_bridge::{CommandId, PaletteEntry, PluginInfo};
@@ -272,6 +273,35 @@ pub struct ResultItem {
     /// path. The router puts the provider's id in front of it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage_key: Option<String>,
+    /// An answer worked out from what was typed, like the calculator's: it
+    /// leads the list and its title is drawn large.
+    #[serde(default)]
+    pub answer: bool,
+    /// Ctrl+C while nothing is selected in the box, such as copying a sum
+    /// with its answer.
+    #[serde(default)]
+    pub copy: Option<Choice>,
+    /// An open window, marked "open" where other rows sit beside it.
+    #[serde(default)]
+    pub open: bool,
+    /// The plugin a command belongs to, for the inspector's source line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
+    /// The id of the provider that made the row; the router fills it in.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub provider: String,
+}
+
+impl ResultItem {
+    /// The window this row stands for, when it is an open window.
+    pub fn window(&self) -> Option<isize> {
+        match (&self.icon, self.enter.as_ref().map(|choice| &choice.action)) {
+            (IconRef::Window { hwnd, .. }, Some(Action::Activate(target))) if hwnd == target => {
+                Some(*hwnd)
+            }
+            _ => None,
+        }
+    }
 }
 
 /// What every provider may read besides the query.
@@ -305,6 +335,19 @@ pub trait SearchProvider: Send {
     /// The prefix that sends a query here when config.json names none.
     fn default_prefix(&self) -> Option<&'static str> {
         None
+    }
+
+    /// A short word that also sends a query here when a space follows it,
+    /// such as "w" for windows: "w chrome".
+    fn scope(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// Rows for "Recent and suggested" under an empty box, such as the open
+    /// windows. The router keeps the few picked most.
+    fn suggestions(&mut self, context: &Context) -> Vec<ResultItem> {
+        let _ = context;
+        Vec::new()
     }
 
     /// Whether this provider also answers queries typed without a prefix.
@@ -401,6 +444,14 @@ struct Slot {
     /// plugin is on.
     plugin: Option<String>,
     prefix: Option<String>,
+    scope: Option<String>,
+}
+
+impl Slot {
+    /// Whether `prefix`, as split off the box, sends queries here.
+    fn answers(&self, prefix: &str) -> bool {
+        self.prefix.as_deref() == Some(prefix) || self.scope.as_deref() == Some(prefix)
+    }
 }
 
 /// The providers a query can reach, and the prefix of each.
@@ -418,9 +469,22 @@ pub struct Results {
     pub needle: String,
     pub follows_end: bool,
     pub escape_label: Option<&'static str>,
+    /// The first row is the one picked most after what is typed now.
+    pub best_match: bool,
+}
+
+/// What the inspector says about the best match.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PickInfo {
+    pub this_month: u32,
+    /// Unix seconds.
+    pub last: i64,
 }
 
 const BLENDED_LIMIT: usize = 8;
+/// How many rows "Recent and suggested" shows.
+const SUGGESTED: usize = 3;
+pub const SUGGESTED_GROUP: &str = "Recent and suggested";
 const PREFIXED_LIMIT: usize = 500;
 
 impl Router {
@@ -452,10 +516,23 @@ impl Router {
                     Some(prefix.to_string())
                 }
             });
+            let scope = provider.scope().and_then(|scope| {
+                let taken = slots.iter().any(|slot| {
+                    slot.scope.as_deref() == Some(scope) || slot.prefix.as_deref() == Some(scope)
+                });
+                if taken {
+                    log::warn!(
+                        "search scope {scope:?} is taken; {} gets none",
+                        provider.id()
+                    );
+                }
+                (!taken).then(|| scope.to_string())
+            });
             slots.push(Slot {
                 provider,
                 plugin,
                 prefix,
+                scope,
             });
         }
         for id in prefixes.keys() {
@@ -496,9 +573,28 @@ impl Router {
         let now = usage::now();
         self.usage.record(key, now);
         if let Some(typed) = typed_text(prefix, text) {
-            self.usage.record_typed(&typed, key, now);
+            self.usage
+                .record_typed(&typed, key, now, clock::month_key(now));
         }
         self.usage.save_soon();
+    }
+
+    /// How often `key` was picked after this text, for the inspector.
+    pub fn pick_info(&self, key: &str, prefix: Option<&str>, text: &str) -> Option<PickInfo> {
+        let typed = typed_text(prefix, text)?;
+        let now = usage::now();
+        let (this_month, last) = self.usage.picked(&typed, key, clock::month_key(now))?;
+        Some(PickInfo { this_month, last })
+    }
+
+    /// "Forget this pick": the row is no longer the best match for this
+    /// text, or for the shorter texts it was remembered under.
+    pub fn forget_pick(&mut self, key: &str, prefix: Option<&str>, text: &str) {
+        if let Some(typed) = typed_text(prefix, text) {
+            self.usage.forget_typed(&typed, key);
+            self.usage.save_soon();
+            log::info!("palette: forgot a pick for what was typed");
+        }
     }
 
     /// Forgets every pick, in memory and in the file, at once.
@@ -519,20 +615,37 @@ impl Router {
 
     /// Splits a known prefix off the start of what was typed, preferring the
     /// longest when one prefix begins another.
+    /// A scope word counts only with the space after it, which is taken
+    /// off too: "w chrome" is the windows scope and "chrome".
     pub fn split<'q>(&self, raw: &'q str) -> Option<(String, &'q str)> {
-        self.slots
+        let scoped = self
+            .slots
             .iter()
-            .filter_map(|slot| slot.prefix.as_deref())
-            .chain(std::iter::once(HELP_PREFIX))
-            .filter(|prefix| raw.starts_with(prefix))
-            .max_by_key(|prefix| prefix.len())
-            .map(|prefix| (prefix.to_string(), &raw[prefix.len()..]))
+            .filter_map(|slot| slot.scope.as_deref())
+            .find(|scope| {
+                raw.strip_prefix(scope)
+                    .is_some_and(|rest| rest.starts_with(' '))
+            })
+            .map(|scope| (scope.to_string(), &raw[scope.len() + 1..]));
+        scoped.or_else(|| {
+            self.slots
+                .iter()
+                .filter_map(|slot| slot.prefix.as_deref())
+                .chain(std::iter::once(HELP_PREFIX))
+                .filter(|prefix| raw.starts_with(prefix))
+                .max_by_key(|prefix| prefix.len())
+                .map(|prefix| (prefix.to_string(), &raw[prefix.len()..]))
+        })
     }
 
     fn slot_for(&self, prefix: &str) -> Option<&Slot> {
-        self.slots
-            .iter()
-            .find(|slot| slot.prefix.as_deref() == Some(prefix))
+        self.slots.iter().find(|slot| slot.answers(prefix))
+    }
+
+    /// The prefix of the provider Ask AI belongs to, for the search bar's
+    /// pill.
+    pub fn ask_prefix(&self) -> Option<String> {
+        self.prefix_of("web")
     }
 
     /// The name in the chip next to a prefix, and the grey text for the empty
@@ -557,9 +670,7 @@ impl Router {
 
     fn slot_mut(&mut self, prefix: Option<&str>) -> Option<&mut Slot> {
         let prefix = prefix?;
-        self.slots
-            .iter_mut()
-            .find(|slot| slot.prefix.as_deref() == Some(prefix))
+        self.slots.iter_mut().find(|slot| slot.answers(prefix))
     }
 
     pub fn act(&mut self, provider: &str, command: &str, context: &Context) -> Reply {
@@ -644,10 +755,7 @@ impl Router {
             return self.blended(text.trim_end(), context);
         };
         let help = prefix == HELP_PREFIX;
-        let index = self
-            .slots
-            .iter()
-            .position(|slot| slot.prefix.as_deref() == Some(prefix));
+        let index = self.slots.iter().position(|slot| slot.answers(prefix));
         let index = match index {
             Some(index) if !(help && text.is_empty()) => index,
             _ => return self.help(text, context),
@@ -675,14 +783,17 @@ impl Router {
         }
         let keep_order = needle.is_empty() || follows_end;
         let mut items = self.rank_by_use(items, keep_order, settings);
+        let mut best_match = false;
         if settings.rank_by_use && !follows_end {
-            items = self.lift_remembered(items, typed_text(Some(prefix), text).as_deref());
+            (items, best_match) =
+                self.lift_remembered(items, typed_text(Some(prefix), text).as_deref());
         }
         Results {
-            items,
+            items: answers_first(items),
             needle,
             follows_end,
             escape_label,
+            best_match,
         }
     }
 
@@ -722,31 +833,76 @@ impl Router {
         }
         let items = self.rank_by_use(items, text.is_empty(), context.search);
         let mut items = lift_commands(items, text);
+        let mut best_match = false;
         if context.search.rank_by_use {
-            items = self.lift_remembered(items, typed_text(None, text).as_deref());
+            (items, best_match) = self.lift_remembered(items, typed_text(None, text).as_deref());
         }
+        if text.is_empty() {
+            let mut suggested = self.suggested(context);
+            suggested.extend(items);
+            items = suggested;
+        }
+        let items = answers_first(items);
         Results {
+            best_match: best_match && !items.first().is_some_and(|item| item.answer),
             items,
             needle: text.to_string(),
             ..Default::default()
         }
     }
 
+    /// "Recent and suggested": the rows the providers suggest, the most
+    /// picked first, up to three. An app is suggested only once it was
+    /// picked; a window always may be, in the order Alt+Tab shows them.
+    fn suggested(&mut self, context: &Context) -> Vec<ResultItem> {
+        let now = usage::now();
+        let mut rows: Vec<(f64, ResultItem)> = Vec::new();
+        for slot in &mut self.slots {
+            if !slot.provider.blended() || !plugin_is_on(slot.plugin.as_deref(), context.plugins) {
+                continue;
+            }
+            let id = slot.provider.id();
+            for mut item in slot.provider.suggestions(context) {
+                if let Some(key) = item.usage_key.take() {
+                    item.usage_key = Some(format!("{id}:{key}"));
+                }
+                item.provider = id.to_string();
+                let score = match (&item.usage_key, context.search.rank_by_use) {
+                    (Some(key), true) => self.usage.score(key, now),
+                    _ => 0.0,
+                };
+                if score > 0.0 || item.open {
+                    item.group = SUGGESTED_GROUP.to_string();
+                    rows.push((score, item));
+                }
+            }
+        }
+        rows.sort_by(|a, b| b.0.total_cmp(&a.0));
+        rows.into_iter()
+            .take(SUGGESTED)
+            .map(|(_, item)| item)
+            .collect()
+    }
+
     /// The row picked before after this text, if it is among the results,
-    /// goes first with the rest of its group.
-    fn lift_remembered(&self, items: Vec<ResultItem>, typed: Option<&str>) -> Vec<ResultItem> {
+    /// goes first with the rest of its group. True when one did.
+    fn lift_remembered(
+        &self,
+        items: Vec<ResultItem>,
+        typed: Option<&str>,
+    ) -> (Vec<ResultItem>, bool) {
         let Some(typed) = typed else {
-            return items;
+            return (items, false);
         };
         for key in self.usage.remembered(typed, usage::now()) {
             if let Some(index) = items
                 .iter()
                 .position(|item| item.usage_key.as_deref() == Some(key.as_str()))
             {
-                return put_first(items, index);
+                return (put_first(items, index), true);
             }
         }
-        items
+        (items, false)
     }
 
     /// One row per prefix, and one for going back to none. Choosing a row
@@ -771,15 +927,19 @@ impl Router {
             "",
         )];
         rows.extend(self.slots.iter().filter_map(|slot| {
-            let prefix = slot.prefix.as_deref()?;
+            let prefix = slot.prefix.as_deref().or(slot.scope.as_deref())?;
             if !plugin_is_on(slot.plugin.as_deref(), context.plugins) {
                 return None;
             }
-            Some(row(
+            let mut item = row(
                 slot.provider.name(),
                 &slot.provider.describe(context),
                 prefix,
-            ))
+            );
+            if let (Some(_), Some(scope)) = (&slot.prefix, &slot.scope) {
+                item.subtitle = format!("{} Or type {scope} and a space.", item.subtitle);
+            }
+            Some(item)
         }));
         let items = rows
             .into_iter()
@@ -807,6 +967,16 @@ fn typed_text(prefix: Option<&str>, text: &str) -> Option<String> {
         return None;
     }
     Some(format!("{}{text}", prefix.unwrap_or_default()))
+}
+
+/// Answers worked out from the text, like the calculator's, lead the list.
+fn answers_first(items: Vec<ResultItem>) -> Vec<ResultItem> {
+    if !items.iter().any(|item| item.answer) {
+        return items;
+    }
+    let (mut first, rest): (Vec<_>, Vec<_>) = items.into_iter().partition(|item| item.answer);
+    first.extend(rest);
+    first
 }
 
 /// Moves the row at `index` to the top and its group right after it, then
@@ -879,6 +1049,7 @@ fn timed(provider: &mut dyn SearchProvider, query: &Query, context: &Context) ->
         if let Some(key) = item.usage_key.take() {
             item.usage_key = Some(format!("{id}:{key}"));
         }
+        item.provider = id.to_string();
     }
     log::debug!(
         "{} answered {:?} with {} rows in {:.2} ms",
@@ -1448,5 +1619,225 @@ mod tests {
         let text = serde_json::to_string(&original).unwrap();
         let back: ResultItem = serde_json::from_str(&text).unwrap();
         assert_eq!(back, original);
+    }
+
+    /// A provider with a scope word and fixed suggestions.
+    struct Scoped {
+        id: &'static str,
+        prefix: Option<&'static str>,
+        scope: Option<&'static str>,
+        suggested: Vec<(&'static str, bool)>,
+    }
+
+    impl SearchProvider for Scoped {
+        fn id(&self) -> &'static str {
+            self.id
+        }
+        fn name(&self) -> &'static str {
+            self.id
+        }
+        fn description(&self) -> &'static str {
+            "scoped"
+        }
+        fn default_prefix(&self) -> Option<&'static str> {
+            self.prefix
+        }
+        fn scope(&self) -> Option<&'static str> {
+            self.scope
+        }
+        fn blended(&self) -> bool {
+            true
+        }
+        fn suggestions(&mut self, _context: &Context) -> Vec<ResultItem> {
+            self.suggested
+                .iter()
+                .map(|(title, open)| ResultItem {
+                    usage_key: Some(title.to_string()),
+                    open: *open,
+                    ..item(self.id, title, 0)
+                })
+                .collect()
+        }
+        fn query(&mut self, query: &Query, _context: &Context) -> Vec<ResultItem> {
+            if query.text.is_empty() && query.prefix.is_none() {
+                return Vec::new();
+            }
+            vec![item(self.id, &format!("{}:{}", self.id, query.text), 1)]
+        }
+    }
+
+    fn scoped_router() -> Router {
+        Router::new(
+            vec![
+                (
+                    None,
+                    Box::new(Scoped {
+                        id: "apps",
+                        prefix: None,
+                        scope: Some("a"),
+                        suggested: vec![("Notepad", false), ("Paint", false)],
+                    }) as Box<dyn SearchProvider>,
+                ),
+                (
+                    None,
+                    Box::new(Scoped {
+                        id: "windows",
+                        prefix: Some("<"),
+                        scope: Some("w"),
+                        suggested: vec![("Inbox", true), ("Docs", true), ("Notes", true)],
+                    }),
+                ),
+            ],
+            &BTreeMap::new(),
+        )
+    }
+
+    #[test]
+    fn a_scope_word_needs_its_space_and_the_space_is_taken_off() {
+        let router = scoped_router();
+        assert_eq!(router.split("w chrome"), Some(("w".to_string(), "chrome")));
+        assert_eq!(router.split("w "), Some(("w".to_string(), "")));
+        assert_eq!(router.split("a note"), Some(("a".to_string(), "note")));
+        assert_eq!(router.split("word"), None);
+        assert_eq!(router.split("w"), None);
+        assert_eq!(router.split("<x"), Some(("<".to_string(), "x")));
+        assert_eq!(router.chip("w", "x").0, "windows");
+    }
+
+    #[test]
+    fn a_scope_asks_only_its_provider() {
+        let mut router = scoped_router();
+        let found = router.search(Some("w"), "x", &context());
+        assert_eq!(titles(&found.items), ["windows:x"]);
+        let all = router.search(Some("a"), "", &context());
+        assert_eq!(titles(&all.items), ["apps:"]);
+    }
+
+    #[test]
+    fn a_scope_already_taken_is_not_given_twice() {
+        let router = Router::new(
+            vec![
+                (None, echo("w", Some("w"), false)),
+                (
+                    None,
+                    Box::new(Scoped {
+                        id: "windows",
+                        prefix: None,
+                        scope: Some("w"),
+                        suggested: Vec::new(),
+                    }),
+                ),
+            ],
+            &BTreeMap::new(),
+        );
+        assert_eq!(router.split("w x"), Some(("w".to_string(), " x")));
+    }
+
+    #[test]
+    fn the_empty_box_suggests_open_windows_and_picked_apps_up_to_three() {
+        let mut router = scoped_router();
+        let found = router.search(None, "", &context());
+        assert_eq!(titles(&found.items), ["Inbox", "Docs", "Notes"]);
+        assert!(found.items.iter().all(|item| item.group == SUGGESTED_GROUP));
+        // A picked app comes first; an app never picked is not suggested.
+        router.record_pick("apps:Paint", None, "pa", &settings(true));
+        let found = router.search(None, "", &context());
+        assert_eq!(titles(&found.items), ["Paint", "Inbox", "Docs"]);
+        assert_eq!(found.items[0].provider, "apps");
+        // Typing replaces the suggestions with matches.
+        let typed = router.search(None, "x", &context());
+        assert!(typed.items.iter().all(|item| item.group != SUGGESTED_GROUP));
+    }
+
+    #[test]
+    fn an_answer_leads_the_list() {
+        let calc = Rows {
+            id: "calc",
+            rows: vec![("Calculator", "4", 0, None)],
+        };
+        let apps = Rows {
+            id: "apps",
+            rows: vec![("Apps", "2+2 app", 90, Some("x"))],
+        };
+        struct Answer(Rows);
+        impl SearchProvider for Answer {
+            fn id(&self) -> &'static str {
+                self.0.id
+            }
+            fn name(&self) -> &'static str {
+                self.0.id
+            }
+            fn description(&self) -> &'static str {
+                "answer"
+            }
+            fn blended(&self) -> bool {
+                true
+            }
+            fn query(&mut self, query: &Query, context: &Context) -> Vec<ResultItem> {
+                let mut rows = self.0.query(query, context);
+                for row in &mut rows {
+                    row.answer = true;
+                }
+                rows
+            }
+        }
+        let mut router = Router::new(
+            vec![(None, Box::new(apps)), (None, Box::new(Answer(calc)))],
+            &BTreeMap::new(),
+        );
+        let found = router.search(None, "2+2", &context());
+        assert_eq!(titles(&found.items), ["4", "2+2 app"]);
+        assert_eq!(found.items[0].provider, "calc");
+    }
+
+    #[test]
+    fn the_remembered_row_is_the_best_match_until_it_is_forgotten() {
+        let mut router = palette_router();
+        assert!(!router.search(None, "upd", &context()).best_match);
+        router.record_pick("apps:java", None, "upd", &settings(true));
+        router.record_pick("apps:java", None, "upd", &settings(true));
+        let found = router.search(None, "upd", &context());
+        assert!(found.best_match);
+        assert_eq!(found.items[0].title, "Check For Updates");
+        let info = router.pick_info("apps:java", None, "upd").unwrap();
+        assert_eq!(info.this_month, 2);
+        assert!(info.last > 0);
+        router.forget_pick("apps:java", None, "up");
+        let found = router.search(None, "upd", &context());
+        assert!(!found.best_match);
+        assert_eq!(found.items[0].title, "Update WinCraft");
+        assert!(router.pick_info("apps:java", None, "upd").is_none());
+    }
+
+    #[test]
+    fn with_learning_off_there_is_no_best_match() {
+        let mut router = palette_router();
+        router.record_pick("apps:java", None, "upd", &settings(true));
+        let off = SearchConfig {
+            rank_by_use: false,
+            ..SearchConfig::default()
+        };
+        let context = Context {
+            search: Box::leak(Box::new(off)),
+            ..test_context()
+        };
+        assert!(!router.search(None, "upd", &context).best_match);
+    }
+
+    #[test]
+    fn a_window_row_knows_its_window() {
+        let window = ResultItem {
+            icon: IconRef::Window {
+                hwnd: 7,
+                exe: PathBuf::new(),
+            },
+            enter: Some(Choice {
+                label: "Switch to".to_string(),
+                action: Action::Activate(7),
+            }),
+            ..Default::default()
+        };
+        assert_eq!(window.window(), Some(7));
+        assert_eq!(item("Apps", "x", 0).window(), None);
     }
 }

@@ -580,6 +580,9 @@ pub struct PaletteEntry {
     /// The command's id on the Keyboard shortcuts page, and its keys there.
     pub shortcut_id: String,
     pub shortcut: String,
+    /// Found by typing only: left out of the list under an empty box, as
+    /// Settings, the store and the update now live in Settings.
+    pub quiet: bool,
 }
 
 /// Everything the windows draw. Rebuilt whole after every change: a plugin's

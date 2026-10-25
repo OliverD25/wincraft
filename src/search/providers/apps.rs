@@ -381,8 +381,21 @@ impl SearchProvider for Apps {
         true
     }
 
+    fn scope(&self) -> Option<&'static str> {
+        Some("a")
+    }
+
+    /// Every app; the router keeps those picked most.
+    fn suggestions(&mut self, _context: &Context) -> Vec<ResultItem> {
+        match self.index.lock() {
+            Ok(apps) => search(&apps, "", usize::MAX),
+            Err(_) => Vec::new(),
+        }
+    }
+
     fn query(&mut self, query: &Query, _context: &Context) -> Vec<ResultItem> {
-        if query.text.is_empty() {
+        // Under the "a" scope an empty box lists every app, A to Z.
+        if query.text.is_empty() && query.prefix.is_none() {
             return Vec::new();
         }
         let apps = match self.index.lock() {

@@ -34,6 +34,9 @@ impl SearchProvider for Commands {
             .commands
             .iter()
             .filter_map(|entry| {
+                if entry.quiet && query.text.is_empty() && query.prefix.is_none() {
+                    return None;
+                }
                 let score = if query.text.is_empty() {
                     0
                 } else {
@@ -57,6 +60,7 @@ impl SearchProvider for Commands {
                     }),
                     tab: Some(Completion::quiet(&entry.label)),
                     usage_key: Some(command_key(entry)),
+                    origin: entry.plugin.clone(),
                     keys: entry.shortcut.clone(),
                     shortcut: (!entry.shortcut_id.is_empty()).then(|| Choice {
                         label: "Change shortcut\u{2026}".to_string(),
@@ -127,7 +131,38 @@ mod tests {
             subtitle: None,
             shortcut_id: String::new(),
             shortcut: String::new(),
+            quiet: false,
         }
+    }
+
+    #[test]
+    fn settings_the_store_and_the_update_are_found_by_typing_only() {
+        let mut update = host_entry(HostCommand::UpdateWinCraft, "WinCraft", "Update WinCraft");
+        update.quiet = true;
+        let commands = [
+            update,
+            host_entry(HostCommand::OpenAbout, "WinCraft", "About WinCraft"),
+        ];
+        let context = Context {
+            commands: &commands,
+            ..crate::search::test_context()
+        };
+        let mut router = router();
+        let titles = |router: &mut crate::search::Router, prefix, text| -> Vec<String> {
+            router
+                .search(prefix, text, &context)
+                .items
+                .into_iter()
+                .map(|item| item.title)
+                .collect()
+        };
+        assert_eq!(titles(&mut router, None, ""), ["About WinCraft"]);
+        assert_eq!(titles(&mut router, None, "update"), ["Update WinCraft"]);
+        assert_eq!(
+            titles(&mut router, Some("!"), ""),
+            ["Update WinCraft", "About WinCraft"],
+            "the bang still lists every command"
+        );
     }
 
     #[test]

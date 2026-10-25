@@ -2334,6 +2334,12 @@ impl PluginSet {
                     .then(|| "Checks now and installs a newer version at once".to_string()),
                 shortcut_id: String::new(),
                 shortcut: String::new(),
+                quiet: matches!(
+                    command,
+                    HostCommand::OpenSettings
+                        | HostCommand::OpenStore
+                        | HostCommand::UpdateWinCraft
+                ),
             });
         }
         for (index, slot) in self.slots.iter().enumerate() {
@@ -2353,6 +2359,7 @@ impl PluginSet {
                 subtitle: None,
                 shortcut_id: String::new(),
                 shortcut: String::new(),
+                quiet: false,
             });
             // A plugin that is off keeps its commands in the list, dimmed, so
             // its hotkey does not seem to vanish; running one opens its page.
@@ -2378,6 +2385,7 @@ impl PluginSet {
                     subtitle: slot.plugin.palette_subtitle(ActionKind::Hotkey, action.id),
                     shortcut_id: String::new(),
                     shortcut: String::new(),
+                    quiet: false,
                 });
             }
             for action in slot.plugin.tray_actions() {
@@ -2401,6 +2409,7 @@ impl PluginSet {
                     subtitle: slot.plugin.palette_subtitle(ActionKind::Tray, action.id),
                     shortcut_id: String::new(),
                     shortcut: String::new(),
+                    quiet: false,
                 });
             }
             for command in slot.plugin.palette_commands() {
@@ -2420,6 +2429,7 @@ impl PluginSet {
                         .palette_subtitle(ActionKind::Palette, command.id),
                     shortcut_id: String::new(),
                     shortcut: String::new(),
+                    quiet: false,
                 });
             }
         }
