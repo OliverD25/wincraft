@@ -20,6 +20,7 @@ pub mod quit;
 pub mod release_notes;
 pub mod session;
 pub mod sha256;
+pub mod shortcuts;
 pub mod taskbar;
 pub mod taskbar_number;
 pub mod taskbar_scope;

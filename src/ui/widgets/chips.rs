@@ -11,6 +11,18 @@ const GAP: f32 = 6.0;
 /// 12 px. The chosen one has accent text, an accent border and the selection
 /// fill; the others are outlined only.
 pub fn chip(ui: &mut Ui, label: &str, count: usize, selected: bool) -> Response {
+    chip_tinted(ui, label, count, selected, None)
+}
+
+/// The same chip with its number in another colour, such as warning for a
+/// count of conflicts.
+pub fn chip_tinted(
+    ui: &mut Ui,
+    label: &str,
+    count: usize,
+    selected: bool,
+    count_colour: Option<Color32>,
+) -> Response {
     let tokens = Tokens::get(ui.ctx());
     let label_colour = if selected {
         tokens.accent
@@ -23,7 +35,7 @@ pub fn chip(ui: &mut Ui, label: &str, count: usize, selected: bool) -> Response 
     let number = ui.painter().layout_no_wrap(
         count.to_string(),
         theme::regular(12.0),
-        tokens.text_disabled,
+        count_colour.unwrap_or(tokens.text_disabled),
     );
     let width = PADDING * 2.0 + name.size().x + GAP + number.size().x;
     let (rect, response) = ui.allocate_exact_size(vec2(width, HEIGHT), Sense::click());

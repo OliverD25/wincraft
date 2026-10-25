@@ -4,6 +4,7 @@ mod catalog;
 mod general;
 mod layout;
 mod plugins;
+mod shortcuts;
 mod store;
 
 use std::sync::{Arc, Mutex};
@@ -231,6 +232,8 @@ pub struct SettingsState {
     pub bookmarks: bookmarks::BookmarksView,
     /// The theme the General page's tiles are previewing.
     pub theme_preview: theme_tile::HoverPreview,
+    /// The Keyboard shortcuts page's search, filter and recording.
+    pub shortcuts: shortcuts::View,
 }
 
 impl SettingsState {
@@ -366,6 +369,17 @@ impl Settings {
         }
     }
 
+    /// The palette's "Change shortcut…": Keyboard shortcuts on that command.
+    pub fn open_shortcut(&self, id: &str, label: &str) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.state.page = Page::Shortcuts;
+            shared.state.open_plugin = None;
+            shared.state.shortcuts.open_at(id, label);
+            shared.closed = false;
+            shared.window = 0;
+        }
+    }
+
     /// Used when the palette runs a command whose plugin is off: its page is
     /// where the plugin can be switched back on.
     pub fn open_plugin(&self, id: &str) {
@@ -388,6 +402,7 @@ impl Settings {
     pub fn hidden(&self) {
         if let Ok(mut shared) = self.shared.lock() {
             shared.state.end_capture();
+            shared.state.shortcuts.leave();
             shared.state.theme_preview = theme_tile::HoverPreview::default();
             shared.closed = false;
             shared.window = 0;
@@ -496,11 +511,15 @@ impl Settings {
                 .show(ui, |ui| match state.page {
                     Page::General => general::show(ui, snapshot, state, to_host),
                     Page::Plugins => plugins::show(ui, snapshot, state, to_host),
+                    Page::Shortcuts => shortcuts::show(ui, snapshot, &mut state.shortcuts, to_host),
                     Page::Layout => layout::show(ui, snapshot, state, to_host),
                     Page::Bookmarks => bookmarks::show(ui, snapshot, state, to_host),
                     Page::Store => store::show(ui, snapshot, state, to_host),
                     Page::About => about::show(ui, snapshot, state, to_host),
                 });
+            if state.page != Page::Shortcuts {
+                state.shortcuts.leave();
+            }
             // The tiles end their own preview when the pointer leaves them,
             // but not when the page they are on is no longer drawn.
             if state.page != Page::General && state.theme_preview.shown().is_some() {
@@ -538,6 +557,7 @@ impl Settings {
 const PAGES: &[(Page, &str)] = &[
     (Page::General, "General"),
     (Page::Plugins, "Plugins"),
+    (Page::Shortcuts, "Keyboard shortcuts"),
     (Page::Layout, "Layout"),
     (Page::Bookmarks, "Bookmarks"),
     (Page::Store, "Plugin Store"),

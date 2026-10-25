@@ -35,6 +35,7 @@ pub fn perform(action: &Action, owner: HWND) {
         Action::Command(_)
         | Action::OpenPlugin(_)
         | Action::SetPrefix(_)
+        | Action::ChangeShortcut { .. }
         | Action::Provider { .. } => {}
     }
 }

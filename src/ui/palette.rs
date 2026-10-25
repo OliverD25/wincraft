@@ -48,6 +48,11 @@ pub enum Outcome {
     Stay,
     Hide,
     OpenPlugin(String),
+    /// Settings → Keyboard shortcuts on a command: its id and name.
+    OpenShortcut {
+        id: String,
+        label: String,
+    },
 }
 
 pub struct Palette {
@@ -486,6 +491,16 @@ impl Palette {
                     run = run.or(Some(choice.action));
                 }
             }
+            let change_shortcut = key_modifiers(&ctx, egui::Key::K)
+                .is_some_and(|modifiers| modifiers.command && !modifiers.shift && !modifiers.alt);
+            if change_shortcut {
+                if let Some(choice) = self.selected_item().and_then(|item| item.shortcut.clone()) {
+                    ctx.input_mut(|input| {
+                        input.consume_key(egui::Modifiers::COMMAND, egui::Key::K)
+                    });
+                    run = run.or(Some(choice.action));
+                }
+            }
             let copy_all = key_modifiers(&ctx, egui::Key::C)
                 .is_some_and(|modifiers| modifiers.command && modifiers.shift);
             if copy_all {
@@ -707,6 +722,7 @@ impl Palette {
     ) -> Outcome {
         match action {
             Action::OpenPlugin(plugin) => Outcome::OpenPlugin(plugin),
+            Action::ChangeShortcut { id, label } => Outcome::OpenShortcut { id, label },
             Action::SetPrefix(prefix) => {
                 self.set_prefix(Some(prefix).filter(|prefix| !prefix.is_empty()));
                 Outcome::Stay
@@ -1087,6 +1103,9 @@ fn footer_keys(
         if let Some(choice) = &item.delete {
             keys.push(("Ctrl+Del", choice.label.clone()));
         }
+        if let Some(choice) = &item.shortcut {
+            keys.push(("Ctrl+K", choice.label.clone()));
+        }
     }
     let escape = escape.unwrap_or("Close").to_string();
     // Rows that can be bookmarked or removed carry two more keys than the
@@ -1225,7 +1244,13 @@ fn result_row(
     paint_icon(ui.ctx(), &painter, picture, &entry.icon, icons, &tokens);
 
     let mut text_right = inner.right();
-    if !entry.hint.is_empty() {
+    let keys = crate::core::shortcuts::parse(&entry.keys);
+    if let Some(keys) = keys {
+        let chips = ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            keycap::caps(ui, &keys.steps(), keycap::Caps::palette()).rect
+        });
+        text_right = chips.inner.left() - 12.0;
+    } else if !entry.hint.is_empty() {
         let chips = ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             keycap::binding(ui, &keycap::spaced(&entry.hint), false).rect
         });

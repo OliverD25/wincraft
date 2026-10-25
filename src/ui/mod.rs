@@ -418,6 +418,11 @@ impl eframe::App for App {
                 self.settings_open = true;
                 self.begin_hide(&ctx);
             }
+            Outcome::OpenShortcut { id, label } => {
+                self.settings.open_shortcut(&id, &label);
+                self.settings_open = true;
+                self.begin_hide(&ctx);
+            }
         }
     }
 

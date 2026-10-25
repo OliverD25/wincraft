@@ -57,6 +57,14 @@ impl SearchProvider for Commands {
                     }),
                     tab: Some(Completion::quiet(&entry.label)),
                     usage_key: Some(command_key(entry)),
+                    keys: entry.shortcut.clone(),
+                    shortcut: (!entry.shortcut_id.is_empty()).then(|| Choice {
+                        label: "Change shortcut\u{2026}".to_string(),
+                        action: Action::ChangeShortcut {
+                            id: entry.shortcut_id.clone(),
+                            label: entry.label.clone(),
+                        },
+                    }),
                     ..Default::default()
                 })
             })
@@ -117,6 +125,8 @@ mod tests {
             disabled,
             plugin: Some("screen_dimmer".to_string()),
             subtitle: None,
+            shortcut_id: String::new(),
+            shortcut: String::new(),
         }
     }
 

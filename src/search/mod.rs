@@ -89,6 +89,11 @@ pub enum Action {
         provider: String,
         command: String,
     },
+    /// Opens Settings → Keyboard shortcuts on this command.
+    ChangeShortcut {
+        id: String,
+        label: String,
+    },
 }
 
 /// What the palette does after a provider handled an action.
@@ -233,6 +238,13 @@ pub struct ResultItem {
     /// Ctrl+Delete: forget this row, such as a bookmark.
     #[serde(default)]
     pub delete: Option<Choice>,
+    /// Ctrl+K: change this command's shortcut.
+    #[serde(default)]
+    pub shortcut: Option<Choice>,
+    /// The command's shortcut, drawn as keycaps at the right in place of
+    /// `hint`; empty for none.
+    #[serde(default)]
+    pub keys: String,
     /// A one-line monospace row, 24 px high, for command output.
     #[serde(default)]
     pub compact: bool,

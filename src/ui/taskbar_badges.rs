@@ -8,10 +8,11 @@ use egui::Color32;
 use windows_sys::Win32::Foundation::{POINT, SIZE};
 use windows_sys::Win32::Graphics::Gdi::{
     CreateCompatibleDC, DeleteDC, DeleteObject, GetMonitorInfoW, GetTextExtentPoint32W,
-    MonitorFromPoint, SelectObject, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-    MONITOR_DEFAULTTOPRIMARY,
+    MonitorFromPoint, MonitorFromWindow, SelectObject, HMONITOR, MONITORINFO,
+    MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTOPRIMARY,
 };
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
 use crate::core::layered::{compose, faces, font, text_mask, utf16, Image, Layered, Run};
 use crate::core::taskbar::Button;
@@ -70,35 +71,53 @@ impl WaitHint {
             windows.extend(present(&image, at));
         }
         let primary = unsafe { MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY) };
-        let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
-        info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-        if unsafe { GetMonitorInfoW(primary, &mut info) } != 0 {
-            let work = info.rcWork;
-            let scale = scale_at(POINT {
-                x: (work.left + work.right) / 2,
-                y: (work.top + work.bottom) / 2,
-            });
-            let look = Look {
-                text: LINE_TEXT,
-                weight: 1,
-                pad_x: LINE_PAD_X,
-                height: LINE_TEXT * 1.4 + 2.0 * LINE_PAD_Y,
-                radius: f32::from(tokens.radius_window),
-                fill: tokens.elevated_bg,
-                edge: tokens.rim,
-                colour: tokens.text_primary,
-            };
-            if let Some(image) = render(line, &look, scale) {
-                let at = POINT {
-                    x: (work.left + work.right - image.width) / 2,
-                    y: work.bottom - image.height - (LINE_LIFT * scale).round() as i32,
-                };
-                windows.extend(present(&image, at));
-            }
-        }
+        windows.extend(line_on(primary, line));
         Self { windows }
     }
+
+    /// Only `line`, at the bottom of the monitor of the window in front:
+    /// what shows while a chord waits for its second key.
+    pub fn line_only(line: &str) -> Self {
+        let front = unsafe { GetForegroundWindow() };
+        let monitor = unsafe { MonitorFromWindow(front, MONITOR_DEFAULTTOPRIMARY) };
+        Self {
+            windows: line_on(monitor, line).into_iter().collect(),
+        }
+    }
 }
+
+/// One line of text in a panel at the bottom centre of `monitor`.
+fn line_on(monitor: HMONITOR, line: &str) -> Option<Layered> {
+    let tokens = theme::current_tokens();
+    let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
+    info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+    if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
+        return None;
+    }
+    let work = info.rcWork;
+    let scale = scale_at(POINT {
+        x: (work.left + work.right) / 2,
+        y: (work.top + work.bottom) / 2,
+    });
+    let look = Look {
+        text: LINE_TEXT,
+        weight: 1,
+        pad_x: LINE_PAD_X,
+        height: LINE_TEXT * 1.4 + 2.0 * LINE_PAD_Y,
+        radius: f32::from(tokens.radius_window),
+        fill: tokens.elevated_bg,
+        edge: tokens.rim,
+        colour: tokens.text_primary,
+    };
+    let image = render(line, &look, scale)?;
+    let at = POINT {
+        x: (work.left + work.right - image.width) / 2,
+        y: work.bottom - image.height - (LINE_LIFT * scale).round() as i32,
+    };
+    present(&image, at)
+}
+
+impl WaitHint {}
 
 impl Drop for WaitHint {
     fn drop(&mut self) {

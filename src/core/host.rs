@@ -31,13 +31,15 @@ use serde_json::Value;
 
 use crate::core::attention::Attention;
 use crate::core::config::{Config, PluginConfig, UpdateConfig, DEFAULT_PALETTE_HOTKEY};
+use crate::core::hotkeys::Shortcut;
+use crate::core::shortcuts::{self, FirstPress};
 use crate::core::traits::{HostContext, Hotkey, WinCraftPlugin};
 use crate::core::tray::{show_menu, MenuItem, Tray, WM_TRAY_CALLBACK};
 use crate::core::ui_bridge::{
     self, ActionKind, ArrangeAction, ArrangeGroup, ArrangeSnapshot, CommandId, FieldInfo,
     HostCommand, HostRequest, HostSetting, HotkeyInfo, MonitorRect, NewRelease, Page, PaletteEntry,
-    PeekCard, PluginInfo, Prompt, SettingsTarget, UiChannel, UiCommand, UiSnapshot, UpdateStatus,
-    UpdateView, WM_APP_UI,
+    PeekCard, PluginInfo, Prompt, SettingsTarget, ShortcutChange, ShortcutInfo, UiChannel,
+    UiCommand, UiSnapshot, UpdateStatus, UpdateView, WM_APP_UI,
 };
 use crate::core::update::{self, Checked, Handover};
 use crate::core::update_notice::{self, UpdateNotice};
@@ -66,6 +68,10 @@ const NAMER_ID: &str = "window_namer";
 /// The palette belongs to the host, not to a plugin, so it takes the one id
 /// that plugin hotkeys never use.
 const PALETTE_HOTKEY_ID: i32 = 0;
+/// The ids of the shortcuts the host registers itself: commands without a
+/// hotkey of their own, and the first press of every chord. Plugin hotkeys
+/// count up from 1 and never get this far.
+const SHORTCUT_ID_BASE: i32 = 0x6000;
 const UI_STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Posted by `notify` and `plugin_changed`, which plugins call while the host
@@ -105,8 +111,12 @@ struct RegisteredHotkey {
     global_id: i32,
     label: &'static str,
     hotkey: Hotkey,
+    /// The shortcut as config text; empty when the user removed it.
     keys: String,
     ok: bool,
+    /// Registered here. A chord's first press is registered with the other
+    /// shortcuts instead, and a removed shortcut not at all.
+    active: bool,
 }
 
 struct PluginSlot {
@@ -143,6 +153,11 @@ struct Host {
     update_notice: Option<UpdateNotice>,
     /// Why this copy leaves the logon task alone, worked out once at start.
     autostart_note: Option<String>,
+    /// The first presses registered for shortcuts: id, what they do, and
+    /// whether Windows took them.
+    shortcut_keys: Vec<(i32, FirstPress, bool)>,
+    /// The chord whose second press is awaited.
+    chord_wait: Option<FirstPress>,
 }
 
 /// What clicking the last balloon opens: a "hotkey is taken" balloon opens
@@ -474,6 +489,8 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         updates: Updates::default(),
         update_notice: None,
         autostart_note: autostart::hands_off_note(),
+        shortcut_keys: Vec::new(),
+        chord_wait: None,
     };
     HOST_WINDOW.with(|cell| cell.set(hwnd));
     // Notices queued before the window existed have nobody to post them.
@@ -494,6 +511,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
     for index in host.plugins.wanted() {
         host.plugins.enable(index);
     }
+    host.register_shortcuts();
     // Before the tray icon exists, so these balloons are not shown, as
     // they never were.
     host.show_warnings();
@@ -681,6 +699,7 @@ impl Host {
             .collect();
 
         let update = self.update_view();
+        let commands = self.commands_with(&plugins);
         UiSnapshot {
             version: env!("CARGO_PKG_VERSION").to_string(),
             start_with_windows: self.config.start_with_windows,
@@ -695,7 +714,8 @@ impl Host {
                 .unwrap_or(false),
             config_path: config::config_path(),
             log_path: config::log_path(),
-            commands: self.plugins.palette_entries(&plugins),
+            shortcuts: self.shortcut_infos(&commands),
+            commands,
             plugins,
             search: self.config.search.clone(),
             tips: self.config.tips.clone(),
@@ -1058,9 +1078,263 @@ impl Host {
         router
     }
 
-    fn publish(&self) {
+    /// Every change that can switch a plugin on or off, or change a
+    /// shortcut, ends here, so the shortcuts are registered again first.
+    fn publish(&mut self) {
+        self.register_shortcuts();
         self.to_ui
             .send(UiCommand::Snapshot(Box::new(self.snapshot())));
+    }
+
+    /// The commands with a shortcut the host registers itself, of WinCraft
+    /// and of the plugins that are on.
+    fn bound_shortcuts(&self) -> Vec<(Shortcut, CommandId)> {
+        let mut bound = self.plugins.plugin_chords();
+        for entry in self.plugins.palette_entries(&[]) {
+            let hotkey = matches!(
+                entry.id,
+                CommandId::Plugin {
+                    kind: ActionKind::Hotkey,
+                    ..
+                }
+            );
+            if entry.disabled || hotkey {
+                continue;
+            }
+            let keys = self
+                .config
+                .shortcuts
+                .get(&entry.shortcut_id)
+                .and_then(|text| shortcuts::parse(text));
+            if let Some(keys) = keys {
+                bound.push((keys, entry.id));
+            }
+        }
+        bound
+    }
+
+    /// Registers the first presses the shortcuts need, when they changed.
+    fn register_shortcuts(&mut self) {
+        let plan = shortcuts::plan(&self.bound_shortcuts());
+        let same = plan.len() == self.shortcut_keys.len()
+            && plan
+                .iter()
+                .zip(&self.shortcut_keys)
+                .all(|(wanted, (_, have, _))| wanted == have);
+        if same {
+            return;
+        }
+        for (id, _, ok) in self.shortcut_keys.drain(..) {
+            if ok {
+                self.plugins.keys.unregister(id);
+            }
+        }
+        for (offset, press) in plan.into_iter().enumerate() {
+            let id = SHORTCUT_ID_BASE + offset as i32;
+            let keys = hotkeys::format(press.hotkey);
+            let ok = self.plugins.keys.register(id, press.hotkey);
+            if ok {
+                log::info!("registered {keys} for a shortcut");
+            } else {
+                log::warn!("could not register {keys} for a shortcut; another app holds it");
+            }
+            self.shortcut_keys.push((id, press, ok));
+        }
+    }
+
+    /// A shortcut's first press came: run its command, or wait three
+    /// seconds for the second press of a chord.
+    fn shortcut_pressed(&mut self, global_id: i32) {
+        let Some((_, press, _)) = self
+            .shortcut_keys
+            .iter()
+            .find(|(id, _, _)| *id == global_id)
+            .cloned()
+        else {
+            return;
+        };
+        self.end_wait();
+        if press.seconds.is_empty() {
+            if let Some(command) = press.plain {
+                self.run_command(command);
+            }
+            return;
+        }
+        let keys = hotkeys::format(press.hotkey);
+        CHORD_PRESS.with(|cell| *cell.borrow_mut() = Some(press.clone()));
+        if !chord::listen(
+            self.hwnd as isize,
+            WM_APP_WAIT_KEY,
+            shortcuts::CHORD_WAIT,
+            chord_rule,
+        ) {
+            CHORD_PRESS.with(|cell| cell.borrow_mut().take());
+            return;
+        }
+        log::info!("{keys}: waiting 3 s for the second key of a chord");
+        self.chord_wait = Some(press);
+        self.wait_hint = Some(ui::taskbar_badges::WaitHint::line_only(
+            &shortcuts::wait_line(&keys),
+        ));
+    }
+
+    /// Applies the Keyboard shortcuts page's changes in order, so Replace
+    /// frees the keys before the new command takes them.
+    fn set_shortcuts(&mut self, changes: Vec<ShortcutChange>) {
+        let infos = self.shortcut_infos(&self.commands());
+        for change in changes {
+            let Some(info) = infos.iter().find(|info| info.id == change.id) else {
+                log::warn!("no command {} for a shortcut", change.id);
+                continue;
+            };
+            let text = change
+                .binding
+                .clone()
+                .unwrap_or_else(|| info.default_binding.clone());
+            let text = match shortcuts::parse(&text) {
+                Some(keys) => hotkeys::format_shortcut(&keys),
+                None => String::new(),
+            };
+            match info.command {
+                None => {
+                    // The palette always has a hotkey: removing it gives
+                    // the default back.
+                    let text = if text.is_empty() {
+                        DEFAULT_PALETTE_HOTKEY.to_string()
+                    } else {
+                        text
+                    };
+                    match self.plugins.rebind_palette(&text) {
+                        Ok(text) => self.config.palette_hotkey = text,
+                        Err(err) => log::warn!("palette hotkey: {err}"),
+                    }
+                }
+                Some(CommandId::Plugin {
+                    index,
+                    kind: ActionKind::Hotkey,
+                    action,
+                }) => {
+                    let name = self.plugins.action_name(index, action);
+                    if let Some(plugin) = &info.plugin {
+                        self.plugins.set_shortcut_text(plugin, name, &text);
+                    }
+                }
+                Some(_) => {
+                    if text.is_empty() {
+                        self.config.shortcuts.remove(&info.id);
+                    } else {
+                        self.config.shortcuts.insert(info.id.clone(), text.clone());
+                    }
+                    log::info!("{} shortcut set to \"{text}\"", info.id);
+                }
+            }
+        }
+        self.show_warnings();
+        self.save_config();
+        self.publish();
+    }
+
+    /// The palette's commands, with the shortcuts the host keeps filled in.
+    fn commands(&self) -> Vec<PaletteEntry> {
+        let plugins: Vec<PluginInfo> = (0..self.plugins.slots.len())
+            .map(|index| PluginInfo {
+                hotkeys: self.plugins.hotkey_infos(index),
+                ..PluginInfo::default()
+            })
+            .collect();
+        self.commands_with(&plugins)
+    }
+
+    fn commands_with(&self, plugins: &[PluginInfo]) -> Vec<PaletteEntry> {
+        let mut entries = self.plugins.palette_entries(plugins);
+        for entry in &mut entries {
+            let hotkey = matches!(
+                entry.id,
+                CommandId::Plugin {
+                    kind: ActionKind::Hotkey,
+                    ..
+                }
+            );
+            if !hotkey {
+                entry.shortcut = self
+                    .config
+                    .shortcuts
+                    .get(&entry.shortcut_id)
+                    .and_then(|text| shortcuts::parse(text))
+                    .map(|keys| hotkeys::format_shortcut(&keys))
+                    .unwrap_or_default();
+            }
+        }
+        entries
+    }
+
+    /// The rows of the Keyboard shortcuts page: the palette hotkey, then
+    /// every command the palette lists.
+    fn shortcut_infos(&self, commands: &[PaletteEntry]) -> Vec<ShortcutInfo> {
+        let mut infos = vec![ShortcutInfo {
+            id: "wincraft.palette".to_string(),
+            command: None,
+            group: shortcuts::HOST_GROUP.to_string(),
+            plugin: None,
+            category: String::new(),
+            label: "Open the palette".to_string(),
+            description: "Search apps, windows, files and commands".to_string(),
+            binding: self.config.palette_hotkey.clone(),
+            default_binding: DEFAULT_PALETTE_HOTKEY.to_string(),
+            registered: self.plugins.palette_hotkey.is_none_or(|(_, ok)| ok),
+            one_press: true,
+        }];
+        for entry in commands {
+            let index = match entry.id {
+                CommandId::Plugin { index, .. } => Some(index),
+                CommandId::Host(HostCommand::TogglePlugin(index)) => Some(index),
+                CommandId::Host(_) => None,
+            };
+            let category = index
+                .and_then(|index| self.plugins.slots.get(index))
+                .map(|slot| slot.plugin.metadata().category.to_string())
+                .unwrap_or_default();
+            let (default_binding, registered) = match entry.id {
+                CommandId::Plugin {
+                    index,
+                    kind: ActionKind::Hotkey,
+                    action,
+                } => {
+                    let name = self.plugins.action_name(index, action);
+                    self.plugins
+                        .hotkey_infos(index)
+                        .into_iter()
+                        .find(|info| info.action == name)
+                        .map_or((String::new(), true), |info| {
+                            (info.default_binding, info.registered)
+                        })
+                }
+                _ => {
+                    let first = shortcuts::parse(&entry.shortcut).map(|keys| keys.first);
+                    let ok = first.is_none_or(|first| {
+                        self.shortcut_keys
+                            .iter()
+                            .find(|(_, press, _)| hotkeys::same(press.hotkey, first))
+                            .is_none_or(|(_, _, ok)| *ok)
+                    });
+                    (String::new(), ok)
+                }
+            };
+            infos.push(ShortcutInfo {
+                id: entry.shortcut_id.clone(),
+                command: Some(entry.id),
+                group: entry.group.clone(),
+                plugin: entry.plugin.clone(),
+                category,
+                label: entry.label.clone(),
+                description: entry.subtitle.clone().unwrap_or_default(),
+                binding: entry.shortcut.clone(),
+                default_binding,
+                registered,
+                one_press: false,
+            });
+        }
+        infos
     }
 
     /// Asks the first enabled plugin that keeps a window order for its groups
@@ -1207,6 +1481,9 @@ impl Host {
     /// press during the wait opens the strip for the window in front, with
     /// that window picked.
     fn arrange_hotkey(&mut self, hotkey: Hotkey, keys: &str) {
+        if self.chord_wait.is_some() {
+            self.end_wait();
+        }
         if self.wait_hint.is_some() || chord::waiting() {
             self.end_wait();
             let front = unsafe { GetForegroundWindow() } as isize;
@@ -1241,12 +1518,38 @@ impl Host {
     /// and a first digit is no longer joined by a second one.
     fn end_wait(&mut self) {
         chord::stop();
+        self.chord_wait = None;
+        CHORD_PRESS.with(|cell| cell.borrow_mut().take());
         self.wait_hint = None;
         self.digits = taskbar_number::Digits::default();
     }
 
     /// Keys the hook kept during the wait, or the news that it ended.
     fn wait_news(&mut self, news: chord::News) {
+        if let Some(press) = self.chord_wait.clone() {
+            for stroke in news.taken {
+                match shortcuts::chord_key(&press, stroke) {
+                    shortcuts::ChordKey::Run(command) => {
+                        self.end_wait();
+                        log::info!(
+                            "chord {}: second key matched",
+                            hotkeys::format(press.hotkey)
+                        );
+                        self.run_command(command);
+                        return;
+                    }
+                    shortcuts::ChordKey::Cancel => {
+                        self.end_wait();
+                        return;
+                    }
+                    shortcuts::ChordKey::Other => {}
+                }
+            }
+            if news.ended {
+                self.end_wait();
+            }
+            return;
+        }
         let hotkey = WAIT_HOTKEY.with(|cell| cell.get());
         for stroke in news.taken {
             let key = hotkey.map_or(taskbar_number::WaitKey::Other, |hotkey| {
@@ -1417,6 +1720,7 @@ impl Host {
             HostRequest::SetSetting { plugin, key, value } => {
                 self.set_setting(&plugin, &key, value)
             }
+            HostRequest::SetShortcuts(changes) => self.set_shortcuts(changes),
             HostRequest::ResetPlugin(id) => self.reset_plugin(&id),
             HostRequest::SetHostSetting(setting) => self.set_host_setting(setting),
             HostRequest::CheckForUpdates => self.check_for_updates(true),
@@ -1503,6 +1807,12 @@ impl Host {
         self.report_healthy(true);
         self.to_ui.send(UiCommand::Quit);
         self.plugins.stop_all();
+        self.end_wait();
+        for (id, _, ok) in self.shortcut_keys.drain(..) {
+            if ok {
+                self.plugins.keys.unregister(id);
+            }
+        }
         unsafe { DeregisterShellHookWindow(self.hwnd) };
         self.tray.remove();
         unsafe { PostQuitMessage(0) };
@@ -1660,20 +1970,60 @@ impl PluginSet {
             .unwrap_or_else(|| serde_json::json!({}))
     }
 
-    fn resolve_hotkey(&self, plugin_id: &str, name: &str, default: Hotkey) -> Hotkey {
-        let text = self
+    /// The action's shortcut: the file's text, one press or a chord; None
+    /// when the user removed it (empty text); the default when the text
+    /// does not parse.
+    fn resolve_shortcut(&self, plugin_id: &str, name: &str, default: Hotkey) -> Option<Shortcut> {
+        let Some(text) = self
             .config(plugin_id)
-            .and_then(|plugin| plugin.hotkeys.get(name));
-        match text {
-            Some(text) => match hotkeys::parse(text) {
-                Ok(hotkey) => hotkey,
-                Err(err) => {
-                    log::warn!("{plugin_id}.{name}: {err}; using the plugin default");
-                    default
-                }
-            },
-            None => default,
+            .and_then(|plugin| plugin.hotkeys.get(name))
+        else {
+            return Some(Shortcut::single(default));
+        };
+        if text.trim().is_empty() {
+            return None;
         }
+        match hotkeys::parse_shortcut(text) {
+            Ok(keys) => Some(keys),
+            Err(err) => {
+                log::warn!("{plugin_id}.{name}: {err}; using the plugin default");
+                Some(Shortcut::single(default))
+            }
+        }
+    }
+
+    /// Writes an action's shortcut text (empty for none) to the plugin's
+    /// file and starts the plugin again with it.
+    fn set_shortcut_text(&mut self, plugin_id: &str, action: &str, text: &str) {
+        self.config_mut(plugin_id)
+            .hotkeys
+            .insert(action.to_string(), text.to_string());
+        self.save(plugin_id);
+        if let Some(index) = self.index_of(plugin_id) {
+            self.restart(index);
+        }
+        log::info!("{plugin_id}.{action} shortcut set to \"{text}\"");
+    }
+
+    /// The chords of the plugins that are on: their first press is
+    /// registered with the other shortcuts.
+    fn plugin_chords(&self) -> Vec<(Shortcut, CommandId)> {
+        let mut chords = Vec::new();
+        for (index, slot) in self.slots.iter().enumerate().filter(|(_, s)| s.enabled) {
+            for entry in slot.registered.iter().filter(|entry| !entry.active) {
+                if let Ok(keys) = hotkeys::parse_shortcut(&entry.keys) {
+                    chords.push((
+                        keys,
+                        CommandId::Plugin {
+                            index,
+                            kind: ActionKind::Hotkey,
+                            action: entry.action_id,
+                        },
+                    ));
+                }
+            }
+        }
+        chords
     }
 
     /// Starts a plugin and registers its hotkeys. A plugin whose start fails
@@ -1708,7 +2058,25 @@ impl PluginSet {
             .collect();
 
         for (action_id, name, label, default) in actions {
-            let hotkey = self.resolve_hotkey(meta.id, name, default);
+            let shortcut = self.resolve_shortcut(meta.id, name, default);
+            let Some(hotkey) = shortcut
+                .filter(|keys| !keys.is_chord())
+                .map(|keys| keys.first)
+            else {
+                let keys = shortcut
+                    .map(|keys| hotkeys::format_shortcut(&keys))
+                    .unwrap_or_default();
+                self.slots[index].registered.push(RegisteredHotkey {
+                    action_id,
+                    global_id: 0,
+                    label,
+                    hotkey: shortcut.map_or(default, |keys| keys.first),
+                    keys,
+                    ok: true,
+                    active: false,
+                });
+                continue;
+            };
             let global_id = self.next_hotkey_id;
             self.next_hotkey_id += 1;
             let keys = hotkeys::format(hotkey);
@@ -1729,6 +2097,7 @@ impl PluginSet {
                 hotkey,
                 keys,
                 ok,
+                active: true,
             });
         }
 
@@ -1755,7 +2124,7 @@ impl PluginSet {
             return false;
         }
         for entry in self.slots[index].registered.drain(..) {
-            if entry.ok {
+            if entry.active && entry.ok {
                 self.keys.unregister(entry.global_id);
             }
         }
@@ -1859,7 +2228,7 @@ impl PluginSet {
         let target = self.slots.iter().enumerate().find_map(|(index, slot)| {
             slot.registered
                 .iter()
-                .find(|entry| entry.global_id == global_id)
+                .find(|entry| entry.active && entry.global_id == global_id)
                 .map(|entry| (index, entry.action_id))
         })?;
         log::debug!(
@@ -1876,7 +2245,11 @@ impl PluginSet {
         let mut found = Vec::new();
         for slot in self.slots.iter().filter(|slot| slot.enabled) {
             let plugin = slot.plugin.metadata().name;
-            for entry in slot.registered.iter().filter(|entry| entry.ok) {
+            for entry in slot
+                .registered
+                .iter()
+                .filter(|entry| entry.active && entry.ok)
+            {
                 found.push((plugin.to_string(), entry.label.to_string(), entry.hotkey));
             }
         }
@@ -1912,7 +2285,10 @@ impl PluginSet {
             .map(|action| HotkeyInfo {
                 action: action.name.to_string(),
                 label: action.label.to_string(),
-                binding: hotkeys::format(self.resolve_hotkey(meta.id, action.name, action.default)),
+                binding: self
+                    .resolve_shortcut(meta.id, action.name, action.default)
+                    .map(|keys| hotkeys::format_shortcut(&keys))
+                    .unwrap_or_default(),
                 default_binding: hotkeys::format(action.default),
                 registered: true,
             })
@@ -1951,6 +2327,8 @@ impl PluginSet {
                 plugin: None,
                 subtitle: (command == HostCommand::UpdateWinCraft)
                     .then(|| "Checks now and installs a newer version at once".to_string()),
+                shortcut_id: String::new(),
+                shortcut: String::new(),
             });
         }
         for (index, slot) in self.slots.iter().enumerate() {
@@ -1968,6 +2346,8 @@ impl PluginSet {
                 disabled: false,
                 plugin: Some(meta.id.to_string()),
                 subtitle: None,
+                shortcut_id: String::new(),
+                shortcut: String::new(),
             });
             // A plugin that is off keeps its commands in the list, dimmed, so
             // its hotkey does not seem to vanish; running one opens its page.
@@ -1991,6 +2371,8 @@ impl PluginSet {
                     disabled,
                     plugin: plugin.clone(),
                     subtitle: slot.plugin.palette_subtitle(ActionKind::Hotkey, action.id),
+                    shortcut_id: String::new(),
+                    shortcut: String::new(),
                 });
             }
             for action in slot.plugin.tray_actions() {
@@ -2012,6 +2394,8 @@ impl PluginSet {
                     disabled,
                     plugin: plugin.clone(),
                     subtitle: slot.plugin.palette_subtitle(ActionKind::Tray, action.id),
+                    shortcut_id: String::new(),
+                    shortcut: String::new(),
                 });
             }
             for command in slot.plugin.palette_commands() {
@@ -2029,10 +2413,49 @@ impl PluginSet {
                     subtitle: slot
                         .plugin
                         .palette_subtitle(ActionKind::Palette, command.id),
+                    shortcut_id: String::new(),
+                    shortcut: String::new(),
                 });
             }
         }
+        for entry in &mut entries {
+            entry.shortcut_id = self.shortcut_id(entry.id);
+            if let CommandId::Plugin {
+                kind: ActionKind::Hotkey,
+                ..
+            } = entry.id
+            {
+                entry.shortcut = entry.hint.clone();
+            }
+        }
         entries
+    }
+
+    /// The id a command has on the Keyboard shortcuts page and in
+    /// config.json: the plugin's id and the action, never a place in a list.
+    fn shortcut_id(&self, id: CommandId) -> String {
+        let plugin = |index: usize| {
+            self.slots
+                .get(index)
+                .map_or("unknown", |slot| slot.plugin.metadata().id)
+        };
+        match id {
+            CommandId::Host(HostCommand::TogglePlugin(index)) => {
+                format!("{}.turn-on-off", plugin(index))
+            }
+            CommandId::Host(command) => format!("wincraft.{}", host_slug(command)),
+            CommandId::Plugin {
+                index,
+                kind,
+                action,
+            } => match kind {
+                ActionKind::Hotkey => {
+                    format!("{}.{}", plugin(index), self.action_name(index, action))
+                }
+                ActionKind::Tray => format!("{}.tray-{action}", plugin(index)),
+                ActionKind::Palette => format!("{}.command-{action}", plugin(index)),
+            },
+        }
     }
 
     fn index_of(&self, id: &str) -> Option<usize> {
@@ -2183,11 +2606,38 @@ pub fn refresh_arrange() {
 }
 
 thread_local! {
+    /// The chord's first press while it waits for the second; the hook's
+    /// rule reads it.
+    static CHORD_PRESS: RefCell<Option<FirstPress>> = const { RefCell::new(None) };
     /// The Arrange strip's hotkey while it waits for a digit.
     static WAIT_HOTKEY: Cell<Option<Hotkey>> = const { Cell::new(None) };
     /// The hotkey that came last, as pressed and as the user names it, for
     /// a plugin that asks for `arrange_hotkey` from its `on_hotkey`.
     static LAST_HOTKEY: RefCell<Option<(Hotkey, String)>> = const { RefCell::new(None) };
+}
+
+/// The keyboard hook's rule while a chord waits for its second press.
+fn chord_rule(stroke: chord::Stroke) -> chord::Verdict {
+    CHORD_PRESS.with(|cell| {
+        cell.borrow().as_ref().map_or(chord::Verdict::End, |press| {
+            shortcuts::chord_verdict(shortcuts::chord_key(press, stroke))
+        })
+    })
+}
+
+/// The part of a WinCraft command's shortcut id after "wincraft.".
+fn host_slug(command: HostCommand) -> &'static str {
+    match command {
+        HostCommand::OpenSettings => "open-settings",
+        HostCommand::OpenStore => "plugin-store",
+        HostCommand::OpenLayout => "saved-layout",
+        HostCommand::OpenAbout => "about",
+        HostCommand::OpenConfig => "config-file",
+        HostCommand::OpenLog => "log-file",
+        HostCommand::UpdateWinCraft => "update",
+        HostCommand::Exit => "quit",
+        HostCommand::TogglePlugin(_) => "turn-on-off",
+    }
 }
 
 /// The keyboard hook's rule while the Arrange hotkey waits; see
@@ -2234,7 +2684,20 @@ pub fn registered_hotkeys() -> Vec<(String, String, Hotkey)> {
         let borrowed = cell.borrow();
         borrowed
             .as_ref()
-            .map(|host| host.plugins.registered())
+            .map(|host| {
+                let mut found = host.plugins.registered();
+                found.extend(host.shortcut_keys.iter().filter(|(_, _, ok)| *ok).map(
+                    |(_, press, _)| {
+                        let what = if press.seconds.is_empty() {
+                            "Shortcut"
+                        } else {
+                            "Start of a chord"
+                        };
+                        ("WinCraft".to_string(), what.to_string(), press.hotkey)
+                    },
+                ));
+                found
+            })
             .unwrap_or_default()
     })
 }
@@ -2621,11 +3084,15 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
                 return 0;
             }
             with_host_or_later(hwnd, msg, wparam, lparam, |host| {
+                if global_id >= SHORTCUT_ID_BASE {
+                    host.shortcut_pressed(global_id);
+                    return;
+                }
                 if let Some((index, action_id)) = host.plugins.hotkey_target(global_id) {
                     let pressed = host.plugins.slots[index]
                         .registered
                         .iter()
-                        .find(|entry| entry.global_id == global_id)
+                        .find(|entry| entry.active && entry.global_id == global_id)
                         .map(|entry| (entry.hotkey, entry.keys.clone()));
                     LAST_HOTKEY.with(|cell| *cell.borrow_mut() = pressed);
                     host.plugins.slots[index].plugin.on_hotkey(action_id);
@@ -3789,6 +4256,8 @@ mod tests {
             updates: Updates::default(),
             update_notice: None,
             autostart_note: None,
+            shortcut_keys: Vec::new(),
+            chord_wait: None,
         };
         for index in host.plugins.wanted() {
             host.enable_slot(index);
@@ -3998,6 +4467,208 @@ mod tests {
         assert!(ui
             .try_iter()
             .any(|command| matches!(command, UiCommand::ClearPaletteUsage)));
+    }
+
+    fn change(id: &str, binding: Option<&str>) -> ShortcutChange {
+        ShortcutChange {
+            id: id.to_string(),
+            binding: binding.map(str::to_string),
+        }
+    }
+
+    fn row<'a>(snapshot: &'a UiSnapshot, id: &str) -> &'a ShortcutInfo {
+        snapshot
+            .shortcuts
+            .iter()
+            .find(|info| info.id == id)
+            .unwrap_or_else(|| panic!("no row {id}"))
+    }
+
+    #[test]
+    fn every_palette_command_is_a_shortcut_row_with_a_stable_id() {
+        let data = Scratch::new("shortcut-rows");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let (host, _ui) = test_host(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        let snapshot = host.snapshot();
+        let ids: Vec<&str> = snapshot
+            .shortcuts
+            .iter()
+            .map(|info| info.id.as_str())
+            .collect();
+        for id in [
+            "wincraft.palette",
+            "wincraft.open-settings",
+            "wincraft.quit",
+            "fake_a.turn-on-off",
+            "fake_a.go",
+            "fake_a.tray-2",
+            "fake_a.command-7",
+        ] {
+            assert!(ids.contains(&id), "{id} in {ids:?}");
+        }
+        let go = row(&snapshot, "fake_a.go");
+        assert_eq!(
+            (go.binding.as_str(), go.default_binding.as_str()),
+            ("Win+Alt+F1", "Win+Alt+F1")
+        );
+        assert_eq!(
+            row(&snapshot, "wincraft.palette").binding,
+            DEFAULT_PALETTE_HOTKEY
+        );
+        assert!(row(&snapshot, "wincraft.palette").one_press);
+        assert_eq!(row(&snapshot, "fake_a.command-7").binding, "");
+        let entry = snapshot
+            .commands
+            .iter()
+            .find(|entry| entry.shortcut_id == "fake_a.go")
+            .unwrap();
+        assert_eq!(entry.shortcut, "Win+Alt+F1");
+    }
+
+    #[test]
+    fn shortcuts_are_saved_as_overrides_and_reset_takes_them_away() {
+        let data = Scratch::new("shortcut-overrides");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let (mut host, ui) = test_host(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+
+        host.handle_request(HostRequest::SetShortcuts(vec![change(
+            "fake_a.command-7",
+            Some("win+alt+k, t"),
+        )]));
+        assert_eq!(host.config.shortcuts["fake_a.command-7"], "Win+Alt+K, T");
+        assert_eq!(
+            Config::load_in(&data.0).shortcuts["fake_a.command-7"],
+            "Win+Alt+K, T"
+        );
+        assert!(keyboard.held().contains(&"Win+Alt+K".to_string()));
+        let last = snapshots(&ui).pop().unwrap();
+        assert_eq!(row(&last, "fake_a.command-7").binding, "Win+Alt+K, T");
+
+        // Removing a plugin's hotkey writes the empty text and frees the keys.
+        host.handle_request(HostRequest::SetShortcuts(vec![change(
+            "fake_a.go",
+            Some(""),
+        )]));
+        assert_eq!(data.saved("fake_a").hotkeys["go"], "");
+        assert!(!keyboard.held().contains(&"Win+Alt+F1".to_string()));
+        assert_eq!(row(&host.snapshot(), "fake_a.go").binding, "");
+
+        // Reset gives the default back, and takes an override away.
+        host.handle_request(HostRequest::SetShortcuts(vec![
+            change("fake_a.go", None),
+            change("fake_a.command-7", None),
+        ]));
+        assert_eq!(data.saved("fake_a").hotkeys["go"], "Win+Alt+F1");
+        assert!(keyboard.held().contains(&"Win+Alt+F1".to_string()));
+        assert!(!host.config.shortcuts.contains_key("fake_a.command-7"));
+        assert!(!keyboard.held().contains(&"Win+Alt+K".to_string()));
+        assert!(Config::load_in(&data.0).shortcuts.is_empty());
+    }
+
+    #[test]
+    fn replace_moves_a_plugin_hotkey_to_another_command() {
+        let data = Scratch::new("shortcut-replace");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let (mut host, _ui) = test_host(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        let keys = hotkeys::parse_shortcut("Win+Alt+F1").unwrap();
+        host.handle_request(HostRequest::SetShortcuts(shortcuts::replace(
+            "wincraft.quit",
+            &keys,
+            "fake_a.go",
+        )));
+        let snapshot = host.snapshot();
+        assert_eq!(row(&snapshot, "fake_a.go").binding, "");
+        assert!(shortcuts::is_changed(row(&snapshot, "fake_a.go")));
+        assert_eq!(row(&snapshot, "wincraft.quit").binding, "Win+Alt+F1");
+        assert!(
+            row(&snapshot, "wincraft.quit").registered,
+            "the keys were free again"
+        );
+        assert_eq!(host.shortcut_keys.len(), 1);
+        assert!(host.shortcut_keys[0].2);
+    }
+
+    #[test]
+    fn a_plugin_chord_waits_for_its_second_key_and_runs_the_hotkey() {
+        let data = Scratch::new("shortcut-chord");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let (mut host, _ui) = test_host(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        host.handle_request(HostRequest::SetShortcuts(vec![change(
+            "fake_a.go",
+            Some("Win+Alt+K, G"),
+        )]));
+        assert_eq!(keyboard.held(), ["Win+Alt+K"]);
+        let press = host.shortcut_keys[0].1.clone();
+        assert_eq!(press.seconds.len(), 1);
+        read(&log);
+
+        // What the hook would have taken: a key that is not the second
+        // press is never taken, so only the matching one comes here.
+        host.chord_wait = Some(press.clone());
+        host.wait_news(chord::News {
+            taken: vec![chord::Stroke {
+                vk: 0x47,
+                modifiers: 0,
+            }],
+            ended: false,
+        });
+        assert_eq!(read(&log), ["hotkey fake_a 1"]);
+        assert!(host.chord_wait.is_none());
+
+        host.chord_wait = Some(press.clone());
+        host.wait_news(chord::News {
+            taken: vec![chord::Stroke {
+                vk: 0x1B,
+                modifiers: 0,
+            }],
+            ended: false,
+        });
+        assert!(read(&log).is_empty(), "Esc runs nothing");
+        assert!(host.chord_wait.is_none());
+
+        host.chord_wait = Some(press);
+        host.wait_news(chord::News {
+            taken: Vec::new(),
+            ended: true,
+        });
+        assert!(host.chord_wait.is_none(), "another key or the time ends it");
+
+        // The plugin's page shows the chord as its binding.
+        assert_eq!(host.plugins.hotkey_infos(0)[0].binding, "Win+Alt+K, G");
+        // Turning the plugin off frees the chord's first press.
+        host.plugins.disable(0);
+        host.publish();
+        assert!(keyboard.held().iter().all(|keys| keys != "Win+Alt+K"));
+    }
+
+    #[test]
+    fn an_old_config_without_shortcuts_keeps_every_default_hotkey() {
+        let data = Scratch::new("shortcut-old");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let (host, _ui) = test_host(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        assert_eq!(keyboard.held(), ["Win+Alt+F1"]);
+        assert!(host.shortcut_keys.is_empty());
+        assert!(host.config.shortcuts.is_empty());
     }
 
     #[test]

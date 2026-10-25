@@ -57,6 +57,86 @@ pub fn format_modifiers(modifiers: u32) -> String {
     parts.join("+")
 }
 
+/// A shortcut of one key press, or two in a row (a chord), such as
+/// "Win+Alt+K, S". Windows only knows the first; WinCraft waits for the
+/// second itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Shortcut {
+    pub first: Hotkey,
+    pub second: Option<Hotkey>,
+}
+
+impl Shortcut {
+    pub fn single(first: Hotkey) -> Self {
+        Self {
+            first,
+            second: None,
+        }
+    }
+
+    pub fn is_chord(&self) -> bool {
+        self.second.is_some()
+    }
+
+    /// The key presses, each as its keys in the order Win, Ctrl, Alt,
+    /// Shift and then the key: [["Win", "Alt", "K"], ["S"]].
+    pub fn steps(&self) -> Vec<Vec<String>> {
+        std::iter::once(self.first)
+            .chain(self.second)
+            .map(|stroke| {
+                format(stroke)
+                    .split('+')
+                    .filter(|key| !key.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .collect()
+    }
+}
+
+/// Two key presses are the same whatever MOD_NOREPEAT says.
+pub fn same(a: Hotkey, b: Hotkey) -> bool {
+    a.vk == b.vk && (a.modifiers & !MOD_NOREPEAT) == (b.modifiers & !MOD_NOREPEAT)
+}
+
+impl Shortcut {
+    pub fn same_as(&self, other: &Shortcut) -> bool {
+        same(self.first, other.first)
+            && match (self.second, other.second) {
+                (None, None) => true,
+                (Some(a), Some(b)) => same(a, b),
+                _ => false,
+            }
+    }
+}
+
+/// "Win+Alt+R" or "Win+Alt+K, S". The comma that joins the two presses is
+/// the first one that is not itself the key, so "Ctrl+,, S" works.
+pub fn parse_shortcut(text: &str) -> Result<Shortcut, String> {
+    let split = text
+        .char_indices()
+        .filter(|(_, c)| *c == ',')
+        .map(|(at, _)| at)
+        .find(|at| !text[..*at].trim_end().ends_with('+'));
+    if let Some(at) = split {
+        let (first, second) = (&text[..at], &text[at + 1..]);
+        if let (Ok(first), Ok(second)) = (parse(first), parse(second)) {
+            return Ok(Shortcut {
+                first,
+                second: Some(second),
+            });
+        }
+    }
+    parse(text).map(Shortcut::single)
+}
+
+pub fn format_shortcut(shortcut: &Shortcut) -> String {
+    match shortcut.second {
+        Some(second) => format!("{}, {}", format(shortcut.first), format(second)),
+        None => format(shortcut.first),
+    }
+}
+
 fn parse_key(token: &str) -> Option<u32> {
     if token.len() == 1 {
         let c = token.as_bytes()[0].to_ascii_uppercase();
@@ -245,6 +325,53 @@ mod tests {
             let hotkey = parse(text).expect(text);
             assert_eq!(format(hotkey), text);
         }
+    }
+
+    #[test]
+    fn a_shortcut_of_one_or_two_presses_round_trips() {
+        for text in [
+            "Win+Alt+F1",
+            "Win+Alt+K, S",
+            "Win+Alt+K, Win+Alt+S",
+            "Ctrl+Alt+,, 1",
+            "Win+Alt+K, ,",
+        ] {
+            let shortcut = parse_shortcut(text).expect(text);
+            assert_eq!(format_shortcut(&shortcut), text);
+        }
+        let old = parse_shortcut("Win+Alt+A").unwrap();
+        assert_eq!(old, Shortcut::single(parse("Win+Alt+A").unwrap()));
+        assert!(!old.is_chord());
+        let tight = parse_shortcut("win+alt+k,s").unwrap();
+        assert_eq!(format_shortcut(&tight), "Win+Alt+K, S");
+        assert!(parse_shortcut("Ctrl+,").unwrap().second.is_none());
+        assert!(parse_shortcut("Win+Alt+K, Banana").is_err());
+        assert!(parse_shortcut("").is_err());
+    }
+
+    #[test]
+    fn a_shortcut_lists_its_keys_with_the_modifiers_first() {
+        let chord = parse_shortcut("Shift+Alt+Win+K, S").unwrap();
+        assert_eq!(
+            chord.steps(),
+            vec![
+                vec!["Win".to_string(), "Alt".into(), "Shift".into(), "K".into()],
+                vec!["S".to_string()],
+            ]
+        );
+        let a = parse_shortcut("Win+Alt+K, S").unwrap();
+        let b = Shortcut {
+            first: Hotkey {
+                modifiers: MOD_WIN | MOD_ALT,
+                vk: 0x4B,
+            },
+            second: Some(Hotkey {
+                modifiers: 0,
+                vk: 0x53,
+            }),
+        };
+        assert!(a.same_as(&b));
+        assert!(!a.same_as(&Shortcut::single(a.first)));
     }
 
     #[test]

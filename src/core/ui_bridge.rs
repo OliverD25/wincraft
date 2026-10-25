@@ -20,6 +20,8 @@ pub enum Page {
     #[default]
     General,
     Plugins,
+    /// Every command's shortcut.
+    Shortcuts,
     /// The windows LayoutKeeper has saved.
     Layout,
     /// The palette's bookmarks.
@@ -484,6 +486,8 @@ pub enum HostRequest {
         value: Value,
     },
     ResetPlugin(String),
+    /// From the Keyboard shortcuts page, all at once: Replace changes two.
+    SetShortcuts(Vec<ShortcutChange>),
     SetHostSetting(HostSetting),
     /// About's "Check for updates".
     CheckForUpdates,
@@ -491,6 +495,38 @@ pub enum HostRequest {
     UpdateNow,
     OpenPath(PathBuf),
     Exit,
+}
+
+/// A new shortcut for one command: `Some("")` removes it, None puts the
+/// default back.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShortcutChange {
+    pub id: String,
+    pub binding: Option<String>,
+}
+
+/// One row of the Keyboard shortcuts page: a command the palette lists.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShortcutInfo {
+    /// Stable across restarts: "wincraft.open-settings",
+    /// "screen_dimmer.toggle_monitor_1".
+    pub id: String,
+    /// None for the palette's own hotkey, which is not a palette command.
+    pub command: Option<CommandId>,
+    /// "WinCraft" or the plugin's name.
+    pub group: String,
+    pub plugin: Option<String>,
+    /// The plugin's category, for its icon; empty for WinCraft.
+    pub category: String,
+    pub label: String,
+    pub description: String,
+    /// "Win+Alt+K, S"; empty for none.
+    pub binding: String,
+    pub default_binding: String,
+    /// False when another app holds the first key press.
+    pub registered: bool,
+    /// The palette's own hotkey takes one key press only.
+    pub one_press: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -511,7 +547,7 @@ pub struct FieldInfo {
     pub value: Value,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct PluginInfo {
     pub id: String,
     pub name: String,
@@ -541,6 +577,9 @@ pub struct PaletteEntry {
     pub plugin: Option<String>,
     /// A second line under the label, such as a monitor's state.
     pub subtitle: Option<String>,
+    /// The command's id on the Keyboard shortcuts page, and its keys there.
+    pub shortcut_id: String,
+    pub shortcut: String,
 }
 
 /// Everything the windows draw. Rebuilt whole after every change: a plugin's
@@ -561,6 +600,7 @@ pub struct UiSnapshot {
     pub log_path: PathBuf,
     pub plugins: Vec<PluginInfo>,
     pub commands: Vec<PaletteEntry>,
+    pub shortcuts: Vec<ShortcutInfo>,
     pub search: SearchConfig,
     pub tips: TipsConfig,
     pub update: UpdateView,

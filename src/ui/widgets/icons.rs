@@ -22,6 +22,11 @@ pub enum Icon {
     Check,
     Keyboard,
     LayoutGrid,
+    RotateCcw,
+    Ban,
+    TriangleAlert,
+    Ellipsis,
+    CircleHelp,
 }
 
 struct Path {
@@ -230,6 +235,39 @@ fn paths(icon: Icon) -> Vec<Path> {
                     .corner(x, y, x + 1.0, y)
             })
             .collect(),
+        // Lucide's rotate-ccw: most of a circle, the arrow head top left.
+        Icon::RotateCcw => vec![
+            Path::arc(pos2(12.0, 12.0), 9.0, 180.0, 500.0),
+            Path::start(3.0, 3.0).line(3.0, 8.0).line(8.0, 8.0),
+        ],
+        Icon::Ban => vec![
+            Path::arc(pos2(12.0, 12.0), 10.0, 0.0, 360.0),
+            Path::start(4.9, 4.9).line(19.1, 19.1),
+        ],
+        Icon::TriangleAlert => vec![
+            Path::start(10.3, 3.9)
+                .line(1.8, 18.0)
+                .corner(1.0, 20.0, 3.5, 21.0)
+                .line(20.5, 21.0)
+                .corner(23.0, 20.0, 22.2, 18.0)
+                .line(13.7, 3.9)
+                .corner(12.0, 1.5, 10.3, 3.9),
+            Path::start(12.0, 9.0).line(12.0, 13.0),
+            Path::start(11.5, 17.0).line(12.5, 17.0),
+        ],
+        Icon::Ellipsis => [5.0, 12.0, 19.0]
+            .into_iter()
+            .map(|x| Path::arc(pos2(x, 12.0), 1.0, 0.0, 360.0))
+            .collect(),
+        Icon::CircleHelp => vec![
+            Path::arc(pos2(12.0, 12.0), 10.0, 0.0, 360.0),
+            Path::start(9.1, 9.0)
+                .corner(9.5, 6.5, 12.0, 6.5)
+                .corner(15.0, 6.5, 15.0, 9.0)
+                .corner(15.0, 11.0, 12.0, 12.0)
+                .line(12.0, 13.5),
+            Path::start(11.5, 17.0).line(12.5, 17.0),
+        ],
         Icon::Close => vec![
             Path::start(18.0, 6.0).line(6.0, 18.0),
             Path::start(6.0, 6.0).line(18.0, 18.0),

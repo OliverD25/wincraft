@@ -142,6 +142,11 @@ pub struct Config {
     pub updates: UpdateConfig,
     #[serde(default)]
     pub tips: TipsConfig,
+    /// Shortcuts of palette commands that have no hotkey of their own, by
+    /// command id: "Win+Alt+K, S". Only what the user set is here; a
+    /// plugin's own hotkeys stay in its file under `hotkeys`.
+    #[serde(default)]
+    pub shortcuts: BTreeMap<String, String>,
 }
 
 impl Default for Config {
@@ -154,6 +159,7 @@ impl Default for Config {
             search: SearchConfig::default(),
             updates: UpdateConfig::default(),
             tips: TipsConfig::default(),
+            shortcuts: BTreeMap::new(),
         }
     }
 }

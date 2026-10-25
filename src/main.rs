@@ -386,6 +386,7 @@ fn settings_target(value: &str) -> Option<SettingsTarget> {
     let page = match value.to_ascii_lowercase().as_str() {
         "general" => Page::General,
         "plugins" => Page::Plugins,
+        "shortcuts" => Page::Shortcuts,
         "layout" => Page::Layout,
         "bookmarks" => Page::Bookmarks,
         "store" => Page::Store,
