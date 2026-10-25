@@ -2961,6 +2961,7 @@ impl WinCraftPlugin for LayoutKeeper {
                             on_monitor: monitors::index_of(identity.rect, &monitors),
                             saved_monitor: saved_monitor.get(&hwnd).copied(),
                             same_title: false,
+                            attention: false,
                         }
                     })
                     .collect();

@@ -6,8 +6,8 @@ use egui::text::TextWrapping;
 use egui::{pos2, vec2, Rect, Response, Sense, Shape, StrokeKind, Ui, UiBuilder, Vec2};
 
 use super::{
-    card_menu, float_picture, line_width, name_card, others, others_link, picture_width, thumbnail,
-    wrap, Drag, Frame, Pending, Shared, SAME_TITLE_HINT, SLACK,
+    card_look, card_menu, float_picture, line_width, name_card, others, others_link, paint_look,
+    picture_width, thumbnail, wrap, Drag, Frame, Pending, Shared, SAME_TITLE_HINT, SLACK,
 };
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{
@@ -1079,8 +1079,15 @@ impl Draw<'_> {
         let mut painter = ui.painter().clone();
         painter.multiply_opacity(alpha);
         let is_cursor = shared.cursor == Some(window.hwnd);
+        let lit = if is_cursor {
+            Some(tokens.selection_bg)
+        } else if response.hovered() && self.dragged.is_none() {
+            Some(tokens.hover_bg)
+        } else {
+            None
+        };
+        paint_look(&painter, rect, 4, card_look(&tokens, lit, window.attention));
         if is_cursor {
-            painter.rect_filled(rect, 4, tokens.selection_bg);
             // Outside the picture, which DWM would draw over.
             painter.rect_stroke(
                 rect.expand(3.0),
@@ -1088,8 +1095,6 @@ impl Draw<'_> {
                 theme::stroke(ui.ctx(), 2.0, tokens.accent),
                 StrokeKind::Middle,
             );
-        } else if response.hovered() && self.dragged.is_none() {
-            painter.rect_filled(rect, 4, tokens.hover_bg);
         }
         let thumb = Rect::from_min_size(
             rect.min + Vec2::splat(CARD_PAD),
@@ -1664,6 +1669,7 @@ mod tests {
                     saved_monitor: *saved,
                     renamed: false,
                     same_title: false,
+                    attention: false,
                 })
                 .collect(),
         }

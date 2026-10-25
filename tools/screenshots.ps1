@@ -199,7 +199,10 @@ $scenes = @(
     @{ Name = 'update-notice';          Args = @('--show-update-notice');                  Window = 'update-notice'; Settle = 800 },
     # Two windows of the harness's own with the same title: the strip flags both.
     @{ Name = 'strip-same-title';       Args = @('--open-arrange={helper-group}');         Window = 'strip';    Settle = 1500; Helper = $true },
-    @{ Name = 'strip-renamed';          Args = @('"--rename-window={helper}:Build server"', '--open-arrange={helper-group}'); Window = 'strip'; Settle = 1500; Helper = $true }
+    @{ Name = 'strip-renamed';          Args = @('"--rename-window={helper}:Build server"', '--open-arrange={helper-group}'); Window = 'strip'; Settle = 1500; Helper = $true },
+    # One of those windows marked as wanting attention (orange card); the
+    # window itself is not touched.
+    @{ Name = 'strip-attention';        Args = @('--attention={helper}', '--open-arrange={helper-group}'); Window = 'strip'; Settle = 1500; Helper = $true }
 )
 $number = 0
 foreach ($text in $Query) {

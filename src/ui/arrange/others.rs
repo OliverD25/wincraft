@@ -160,6 +160,7 @@ mod tests {
             saved_monitor: None,
             renamed: false,
             same_title: false,
+            attention: false,
         };
         let group = ArrangeGroup {
             key: String::new(),

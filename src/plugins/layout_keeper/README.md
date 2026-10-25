@@ -436,6 +436,14 @@ its height; beyond that the mouse wheel scrolls it. In both views:
   link).
 - **Right-click** for **Close window** and **Move to desktop**. Closing is
   only offered here, never on a key.
+- **An orange card** is a window that wants your attention, like an orange
+  taskbar button: the app flashed it, for example for a new chat message.
+  The card has a soft orange tint and an orange border until you switch to
+  that window (click it, here or anywhere else); a window that only stops
+  flashing keeps its mark. WinCraft only listens to what Windows tells every
+  program about windows (it changes no window). It cannot know about a
+  window that flashed before WinCraft started, so such a window shows no
+  mark until it flashes again.
 - **Keyboard (Flat):** ← and → pick a window, Ctrl+← and Ctrl+→ move it,
   D shows or hides the other desktops, Enter switches to it, Esc closes the
   strip. The strip also closes when you click elsewhere.

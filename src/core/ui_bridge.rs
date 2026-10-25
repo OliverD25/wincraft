@@ -95,6 +95,10 @@ pub struct ArrangeWindow {
     /// Another window of the app has the same label, so a restore cannot
     /// tell them apart.
     pub same_title: bool,
+    /// The window flashed for attention and was not activated since, so its
+    /// taskbar button is orange. The host fills it in; plugins leave it
+    /// false.
+    pub attention: bool,
 }
 
 /// A monitor for the strip's columns: every connected one in the order

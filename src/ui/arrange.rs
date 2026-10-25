@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use egui::text::TextWrapping;
-use egui::{pos2, vec2, Rect, Response, Sense, StrokeKind, Ui, UiBuilder, Vec2};
+use egui::{pos2, vec2, Color32, Rect, Response, Sense, StrokeKind, Ui, UiBuilder, Vec2};
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
@@ -1655,9 +1655,8 @@ fn card(
         ui.allocate_exact_size(vec2(width, CARD_HEIGHT), Sense::click_and_drag());
     let lit = response.hovered() || is_cursor;
     let painter = ui.painter();
-    if lit {
-        painter.rect_filled(rect, 6, tokens.hover_bg);
-    }
+    let look = card_look(&tokens, lit.then_some(tokens.hover_bg), window.attention);
+    paint_look(painter, rect, 6, look);
     if let Some(monitor) = monitor {
         monitor_chip(painter, rect, monitor);
     }
@@ -1708,6 +1707,48 @@ fn card(
         picture,
         rename,
     )
+}
+
+/// What is drawn behind a card's picture: a fill and an outline.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Look {
+    pub fill: Option<Color32>,
+    pub outline: Option<Color32>,
+}
+
+/// How a card is marked. `lit` is the view's own fill for the card under
+/// the mouse or the keys. A window that wants attention gets an orange tint
+/// and outline instead, like its orange taskbar button, a little stronger
+/// while lit; a view draws its keyboard ring apart.
+pub fn card_look(tokens: &Tokens, lit: Option<Color32>, attention: bool) -> Look {
+    if attention {
+        let tint = if lit.is_some() { 0.28 } else { 0.18 };
+        Look {
+            fill: Some(theme::with_alpha(tokens.warning, tint)),
+            outline: Some(tokens.warning),
+        }
+    } else {
+        Look {
+            fill: lit,
+            outline: None,
+        }
+    }
+}
+
+/// Paints a card's look in `rect`. The outline stays on the card's edge,
+/// clear of the picture, which DWM draws over anything painted under it.
+fn paint_look(painter: &egui::Painter, rect: Rect, radius: u8, look: Look) {
+    if let Some(fill) = look.fill {
+        painter.rect_filled(rect, radius, fill);
+    }
+    if let Some(outline) = look.outline {
+        painter.rect_stroke(
+            rect,
+            radius,
+            theme::stroke(painter.ctx(), 1.5, outline),
+            StrokeKind::Inside,
+        );
+    }
 }
 
 /// The amber "Same title" chip, right-aligned in the card's label line;
@@ -1886,6 +1927,7 @@ mod tests {
                     saved_monitor: None,
                     renamed: false,
                     same_title: false,
+                    attention: false,
                 })
                 .collect(),
         }
@@ -2121,6 +2163,38 @@ mod tests {
         // Never narrower than the toolbar needs.
         let size = panel_size(&rows[1..], &widths, false, 700.0, vec2(5000.0, 5000.0));
         assert_eq!(size.x, 700.0);
+    }
+
+    #[test]
+    fn a_card_that_wants_attention_is_tinted_and_outlined_in_orange() {
+        for tokens in [Tokens::dark(), Tokens::light()] {
+            let plain = card_look(&tokens, None, false);
+            assert_eq!(
+                plain,
+                Look {
+                    fill: None,
+                    outline: None
+                }
+            );
+            let lit = card_look(&tokens, Some(tokens.hover_bg), false);
+            assert_eq!(lit.fill, Some(tokens.hover_bg));
+            assert_eq!(lit.outline, None);
+
+            let marked = card_look(&tokens, None, true);
+            assert_eq!(marked.outline, Some(tokens.warning));
+            let fill = marked.fill.expect("a tint");
+            // The theme's orange, see-through.
+            assert!(fill.a() > 0 && fill.a() < 255);
+            let [r, g, b, _] = fill.to_srgba_unmultiplied();
+            let near = |a: u8, b: u8| a.abs_diff(b) <= 4;
+            assert!(near(r, tokens.warning.r()));
+            assert!(near(g, tokens.warning.g()));
+            assert!(near(b, tokens.warning.b()));
+            // Stronger under the mouse or the keys.
+            let marked_lit = card_look(&tokens, Some(tokens.hover_bg), true);
+            assert!(marked_lit.fill.expect("a tint").a() > fill.a());
+            assert_eq!(marked_lit.outline, Some(tokens.warning));
+        }
     }
 
     #[test]

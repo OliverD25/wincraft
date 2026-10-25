@@ -1,4 +1,5 @@
 pub mod appid;
+pub mod attention;
 pub mod autostart;
 pub mod clipboard;
 pub mod clock;

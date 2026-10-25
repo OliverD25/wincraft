@@ -18,17 +18,18 @@ use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadI
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, SetFocus, UnregisterHotKey};
 use windows_sys::Win32::UI::Shell::{ShellExecuteW, NIN_BALLOONUSERCLICK};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetCursorPos, GetForegroundWindow,
-    GetMessageW, GetWindowThreadProcessId, KillTimer, PostMessageW, PostQuitMessage,
-    RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, SetTimer, TranslateMessage,
-    ENDSESSION_CLOSEAPP, ENDSESSION_CRITICAL, ENDSESSION_LOGOFF, MSG, SW_SHOWNORMAL, WM_APP,
-    WM_CONTEXTMENU, WM_DESTROY, WM_DISPLAYCHANGE, WM_ENDSESSION, WM_HOTKEY, WM_LBUTTONUP,
-    WM_POWERBROADCAST, WM_QUERYENDSESSION, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW,
-    WS_OVERLAPPED,
+    CreateWindowExW, DefWindowProcW, DeregisterShellHookWindow, DispatchMessageW, GetCursorPos,
+    GetForegroundWindow, GetMessageW, GetWindowThreadProcessId, KillTimer, PostMessageW,
+    PostQuitMessage, RegisterClassW, RegisterShellHookWindow, RegisterWindowMessageW,
+    SetForegroundWindow, SetTimer, TranslateMessage, ENDSESSION_CLOSEAPP, ENDSESSION_CRITICAL,
+    ENDSESSION_LOGOFF, MSG, SW_SHOWNORMAL, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_DISPLAYCHANGE,
+    WM_ENDSESSION, WM_HOTKEY, WM_LBUTTONUP, WM_POWERBROADCAST, WM_QUERYENDSESSION, WM_RBUTTONUP,
+    WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
 };
 
 use serde_json::Value;
 
+use crate::core::attention::Attention;
 use crate::core::config::{Config, PluginConfig, UpdateConfig, DEFAULT_PALETTE_HOTKEY};
 use crate::core::traits::{HostContext, Hotkey, WinCraftPlugin};
 use crate::core::tray::{show_menu, MenuItem, Tray, WM_TRAY_CALLBACK};
@@ -336,6 +337,8 @@ pub struct SceneFlags {
     /// Show About's update progress bar half way through a sample download;
     /// nothing is downloaded.
     pub update_progress: bool,
+    /// A window to mark as wanting attention, as if it had flashed.
+    pub attention: Option<isize>,
 }
 
 static DEMO_RESTORE_PANEL: AtomicBool = AtomicBool::new(false);
@@ -361,6 +364,11 @@ thread_local! {
     /// re-enters a WndProc whenever it likes, and a borrow taken on every single
     /// message would turn that into a crash.
     static TASKBAR_CREATED: Cell<u32> = const { Cell::new(0) };
+    /// The shell hook's message and the windows it says want attention;
+    /// outside Host for the same reason, as they come with every switch
+    /// between windows.
+    static SHELL_HOOK: Cell<u32> = const { Cell::new(0) };
+    static ATTENTION: RefCell<Attention> = RefCell::new(Attention::default());
     static HOST_WINDOW: Cell<HWND> = const { Cell::new(std::ptr::null_mut()) };
     static NOTICES: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
     /// A tooltip a plugin asked for and the host has not applied yet; the
@@ -451,6 +459,13 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
     plugin_changed();
     TASKBAR_CREATED
         .with(|cell| cell.set(unsafe { RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()) }));
+    SHELL_HOOK.with(|cell| cell.set(unsafe { RegisterWindowMessageW(wide("SHELLHOOK").as_ptr()) }));
+    if unsafe { RegisterShellHookWindow(hwnd) } == 0 {
+        log::warn!("cannot hear which windows want attention; the strip will not mark them");
+    }
+    if let Some(window) = flags.scene.attention {
+        ATTENTION.with(|attention| attention.borrow_mut().mark(window));
+    }
 
     host.plugins.load_configs();
     let palette = host.config.palette_hotkey.clone();
@@ -1047,10 +1062,16 @@ impl Host {
             let groups = slot.plugin.window_groups()?;
             Some((slot.plugin.metadata().id, groups))
         });
-        let Some((id, groups)) = found else {
+        let Some((id, mut groups)) = found else {
             log::info!("no enabled plugin keeps a window order");
             return;
         };
+        ATTENTION.with(|attention| {
+            let attention = attention.borrow();
+            for window in groups.groups.iter_mut().flat_map(|g| g.windows.iter_mut()) {
+                window.attention = attention.wants(window.hwnd);
+            }
+        });
         let mut focus = groups.focus;
         if open {
             let under_cursor = hovered.as_deref().and_then(|app| {
@@ -1317,6 +1338,7 @@ impl Host {
         self.report_healthy(true);
         self.to_ui.send(UiCommand::Quit);
         self.plugins.stop_all();
+        unsafe { DeregisterShellHookWindow(self.hwnd) };
         self.tray.remove();
         unsafe { PostQuitMessage(0) };
     }
@@ -2345,6 +2367,19 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     let taskbar_created = TASKBAR_CREATED.with(|cell| cell.get());
     if taskbar_created != 0 && msg == taskbar_created {
         with_host_or_later(hwnd, msg, wparam, lparam, |host| host.tray.add());
+        return 0;
+    }
+    let shell_hook = SHELL_HOOK.with(|cell| cell.get());
+    if shell_hook != 0 && msg == shell_hook {
+        let foreground = unsafe { GetForegroundWindow() } as isize;
+        let changed = ATTENTION.with(|attention| {
+            attention
+                .borrow_mut()
+                .shell_message(wparam, lparam, foreground)
+        });
+        if changed && ui_bridge::arrange_window().is_some() {
+            refresh_arrange();
+        }
         return 0;
     }
 

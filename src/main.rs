@@ -273,7 +273,8 @@ fn arg_after(args: &[String], flag: &str) -> Option<String> {
 }
 
 /// The test-scene flags: `--open-palette=<query>`, `--open-settings=<page>`,
-/// `--open-arrange=<group>`, `--peek-card=<n|chip>` and `--theme=<light|dark>`.
+/// `--open-arrange=<group>`, `--peek-card=<n|chip>`, `--attention=<hwnd>` and
+/// `--theme=<light|dark>`.
 /// Only a test instance takes them, so the user's WinCraft can never be
 /// opened on a scene by a stray command line. The notes say what was
 /// ignored or could not be read, for the log.
@@ -298,6 +299,7 @@ fn scene_flags(
                 | "--rename-window"
                 | "--ask-name"
                 | "--ask-bookmark"
+                | "--attention"
         ) {
             continue;
         }
@@ -335,6 +337,10 @@ fn scene_flags(
             "--ask-name" => {
                 scene.ask_name = window_handle(value);
                 scene.ask_name.is_some()
+            }
+            "--attention" => {
+                scene.attention = window_handle(value);
+                scene.attention.is_some()
             }
             _ => {
                 theme = theme_choice(value);
@@ -503,11 +509,12 @@ mod tests {
             "--theme=light",
             "--rename-window=123:Work",
             "--ask-name=123",
+            "--attention=123",
         ]);
         let (scene, theme, notes) = scene_flags(&list, false);
         assert_eq!(scene, SceneFlags::default());
         assert_eq!(theme, None);
-        assert_eq!(notes.len(), 7);
+        assert_eq!(notes.len(), 8);
         assert!(notes
             .iter()
             .all(|note| note.contains("only a test instance")));
@@ -522,9 +529,11 @@ mod tests {
             "--open-arrange=Chrome.UserData.Profile3",
             "--peek-card=2",
             "--theme=Dark",
+            "--attention=0x1A2B",
         ]);
         let (scene, theme, notes) = scene_flags(&list, true);
         assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(scene.attention, Some(0x1A2B));
         assert_eq!(scene.palette_query.as_deref(), Some("=2+2*3"));
         assert_eq!(
             scene.settings,

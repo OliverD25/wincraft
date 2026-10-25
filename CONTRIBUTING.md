@@ -416,6 +416,7 @@ it is a separate instance:
   | `--open-settings=<page>` | `general`, `plugins`, `layout`, `store`, `about`, or a plugin's page: `plugin:layout_keeper`. |
   | `--open-arrange=<group>` | The Arrange strip on a group, by its place (`0` is the first) or its key. |
   | `--peek-card=<n>` | The strip with the hover peek on card `n` (from 0), or `chip` for the first card of a window that is not on the primary monitor. |
+  | `--attention=<hwnd>` | Marks that window as wanting attention at start, as if it had flashed its taskbar button, so its card in the strip is orange. The window itself is not touched. |
   | `--theme=light` or `dark` | That theme for this run. |
   | `--ask-name=<hwnd>` | The palette's rename box for that window (WindowNamer). Nothing is renamed without Enter. |
   | `--show-tip=<id>` | Lets that in-app tip show. A test instance shows no tip otherwise, so no other scene carries one. `bookmark-ctrl-b` is the hint over a folder or file row (pair it with a query that selects one, such as `--open-palette=/C:\Windows\`); `bookmark-saved` opens the palette on the confirmation that follows saving a bookmark, with no Enter needed. |
