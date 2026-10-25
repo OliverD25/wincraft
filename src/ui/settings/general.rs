@@ -12,7 +12,7 @@ use crate::ui::widgets::button::{self, Kind};
 use crate::ui::widgets::capture::{self, Outcome};
 use crate::ui::widgets::input::{self, Face};
 use crate::ui::widgets::row::{settings_row, RowText};
-use crate::ui::widgets::{choice, keycap, text, toggle};
+use crate::ui::widgets::{choice, keycap, text, theme_tile, toggle};
 
 const PALETTE_OWNER: &str = "host/palette";
 
@@ -30,7 +30,7 @@ pub fn show(
                 ui,
                 "General",
                 None,
-                "WinCraft follows the Windows theme unless you choose one here.",
+                "How WinCraft starts, looks and searches.",
                 |_| {},
             );
             ui.add_space(16.0);
@@ -52,30 +52,6 @@ pub fn show(
                     if toggle::toggle(ui, &mut on).changed() {
                         to_host.send(HostRequest::SetHostSetting(HostSetting::StartWithWindows(
                             on,
-                        )));
-                    }
-                },
-            );
-
-            settings_row(
-                ui,
-                "theme",
-                RowText::new("Theme").desc(
-                    "System follows the Windows app mode.",
-                    tokens.text_secondary,
-                ),
-                false,
-                |ui| {
-                    let labels: Vec<&str> = ThemeChoice::ALL
-                        .iter()
-                        .map(|choice| choice.label())
-                        .collect();
-                    let current = ThemeChoice::ALL
-                        .iter()
-                        .position(|choice| *choice == snapshot.theme);
-                    if let Some(index) = choice::segmented(ui, &labels, current) {
-                        to_host.send(HostRequest::SetHostSetting(HostSetting::Theme(
-                            ThemeChoice::ALL[index],
                         )));
                     }
                 },
@@ -128,10 +104,71 @@ pub fn show(
             );
             file_row(ui, "log-file", "Log file", &snapshot.log_path, to_host);
 
+            page::section_header(ui, "Appearance");
+            appearance_rows(ui, snapshot, state, to_host);
+
             page::section_header(ui, "Palette search");
             search_rows(ui, &snapshot.search, to_host);
             usage_rows(ui, &snapshot.search, &mut state.usage_cleared, to_host);
         });
+}
+
+/// The theme tiles and the mode. Pointing at a tile shows that theme in
+/// every WinCraft window; a click keeps it.
+fn appearance_rows(
+    ui: &mut egui::Ui,
+    snapshot: &UiSnapshot,
+    state: &mut SettingsState,
+    to_host: &Arc<HostChannel>,
+) {
+    let tokens = Tokens::get(ui.ctx());
+    settings_row(
+        ui,
+        "theme",
+        RowText::new("Theme").desc(
+            "Point at a theme to try it in every WinCraft window. Click it to keep it.",
+            tokens.text_secondary,
+        ),
+        false,
+        |_| {},
+    );
+    ui.add_space(12.0);
+    if let Some(name) = theme_tile::picker(ui, snapshot.theme, &mut state.theme_preview) {
+        to_host.send(HostRequest::SetHostSetting(HostSetting::Theme(name)));
+    }
+    if theme::windows_high_contrast() {
+        ui.add_space(8.0);
+        text::secondary(
+            ui,
+            "Windows high contrast is on, so WinCraft uses High contrast.",
+            tokens.warning,
+        );
+    }
+    ui.add_space(12.0);
+
+    settings_row(
+        ui,
+        "mode",
+        RowText::new("Mode").desc(
+            "System follows the Windows app mode.",
+            tokens.text_secondary,
+        ),
+        false,
+        |ui| {
+            let labels: Vec<&str> = ThemeChoice::ALL
+                .iter()
+                .map(|choice| choice.label())
+                .collect();
+            let current = ThemeChoice::ALL
+                .iter()
+                .position(|choice| *choice == snapshot.mode);
+            if let Some(index) = choice::segmented(ui, &labels, current) {
+                to_host.send(HostRequest::SetHostSetting(HostSetting::Mode(
+                    ThemeChoice::ALL[index],
+                )));
+            }
+        },
+    );
 }
 
 /// The palette's terminal shell, web search address and history switch.
@@ -430,7 +467,11 @@ mod tests {
     fn draw(tips: &TipsConfig, reset: &mut Option<std::time::Instant>) {
         let ctx = egui::Context::default();
         theme::install_fonts(&ctx);
-        theme::apply(&ctx, ThemeChoice::Dark);
+        theme::apply(
+            &ctx,
+            crate::core::config::ThemeName::Classic,
+            ThemeChoice::Dark,
+        );
         let bridge = crate::core::ui_bridge::create();
         for _ in 0..3 {
             let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {

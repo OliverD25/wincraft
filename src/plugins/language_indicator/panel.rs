@@ -70,7 +70,7 @@ impl Panel {
         let (mut dpi_x, mut dpi_y) = (96u32, 96u32);
         unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) };
         let scale = dpi_x.max(96) as f32 / 96.0;
-        let tokens = theme::Tokens::for_choice(theme::current());
+        let tokens = theme::current_tokens();
         let Some(image) = render(content, scale, &tokens) else {
             log::warn!("could not draw the language panel");
             return;

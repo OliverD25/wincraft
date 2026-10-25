@@ -496,7 +496,11 @@ mod tests {
     fn draw(shared: &Shared, view: &mut BookmarksView, frames: usize) {
         let ctx = egui::Context::default();
         theme::install_fonts(&ctx);
-        theme::apply(&ctx, ThemeChoice::Dark);
+        theme::apply(
+            &ctx,
+            crate::core::config::ThemeName::Classic,
+            ThemeChoice::Dark,
+        );
         let bridge = crate::core::ui_bridge::create();
         for _ in 0..frames {
             let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {

@@ -104,6 +104,6 @@ pub fn status_dot(ui: &mut Ui, colour: Color32, filled: bool) {
     if filled {
         painter.circle_filled(rect.center(), 3.0, colour);
     } else {
-        painter.circle_stroke(rect.center(), 2.5, theme::stroke(ui.ctx(), 1.0, colour));
+        painter.circle_stroke(rect.center(), 2.5, theme::line(ui.ctx(), colour));
     }
 }

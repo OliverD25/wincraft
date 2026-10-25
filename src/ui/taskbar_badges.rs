@@ -24,13 +24,11 @@ const CLASS_NAME: &str = "WinCraftTaskbarBadge";
 const BADGE_HEIGHT: f32 = 20.0;
 const BADGE_PAD_X: f32 = 6.0;
 const BADGE_TEXT: f32 = 12.0;
-const BADGE_RADIUS: f32 = 4.0;
 /// Between a badge and the top of its button.
 const BADGE_GAP: f32 = 4.0;
 const LINE_TEXT: f32 = 14.0;
 const LINE_PAD_X: f32 = 16.0;
 const LINE_PAD_Y: f32 = 10.0;
-const LINE_RADIUS: f32 = 8.0;
 /// Between the line and the bottom of the work area, clear of the badges.
 const LINE_LIFT: f32 = 40.0;
 
@@ -43,7 +41,7 @@ impl WaitHint {
     /// Shows a badge over each of `buttons`, numbered from 1, and `line`
     /// at the bottom of the main monitor.
     pub fn show(buttons: &[Button], line: &str) -> Self {
-        let tokens = theme::Tokens::for_choice(theme::current());
+        let tokens = theme::current_tokens();
         let mut windows = Vec::new();
         for (index, button) in buttons.iter().enumerate() {
             let centre = POINT {
@@ -56,7 +54,7 @@ impl WaitHint {
                 weight: 0,
                 pad_x: BADGE_PAD_X,
                 height: BADGE_HEIGHT,
-                radius: BADGE_RADIUS,
+                radius: f32::from(tokens.radius_row),
                 fill: tokens.window_bg,
                 edge: tokens.accent,
                 colour: tokens.text_primary,
@@ -85,9 +83,9 @@ impl WaitHint {
                 weight: 1,
                 pad_x: LINE_PAD_X,
                 height: LINE_TEXT * 1.4 + 2.0 * LINE_PAD_Y,
-                radius: LINE_RADIUS,
+                radius: f32::from(tokens.radius_window),
                 fill: tokens.elevated_bg,
-                edge: tokens.border,
+                edge: tokens.rim,
                 colour: tokens.text_primary,
             };
             if let Some(image) = render(line, &look, scale) {

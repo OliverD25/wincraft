@@ -23,7 +23,7 @@ use crate::core::traits::Hotkey;
 use crate::core::ui_bridge::{HostChannel, LayoutSnapshot, Page, UiSnapshot};
 use crate::plugins::shortcut_detector::probe::{self, Status};
 use crate::ui::widgets::capture::{self, Verdict};
-use crate::ui::widgets::{focus, hotkey_capture, row, text};
+use crate::ui::widgets::{focus, hotkey_capture, row, text, theme_tile};
 
 /// A window of this thread by its title. The palette and the settings window
 /// are both titled "WinCraft" and winit keeps WS_CAPTION on the undecorated
@@ -197,8 +197,8 @@ impl Readme {
     pub fn boxed(&mut self, ui: &mut Ui, source: &str) {
         let tokens = Tokens::get(ui.ctx());
         egui::Frame::NONE
-            .stroke(theme::stroke(ui.ctx(), 1.0, tokens.border))
-            .corner_radius(4)
+            .stroke(theme::line(ui.ctx(), tokens.border))
+            .corner_radius(tokens.radius_row)
             .inner_margin(Margin::symmetric(20, 16))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
@@ -229,6 +229,8 @@ pub struct SettingsState {
     pub log: layout::LogView,
     /// The Bookmarks page's form boxes and what it knows about the places.
     pub bookmarks: bookmarks::BookmarksView,
+    /// The theme the General page's tiles are previewing.
+    pub theme_preview: theme_tile::HoverPreview,
 }
 
 impl SettingsState {
@@ -382,9 +384,11 @@ impl Settings {
             .unwrap_or(false)
     }
 
+    /// The caller also ends a theme preview, which needs the egui context.
     pub fn hidden(&self) {
         if let Ok(mut shared) = self.shared.lock() {
             shared.state.end_capture();
+            shared.state.theme_preview = theme_tile::HoverPreview::default();
             shared.closed = false;
             shared.window = 0;
         }
@@ -497,6 +501,12 @@ impl Settings {
                     Page::Store => store::show(ui, snapshot, state, to_host),
                     Page::About => about::show(ui, snapshot, state, to_host),
                 });
+            // The tiles end their own preview when the pointer leaves them,
+            // but not when the page they are on is no longer drawn.
+            if state.page != Page::General && state.theme_preview.shown().is_some() {
+                state.theme_preview = theme_tile::HoverPreview::default();
+                theme::preview(ui.ctx(), None);
+            }
 
             // After the page, so a tile grid that has focus takes the arrows
             // first. Typing in a box or recording a hotkey keeps them too.

@@ -65,8 +65,8 @@ pub fn search_box(
     let painter = ui.painter();
     painter.rect_stroke(
         rect,
-        4,
-        theme::stroke(ui.ctx(), 1.0, border),
+        tokens.radius_row,
+        theme::line(ui.ctx(), border),
         StrokeKind::Inside,
     );
     icons::paint(painter, icon_rect, Icon::Search, tokens.text_disabled);

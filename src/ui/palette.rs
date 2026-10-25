@@ -4,8 +4,7 @@ use std::time::{Duration, Instant};
 
 use egui::text::LayoutJob;
 use egui::{
-    pos2, vec2, Align, Color32, CornerRadius, FontId, Layout, Rect, Sense, Shadow, StrokeKind,
-    UiBuilder,
+    pos2, vec2, Align, Color32, CornerRadius, FontId, Layout, Rect, Sense, StrokeKind, UiBuilder,
 };
 
 use crate::core::theme::{self, Tokens};
@@ -35,7 +34,6 @@ pub const HEIGHT: f32 = PANEL_HEIGHT + MARGIN * 2.0;
 
 const SEARCH_HEIGHT: f32 = 56.0;
 const FOOTER_HEIGHT: f32 = 36.0;
-const ROW_HEIGHT: f32 = 44.0;
 const COMPACT_HEIGHT: f32 = 24.0;
 const ROW_PADDING: f32 = 12.0;
 const ICON_SIZE: f32 = 16.0;
@@ -511,7 +509,8 @@ impl Palette {
         // Search bar: 56 high, 16 px sides, the search icon, the prefix chip
         // when a prefix is on, then the query.
         let search = Rect::from_min_size(panel.min, vec2(PANEL_WIDTH, SEARCH_HEIGHT));
-        painter.hline(search.x_range(), search.bottom() - line.width / 2.0, line);
+        let rule = search_rule(ui.ctx(), &tokens, line);
+        painter.hline(search.x_range(), search.bottom() - rule.width / 2.0, rule);
         let icon = Rect::from_center_size(
             pos2(search.left() + 16.0 + 8.0, search.center().y),
             vec2(16.0, 16.0),
@@ -773,7 +772,8 @@ impl Palette {
 
         let (panel, painter, line) = paint_panel(ui, &tokens, appear);
         let search = Rect::from_min_size(panel.min, vec2(PANEL_WIDTH, SEARCH_HEIGHT));
-        painter.hline(search.x_range(), search.bottom() - line.width / 2.0, line);
+        let rule = search_rule(ui.ctx(), &tokens, line);
+        painter.hline(search.x_range(), search.bottom() - rule.width / 2.0, rule);
         let icon = Rect::from_center_size(
             pos2(search.left() + 16.0 + 8.0, search.center().y),
             vec2(16.0, 16.0),
@@ -934,6 +934,16 @@ fn prompt_row_title(prompt: &Prompt, typed: &str) -> String {
         .unwrap_or_else(|| "Type, then press Enter".to_string())
 }
 
+/// The rule under the search field: the plain border, or an accent line
+/// in themes that draw one.
+fn search_rule(ctx: &egui::Context, tokens: &Tokens, line: egui::Stroke) -> egui::Stroke {
+    if tokens.search_line > 0.0 {
+        theme::stroke(ctx, tokens.search_line, tokens.accent)
+    } else {
+        line
+    }
+}
+
 /// The panel with its shadow and border, rising as it fades in. Returns
 /// the panel's rectangle, a painter and the 1 px rule.
 fn paint_panel(
@@ -948,25 +958,19 @@ fn paint_panel(
         window.min + vec2(MARGIN, MARGIN + (1.0 - appear) * RISE),
         vec2(PANEL_WIDTH, PANEL_HEIGHT),
     );
-    let radius = CornerRadius::same(8);
+    let radius = CornerRadius::same(tokens.radius_window);
     let painter = ui.painter().clone();
-    painter.add(
-        Shadow {
-            offset: [0, 12],
-            blur: 32,
-            spread: 0,
-            color: tokens.palette_shadow,
-        }
-        .as_shape(panel, radius),
-    );
+    if tokens.shadows {
+        painter.add(theme::window_shadow(tokens).as_shape(panel, radius));
+    }
     painter.rect(
         panel,
         radius,
         tokens.elevated_bg,
-        theme::stroke(&ctx, 1.0, tokens.border),
+        theme::line(&ctx, tokens.rim),
         StrokeKind::Inside,
     );
-    (panel, painter, theme::stroke(&ctx, 1.0, tokens.border))
+    (panel, painter, theme::line(&ctx, tokens.border))
 }
 
 /// The active prefix and its provider's name, such as "< Windows": the
@@ -996,9 +1000,9 @@ fn prefix_chip(
     );
     painter.rect(
         rect,
-        4,
+        tokens.radius_row,
         tokens.panel_bg,
-        theme::stroke(ctx, 1.0, tokens.border),
+        theme::line(ctx, tokens.border),
         StrokeKind::Inside,
     );
     let mark_width = mark.size().x;
@@ -1173,7 +1177,7 @@ fn result_row(
     let height = if entry.compact {
         COMPACT_HEIGHT
     } else {
-        ROW_HEIGHT
+        tokens.row_height
     };
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), height), sense);
     if !ui.is_rect_visible(rect) {
@@ -1185,8 +1189,11 @@ fn result_row(
     if selected {
         row::paint_selection(ui, rect);
     } else if hover > 0.0 {
-        ui.painter()
-            .rect_filled(rect, 4, tokens.hover_bg.gamma_multiply(hover));
+        ui.painter().rect_filled(
+            rect,
+            tokens.radius_row,
+            tokens.hover_bg.gamma_multiply(hover),
+        );
     }
 
     let inner = rect.shrink2(vec2(ROW_PADDING, 0.0));
@@ -1687,7 +1694,11 @@ mod tests {
     fn drawing_context() -> egui::Context {
         let ctx = egui::Context::default();
         theme::install_fonts(&ctx);
-        theme::apply(&ctx, crate::core::config::ThemeChoice::Dark);
+        theme::apply(
+            &ctx,
+            crate::core::config::ThemeName::Classic,
+            crate::core::config::ThemeChoice::Dark,
+        );
         ctx
     }
 
@@ -2021,7 +2032,11 @@ mod tests {
         let snapshot = UiSnapshot::default();
         let ctx = egui::Context::default();
         theme::install_fonts(&ctx);
-        theme::apply(&ctx, crate::core::config::ThemeChoice::Dark);
+        theme::apply(
+            &ctx,
+            crate::core::config::ThemeName::Classic,
+            crate::core::config::ThemeChoice::Dark,
+        );
         palette.opened();
         palette.type_in("'");
         let frame = |palette: &mut Palette, events: Vec<egui::Event>| {

@@ -56,9 +56,9 @@ fn chip(ui: &mut Ui, text: &str, font: FontId, text_colour: Color32, stroke: Col
     if ui.is_rect_visible(rect) {
         ui.painter().rect(
             rect,
-            4,
+            tokens.radius_row,
             tokens.panel_bg,
-            theme::stroke(ui.ctx(), 1.0, stroke),
+            theme::line(ui.ctx(), stroke),
             StrokeKind::Inside,
         );
         ui.painter()

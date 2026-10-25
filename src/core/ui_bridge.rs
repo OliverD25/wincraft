@@ -7,7 +7,7 @@ use serde_json::Value;
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APP};
 
-use crate::core::config::{SearchConfig, ThemeChoice};
+use crate::core::config::{SearchConfig, ThemeChoice, ThemeName};
 use crate::core::tips::TipsConfig;
 use crate::core::traits::FieldKind;
 
@@ -62,7 +62,8 @@ pub enum CommandId {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HostSetting {
     StartWithWindows(bool),
-    Theme(ThemeChoice),
+    Theme(ThemeName),
+    Mode(ThemeChoice),
     PaletteHotkey(String),
     /// The palette search settings, sent whole after one of them changed.
     Search(SearchConfig),
@@ -552,7 +553,8 @@ pub struct UiSnapshot {
     /// Set when this copy is not the installed one and so cannot change the
     /// logon task; shown in place of the setting's help text.
     pub autostart_note: Option<String>,
-    pub theme: ThemeChoice,
+    pub theme: ThemeName,
+    pub mode: ThemeChoice,
     pub palette_hotkey: String,
     pub palette_hotkey_registered: bool,
     pub config_path: PathBuf,

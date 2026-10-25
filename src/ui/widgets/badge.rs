@@ -1,6 +1,6 @@
 use egui::{vec2, Color32, Response, Sense, StrokeKind, Ui};
 
-use crate::core::theme;
+use crate::core::theme::{self, Tokens};
 
 /// 20 high outlined chip with 12 px text. The status lives in the colour of
 /// the outline and the words, never in a fill.
@@ -23,8 +23,8 @@ fn sized(ui: &mut Ui, text: &str, stroke: Color32, text_colour: Color32, height:
         let painter = ui.painter();
         painter.rect_stroke(
             rect,
-            4,
-            theme::stroke(ui.ctx(), 1.0, stroke),
+            Tokens::get(ui.ctx()).radius_row,
+            theme::line(ui.ctx(), stroke),
             StrokeKind::Inside,
         );
         painter.galley(rect.center() - galley.size() / 2.0, galley, text_colour);

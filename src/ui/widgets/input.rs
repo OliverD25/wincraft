@@ -39,8 +39,8 @@ pub fn text(ui: &mut Ui, id_salt: &str, value: &mut String, face: Face, width: f
     };
     ui.painter().rect_stroke(
         rect,
-        4,
-        theme::stroke(ui.ctx(), 1.0, border),
+        tokens.radius_row,
+        theme::line(ui.ctx(), border),
         StrokeKind::Inside,
     );
     response

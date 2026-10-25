@@ -279,7 +279,11 @@ mod tests {
     fn the_plugins_page_draws_its_grid_and_search_without_sending_anything() {
         let ctx = egui::Context::default();
         theme::install_fonts(&ctx);
-        theme::apply(&ctx, ThemeChoice::Dark);
+        theme::apply(
+            &ctx,
+            crate::core::config::ThemeName::Classic,
+            ThemeChoice::Dark,
+        );
         let bridge = crate::core::ui_bridge::create();
         let snapshot = UiSnapshot {
             plugins: vec![

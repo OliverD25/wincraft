@@ -783,7 +783,11 @@ mod tests {
     fn context() -> egui::Context {
         let ctx = egui::Context::default();
         theme::install_fonts(&ctx);
-        theme::apply(&ctx, ThemeChoice::Dark);
+        theme::apply(
+            &ctx,
+            crate::core::config::ThemeName::Classic,
+            ThemeChoice::Dark,
+        );
         ctx
     }
 

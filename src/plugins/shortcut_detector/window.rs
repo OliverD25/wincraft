@@ -76,7 +76,7 @@ struct Colours {
 }
 
 fn colours() -> Colours {
-    let tokens = theme::Tokens::for_choice(theme::current());
+    let tokens = theme::current_tokens();
     Colours {
         background: theme::colorref(tokens.window_bg),
         text: theme::colorref(tokens.text_primary),

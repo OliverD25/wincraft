@@ -1,6 +1,6 @@
 use egui::{
-    pos2, vec2, Align, Color32, CornerRadius, CursorIcon, Layout, Rect, Response, Sense, Shape, Ui,
-    UiBuilder,
+    pos2, vec2, Align, Color32, CornerRadius, CursorIcon, Layout, Rect, Response, Sense, Shape,
+    StrokeKind, Ui, UiBuilder,
 };
 
 use crate::core::theme::{self, Tokens};
@@ -126,7 +126,7 @@ pub fn settings_row(
 
     let response = scoped.response;
     let rect = response.rect;
-    let line = theme::stroke(ui.ctx(), 1.0, tokens.border);
+    let line = theme::line(ui.ctx(), tokens.border);
     ui.painter()
         .hline(rect.x_range(), rect.bottom() - line.width / 2.0, line);
     if clickable {
@@ -143,15 +143,35 @@ pub fn settings_row(
     response
 }
 
-/// Selection is drawn from state, never from hover: the selection tint plus a
-/// 2 px accent rule inset on the left edge.
+/// Selection is drawn from state, never from hover: the selection tint plus
+/// the theme's accent rule inset on the left edge, or in High contrast an
+/// accent outline.
 pub fn paint_selection(ui: &Ui, rect: Rect) {
     let tokens = Tokens::get(ui.ctx());
     let painter = ui.painter();
-    painter.rect_filled(rect, 4, tokens.selection_bg);
-    let rule = theme::snap(2.0, ui.ctx().pixels_per_point());
+    painter.rect_filled(rect, tokens.radius_row, tokens.selection_bg);
+    if tokens.selection_ring {
+        painter.rect_stroke(
+            rect,
+            tokens.radius_row,
+            theme::stroke(ui.ctx(), 2.0, tokens.accent),
+            StrokeKind::Inside,
+        );
+    }
+    if tokens.pill_width <= 0.0 {
+        return;
+    }
+    let rule = theme::snap(tokens.pill_width, ui.ctx().pixels_per_point());
+    let height = tokens
+        .pill_height
+        .unwrap_or(rect.height())
+        .min(rect.height());
+    let top = rect.center().y - height / 2.0;
     painter.rect_filled(
-        Rect::from_min_max(rect.left_top(), pos2(rect.left() + rule, rect.bottom())),
+        Rect::from_min_max(
+            pos2(rect.left(), top),
+            pos2(rect.left() + rule, top + height),
+        ),
         CornerRadius {
             nw: 1,
             sw: 1,
@@ -174,8 +194,11 @@ pub fn nav_item(ui: &mut Ui, label: &str, selected: bool) -> Response {
         if selected {
             paint_selection(ui, rect);
         } else if hover > 0.0 {
-            ui.painter()
-                .rect_filled(rect, 4, tokens.panel_bg.gamma_multiply(hover));
+            ui.painter().rect_filled(
+                rect,
+                tokens.radius_row,
+                tokens.panel_bg.gamma_multiply(hover),
+            );
         }
         let colour = if selected {
             tokens.accent
@@ -189,7 +212,7 @@ pub fn nav_item(ui: &mut Ui, label: &str, selected: bool) -> Response {
             theme::regular(14.0),
             colour,
         );
-        focus::ring(ui, &response, 4.0);
+        focus::ring(ui, &response, f32::from(tokens.radius_row));
     }
     response.on_hover_cursor(CursorIcon::PointingHand)
 }

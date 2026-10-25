@@ -84,7 +84,7 @@ pub fn slider(ui: &mut Ui, value: &mut f64, min: f64, max: f64, step: f64) -> Re
             pos2(knob_x, track.center().y),
             KNOB / 2.0 - 0.5,
             tokens.window_bg,
-            theme::stroke(ui.ctx(), 1.0, tokens.accent),
+            theme::line(ui.ctx(), tokens.accent),
         );
         painter.text(
             pos2(rect.right(), rect.center().y),

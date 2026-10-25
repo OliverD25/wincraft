@@ -15,6 +15,7 @@ pub mod row;
 pub mod search_box;
 pub mod slider;
 pub mod text;
+pub mod theme_tile;
 pub mod tile;
 pub mod tip;
 pub mod toggle;

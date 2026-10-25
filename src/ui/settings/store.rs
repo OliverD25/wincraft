@@ -428,7 +428,11 @@ mod tests {
     fn the_store_draws_a_tile_for_every_state_and_sends_nothing_by_itself() {
         let ctx = egui::Context::default();
         theme::install_fonts(&ctx);
-        theme::apply(&ctx, ThemeChoice::Dark);
+        theme::apply(
+            &ctx,
+            crate::core::config::ThemeName::Classic,
+            ThemeChoice::Dark,
+        );
         let bridge = crate::core::ui_bridge::create();
         let snapshot = UiSnapshot {
             version: "0.20.2".to_string(),

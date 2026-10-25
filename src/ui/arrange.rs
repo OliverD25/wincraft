@@ -1182,9 +1182,9 @@ fn note_line(ctx: &egui::Context, panel: Rect, text: &str) {
     );
     layer.rect(
         rect,
-        4,
+        tokens.radius_row,
         tokens.elevated_bg,
-        theme::stroke(ctx, 1.0, tokens.border),
+        theme::line(ctx, tokens.border),
         StrokeKind::Inside,
     );
     layer.galley(
@@ -1862,7 +1862,7 @@ fn flat(
             egui::Order::Tooltip,
             egui::Id::new("arrange-drag"),
         ));
-        layer.rect_filled(rect, 6, tokens.hover_bg);
+        layer.rect_filled(rect, tokens.radius_tile, tokens.hover_bg);
         if let Some(monitor) = &window.monitor {
             monitor_chip(&layer, rect, monitor);
         }
@@ -1991,7 +1991,7 @@ fn ctrl_mark(ctx: &egui::Context, ghost: Rect, outlined: Option<Rect>, hint: &st
     if let Some(card) = outlined {
         layer.rect_stroke(
             card,
-            6,
+            tokens.radius_tile,
             theme::stroke(ctx, 2.0, tokens.accent),
             StrokeKind::Inside,
         );
@@ -2009,9 +2009,9 @@ fn ctrl_mark(ctx: &egui::Context, ghost: Rect, outlined: Option<Rect>, hint: &st
     let chip = Rect::from_min_size(pos2(left, top), size);
     layer.rect(
         chip,
-        4,
+        tokens.radius_row,
         tokens.panel_bg,
-        theme::stroke(ctx, 1.0, tokens.accent),
+        theme::line(ctx, tokens.accent),
         StrokeKind::Inside,
     );
     layer.galley(
@@ -2035,9 +2035,9 @@ fn float_picture(
     let tokens = Tokens::get(layer.ctx());
     layer.rect(
         area,
-        4,
+        tokens.radius_row,
         tokens.panel_bg,
-        theme::stroke(layer.ctx(), 1.0, tokens.accent),
+        theme::line(layer.ctx(), tokens.accent),
         StrokeKind::Inside,
     );
     if !menu_open {
@@ -2468,9 +2468,9 @@ fn card(
     let border = if lit { tokens.accent } else { tokens.border };
     painter.rect(
         area,
-        4,
+        tokens.radius_row,
         tokens.panel_bg,
-        theme::stroke(ui.ctx(), 1.0, border),
+        theme::line(ui.ctx(), border),
         StrokeKind::Inside,
     );
     let picture = area.shrink(1.0);
@@ -2542,9 +2542,9 @@ fn number_chip(painter: &egui::Painter, at: Pos2, height: f32, number: usize) ->
     let chip = Rect::from_min_size(at, vec2((galley.size().x + 10.0).max(height), height));
     painter.rect(
         chip,
-        4,
+        tokens.radius_row,
         theme::with_alpha(tokens.panel_bg, 0.75),
-        theme::stroke(painter.ctx(), 1.0, tokens.border),
+        theme::line(painter.ctx(), tokens.border),
         StrokeKind::Inside,
     );
     painter.galley(
@@ -2615,9 +2615,9 @@ fn same_title_chip(painter: &egui::Painter, card: Rect) -> Rect {
     );
     painter.rect(
         chip,
-        4,
+        tokens.radius_row,
         tokens.panel_bg,
-        theme::stroke(painter.ctx(), 1.0, tokens.warning),
+        theme::line(painter.ctx(), tokens.warning),
         StrokeKind::Inside,
     );
     painter.galley(chip.center() - galley.size() / 2.0, galley, tokens.warning);
@@ -2647,9 +2647,9 @@ fn monitor_chip(painter: &egui::Painter, card: Rect, text: &str) {
     );
     painter.rect(
         chip,
-        4,
+        tokens.radius_row,
         tokens.panel_bg,
-        theme::stroke(painter.ctx(), 1.0, tokens.border),
+        theme::line(painter.ctx(), tokens.border),
         StrokeKind::Inside,
     );
     painter.galley(
@@ -2666,9 +2666,9 @@ fn gap(ui: &mut Ui, width: f32) {
     let area = picture_area(rect);
     ui.painter().rect(
         area,
-        4,
+        tokens.radius_row,
         theme::with_alpha(tokens.accent, 0.12),
-        theme::stroke(ui.ctx(), 1.0, tokens.accent),
+        theme::line(ui.ctx(), tokens.accent),
         StrokeKind::Inside,
     );
 }
@@ -2680,9 +2680,9 @@ fn placeholder(ui: &mut Ui, text_line: &str) {
     let area = picture_area(rect);
     ui.painter().rect(
         area,
-        4,
+        tokens.radius_row,
         egui::Color32::TRANSPARENT,
-        theme::stroke(ui.ctx(), 1.0, tokens.border),
+        theme::line(ui.ctx(), tokens.border),
         StrokeKind::Inside,
     );
     let galley = ui.painter().layout_job(text::job(

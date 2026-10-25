@@ -77,7 +77,7 @@ fn run(
         Box::new(move |cc| {
             to_ui.attach(cc.egui_ctx.clone());
             theme::install_fonts(&cc.egui_ctx);
-            theme::apply(&cc.egui_ctx, snapshot.theme);
+            theme::apply(&cc.egui_ctx, snapshot.theme, snapshot.mode);
             let palette_hwnd = report_palette_window(cc, &to_host);
             Ok(Box::new(App::new(
                 rx,
@@ -252,6 +252,7 @@ impl App {
                 }
                 UiCommand::HideAll => {
                     self.hide_palette(ctx);
+                    theme::preview(ctx, None);
                     self.settings_open = false;
                     self.arrange_open = false;
                     self.arrange.hidden();
@@ -263,10 +264,18 @@ impl App {
                     if self.settings_open {
                         ctx.request_repaint_of(settings::viewport_id());
                     }
+                    // ThemeChanged reaches the UI before the snapshot that
+                    // carries the new choice, so the choice is applied here.
+                    let look = (snapshot.theme, snapshot.mode);
+                    if look != (self.snapshot.theme, self.snapshot.mode) {
+                        theme::apply(ctx, look.0, look.1);
+                    }
                     self.snapshot = *snapshot;
                     self.palette.invalidate();
                 }
-                UiCommand::ThemeChanged => theme::apply(ctx, self.snapshot.theme),
+                UiCommand::ThemeChanged => {
+                    theme::apply(ctx, self.snapshot.theme, self.snapshot.mode)
+                }
                 UiCommand::Quit => {
                     self.quitting = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -331,7 +340,7 @@ impl eframe::App for App {
         let scale = ctx.pixels_per_point();
         if (scale - self.applied_scale).abs() > f32::EPSILON {
             self.applied_scale = scale;
-            theme::apply(ctx, self.snapshot.theme);
+            theme::apply(ctx, self.snapshot.theme, self.snapshot.mode);
         }
         if self.quitting {
             return;
@@ -380,6 +389,7 @@ impl eframe::App for App {
             if self.settings.was_closed() {
                 self.settings_open = false;
                 self.settings.hidden();
+                theme::preview(&ctx, None);
             } else {
                 self.settings.show(&ctx, Some(Arc::clone(&self.icon)));
             }

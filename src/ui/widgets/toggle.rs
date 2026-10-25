@@ -48,7 +48,7 @@ pub fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
             rect,
             10,
             egui::Color32::TRANSPARENT,
-            theme::stroke(ui.ctx(), 1.0, colour),
+            theme::line(ui.ctx(), colour),
             StrokeKind::Inside,
         );
         let left = rect.left() + INSET + KNOB / 2.0;

@@ -90,7 +90,7 @@ pub fn show(
     let hover =
         ui.ctx()
             .animate_bool_with_time(id.with("hover"), response.hovered() && !selected, 0.08);
-    let line = theme::stroke(ui.ctx(), 1.0, tokens.border);
+    let line = theme::line(ui.ctx(), tokens.border);
     let painter = ui.painter().clone();
 
     let (fill, border) = if selected {
@@ -100,33 +100,36 @@ pub fn show(
     };
     painter.rect(
         rect,
-        6,
+        tokens.radius_tile,
         fill,
-        theme::stroke(ui.ctx(), 1.0, border),
+        theme::line(ui.ctx(), border),
         StrokeKind::Inside,
     );
 
     let band = Rect::from_min_size(rect.min, vec2(rect.width(), BAND)).shrink(0.5);
-    painter.rect_filled(
-        band,
-        CornerRadius {
-            nw: 5,
-            ne: 5,
-            sw: 0,
-            se: 0,
-        },
-        tokens.panel_bg,
-    );
+    if tokens.tile_fill {
+        let inner = tokens.radius_tile.saturating_sub(1);
+        painter.rect_filled(
+            band,
+            CornerRadius {
+                nw: inner,
+                ne: inner,
+                sw: 0,
+                se: 0,
+            },
+            tokens.panel_bg,
+        );
+    }
     painter.hline(
         band.x_range(),
         band.bottom() - line.width / 2.0,
-        theme::stroke(ui.ctx(), 1.0, border),
+        theme::line(ui.ctx(), border),
     );
     icons::paint_weighted(
         &painter,
         Rect::from_center_size(band.center(), vec2(40.0, 40.0)),
         tile.icon,
-        tokens.accent,
+        tokens.tile_fg,
         1.5,
     );
 

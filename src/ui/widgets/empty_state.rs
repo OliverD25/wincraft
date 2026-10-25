@@ -38,7 +38,7 @@ fn framed(ui: &mut Ui, title: &str, body: impl FnOnce(&mut Ui)) {
         .response;
 
     let rect = response.rect.shrink(0.5);
-    let stroke = theme::stroke(ui.ctx(), 1.0, tokens.border);
+    let stroke = theme::line(ui.ctx(), tokens.border);
     let corners = [
         rect.left_top(),
         rect.right_top(),

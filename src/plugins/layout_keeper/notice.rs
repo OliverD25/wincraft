@@ -470,7 +470,7 @@ impl Notice {
         let (mut dpi_x, mut dpi_y) = (96u32, 96u32);
         unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) };
         let scale = dpi_x.max(96) as f32 / 96.0;
-        let tokens = theme::Tokens::for_choice(theme::current());
+        let tokens = theme::current_tokens();
         let Some(image) = render(content, scale, &tokens) else {
             log::warn!(target: "layout_keeper", "could not draw the restore notice");
             return;
@@ -822,7 +822,6 @@ pub fn same_label(group: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::config::ThemeChoice;
 
     fn title_of(content: Option<Content>) -> Option<String> {
         content.map(|content| content.title)
@@ -1064,7 +1063,7 @@ mod tests {
 
     #[test]
     fn the_panel_is_drawn_wide_enough_for_its_text() {
-        let tokens = theme::Tokens::for_choice(ThemeChoice::Dark);
+        let tokens = theme::Tokens::dark();
         let content = active_content(&sample(), &same_label).unwrap();
         let image = render(&content, 1.0, &tokens).expect("GDI draws the panel");
         assert!(image.width >= MIN_WIDTH as i32);
@@ -1133,7 +1132,7 @@ mod tests {
 
     #[test]
     fn the_panel_never_passes_its_widest() {
-        let tokens = theme::Tokens::for_choice(ThemeChoice::Dark);
+        let tokens = theme::Tokens::dark();
         let long = "a very long app name ".repeat(20);
         let content = Content {
             title: TITLE.to_string(),
@@ -1192,7 +1191,7 @@ mod tests {
     fn the_panel_has_the_app_icon_beside_its_title() {
         // The exe in a test run has no icon resource, so the panel is drawn
         // without it, and the same code path is exercised either way.
-        let tokens = theme::Tokens::for_choice(ThemeChoice::Light);
+        let tokens = theme::Tokens::light();
         let content = active_content(&sample(), &same_label).unwrap();
         let image = render(&content, 1.0, &tokens).expect("GDI draws the panel");
         assert!(image.width >= MIN_WIDTH as i32);
@@ -1431,7 +1430,7 @@ mod tests {
 
     #[test]
     fn the_bar_is_drawn_in_the_track_and_fill_colours() {
-        let tokens = theme::Tokens::for_choice(ThemeChoice::Dark);
+        let tokens = theme::Tokens::dark();
         let with = |bar| Content {
             bar,
             ..active_content(&sample(), &same_label).unwrap()

@@ -44,7 +44,7 @@ pub fn segmented(ui: &mut Ui, options: &[&str], selected: Option<usize>) -> Opti
         .map(|galley| galley.size().x + OPTION_PADDING * 2.0)
         .collect();
     let (outer, _) = ui.allocate_exact_size(vec2(widths.iter().sum(), HEIGHT), Sense::hover());
-    let line = theme::stroke(ui.ctx(), 1.0, tokens.border);
+    let line = theme::line(ui.ctx(), tokens.border);
 
     let mut chosen = None;
     let mut x = outer.left();
@@ -60,10 +60,10 @@ pub fn segmented(ui: &mut Ui, options: &[&str], selected: Option<usize>) -> Opti
         }
         let is_selected = selected == Some(index);
         let radius = CornerRadius {
-            nw: if index == 0 { 4 } else { 0 },
-            sw: if index == 0 { 4 } else { 0 },
-            ne: if index == last { 4 } else { 0 },
-            se: if index == last { 4 } else { 0 },
+            nw: if index == 0 { tokens.radius_row } else { 0 },
+            sw: if index == 0 { tokens.radius_row } else { 0 },
+            ne: if index == last { tokens.radius_row } else { 0 },
+            se: if index == last { tokens.radius_row } else { 0 },
         };
         let painter = ui.painter();
         let hover =
@@ -79,7 +79,7 @@ pub fn segmented(ui: &mut Ui, options: &[&str], selected: Option<usize>) -> Opti
             painter.rect_stroke(
                 cell,
                 radius,
-                theme::stroke(ui.ctx(), 1.0, tokens.accent),
+                theme::line(ui.ctx(), tokens.accent),
                 StrokeKind::Inside,
             );
         }
@@ -90,9 +90,10 @@ pub fn segmented(ui: &mut Ui, options: &[&str], selected: Option<usize>) -> Opti
         };
         let pos = cell.center() - galley.size() / 2.0;
         painter.galley(pos, galley, colour);
-        focus::ring(ui, &response, 4.0);
+        focus::ring(ui, &response, f32::from(tokens.radius_row));
     }
-    ui.painter().rect_stroke(outer, 4, line, StrokeKind::Inside);
+    ui.painter()
+        .rect_stroke(outer, tokens.radius_row, line, StrokeKind::Inside);
     if let Some(index) = chosen {
         pending::choose(ui, pending_id, index);
     }
@@ -181,9 +182,9 @@ pub fn dropdown_sized(
                 .animate_bool_with_time(response.id.with("hover"), response.hovered(), 0.08);
         painter.rect(
             rect,
-            4,
+            tokens.radius_row,
             tokens.hover_bg.gamma_multiply(hover),
-            theme::stroke(ui.ctx(), 1.0, tokens.border),
+            theme::line(ui.ctx(), tokens.border),
             StrokeKind::Inside,
         );
         // A value longer than the box stops short of the chevron.
@@ -203,7 +204,7 @@ pub fn dropdown_sized(
             vec2(14.0, 14.0),
         );
         icons::paint(painter, chevron, Icon::ChevronDown, tokens.text_primary);
-        focus::ring(ui, &response, 4.0);
+        focus::ring(ui, &response, f32::from(tokens.radius_row));
     }
 
     let mut chosen = None;
@@ -220,7 +221,11 @@ pub fn dropdown_sized(
                     0.08,
                 );
                 let painter = ui.painter();
-                painter.rect_filled(row, 4, tokens.hover_bg.gamma_multiply(hover));
+                painter.rect_filled(
+                    row,
+                    tokens.radius_row,
+                    tokens.hover_bg.gamma_multiply(hover),
+                );
                 let colour = if selected == Some(index) {
                     tokens.accent
                 } else {

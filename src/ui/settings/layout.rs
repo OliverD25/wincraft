@@ -277,8 +277,8 @@ fn activity(ui: &mut egui::Ui, log: &mut LogView, requests: &mut Requests) {
         return;
     }
     egui::Frame::NONE
-        .stroke(theme::stroke(ui.ctx(), 1.0, tokens.border))
-        .corner_radius(4)
+        .stroke(theme::line(ui.ctx(), tokens.border))
+        .corner_radius(tokens.radius_row)
         .inner_margin(egui::Margin::symmetric(12, 8))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());

@@ -44,7 +44,7 @@ pub fn chip(ui: &mut Ui, label: &str, count: usize, selected: bool) -> Response 
             rect,
             HEIGHT / 2.0,
             fill,
-            theme::stroke(ui.ctx(), 1.0, stroke),
+            theme::line(ui.ctx(), stroke),
             StrokeKind::Inside,
         );
         let x = rect.left() + PADDING;

@@ -1250,7 +1250,7 @@ fn ghost(
         egui::Order::Tooltip,
         egui::Id::new("arrange-drag"),
     ));
-    layer.rect_filled(rect, 4, tokens.hover_bg);
+    layer.rect_filled(rect, tokens.radius_row, tokens.hover_bg);
     let thumb = Rect::from_min_size(
         rect.min + Vec2::splat(CARD_PAD),
         vec2(rect.width() - 2.0 * CARD_PAD, THUMB_HEIGHT),
@@ -1306,7 +1306,7 @@ impl Draw<'_> {
         painter.hline(
             header.x_range(),
             header.top(),
-            theme::stroke(ui.ctx(), 1.0, tokens.border),
+            theme::line(ui.ctx(), tokens.border),
         );
         let title_colour = if band.current {
             tokens.accent
@@ -1424,7 +1424,7 @@ impl Draw<'_> {
             painter.vline(
                 column.left(),
                 column.y_range(),
-                theme::stroke(ui.ctx(), 1.0, tokens.border),
+                theme::line(ui.ctx(), tokens.border),
             );
             let inner = Rect::from_min_max(pos2(column.left() + INSET, column.top()), column.max);
             label_row(
@@ -1550,7 +1550,7 @@ impl Draw<'_> {
             // Outside the picture, which DWM would draw over.
             painter.rect_stroke(
                 rect.expand(3.0),
-                6,
+                tokens.radius_row + 2,
                 theme::stroke(ui.ctx(), 2.0, tokens.accent),
                 StrokeKind::Middle,
             );
@@ -1566,7 +1566,7 @@ impl Draw<'_> {
             thumb,
             3,
             tokens.panel_bg,
-            theme::stroke(ui.ctx(), 1.0, tokens.border),
+            theme::line(ui.ctx(), tokens.border),
             StrokeKind::Inside,
         );
         let picture = thumb.shrink(1.0);
@@ -1691,7 +1691,7 @@ impl Draw<'_> {
         let x = strip.right() - 0.5;
         painter.extend(Shape::dashed_line(
             &[pos2(x, rect.top()), pos2(x, rect.bottom())],
-            theme::stroke(ui.ctx(), 1.0, tokens.border),
+            theme::line(ui.ctx(), tokens.border),
             4.0,
             3.0,
         ));
@@ -1711,7 +1711,7 @@ impl Draw<'_> {
         painter.rect_stroke(
             pill,
             7,
-            theme::stroke(ui.ctx(), 1.0, tokens.text_disabled),
+            theme::line(ui.ctx(), tokens.text_disabled),
             StrokeKind::Inside,
         );
         let arrow = Rect::from_min_size(
@@ -1886,8 +1886,8 @@ fn label_row(
         );
         painter.rect_stroke(
             chip_rect,
-            4,
-            theme::stroke(ui.ctx(), 1.0, tokens.border),
+            tokens.radius_row,
+            theme::line(ui.ctx(), tokens.border),
             StrokeKind::Inside,
         );
         painter.galley(
@@ -1970,7 +1970,7 @@ fn ghost_chip(ui: &Ui, painter: &egui::Painter, centre_x: f32, bottom: f32, numb
 fn dashed_box(ui: &Ui, painter: &egui::Painter, rect: Rect, lit: bool) {
     let tokens = Tokens::get(ui.ctx());
     let colour = if lit { tokens.accent } else { tokens.border };
-    let stroke = theme::stroke(ui.ctx(), 1.0, colour);
+    let stroke = theme::line(ui.ctx(), colour);
     let r = rect.shrink(0.5);
     let corners = [
         r.left_top(),
@@ -2127,9 +2127,9 @@ fn title_chip(
     );
     painter.rect(
         chip,
-        4,
+        tokens.radius_row,
         tokens.window_bg,
-        theme::stroke(painter.ctx(), 1.0, colour),
+        theme::line(painter.ctx(), colour),
         StrokeKind::Inside,
     );
     painter.galley(chip.center() - galley.size() / 2.0, galley, colour);
@@ -2180,7 +2180,7 @@ fn footer(ui: &Ui, panel: Rect, note: bool, others_key: bool) {
     painter.hline(
         area.x_range(),
         area.top(),
-        theme::stroke(ui.ctx(), 1.0, tokens.border),
+        theme::line(ui.ctx(), tokens.border),
     );
     let centre = area.top() + 1.0 + (FOOTER - 1.0) / 2.0;
     let hints: Vec<_> = footer_hints(others_key)
@@ -2221,9 +2221,9 @@ fn footer(ui: &Ui, panel: Rect, note: bool, others_key: bool) {
         );
         painter.rect(
             chip,
-            4,
+            tokens.radius_row,
             tokens.panel_bg,
-            theme::stroke(ui.ctx(), 1.0, tokens.border),
+            theme::line(ui.ctx(), tokens.border),
             StrokeKind::Inside,
         );
         painter.galley(chip.center() - key.size() / 2.0, key, tokens.text_secondary);

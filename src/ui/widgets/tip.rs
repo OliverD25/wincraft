@@ -58,8 +58,8 @@ pub fn strip(
     let tokens = Tokens::get(ui.ctx());
     ui.painter().rect_stroke(
         rect,
-        4,
-        theme::stroke(ui.ctx(), 1.0, tokens.border),
+        tokens.radius_row,
+        theme::line(ui.ctx(), tokens.border),
         StrokeKind::Inside,
     );
     let mut dismissed = false;
@@ -73,7 +73,8 @@ pub fn strip(
             .interact(hit, ui.id().with("tip-dismiss"), Sense::click())
             .on_hover_cursor(CursorIcon::PointingHand);
         if response.hovered() {
-            ui.painter().rect_filled(hit, 4, tokens.hover_bg);
+            ui.painter()
+                .rect_filled(hit, tokens.radius_row, tokens.hover_bg);
         }
         icons::paint(
             ui.painter(),
@@ -111,7 +112,11 @@ mod tests {
     fn context() -> egui::Context {
         let ctx = egui::Context::default();
         theme::install_fonts(&ctx);
-        theme::apply(&ctx, ThemeChoice::Dark);
+        theme::apply(
+            &ctx,
+            crate::core::config::ThemeName::Classic,
+            ThemeChoice::Dark,
+        );
         ctx
     }
 

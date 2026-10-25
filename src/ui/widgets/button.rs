@@ -87,9 +87,9 @@ fn draw(
         let painter = ui.painter();
         painter.rect(
             rect,
-            4,
+            tokens.radius_row,
             fill,
-            theme::stroke(ui.ctx(), 1.0, stroke),
+            theme::line(ui.ctx(), stroke),
             StrokeKind::Inside,
         );
         let mut x = rect.left() + PADDING;
@@ -103,7 +103,7 @@ fn draw(
         }
         let text_pos = egui::pos2(x, rect.center().y - galley.size().y / 2.0);
         painter.galley(text_pos, galley, text);
-        focus::ring(ui, &response, 4.0);
+        focus::ring(ui, &response, f32::from(tokens.radius_row));
     }
 
     if ui.is_enabled() {

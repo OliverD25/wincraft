@@ -62,11 +62,11 @@ pub fn show(
     let (rect, _) = ui.allocate_exact_size(vec2(BOX_WIDTH, BOX_HEIGHT), Sense::hover());
     ui.painter().rect_stroke(
         rect,
-        4,
-        theme::stroke(ui.ctx(), 1.0, tokens.accent),
+        tokens.radius_row,
+        theme::line(ui.ctx(), tokens.accent),
         StrokeKind::Inside,
     );
-    focus::paint(ui, rect, 4.0);
+    focus::paint(ui, rect, f32::from(tokens.radius_row));
     let inner = Rect::from_min_max(pos2(rect.left() + 8.0, rect.top()), rect.max);
     ui.scope_builder(
         egui::UiBuilder::new()

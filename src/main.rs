@@ -228,7 +228,7 @@ fn main() {
     }
     if let Some(theme) = theme {
         log::info!("theme set to {} for this test run", theme.label());
-        config.theme = theme;
+        config.mode = theme;
     }
     let flags = host::StartupFlags {
         open_detector: has_flag(&args, "--open-detector"),

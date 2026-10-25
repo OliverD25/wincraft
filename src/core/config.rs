@@ -14,7 +14,8 @@ use crate::core::wide;
 
 pub const DEFAULT_PALETTE_HOTKEY: &str = "Win+Alt+P";
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// The mode: dark, light, or whatever Windows uses for apps.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemeChoice {
     #[default]
@@ -33,6 +34,91 @@ impl ThemeChoice {
             ThemeChoice::Dark => "Dark",
         }
     }
+
+    fn from_key(key: &str) -> Option<Self> {
+        match key {
+            "system" => Some(ThemeChoice::System),
+            "light" => Some(ThemeChoice::Light),
+            "dark" => Some(ThemeChoice::Dark),
+            _ => None,
+        }
+    }
+}
+
+/// An unknown word falls back to the default instead of failing the whole
+/// file, so a config written by a newer WinCraft still opens.
+impl<'de> Deserialize<'de> for ThemeChoice {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let key = String::deserialize(deserializer)?;
+        Ok(Self::from_key(&key).unwrap_or_else(|| {
+            log::warn!("unknown mode \"{key}\" in config.json, using System");
+            ThemeChoice::System
+        }))
+    }
+}
+
+/// The look: colours, corners, row height and fonts. Each has a dark and a
+/// light set of tokens in `core::theme`. Fluent comes as the next one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ThemeName {
+    #[default]
+    Classic,
+    Terminal,
+    Paper,
+    HighContrast,
+}
+
+impl ThemeName {
+    /// In the order the theme picker shows them.
+    pub const ALL: [ThemeName; 4] = [
+        ThemeName::Classic,
+        ThemeName::Terminal,
+        ThemeName::Paper,
+        ThemeName::HighContrast,
+    ];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            ThemeName::Classic => "classic",
+            ThemeName::Terminal => "terminal",
+            ThemeName::Paper => "paper",
+            ThemeName::HighContrast => "high-contrast",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|name| name.key() == key)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ThemeName::Classic => "Classic",
+            ThemeName::Terminal => "Terminal",
+            ThemeName::Paper => "Paper",
+            ThemeName::HighContrast => "High contrast",
+        }
+    }
+
+    /// The line under the name on the theme's tile.
+    pub fn blurb(self) -> &'static str {
+        match self {
+            ThemeName::Classic => "Today's look",
+            ThemeName::Terminal => "Dense, monospace",
+            ThemeName::Paper => "Serif, like a book",
+            ThemeName::HighContrast => "Black and white, strong borders",
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ThemeName {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let key = String::deserialize(deserializer)?;
+        Ok(Self::from_key(&key).unwrap_or_else(|| {
+            log::warn!("unknown theme \"{key}\" in config.json, using Classic");
+            ThemeName::Classic
+        }))
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -40,7 +126,9 @@ pub struct Config {
     #[serde(default)]
     pub start_with_windows: bool,
     #[serde(default)]
-    pub theme: ThemeChoice,
+    pub theme: ThemeName,
+    #[serde(default)]
+    pub mode: ThemeChoice,
     #[serde(default = "default_palette_hotkey")]
     pub palette_hotkey: String,
     #[serde(default)]
@@ -55,7 +143,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             start_with_windows: false,
-            theme: ThemeChoice::System,
+            theme: ThemeName::Classic,
+            mode: ThemeChoice::System,
             palette_hotkey: DEFAULT_PALETTE_HOTKEY.to_string(),
             search: SearchConfig::default(),
             updates: UpdateConfig::default(),
@@ -346,6 +435,7 @@ impl Config {
         let mut raw: Value =
             serde_json::from_str(strip_bom(text)).map_err(|e| format!("not valid JSON: {e}"))?;
         let legacy = take_legacy_plugins(&mut raw);
+        move_old_theme_to_mode(&mut raw);
         let config = serde_json::from_value(raw).map_err(|e| e.to_string())?;
         Ok((config, legacy))
     }
@@ -359,6 +449,28 @@ impl Config {
             .map_err(|e| format!("cannot serialise config: {e}"))?;
         save_readable(&config_in(data), &text)
     }
+}
+
+/// Up to 0.20.9 `theme` held System, Light or Dark, which is now the mode.
+/// Only the copy in memory changes: the file is rewritten at the next save,
+/// so an older WinCraft put back by a failed update still reads it.
+pub fn move_old_theme_to_mode(raw: &mut Value) {
+    let Some(object) = raw.as_object_mut() else {
+        return;
+    };
+    let Some(old) = object
+        .get("theme")
+        .and_then(Value::as_str)
+        .filter(|key| ThemeChoice::from_key(key).is_some())
+        .map(str::to_string)
+    else {
+        return;
+    };
+    object.entry("mode").or_insert(Value::String(old));
+    object.insert(
+        "theme".to_string(),
+        Value::String(ThemeName::Classic.key().to_string()),
+    );
 }
 
 /// Pulls the 0.2-shaped `modules` map out of a parsed config.json. Left as a
@@ -548,7 +660,7 @@ mod tests {
 
         let config: Config = serde_json::from_value(raw).unwrap();
         assert!(config.start_with_windows);
-        assert_eq!(config.theme, ThemeChoice::System);
+        assert_eq!(config.mode, ThemeChoice::System);
         assert_eq!(config.palette_hotkey, DEFAULT_PALETTE_HOTKEY);
 
         let written = serde_json::to_string(&config).unwrap();
@@ -557,17 +669,18 @@ mod tests {
 
     #[test]
     fn a_config_without_modules_migrates_nothing() {
-        let mut raw: Value = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        let mut raw: Value = serde_json::from_str(r#"{"mode":"dark"}"#).unwrap();
         assert!(take_legacy_plugins(&mut raw).is_empty());
         let config: Config = serde_json::from_value(raw).unwrap();
-        assert_eq!(config.theme, ThemeChoice::Dark);
+        assert_eq!(config.mode, ThemeChoice::Dark);
     }
 
     #[test]
     fn missing_files_fall_back_to_defaults() {
         let config: Config = serde_json::from_str("{}").unwrap();
         assert!(!config.start_with_windows);
-        assert_eq!(config.theme, ThemeChoice::System);
+        assert_eq!(config.theme, ThemeName::Classic);
+        assert_eq!(config.mode, ThemeChoice::System);
         assert_eq!(config.palette_hotkey, DEFAULT_PALETTE_HOTKEY);
 
         assert_eq!(config.search, SearchConfig::default());
@@ -582,7 +695,7 @@ mod tests {
     #[test]
     fn a_byte_order_mark_does_not_stop_a_file_from_parsing() {
         let (config, _) = Config::parse("\u{feff}{\"theme\":\"light\"}").unwrap();
-        assert_eq!(config.theme, ThemeChoice::Light);
+        assert_eq!(config.mode, ThemeChoice::Light);
 
         let plugin: PluginConfig =
             serde_json::from_str(strip_bom("\u{feff}{\"enabled\":false}")).unwrap();
@@ -639,8 +752,57 @@ mod tests {
     }
 
     #[test]
+    fn the_old_theme_becomes_the_mode_and_the_theme_becomes_classic() {
+        for (old, mode) in [
+            ("system", ThemeChoice::System),
+            ("light", ThemeChoice::Light),
+            ("dark", ThemeChoice::Dark),
+        ] {
+            let (config, _) = Config::parse(&format!(r#"{{"theme":"{old}"}}"#)).unwrap();
+            assert_eq!(config.theme, ThemeName::Classic, "{old}");
+            assert_eq!(config.mode, mode, "{old}");
+        }
+        let (config, _) = Config::parse(r#"{"theme":"paper","mode":"dark"}"#).unwrap();
+        assert_eq!(config.theme, ThemeName::Paper);
+        assert_eq!(config.mode, ThemeChoice::Dark);
+        // A mode already there wins over an old theme word.
+        let (config, _) = Config::parse(r#"{"theme":"light","mode":"dark"}"#).unwrap();
+        assert_eq!(config.theme, ThemeName::Classic);
+        assert_eq!(config.mode, ThemeChoice::Dark);
+    }
+
+    #[test]
+    fn unknown_theme_and_mode_words_fall_back_to_classic_and_system() {
+        let (config, _) = Config::parse(r#"{"theme":"fluent","mode":"dim"}"#).unwrap();
+        assert_eq!(config.theme, ThemeName::Classic);
+        assert_eq!(config.mode, ThemeChoice::System);
+        let (config, _) = Config::parse(r#"{"theme":"blue"}"#).unwrap();
+        assert_eq!(config.theme, ThemeName::Classic);
+    }
+
+    #[test]
+    fn theme_and_mode_are_saved_with_their_words() {
+        let config = Config {
+            theme: ThemeName::HighContrast,
+            mode: ThemeChoice::Light,
+            ..Config::default()
+        };
+        let text = serde_json::to_string(&config).unwrap();
+        assert!(text.contains(r#""theme":"high-contrast""#), "{text}");
+        assert!(text.contains(r#""mode":"light""#), "{text}");
+        let (again, _) = Config::parse(&text).unwrap();
+        assert_eq!(again.theme, ThemeName::HighContrast);
+        assert_eq!(again.mode, ThemeChoice::Light);
+        for name in ThemeName::ALL {
+            assert_eq!(ThemeName::from_key(name.key()), Some(name));
+            assert!(!name.label().is_empty() && !name.blurb().is_empty());
+        }
+    }
+
+    #[test]
     fn a_field_of_the_wrong_type_fails_the_file_instead_of_defaulting() {
-        assert!(Config::parse(r#"{"theme":"blue"}"#).is_err());
+        assert!(Config::parse(r#"{"theme":5}"#).is_err());
+        assert!(Config::parse(r#"{"mode":true}"#).is_err());
         assert!(Config::parse("not json").is_err());
     }
 
@@ -692,7 +854,7 @@ mod tests {
     fn with_no_files_everything_is_the_default_and_nothing_is_written() {
         let data = Scratch::new("missing");
         let config = Config::load_in(&data.0);
-        assert_eq!(config.theme, ThemeChoice::System);
+        assert_eq!(config.mode, ThemeChoice::System);
         assert_eq!(config.palette_hotkey, DEFAULT_PALETTE_HOTKEY);
         let plugin = PluginConfig::load_in(&data.0, "screen_dimmer");
         assert!(plugin.enabled && plugin.hotkeys.is_empty());
@@ -709,7 +871,7 @@ mod tests {
             "\u{feff}{\"enabled\":false,\"hotkeys\":{\"a\":\"Win+Alt+Z\"}}",
         )
         .unwrap();
-        assert_eq!(Config::load_in(&data.0).theme, ThemeChoice::Dark);
+        assert_eq!(Config::load_in(&data.0).mode, ThemeChoice::Dark);
         let plugin = PluginConfig::load_in(&data.0, "window_namer");
         assert!(!plugin.enabled);
         assert_eq!(plugin.hotkeys["a"], "Win+Alt+Z");
@@ -720,7 +882,7 @@ mod tests {
         let data = Scratch::new("corrupt-config");
         fs::write(data.config(), "{ \"theme\": \"dark\", oops").unwrap();
         let config = Config::load_in(&data.0);
-        assert_eq!(config.theme, ThemeChoice::System);
+        assert_eq!(config.mode, ThemeChoice::System);
         assert!(config.save_in(&data.0).is_err(), "saving is refused");
         assert_eq!(
             fs::read_to_string(data.config()).unwrap(),
@@ -777,7 +939,7 @@ mod tests {
         )
         .unwrap();
         let config = Config::load_in(&data.0);
-        assert_eq!(config.theme, ThemeChoice::Light);
+        assert_eq!(config.mode, ThemeChoice::Light);
         config.save_in(&data.0).unwrap();
         let text = fs::read_to_string(data.config()).unwrap();
         assert!(text.contains("\"light\"") && !text.contains("from_a_newer_version"));

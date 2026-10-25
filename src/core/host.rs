@@ -22,9 +22,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetMessageW, GetWindowThreadProcessId, KillTimer, PostMessageW,
     PostQuitMessage, RegisterClassW, RegisterShellHookWindow, RegisterWindowMessageW,
     SetForegroundWindow, SetTimer, TranslateMessage, ENDSESSION_CLOSEAPP, ENDSESSION_CRITICAL,
-    ENDSESSION_LOGOFF, MSG, SW_SHOWNORMAL, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_DISPLAYCHANGE,
-    WM_ENDSESSION, WM_HOTKEY, WM_LBUTTONUP, WM_POWERBROADCAST, WM_QUERYENDSESSION, WM_RBUTTONUP,
-    WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
+    ENDSESSION_LOGOFF, MSG, SPI_SETHIGHCONTRAST, SW_SHOWNORMAL, WM_APP, WM_CONTEXTMENU, WM_DESTROY,
+    WM_DISPLAYCHANGE, WM_ENDSESSION, WM_HOTKEY, WM_LBUTTONUP, WM_POWERBROADCAST,
+    WM_QUERYENDSESSION, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
 };
 
 use serde_json::Value;
@@ -406,7 +406,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         flags.restarted || flags.updated_from.is_some() || flags.update_failed.is_some(),
         Ordering::Relaxed,
     );
-    theme::set_current(config.theme);
+    theme::set_current(config.theme, config.mode);
     let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
 
     let class_name = wide(&instance::name(CLASS_NAME));
@@ -682,6 +682,7 @@ impl Host {
             start_with_windows: self.config.start_with_windows,
             autostart_note: self.autostart_note.clone(),
             theme: self.config.theme,
+            mode: self.config.mode,
             palette_hotkey: self.config.palette_hotkey.clone(),
             palette_hotkey_registered: self
                 .plugins
@@ -1467,9 +1468,15 @@ impl Host {
                 self.config.updates.check_daily = on;
                 log::info!("check for updates daily: {on}");
             }
-            HostSetting::Theme(choice) => {
-                self.config.theme = choice;
-                theme::set_current(choice);
+            HostSetting::Theme(name) => {
+                self.config.theme = name;
+                theme::set_current(name, self.config.mode);
+                log::info!("theme: {}", name.label());
+                self.to_ui.send(UiCommand::ThemeChanged);
+            }
+            HostSetting::Mode(mode) => {
+                self.config.mode = mode;
+                theme::set_current(self.config.theme, mode);
                 self.to_ui.send(UiCommand::ThemeChanged);
             }
             HostSetting::PaletteHotkey(binding) => match self.plugins.rebind_palette(&binding) {
@@ -2772,7 +2779,9 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
             0
         }
         WM_SETTINGCHANGE | WM_POWERBROADCAST | WM_TIMER => {
-            if msg == WM_SETTINGCHANGE && is_colour_change(lparam) {
+            if msg == WM_SETTINGCHANGE
+                && (is_colour_change(lparam) || wparam == SPI_SETHIGHCONTRAST as WPARAM)
+            {
                 with_host(|host| {
                     host.tray.refresh_icon();
                     host.to_ui.send(UiCommand::ThemeChanged);
