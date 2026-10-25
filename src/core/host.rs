@@ -93,10 +93,12 @@ const HEALTHY_TIMER: usize = 0x5743_0003;
 /// Fades the "Updated to" notice, and the message its click posts.
 const NOTICE_TIMER: usize = 0x5743_0004;
 const WM_APP_NOTICE_CLICK: u32 = WM_APP + 23;
-/// Win+Alt+A, then a digit: the wait for a second digit, and the message the
-/// keyboard hook posts for a key it kept or for the end of the wait.
-const DIGIT_TIMER: usize = 0x5743_0005;
+/// Win+Alt+A, then a digit: the message the keyboard hook posts for a key it
+/// kept or for the end of the wait.
 const WM_APP_WAIT_KEY: u32 = WM_APP + 24;
+/// The taskbar's buttons read this recently still count for a digit typed
+/// in the strip, which saves reading them again before it can jump.
+const BUTTONS_FRESH: std::time::Duration = std::time::Duration::from_secs(10);
 
 struct RegisteredHotkey {
     action_id: u32,
@@ -132,6 +134,7 @@ struct Host {
     /// they count.
     digits: taskbar_number::Digits,
     buttons: Vec<taskbar::Button>,
+    buttons_at: Option<std::time::Instant>,
     clock: std::time::Instant,
     /// The number badges and the line while Win+Alt+A waits for a digit.
     wait_hint: Option<ui::taskbar_badges::WaitHint>,
@@ -465,6 +468,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         arrange_anchor: None,
         digits: taskbar_number::Digits::default(),
         buttons: Vec::new(),
+        buttons_at: None,
         clock: std::time::Instant::now(),
         wait_hint: None,
         updates: Updates::default(),
@@ -1061,6 +1065,12 @@ impl Host {
     /// Asks the first enabled plugin that keeps a window order for its groups
     /// and sends them to the Arrange window.
     fn send_arrange(&mut self, open: bool) {
+        self.send_arrange_for(open, false);
+    }
+
+    /// `send_arrange`, but with `need_app` nothing is sent unless one of the
+    /// groups is the anchor's app. Returns whether the strip was sent.
+    fn send_arrange_for(&mut self, open: bool, need_app: bool) -> bool {
         let anchor = if open {
             self.arrange_anchor.take()
         } else {
@@ -1082,8 +1092,17 @@ impl Host {
         });
         let Some((id, mut groups)) = found else {
             log::info!("no enabled plugin keeps a window order");
-            return;
+            return false;
         };
+        let under_cursor = hovered.as_deref().and_then(|app| {
+            groups
+                .groups
+                .iter()
+                .position(|group| taskbar::same_app(app, &group.key))
+        });
+        if need_app && under_cursor.is_none() {
+            return false;
+        }
         ATTENTION.with(|attention| {
             let attention = attention.borrow();
             for window in groups.groups.iter_mut().flat_map(|g| g.windows.iter_mut()) {
@@ -1092,12 +1111,6 @@ impl Host {
         });
         let mut focus = groups.focus;
         if open {
-            let under_cursor = hovered.as_deref().and_then(|app| {
-                groups
-                    .groups
-                    .iter()
-                    .position(|group| taskbar::same_app(app, &group.key))
-            });
             let asked = self.arrange_focus.take().and_then(|wanted| {
                 let found = ArrangeGroup::pick(&groups.groups, &wanted);
                 if found.is_none() {
@@ -1147,40 +1160,37 @@ impl Host {
                 self.to_ui.send(UiCommand::PeekCard(card));
             }
         }
+        true
     }
 
     /// A digit typed in the strip, or with Win+Alt still held after
     /// Win+Alt+A: the strip for that taskbar button.
     fn arrange_digit(&mut self, digit: u8) {
-        // While Win+Alt+A waits, the badges show the buttons read when it
-        // started, and the digits must count those.
-        if !self.digits.waiting() && self.wait_hint.is_none() {
+        let started = std::time::Instant::now();
+        let now = self.clock.elapsed().as_millis() as u64;
+        // The badges show the buttons read when the wait started, and the
+        // digits must count those; a second digit counts the same list.
+        let fresh = self
+            .buttons_at
+            .is_some_and(|at| at.elapsed() < BUTTONS_FRESH);
+        if !(self.wait_hint.is_some() || self.digits.may_follow(now) || fresh) {
             self.read_buttons();
         }
-        let now = self.clock.elapsed().as_millis() as u64;
-        match self.digits.press(digit, now, self.buttons.len()) {
-            Some(number) => {
-                unsafe { KillTimer(self.hwnd, DIGIT_TIMER) };
-                self.end_wait();
-                self.open_button(number);
-            }
-            None => unsafe {
-                SetTimer(
-                    self.hwnd,
-                    DIGIT_TIMER,
-                    taskbar_number::SECOND_DIGIT_MS as u32,
-                    None,
-                );
-            },
+        let number = self.digits.press(digit, now, self.buttons.len());
+        // The badges go at once; the hook stays only as long as a second
+        // digit typed with Win+Alt still held could follow.
+        self.wait_hint = None;
+        if self.digits.may_follow(now) {
+            let wait = std::time::Duration::from_millis(taskbar_number::SECOND_DIGIT_MS);
+            chord::listen(self.hwnd as isize, WM_APP_WAIT_KEY, wait, wait_rule);
+        } else {
+            chord::stop();
         }
-    }
-
-    fn second_digit_over(&mut self) {
-        unsafe { KillTimer(self.hwnd, DIGIT_TIMER) };
-        if let Some(number) = self.digits.finish() {
-            self.end_wait();
-            self.open_button(number);
-        }
+        self.open_button(number);
+        log::info!(
+            "digit {digit}: the strip for taskbar button {number} was asked for {} ms after the digit came",
+            started.elapsed().as_millis()
+        );
     }
 
     fn read_buttons(&mut self) {
@@ -1188,6 +1198,7 @@ impl Host {
             log::info!("the taskbar's buttons could not be read: {reason}");
             Vec::new()
         });
+        self.buttons_at = Some(std::time::Instant::now());
     }
 
     /// The Arrange strip's hotkey. The first press waits 3 s for a digit,
@@ -1226,12 +1237,11 @@ impl Host {
     }
 
     /// The wait after the Arrange hotkey is over: the badges and the line go,
-    /// and a first digit still waiting for a second one is dropped.
+    /// and a first digit is no longer joined by a second one.
     fn end_wait(&mut self) {
         chord::stop();
-        if self.wait_hint.take().is_some() {
-            self.digits = taskbar_number::Digits::default();
-        }
+        self.wait_hint = None;
+        self.digits = taskbar_number::Digits::default();
     }
 
     /// Keys the hook kept during the wait, or the news that it ended.
@@ -1247,7 +1257,7 @@ impl Host {
                 taskbar_number::WaitKey::Again | taskbar_number::WaitKey::Other => {}
             }
         }
-        if news.ended && !self.digits.waiting() {
+        if news.ended {
             self.end_wait();
         }
     }
@@ -1261,24 +1271,15 @@ impl Host {
             return;
         };
         let (app, rect) = (button.app.clone(), button.rect);
-        let shown = self.plugins.slots.iter_mut().any(|slot| {
-            slot.enabled
-                && slot.plugin.window_groups().is_some_and(|groups| {
-                    groups
-                        .groups
-                        .iter()
-                        .any(|group| taskbar::same_app(&app, &group.key))
-                })
-        });
-        if !shown {
+        self.arrange_anchor = Some((app.clone(), rect));
+        // One look at the windows: the strip opens only if the app has some.
+        if !self.send_arrange_for(true, true) {
             log::info!("taskbar button {number} ({app}) has no windows the strip shows");
             self.to_ui
                 .send(UiCommand::ArrangeNote(taskbar_number::no_windows(number)));
             return;
         }
         log::info!("arrange opens for taskbar button {number} ({app}), window {place}");
-        self.arrange_anchor = Some((app, rect));
-        self.send_arrange(true);
         self.to_ui.send(UiCommand::ArrangeSelect(place));
     }
 
@@ -2726,15 +2727,7 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         }
         WM_TIMER if wparam == chord::TIMER_ID => {
             chord::on_timer();
-            with_host_or_later(hwnd, msg, wparam, lparam, |host| {
-                if !host.digits.waiting() {
-                    host.end_wait();
-                }
-            });
-            0
-        }
-        WM_TIMER if wparam == DIGIT_TIMER => {
-            with_host_or_later(hwnd, msg, wparam, lparam, |host| host.second_digit_over());
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| host.end_wait());
             0
         }
         WM_TIMER if wparam == NOTICE_TIMER => {
@@ -3781,6 +3774,7 @@ mod tests {
             arrange_anchor: None,
             digits: taskbar_number::Digits::default(),
             buttons: Vec::new(),
+            buttons_at: None,
             clock: std::time::Instant::now(),
             wait_hint: None,
             updates: Updates::default(),
