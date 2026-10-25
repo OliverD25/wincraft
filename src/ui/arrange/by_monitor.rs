@@ -687,13 +687,41 @@ pub fn toolbar_rect(panel: Rect) -> Rect {
     )
 }
 
-/// Every card in the order ↑ and ↓ walk them: band by band, row by row,
-/// column by column.
+/// Every card, without the ghosts, band by band, row by row, column by
+/// column.
 pub fn walk(bands: &[Band]) -> Vec<usize> {
     bands
         .iter()
         .flat_map(|band| band.cells.iter().flatten().flatten().copied())
         .collect()
+}
+
+/// Every card and ghost in the order ← and → walk them: as `walk`, with each
+/// cell's ghosts at their places in it.
+pub fn walk_items(bands: &[Band]) -> Vec<Item> {
+    bands
+        .iter()
+        .flat_map(|band| {
+            band.cells
+                .iter()
+                .enumerate()
+                .flat_map(move |(r, row)| (0..row.len()).flat_map(move |c| band.flow((r, c))))
+        })
+        .collect()
+}
+
+/// The card or ghost after `from` (or before it) in the order of `walk_items`.
+pub fn next_item(bands: &[Band], from: Item, forward: bool) -> Option<Item> {
+    let items = walk_items(bands);
+    let at = items.iter().position(|item| *item == from)?;
+    let next = if forward { at + 1 } else { at.checked_sub(1)? };
+    items.get(next).copied()
+}
+
+/// Puts the keys on `item`: a card, or a ghost.
+fn pick(shared: &mut Shared, group: &ArrangeGroup, item: Option<Item>) {
+    shared.cursor = item.map(|item| group.windows[item.member()].hwnd);
+    shared.cursor_ghost = matches!(item, Some(Item::Ghost(_)));
 }
 
 /// A card's place: its band, its monitor cell (row, column) and its place
@@ -859,7 +887,7 @@ pub enum Key {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {
-    Select(usize),
+    Select(Item),
     Move(Spot),
 }
 
@@ -889,14 +917,7 @@ pub fn step(
         |band: usize, cell: (usize, usize)| to(band, cell, bands[band].cells[cell.0][cell.1].len());
     match key {
         Key::Prev | Key::Next => {
-            let walk = walk(bands);
-            let at = walk.iter().position(|m| *m == cursor)?;
-            let next = if key == Key::Prev {
-                at.checked_sub(1)?
-            } else {
-                at + 1
-            };
-            walk.get(next).map(|member| Step::Select(*member))
+            next_item(bands, Item::Card(cursor), key == Key::Next).map(Step::Select)
         }
         Key::MoveLeft => here
             .index
@@ -1038,6 +1059,8 @@ struct Draw<'a> {
     zones: Vec<Zone>,
     /// Every card drawn, with its window handle, for a Ctrl drop.
     hits: Vec<(isize, Rect)>,
+    /// Every card and ghost drawn, for ↑ and ↓.
+    items: Vec<(Item, Rect)>,
 }
 
 pub fn body(
@@ -1059,14 +1082,21 @@ pub fn body(
     };
     let model = Model::new(group, snapshot, &widths, shown, scope);
     let mut frame = Frame::default();
-    let walk = walk(&model.bands);
+    let items = walk_items(&model.bands);
     let member_of = |hwnd: isize| group.windows.iter().position(|w| w.hwnd == hwnd);
-    if shared
-        .cursor
-        .and_then(member_of)
-        .is_none_or(|member| !walk.contains(&member))
-    {
-        shared.cursor = walk.first().map(|m| group.windows[*m].hwnd);
+    let current = shared.cursor.and_then(member_of).map(|member| {
+        if shared.cursor_ghost {
+            Item::Ghost(member)
+        } else {
+            Item::Card(member)
+        }
+    });
+    if current.is_none_or(|item| !items.contains(&item)) {
+        let first = walk(&model.bands)
+            .first()
+            .map(|member| Item::Card(*member))
+            .or(items.first().copied());
+        pick(shared, group, first);
     }
 
     let dragged = shared.drag.as_ref().and_then(|drag| member_of(drag.hwnd));
@@ -1171,6 +1201,7 @@ pub fn body(
         rail_focus: shared.rail_focus,
         zones: Vec::new(),
         hits: Vec::new(),
+        items: Vec::new(),
     };
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
         egui::ScrollArea::vertical()
@@ -1193,6 +1224,7 @@ pub fn body(
     });
     shared.zones = std::mem::take(&mut draw.zones);
     shared.card_hits = std::mem::take(&mut draw.hits);
+    shared.items = std::mem::take(&mut draw.items);
     frame.dragged = dragged.map(|m| group.windows[m].hwnd);
     if let (Some(drag), Some(member), Some(pointer)) =
         (shared.drag.as_ref(), dragged, ctx.pointer_latest_pos())
@@ -1460,6 +1492,7 @@ impl Draw<'_> {
                 self.hits
                     .push((self.group.windows[*member].hwnd, *card_rect));
             }
+            self.items.extend(placed.iter().copied());
             for (member, card_rect) in cards.clone() {
                 let mut card_alpha = alpha;
                 if !monitor.connected {
@@ -1532,7 +1565,7 @@ impl Draw<'_> {
         let response = ui.interact(rect, egui::Id::new(("arrange-card", window.hwnd)), sense);
         let mut painter = ui.painter().clone();
         painter.multiply_opacity(alpha);
-        let is_cursor = shared.cursor == Some(window.hwnd) && !leaving;
+        let is_cursor = shared.cursor == Some(window.hwnd) && !shared.cursor_ghost && !leaving;
         let lit = if is_cursor {
             Some(tokens.selection_bg)
         } else if response.hovered() && self.dragged.is_none() {
@@ -1686,6 +1719,15 @@ impl Draw<'_> {
         let mut painter = ui.painter().clone();
         painter.multiply_opacity(alpha);
         dashed_box(ui, &painter, rect, false);
+        if shared.cursor == Some(window.hwnd) && shared.cursor_ghost {
+            // Outside the picture, which DWM would draw over.
+            painter.rect_stroke(
+                rect.expand(3.0),
+                6,
+                theme::stroke(ui.ctx(), 2.0, tokens.accent),
+                StrokeKind::Middle,
+            );
+        }
 
         let strip = Rect::from_min_size(rect.min, vec2(GHOST_STRIP, rect.height()));
         let x = strip.right() - 0.5;
@@ -1786,7 +1828,7 @@ impl Draw<'_> {
         let response =
             response.on_hover_text(format!("{} \u{b7} on {}", window.label, monitor.label));
         if response.clicked() {
-            shared.cursor = Some(window.hwnd);
+            pick(shared, self.group, Some(Item::Ghost(member)));
             shared.rail_focus = None;
         }
         if response.middle_clicked() {
@@ -1813,7 +1855,7 @@ impl Draw<'_> {
                     hwnd: window.hwnd,
                     grab: at - response.rect.min,
                 });
-                shared.cursor = Some(window.hwnd);
+                pick(shared, self.group, Some(Item::Card(member)));
             }
         }
         let names = self.can_rename.then_some(window.renamed);
@@ -2272,8 +2314,10 @@ fn arrow_keys() -> [(egui::Modifiers, egui::Key, Key); 8] {
     ]
 }
 
-/// The arrow keys pick a window: ← and → in the order of the cards, ↑ and ↓
-/// on the line above or below. Ctrl with ← or → moves it within its column,
+/// The arrow keys pick a window, ghosts too: ← and → in the order of the
+/// cards, ↑ and ↓ on the line above or below. Enter on a ghost switches to
+/// its window; nothing else acts on a ghost. Ctrl with ← or → moves a card
+/// within its column,
 /// Ctrl+Shift with the arrows to the next monitor or desktop, Alt with ← or
 /// → gives it the next lower or higher number without moving it anywhere
 /// else, Enter switches to it. Esc is handled with the other ways to close.
@@ -2311,16 +2355,29 @@ fn keyboard(
             i.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
         )
     });
+    let item = if shared.cursor_ghost {
+        Item::Ghost(cursor)
+    } else {
+        Item::Card(cursor)
+    };
     if up || down {
         shared.rail_focus = None;
-        if let Some(hwnd) = card_above_or_below(&shared.card_hits, group.windows[cursor].hwnd, down)
-        {
-            shared.cursor = Some(hwnd);
+        if let Some(next) = card_above_or_below(&shared.items, item, down) {
+            pick(shared, group, Some(next));
         }
         return;
     }
     if enter {
         frame.activate = Some(group.windows[cursor].hwnd);
+        return;
+    }
+    // A ghost's window is on another monitor: the keys only pick from it.
+    if let Item::Ghost(_) = item {
+        if let Some(key @ (Key::Prev | Key::Next)) = pressed {
+            if let Some(next) = next_item(&model.bands, item, key == Key::Next) {
+                pick(shared, group, Some(next));
+            }
+        }
         return;
     }
     if alt_left || alt_right {
@@ -2339,7 +2396,7 @@ fn keyboard(
         shared.rail_focus = None;
     }
     match pressed.and_then(|key| step(bands, &model.rows, monitors, cursor, key)) {
-        Some(Step::Select(member)) => shared.cursor = Some(group.windows[member].hwnd),
+        Some(Step::Select(next)) => pick(shared, group, Some(next)),
         Some(Step::Move(spot)) => {
             if spot.band >= model.bands.len() {
                 shared.others.expand();
@@ -3283,11 +3340,11 @@ mod tests {
         let rows = monitor_rows(&monitors, &every);
         let step = |cursor: usize, key: Key| step(&bands, &rows, &monitors, cursor, key);
         assert_eq!(walk(&bands), [0, 1, 2, 3, 4, 5]);
-        assert_eq!(step(1, Key::Next), Some(Step::Select(2)));
-        assert_eq!(step(4, Key::Next), Some(Step::Select(5)));
+        assert_eq!(step(1, Key::Next), Some(Step::Select(Item::Card(2))));
+        assert_eq!(step(4, Key::Next), Some(Step::Select(Item::Card(5))));
         assert_eq!(step(5, Key::Next), None);
         assert_eq!(step(0, Key::Prev), None);
-        assert_eq!(step(2, Key::Prev), Some(Step::Select(1)));
+        assert_eq!(step(2, Key::Prev), Some(Step::Select(Item::Card(1))));
         assert_eq!(step(3, Key::MoveLeft), Some(Step::Move(spot(0, (0, 1), 0))));
         assert_eq!(
             step(3, Key::MoveRight),
@@ -3610,15 +3667,48 @@ mod tests {
     }
 
     #[test]
-    fn the_keys_walk_past_ghosts_and_move_among_cards() {
+    fn the_keys_land_on_ghosts_and_move_among_cards() {
         let (group, snapshot) = spread();
         let model = spread_model(1);
         let monitors = &snapshot.monitors;
-        // Only real cards: the left column, the primary one, the right one.
+        // The left column, the primary one with its ghosts, the right one.
         assert_eq!(walk(&model.bands), [4, 0, 2, 5, 1, 3]);
+        assert_eq!(
+            walk_items(&model.bands),
+            [
+                Item::Card(4),
+                Item::Card(0),
+                Item::Ghost(1),
+                Item::Card(2),
+                Item::Ghost(3),
+                Item::Ghost(4),
+                Item::Card(5),
+                Item::Card(1),
+                Item::Card(3),
+            ]
+        );
         let step = |cursor: usize, key: Key| step(&model.bands, &model.rows, monitors, cursor, key);
-        assert_eq!(step(0, Key::Next), Some(Step::Select(2)));
-        assert_eq!(step(5, Key::Next), Some(Step::Select(1)));
+        assert_eq!(step(0, Key::Next), Some(Step::Select(Item::Ghost(1))));
+        assert_eq!(step(5, Key::Next), Some(Step::Select(Item::Card(1))));
+        assert_eq!(
+            next_item(&model.bands, Item::Ghost(4), true),
+            Some(Item::Card(5))
+        );
+        assert_eq!(
+            next_item(&model.bands, Item::Ghost(1), false),
+            Some(Item::Card(0))
+        );
+        assert_eq!(next_item(&model.bands, Item::Card(3), true), None);
+        // Up and down pick ghosts by place too.
+        let at = |x: f32, y: f32| Rect::from_min_size(pos2(x, y), vec2(84.0, CARD_HEIGHT));
+        let drawn = [
+            (Item::Card(0), at(0.0, 0.0)),
+            (Item::Ghost(1), at(0.0, 140.0)),
+        ];
+        assert_eq!(
+            card_above_or_below(&drawn, Item::Card(0), true),
+            Some(Item::Ghost(1))
+        );
         // Window 5 one card to the left: before window 2, past ghosts 3, 4.
         let Some(Step::Move(left)) = step(5, Key::MoveLeft) else {
             panic!("expected a move");

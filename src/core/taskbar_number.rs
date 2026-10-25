@@ -10,8 +10,8 @@ use crate::core::chord::{Stroke, Verdict};
 use crate::core::taskbar::Button;
 use crate::core::traits::Hotkey;
 
-/// How long a first digit waits for a second one, when there are more than
-/// ten buttons: 1 then 1 is button 11.
+/// How soon a second digit must follow the first to make a two-digit
+/// number, when there are more than ten buttons: 1 then 1 is button 11.
 pub const SECOND_DIGIT_MS: u64 = 400;
 /// How long Win+Alt+A waits for a digit.
 pub const WAIT_MS: u64 = 3000;
@@ -26,28 +26,32 @@ pub struct Digits {
 impl Digits {
     /// `digit` typed at `now` (milliseconds on any clock that only goes
     /// forward), with `count` buttons on the taskbar: the button number to
-    /// open now, or None while a second digit may still follow. 1 to 9 are
-    /// buttons 1 to 9 and 0 is button 10, as with Win+number.
-    pub fn press(&mut self, digit: u8, now: u64, count: usize) -> Option<usize> {
+    /// open now. 1 to 9 are buttons 1 to 9 and 0 is button 10, as with
+    /// Win+number. A first digit opens its button at once, never waiting; a
+    /// second one soon after that makes a number up to `count` jumps on to
+    /// that button.
+    pub fn press(&mut self, digit: u8, now: u64, count: usize) -> usize {
         if let Some((first, at)) = self.first.take() {
-            if now.saturating_sub(at) <= SECOND_DIGIT_MS {
-                return Some(first as usize * 10 + digit as usize);
+            let number = first as usize * 10 + digit as usize;
+            if now.saturating_sub(at) <= SECOND_DIGIT_MS && number <= count {
+                return number;
             }
         }
         if digit >= 1 && count > 10 && digit as usize * 10 <= count {
             self.first = Some((digit, now));
-            return None;
         }
-        Some(if digit == 0 { 10 } else { digit as usize })
+        if digit == 0 {
+            10
+        } else {
+            digit as usize
+        }
     }
 
-    /// The first digit alone: the wait for a second one is over.
-    pub fn finish(&mut self) -> Option<usize> {
-        self.first.take().map(|(digit, _)| digit as usize)
-    }
-
-    pub fn waiting(&self) -> bool {
-        self.first.is_some()
+    /// Whether a second digit typed at `now` could still make a two-digit
+    /// number.
+    pub fn may_follow(&self, now: u64) -> bool {
+        self.first
+            .is_some_and(|(_, at)| now.saturating_sub(at) <= SECOND_DIGIT_MS)
     }
 }
 
@@ -137,32 +141,33 @@ mod tests {
     #[test]
     fn a_digit_is_its_button_and_0_is_button_10() {
         let mut digits = Digits::default();
-        assert_eq!(digits.press(1, 0, 6), Some(1));
-        assert_eq!(digits.press(9, 0, 6), Some(9));
-        assert_eq!(digits.press(0, 0, 6), Some(10));
-        // Ten buttons: no two-digit numbers, so no waiting.
-        assert_eq!(digits.press(1, 0, 10), Some(1));
-        assert!(!digits.waiting());
+        assert_eq!(digits.press(1, 0, 6), 1);
+        assert_eq!(digits.press(9, 0, 6), 9);
+        assert_eq!(digits.press(0, 0, 6), 10);
+        // Ten buttons: no two-digit numbers, so nothing can follow.
+        assert_eq!(digits.press(1, 0, 10), 1);
+        assert!(!digits.may_follow(0));
     }
 
     #[test]
-    fn with_more_than_ten_buttons_a_first_digit_waits_for_a_second() {
+    fn a_first_digit_opens_at_once_and_a_quick_second_one_jumps_on() {
         let mut digits = Digits::default();
-        assert_eq!(digits.press(1, 1000, 14), None);
-        assert!(digits.waiting());
-        assert_eq!(digits.press(1, 1300, 14), Some(11));
-        assert!(!digits.waiting());
-        // A digit that cannot start a number up to 14 acts at once.
-        assert_eq!(digits.press(2, 2000, 14), Some(2));
-        assert_eq!(digits.press(0, 2000, 14), Some(10));
-        // No second digit within 400 ms: the first acts alone.
-        assert_eq!(digits.press(1, 3000, 14), None);
-        assert_eq!(digits.finish(), Some(1));
-        assert_eq!(digits.finish(), None);
-        assert!(!digits.waiting());
-        // A second digit that comes too late starts afresh.
-        assert_eq!(digits.press(1, 5000, 25), None);
-        assert_eq!(digits.press(3, 5401, 25), Some(3));
+        // 28 buttons: 1 opens button 1 at once, and 1 then 2 jumps to 12.
+        assert_eq!(digits.press(1, 1000, 28), 1);
+        assert!(digits.may_follow(1300));
+        assert_eq!(digits.press(2, 1300, 28), 12);
+        assert!(!digits.may_follow(1300));
+        // 2 then 9 is 29, more than 28: the 9 is button 9.
+        assert_eq!(digits.press(2, 2000, 28), 2);
+        assert_eq!(digits.press(9, 2100, 28), 9);
+        // A digit that cannot start a number up to 28 opens alone.
+        assert_eq!(digits.press(3, 3000, 28), 3);
+        assert!(!digits.may_follow(3000));
+        assert_eq!(digits.press(0, 3000, 28), 10);
+        // A second digit that comes too late is a button of its own.
+        assert_eq!(digits.press(1, 5000, 28), 1);
+        assert!(!digits.may_follow(5401));
+        assert_eq!(digits.press(3, 5401, 28), 3);
     }
 
     fn button(app: &str, left: i32) -> Button {

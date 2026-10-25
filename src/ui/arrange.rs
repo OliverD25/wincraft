@@ -100,10 +100,14 @@ pub fn card_motion(appeared: Option<Duration>, left: Option<Duration>) -> (f32, 
 
 /// The card ↑ (`down` false) or ↓ picks from window `from`: on the nearest
 /// line of cards above or below it, the one nearest across. `cards` are the
-/// cards drawn last frame, each with its window; ghosts are not among them.
-/// None at the top or the bottom.
-pub fn card_above_or_below(cards: &[(isize, Rect)], from: isize, down: bool) -> Option<isize> {
-    let here = cards.iter().find(|(hwnd, _)| *hwnd == from)?.1;
+/// cards drawn last frame, each with what names it: its window, or in the
+/// By monitor view a card or a ghost. None at the top or the bottom.
+pub fn card_above_or_below<T: Copy + PartialEq>(
+    cards: &[(T, Rect)],
+    from: T,
+    down: bool,
+) -> Option<T> {
+    let here = cards.iter().find(|(card, _)| *card == from)?.1;
     let beyond = |rect: &Rect| {
         if down {
             rect.top() >= here.bottom() - 1.0
@@ -121,7 +125,7 @@ pub fn card_above_or_below(cards: &[(isize, Rect)], from: isize, down: bool) -> 
         .iter()
         .filter(|(_, rect)| beyond(rect) && (rect.top() - line).abs() < here.height() / 2.0)
         .min_by(|a, b| across(&a.1).total_cmp(&across(&b.1)))
-        .map(|(hwnd, _)| *hwnd)
+        .map(|(card, _)| *card)
 }
 
 /// `rect` at `scale` of its size, around its centre.
@@ -682,6 +686,11 @@ struct Shared {
     key: Option<String>,
     /// The card the arrow keys act on.
     cursor: Option<isize>,
+    /// In the By monitor view the keys are on the ghost of `cursor`, not on
+    /// its own card.
+    cursor_ghost: bool,
+    /// The By monitor view's cards and ghosts drawn last frame, for ↑ and ↓.
+    items: Vec<(by_monitor::Item, Rect)>,
     drag: Option<Drag>,
     /// Last frame's layout, for finding where a dragged card would land.
     row_rects: Vec<Rect>,
@@ -733,6 +742,9 @@ struct Shared {
     select_window: Option<isize>,
     /// A short line on screen, and since when.
     note: Option<(String, Instant)>,
+    /// When the host asked for the strip, for the log line that says how
+    /// soon it was on screen.
+    asked_at: Option<Instant>,
     /// The taskbar button a hover opened the strip above. Such a strip
     /// leaves the keyboard with the window in front.
     anchor: Option<[i32; 4]>,
@@ -885,6 +897,8 @@ impl Arrange {
                 holds: Vec::new(),
                 key: None,
                 cursor: None,
+                cursor_ghost: false,
+                items: Vec::new(),
                 drag: None,
                 row_rects: Vec::new(),
                 card_rects: Vec::new(),
@@ -912,6 +926,7 @@ impl Arrange {
                 select: None,
                 wants_keyboard: false,
                 select_window: None,
+                asked_at: None,
                 note: None,
                 anchor: None,
             })),
@@ -937,6 +952,7 @@ impl Arrange {
         shared.select = None;
         shared.wants_keyboard = false;
         shared.select_window = None;
+        shared.asked_at = Some(Instant::now());
         shared.note = None;
         shared.snapshot = Some(snapshot);
         shared.holds.clear();
@@ -944,6 +960,7 @@ impl Arrange {
         shared.window = 0;
         shared.focused_once = false;
         shared.cursor = None;
+        shared.cursor_ghost = false;
         shared.drag = None;
         shared.others.reset();
         shared.row_rects.clear();
@@ -1098,6 +1115,12 @@ impl Arrange {
             if shared.window == 0 {
                 shared.window = settings::find_window(TITLE, palette_hwnd);
                 if shared.window != 0 {
+                    if let Some(asked) = shared.asked_at.take() {
+                        log::info!(
+                            "arrange strip on screen {} ms after the host asked for it",
+                            asked.elapsed().as_millis()
+                        );
+                    }
                     let border = theme::colorref(Tokens::get(ui.ctx()).border);
                     dwm_thumbs::round_corners(shared.window as HWND, border);
                     ui_bridge::set_arrange_window(shared.window);
@@ -1398,6 +1421,7 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     if let Some(hwnd) = shared.select_window.take() {
         if group.windows.iter().any(|window| window.hwnd == hwnd) {
             shared.cursor = Some(hwnd);
+            shared.cursor_ghost = false;
         }
     }
     if let Some(place) = shared.select.take() {
@@ -1407,6 +1431,7 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
             .and_then(|at| row.first()?.members.get(at).copied());
         if let Some(member) = picked {
             shared.cursor = Some(group.windows[member].hwnd);
+            shared.cursor_ghost = false;
         }
     }
 
@@ -1466,6 +1491,10 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
         if let Some(digit) = digit {
             shared.to_host.send(HostRequest::ArrangeDigit(digit));
         }
+    }
+    if view != ArrangeView::ByMonitor {
+        // The Flat view has no ghosts.
+        shared.cursor_ghost = false;
     }
     let mut frame = match view {
         ArrangeView::ByMonitor => by_monitor::body(ui, shared, &group, &snapshot, panel, menu_open),
