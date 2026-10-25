@@ -166,7 +166,7 @@ pub fn paint_selection(ui: &Ui, rect: Rect) {
 /// selected, the panel colour on hover.
 pub fn nav_item(ui: &mut Ui, label: &str, selected: bool) -> Response {
     let tokens = Tokens::get(ui.ctx());
-    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 36.0), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
     if ui.is_rect_visible(rect) {
         let hover =
             ui.ctx()

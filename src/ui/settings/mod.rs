@@ -395,7 +395,7 @@ impl Settings {
         let palette_hwnd = self.palette_hwnd;
         let mut builder = egui::ViewportBuilder::default()
             .with_title("WinCraft")
-            .with_inner_size([960.0, 640.0])
+            .with_inner_size([1024.0, 640.0])
             .with_min_inner_size([720.0, 480.0]);
         if let Some(icon) = icon {
             builder = builder.with_icon(icon);
@@ -422,11 +422,13 @@ impl Settings {
                 sync_title_bar(*window, tokens.dark);
             }
 
-            // 200 wide with 32 px page margins from 960 up; at the 720 minimum
-            // the handout narrows the nav to 168 and the margins to 24.
+            // The design page draws a 240 px nav with 44/36 px page margins. The
+            // window opens at 1024 so pages keep the width they had with the
+            // old 200 px nav; below 960 the nav narrows to 168 and the margins to 24.
             let wide = ui.max_rect().width() >= 960.0;
-            let nav_width = if wide { 200.0 } else { 168.0 };
-            let side = if wide { 32 } else { 24 };
+            let nav_width = if wide { 240.0 } else { 168.0 };
+            let side = if wide { 44 } else { 24 };
+            let top = if wide { 36 } else { 24 };
 
             egui::Panel::left("wincraft-nav")
                 .resizable(false)
@@ -462,7 +464,7 @@ impl Settings {
                         text::mono(
                             ui,
                             &format!("v{}", snapshot.version),
-                            11.0,
+                            13.0,
                             tokens.text_disabled,
                         );
                     });
@@ -483,8 +485,8 @@ impl Settings {
                         .inner_margin(Margin {
                             left: side,
                             right: side,
-                            top: 24,
-                            bottom: 24,
+                            top,
+                            bottom: top,
                         }),
                 )
                 .show(ui, |ui| match state.page {
