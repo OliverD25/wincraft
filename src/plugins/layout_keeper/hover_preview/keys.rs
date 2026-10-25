@@ -105,7 +105,10 @@ pub struct KeyState {
     /// Tab, Enter, Space or Esc.
     pub nav_down: bool,
     pub escape: bool,
+    /// Any mouse button.
     pub mouse_button_down: bool,
+    /// The middle button, which opens a new window from a taskbar button.
+    pub middle_down: bool,
 }
 
 impl KeyWatch {

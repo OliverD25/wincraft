@@ -137,5 +137,6 @@ pub fn key_state() -> KeyState {
         .any(key_down),
         escape: key_down(VK_ESCAPE),
         mouse_button_down: key_down(VK_LBUTTON) || key_down(VK_RBUTTON) || key_down(VK_MBUTTON),
+        middle_down: key_down(VK_MBUTTON),
     }
 }

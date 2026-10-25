@@ -376,7 +376,10 @@ impl Machine {
         // change a window's number, and Alt+Tab still works: it moves the
         // focus away and the strip closes itself.
         let keyboard = look.keys.win_down || (look.keys.alt_down && !look.strip_focused);
-        if escape || keyboard || (pressed && !in_strip) {
+        // A middle-click on the strip's own button: Windows opens a new
+        // window of the app, and the strip stays to show it arrive.
+        let new_window = pressed && look.keys.middle_down && on_button;
+        if escape || keyboard || (pressed && !in_strip && !new_window) {
             out.push(Command::Close);
             return done;
         }
@@ -856,6 +859,61 @@ mod tests {
         assert_eq!(machine.gate(None), None);
         for t in (now + 32..now + 2000).step_by(16) {
             assert!(machine.step(&look(t, ON_BUTTON)).is_empty());
+        }
+    }
+
+    #[test]
+    fn a_middle_click_on_the_strip_button_keeps_the_strip_open() {
+        let mut machine = on();
+        let now = open_strip(&mut machine);
+        let middle = |t, at| Look {
+            keys: KeyState {
+                mouse_button_down: true,
+                middle_down: true,
+                ..KeyState::default()
+            },
+            ..with_strip(t, at)
+        };
+        assert!(machine.step(&middle(now + 16, ON_BUTTON)).is_empty());
+        assert!(machine.step(&middle(now + 100, ON_BUTTON)).is_empty());
+        assert!(machine.step(&with_strip(now + 200, ON_BUTTON)).is_empty());
+        assert!(machine.is_open());
+        // The new window takes the front; the strip is still there.
+        assert!(machine.step(&with_strip(now + 2000, ON_BUTTON)).is_empty());
+        assert!(machine.is_open());
+
+        // A middle-click anywhere else still closes it.
+        assert_eq!(machine.step(&middle(now + 2100, DESKTOP)), [Command::Close]);
+    }
+
+    #[test]
+    fn a_middle_click_on_another_apps_button_closes_the_strip() {
+        let mut machine = on();
+        let now = open_strip(&mut machine);
+        let press = Look {
+            keys: KeyState {
+                mouse_button_down: true,
+                middle_down: true,
+                ..KeyState::default()
+            },
+            ..with_strip(now + 16, (1070, 2060))
+        };
+        assert_eq!(machine.step(&press), [Command::Close]);
+    }
+
+    #[test]
+    fn a_right_click_outside_still_closes_the_strip() {
+        for at in [ON_BUTTON, DESKTOP] {
+            let mut machine = on();
+            let now = open_strip(&mut machine);
+            let press = Look {
+                keys: KeyState {
+                    mouse_button_down: true,
+                    ..KeyState::default()
+                },
+                ..with_strip(now + 16, at)
+            };
+            assert_eq!(machine.step(&press), [Command::Close], "{at:?}");
         }
     }
 
