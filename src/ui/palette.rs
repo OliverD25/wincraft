@@ -689,7 +689,8 @@ impl Palette {
         }
 
         if let Some(key) = picked {
-            self.router.record_pick(&key, &snapshot.search);
+            self.router
+                .record_pick(&key, self.prefix.as_deref(), &self.query, &snapshot.search);
         }
         self.router.save_usage_soon();
         if let Some(action) = run {

@@ -2,8 +2,12 @@
 //! next time. One number per row, decayed with a 14-day half-life: every
 //! pick adds 1.0, and the score halves for every 14 days it is not picked.
 //! Kept in memory on the UI thread and saved to `palette_usage.json`.
+//!
+//! It also remembers what was typed for each pick: the text, as it was when
+//! the row was run, points at that row. Typing the same text again, or the
+//! start of it, puts that row first. These pairs decay the same way.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -26,6 +30,10 @@ const BOOST_SCALE: f64 = 4.0;
 /// pick: 1.0 halved four times is 0.06).
 const FORGET_BELOW: f64 = 0.05;
 pub const MOST_ENTRIES: usize = 500;
+/// Most typed texts kept; the ones picked longest ago are dropped first.
+pub const MOST_TYPED: usize = 500;
+/// Most rows remembered for one typed text; the least picked are dropped.
+const MOST_PER_TEXT: usize = 6;
 const SAVE_GAP: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -35,10 +43,25 @@ struct Entry {
     updated: i64,
 }
 
-#[derive(Serialize, Deserialize)]
+/// The rows picked after one typed text, by usage key.
+type Picks = HashMap<String, Entry>;
+
+#[derive(Default, Serialize, Deserialize)]
 struct UsageFile {
     version: u32,
     entries: HashMap<String, Entry>,
+    /// Typed text, then the rows picked after it. Missing in files written
+    /// before WinCraft remembered what was typed.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    typed: HashMap<String, Picks>,
+    /// Fields this version does not know, written back as they were.
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
+}
+
+/// What was typed, made comparable: no spaces around it, lowercase.
+pub fn normal_text(text: &str) -> String {
+    text.trim().to_lowercase()
 }
 
 /// A score decayed from `from` to `to`, in unix seconds. A clock that went
@@ -78,6 +101,8 @@ pub fn path_key(path: &str) -> String {
 #[derive(Default)]
 pub struct Usage {
     entries: HashMap<String, Entry>,
+    typed: HashMap<String, Picks>,
+    extra: BTreeMap<String, serde_json::Value>,
     /// None for an in-memory store that is never saved, as in tests.
     path: Option<PathBuf>,
     dirty: bool,
@@ -88,10 +113,10 @@ impl Usage {
     /// Reads the file, or starts empty. A file that cannot be read is kept
     /// as `palette_usage.json.bad` for a look later, and a new one starts.
     pub fn load(path: PathBuf) -> Self {
-        let entries = match std::fs::read_to_string(&path) {
-            Err(_) => HashMap::new(),
+        let file = match std::fs::read_to_string(&path) {
+            Err(_) => UsageFile::default(),
             Ok(text) => match parse(&text) {
-                Ok(entries) => entries,
+                Ok(file) => file,
                 Err(err) => {
                     let bad = path.with_extension("json.bad");
                     log::warn!(
@@ -102,12 +127,14 @@ impl Usage {
                     if let Err(err) = std::fs::rename(&path, &bad) {
                         log::warn!("could not rename it: {err}");
                     }
-                    HashMap::new()
+                    UsageFile::default()
                 }
             },
         };
         Self {
-            entries,
+            entries: file.entries,
+            typed: file.typed,
+            extra: file.extra,
             path: Some(path),
             dirty: false,
             last_save: None,
@@ -138,8 +165,69 @@ impl Usage {
         self.dirty = true;
     }
 
+    /// Remembers that `key` was run after `typed` (see `normal_text`; the
+    /// prefix is part of it). Nothing is kept for empty text.
+    pub fn record_typed(&mut self, typed: &str, key: &str, now: i64) {
+        if typed.is_empty() {
+            return;
+        }
+        let picks = self.typed.entry(typed.to_string()).or_default();
+        let score = picks
+            .get(key)
+            .map(|entry| decayed(entry.score, entry.updated, now))
+            .unwrap_or(0.0)
+            + 1.0;
+        picks.insert(
+            key.to_string(),
+            Entry {
+                score,
+                updated: now,
+            },
+        );
+        self.dirty = true;
+    }
+
+    /// How many typed texts are remembered.
+    pub fn typed_len(&self) -> usize {
+        self.typed.len()
+    }
+
+    /// The rows to put first for what is typed now, best first. A remembered
+    /// text is used when it is the typed text or starts with it. The exact
+    /// text beats a longer one; then the more recent and more often picked
+    /// row wins, and a closer text breaks a tie.
+    pub fn remembered(&self, typed: &str, now: i64) -> Vec<String> {
+        if typed.is_empty() {
+            return Vec::new();
+        }
+        let mut found: Vec<(bool, f64, usize, &str)> = Vec::new();
+        for (text, picks) in &self.typed {
+            if !text.starts_with(typed) {
+                continue;
+            }
+            for (key, entry) in picks {
+                let score = decayed(entry.score, entry.updated, now);
+                found.push((text == typed, score, text.len(), key));
+            }
+        }
+        found.sort_by(|a, b| {
+            b.0.cmp(&a.0)
+                .then_with(|| b.1.total_cmp(&a.1))
+                .then_with(|| a.2.cmp(&b.2))
+                .then_with(|| a.3.cmp(b.3))
+        });
+        let mut keys: Vec<String> = Vec::new();
+        for (_, _, _, key) in found {
+            if !keys.iter().any(|known| known == key) {
+                keys.push(key.to_string());
+            }
+        }
+        keys
+    }
+
     pub fn clear(&mut self) {
         self.entries.clear();
+        self.typed.clear();
         self.dirty = true;
         self.last_save = None;
     }
@@ -208,6 +296,38 @@ impl Usage {
         }
     }
 
+    fn prune_typed(&mut self, now: i64) {
+        for picks in self.typed.values_mut() {
+            picks.retain(|_, entry| decayed(entry.score, entry.updated, now) >= FORGET_BELOW);
+            if picks.len() > MOST_PER_TEXT {
+                let mut ranked: Vec<(String, f64)> = picks
+                    .iter()
+                    .map(|(key, entry)| (key.clone(), decayed(entry.score, entry.updated, now)))
+                    .collect();
+                ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+                for (key, _) in ranked.into_iter().skip(MOST_PER_TEXT) {
+                    picks.remove(&key);
+                }
+            }
+        }
+        self.typed.retain(|_, picks| !picks.is_empty());
+        if self.typed.len() <= MOST_TYPED {
+            return;
+        }
+        let mut latest: Vec<(String, i64)> = self
+            .typed
+            .iter()
+            .map(|(text, picks)| {
+                let newest = picks.values().map(|entry| entry.updated).max().unwrap_or(0);
+                (text.clone(), newest)
+            })
+            .collect();
+        latest.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        for (text, _) in latest.into_iter().skip(MOST_TYPED) {
+            self.typed.remove(&text);
+        }
+    }
+
     /// Saves if something changed and the last save was at least 2 s ago.
     pub fn save_soon(&mut self) {
         let due = self.last_save.is_none_or(|last| last.elapsed() >= SAVE_GAP);
@@ -231,6 +351,7 @@ impl Usage {
             return;
         };
         self.prune(now());
+        self.prune_typed(now());
         if let Err(err) = self.write(&path) {
             log::warn!("could not save palette usage: {err}");
         }
@@ -240,6 +361,8 @@ impl Usage {
         let file = UsageFile {
             version: VERSION,
             entries: self.entries.clone(),
+            typed: self.typed.clone(),
+            extra: self.extra.clone(),
         };
         let text = serde_json::to_string(&file).map_err(|err| err.to_string())?;
         if let Some(dir) = path.parent() {
@@ -249,21 +372,25 @@ impl Usage {
     }
 }
 
-/// An empty file reads as no usage yet; anything else must be version 1.
-fn parse(text: &str) -> Result<HashMap<String, Entry>, String> {
+/// An empty file reads as no usage yet; anything else must be version 1. A
+/// file from before typed texts were remembered has no `typed` and still reads.
+fn parse(text: &str) -> Result<UsageFile, String> {
     let text = config::strip_bom(text).trim();
     if text.is_empty() {
-        return Ok(HashMap::new());
+        return Ok(UsageFile::default());
     }
-    let file: UsageFile = serde_json::from_str(text).map_err(|err| err.to_string())?;
+    let mut file: UsageFile = serde_json::from_str(text).map_err(|err| err.to_string())?;
     if file.version != VERSION {
         return Err(format!("version {} is not {VERSION}", file.version));
     }
-    Ok(file
-        .entries
-        .into_iter()
-        .filter(|(_, entry)| entry.score.is_finite() && entry.score > 0.0)
-        .collect())
+    let valid = |entry: &Entry| entry.score.is_finite() && entry.score > 0.0;
+    file.entries.retain(|_, entry| valid(entry));
+    for picks in file.typed.values_mut() {
+        picks.retain(|_, entry| valid(entry));
+    }
+    file.typed
+        .retain(|text, picks| !text.is_empty() && !picks.is_empty());
+    Ok(file)
 }
 
 #[cfg(test)]
@@ -547,6 +674,124 @@ mod tests {
             path.exists(),
             "clearing writes an empty file, it does not delete it"
         );
+    }
+
+    #[test]
+    fn the_exact_text_beats_the_start_of_a_longer_one() {
+        let mut usage = Usage::default();
+        for _ in 0..5 {
+            usage.record_typed("upd", "long", T0);
+        }
+        usage.record_typed("up", "exact", T0);
+        assert_eq!(usage.remembered("up", T0), ["exact", "long"]);
+        // Typing less than either: both are starts, the more picked first.
+        assert_eq!(usage.remembered("u", T0), ["long", "exact"]);
+        assert!(usage.remembered("upx", T0).is_empty());
+        assert!(usage.remembered("", T0).is_empty());
+    }
+
+    #[test]
+    fn rows_competing_for_one_text_are_settled_by_decayed_picks() {
+        let mut usage = Usage::default();
+        usage.record_typed("upd", "old", T0);
+        usage.record_typed("upd", "old", T0);
+        usage.record_typed("upd", "new", T0 + 28 * DAY);
+        // Two picks 28 days ago are worth 0.5, one fresh pick 1.0.
+        assert_eq!(usage.remembered("upd", T0 + 28 * DAY), ["new", "old"]);
+        // Picked often enough, the older habit wins again.
+        for _ in 0..3 {
+            usage.record_typed("upd", "old", T0 + 28 * DAY);
+        }
+        assert_eq!(usage.remembered("upd", T0 + 28 * DAY), ["old", "new"]);
+    }
+
+    #[test]
+    fn empty_text_is_never_remembered_and_text_is_made_comparable() {
+        let mut usage = Usage::default();
+        usage.record_typed("", "k", T0);
+        assert_eq!(usage.typed_len(), 0);
+        assert_eq!(normal_text("  UpD \t"), "upd");
+    }
+
+    #[test]
+    fn typed_texts_are_capped_and_the_oldest_are_dropped() {
+        let mut usage = Usage::default();
+        for index in 0..(MOST_TYPED + 20) {
+            usage.record_typed(&format!("t{index:04}"), "k", T0 + index as i64);
+        }
+        usage.prune_typed(T0 + 1000);
+        assert_eq!(usage.typed_len(), MOST_TYPED);
+        assert!(usage.remembered("t0000", T0 + 1000).is_empty());
+        assert_eq!(
+            usage.remembered(&format!("t{:04}", MOST_TYPED + 19), T0 + 1000),
+            ["k"]
+        );
+    }
+
+    #[test]
+    fn old_typed_picks_are_forgotten_and_one_text_keeps_a_few_rows() {
+        let mut usage = Usage::default();
+        usage.record_typed("old", "k", T0 - 70 * DAY);
+        for index in 0..(MOST_PER_TEXT + 3) {
+            for _ in 0..=index {
+                usage.record_typed("many", &format!("k{index}"), T0);
+            }
+        }
+        usage.prune_typed(T0);
+        assert!(usage.remembered("old", T0).is_empty());
+        let kept = usage.remembered("many", T0);
+        assert_eq!(kept.len(), MOST_PER_TEXT);
+        assert_eq!(kept[0], format!("k{}", MOST_PER_TEXT + 2));
+    }
+
+    #[test]
+    fn clearing_forgets_typed_texts_too() {
+        let path = scratch("typed-clear");
+        let mut usage = Usage::load(path.clone());
+        usage.record("apps:x", now());
+        usage.record_typed("x", "apps:x", now());
+        usage.clear();
+        assert_eq!(usage.typed_len(), 0);
+        assert!(usage.remembered("x", now()).is_empty());
+    }
+
+    #[test]
+    fn typed_texts_survive_a_save_and_a_load_with_unknown_fields_kept() {
+        let path = scratch("typed-round-trip");
+        std::fs::write(
+            &path,
+            "{\"version\":1,\"entries\":{},\"future\":{\"a\":[1,2]}}",
+        )
+        .unwrap();
+        let mut usage = Usage::load(path.clone());
+        usage.record_typed("upd", "commands:update", now());
+        usage.flush();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\"future\":{\"a\":[1,2]}"), "{text}");
+        assert!(text.contains("\"version\":1"), "{text}");
+        let loaded = Usage::load(path);
+        assert_eq!(loaded.remembered("up", now()), ["commands:update"]);
+    }
+
+    #[test]
+    fn a_file_from_before_typed_texts_still_reads() {
+        let path = scratch("old-format");
+        std::fs::write(
+            &path,
+            "{\"version\":1,\"entries\":{\"apps:x\":{\"score\":2.0,\"updated\":0}}}",
+        )
+        .unwrap();
+        let usage = Usage::load(path.clone());
+        assert_eq!(usage.len(), 1);
+        assert_eq!(usage.typed_len(), 0);
+        assert!(path.exists());
+        // Bad typed entries are dropped without rejecting the file.
+        std::fs::write(
+            &path,
+            "{\"version\":1,\"entries\":{},\"typed\":{\"u\":{\"a\":{\"score\":-1.0,\"updated\":0}}}}",
+        )
+        .unwrap();
+        assert_eq!(Usage::load(path).typed_len(), 0);
     }
 
     #[test]

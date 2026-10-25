@@ -300,7 +300,7 @@ fn usage_rows(
         ui,
         "rank-by-use",
         RowText::new("Rank results by use").desc(
-            "Apps, commands, windows and folders you pick often move up, on this PC only.",
+            "Apps, commands, windows and folders you pick often move up, and WinCraft remembers what you typed for each pick. On this PC only.",
             tokens.text_secondary,
         ),
         false,

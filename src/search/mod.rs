@@ -443,16 +443,30 @@ impl Router {
     /// ranks from this session's picks only and saves nothing.
     pub fn load_usage(&mut self, path: PathBuf) {
         self.usage = Usage::load(path);
-        log::info!("palette usage: {} rows picked before", self.usage.len());
+        log::info!(
+            "palette usage: {} rows picked before, {} typed texts remembered",
+            self.usage.len(),
+            self.usage.typed_len()
+        );
     }
 
-    /// A row was run with Enter; nothing is recorded while ranking by use
-    /// is off.
-    pub fn record_pick(&mut self, key: &str, search: &SearchConfig) {
+    /// A row was run with Enter after `text` was typed, behind `prefix`;
+    /// nothing is recorded while ranking by use is off.
+    pub fn record_pick(
+        &mut self,
+        key: &str,
+        prefix: Option<&str>,
+        text: &str,
+        search: &SearchConfig,
+    ) {
         if !search.rank_by_use {
             return;
         }
-        self.usage.record(key, usage::now());
+        let now = usage::now();
+        self.usage.record(key, now);
+        if let Some(typed) = typed_text(prefix, text) {
+            self.usage.record_typed(&typed, key, now);
+        }
         self.usage.save_soon();
     }
 
@@ -629,8 +643,12 @@ impl Router {
             self.folder = Some(folder);
         }
         let keep_order = needle.is_empty() || follows_end;
+        let mut items = self.rank_by_use(items, keep_order, settings);
+        if settings.rank_by_use && !follows_end {
+            items = self.lift_remembered(items, typed_text(Some(prefix), text).as_deref());
+        }
         Results {
-            items: self.rank_by_use(items, keep_order, settings),
+            items,
             needle,
             follows_end,
             escape_label,
@@ -671,11 +689,33 @@ impl Router {
             }
             items.extend(timed(slot.provider.as_mut(), &query, context));
         }
+        let items = self.rank_by_use(items, text.is_empty(), context.search);
+        let mut items = lift_commands(items, text);
+        if context.search.rank_by_use {
+            items = self.lift_remembered(items, typed_text(None, text).as_deref());
+        }
         Results {
-            items: self.rank_by_use(items, text.is_empty(), context.search),
+            items,
             needle: text.to_string(),
             ..Default::default()
         }
+    }
+
+    /// The row picked before after this text, if it is among the results,
+    /// goes first with the rest of its group.
+    fn lift_remembered(&self, items: Vec<ResultItem>, typed: Option<&str>) -> Vec<ResultItem> {
+        let Some(typed) = typed else {
+            return items;
+        };
+        for key in self.usage.remembered(typed, usage::now()) {
+            if let Some(index) = items
+                .iter()
+                .position(|item| item.usage_key.as_deref() == Some(key.as_str()))
+            {
+                return put_first(items, index);
+            }
+        }
+        items
     }
 
     /// One row per prefix, and one for going back to none. Choosing a row
@@ -727,6 +767,78 @@ impl Router {
         }
     }
 }
+
+/// What the memory of typed texts files a pick under: the prefix and the
+/// text together. None while nothing but a prefix is typed.
+fn typed_text(prefix: Option<&str>, text: &str) -> Option<String> {
+    let text = usage::normal_text(text);
+    if text.is_empty() {
+        return None;
+    }
+    Some(format!("{}{text}", prefix.unwrap_or_default()))
+}
+
+/// Moves the row at `index` to the top and its group right after it, then
+/// the other groups as they were, so the group header stays in one piece.
+fn put_first(items: Vec<ResultItem>, index: usize) -> Vec<ResultItem> {
+    let group = items[index].group.clone();
+    let mut first = Vec::with_capacity(items.len());
+    let mut rest = Vec::new();
+    for (position, item) in items.into_iter().enumerate() {
+        if position == index {
+            first.insert(0, item);
+        } else if item.group == group {
+            first.push(item);
+        } else {
+            rest.push(item);
+        }
+    }
+    first.extend(rest);
+    first
+}
+
+/// Whether `text` starts a word of `label`: "upd" and "wincr" start words of
+/// "Update WinCraft", "ate" does not.
+fn starts_a_word(label: &str, text: &str) -> bool {
+    let label: Vec<char> = label.chars().flat_map(char::to_lowercase).collect();
+    let text: Vec<char> = text.trim().chars().flat_map(char::to_lowercase).collect();
+    if text.is_empty() || text.len() > label.len() {
+        return false;
+    }
+    (0..=label.len() - text.len()).any(|start| {
+        (start == 0 || !label[start - 1].is_alphanumeric()) && label[start..].starts_with(&text)
+    })
+}
+
+/// With text typed and no prefix: when a WinCraft command has the text at the
+/// start of a word, the groups holding such commands come before the others,
+/// each group still in the order it had.
+fn lift_commands(items: Vec<ResultItem>, text: &str) -> Vec<ResultItem> {
+    if text.trim().is_empty() {
+        return items;
+    }
+    let mut lifted: Vec<String> = Vec::new();
+    for item in &items {
+        let is_command = item
+            .usage_key
+            .as_deref()
+            .is_some_and(|key| key.starts_with(COMMANDS_KEY));
+        if is_command && starts_a_word(&item.title, text) && !lifted.contains(&item.group) {
+            lifted.push(item.group.clone());
+        }
+    }
+    if lifted.is_empty() {
+        return items;
+    }
+    let (mut first, rest): (Vec<_>, Vec<_>) = items
+        .into_iter()
+        .partition(|item| lifted.contains(&item.group));
+    first.extend(rest);
+    first
+}
+
+/// Where the router puts the id of the commands provider in a usage key.
+const COMMANDS_KEY: &str = "commands:";
 
 fn timed(provider: &mut dyn SearchProvider, query: &Query, context: &Context) -> Vec<ResultItem> {
     let started = Instant::now();
@@ -833,7 +945,7 @@ mod tests {
     #[test]
     fn a_pick_is_recorded_and_lifts_its_row_while_ranking_by_use_is_on() {
         let mut router = Router::new(Vec::new(), &BTreeMap::new());
-        router.record_pick("apps:Notepad", &settings(true));
+        router.record_pick("apps:Notepad", None, "no", &settings(true));
         let ranked = router.rank_by_use(
             vec![keyed("Notion", 37), keyed("Notepad", 36)],
             false,
@@ -846,9 +958,9 @@ mod tests {
     #[test]
     fn with_ranking_by_use_off_nothing_is_recorded_or_boosted() {
         let mut router = Router::new(Vec::new(), &BTreeMap::new());
-        router.record_pick("apps:Notepad", &settings(false));
+        router.record_pick("apps:Notepad", None, "no", &settings(false));
         assert_eq!(router.usage.len(), 0);
-        router.record_pick("apps:Notepad", &settings(true));
+        router.record_pick("apps:Notepad", None, "no", &settings(true));
         let ranked = router.rank_by_use(
             vec![keyed("Notion", 37), keyed("Notepad", 36)],
             false,
@@ -867,7 +979,7 @@ mod tests {
     #[test]
     fn clearing_forgets_every_pick() {
         let mut router = Router::new(Vec::new(), &BTreeMap::new());
-        router.record_pick("apps:Notepad", &settings(true));
+        router.record_pick("apps:Notepad", None, "no", &settings(true));
         router.clear_usage();
         assert_eq!(router.usage.len(), 0);
         let ranked = router.rank_by_use(
@@ -881,7 +993,7 @@ mod tests {
     #[test]
     fn with_nothing_typed_the_picked_row_leads_its_group() {
         let mut router = Router::new(Vec::new(), &BTreeMap::new());
-        router.record_pick("apps:Notepad", &settings(true));
+        router.record_pick("apps:Notepad", None, "no", &settings(true));
         let ranked = router.rank_by_use(
             vec![keyed("Notion", 0), keyed("Notepad", 0)],
             true,
@@ -914,6 +1026,181 @@ mod tests {
                 item("Keyed", "two", 5),
             ]
         }
+    }
+
+    /// A blended provider that answers every query with the same rows:
+    /// (group, title, score, usage key).
+    struct Rows {
+        id: &'static str,
+        rows: Vec<(&'static str, &'static str, i32, Option<&'static str>)>,
+    }
+
+    impl SearchProvider for Rows {
+        fn id(&self) -> &'static str {
+            self.id
+        }
+        fn name(&self) -> &'static str {
+            self.id
+        }
+        fn description(&self) -> &'static str {
+            "fixed rows"
+        }
+        fn default_prefix(&self) -> Option<&'static str> {
+            (self.id == "commands").then_some("!")
+        }
+        fn blended(&self) -> bool {
+            true
+        }
+        fn query(&mut self, _query: &Query, _context: &Context) -> Vec<ResultItem> {
+            self.rows
+                .iter()
+                .map(|(group, title, score, key)| ResultItem {
+                    usage_key: key.map(str::to_string),
+                    ..item(group, title, *score)
+                })
+                .collect()
+        }
+    }
+
+    fn palette_router() -> Router {
+        let commands = Rows {
+            id: "commands",
+            rows: vec![
+                ("WinCraft", "Update WinCraft", 20, Some("update")),
+                ("WinCraft", "Open settings", 5, Some("settings")),
+            ],
+        };
+        let apps = Rows {
+            id: "apps",
+            rows: vec![
+                ("Apps", "update_server", 40, Some("server")),
+                ("Apps", "Check For Updates", 30, Some("java")),
+            ],
+        };
+        Router::new(
+            vec![(None, Box::new(apps)), (None, Box::new(commands))],
+            &BTreeMap::new(),
+        )
+    }
+
+    fn found(router: &mut Router, prefix: Option<&str>, text: &str) -> Vec<String> {
+        let results = router.search(prefix, text, &context());
+        results.items.into_iter().map(|item| item.title).collect()
+    }
+
+    #[test]
+    fn a_word_start_match_lifts_the_wincraft_group_above_apps() {
+        let mut router = palette_router();
+        assert_eq!(
+            found(&mut router, None, "upd"),
+            [
+                "Update WinCraft",
+                "Open settings",
+                "update_server",
+                "Check For Updates"
+            ]
+        );
+        assert_eq!(found(&mut router, None, "wincr")[0], "Update WinCraft");
+    }
+
+    #[test]
+    fn without_a_word_start_match_the_groups_keep_their_order() {
+        let mut router = palette_router();
+        // "ate" is inside the word "Update", not at its start.
+        assert_eq!(found(&mut router, None, "ate")[0], "update_server");
+        // Nothing typed: the providers' own order.
+        assert_eq!(found(&mut router, None, "")[0], "update_server");
+    }
+
+    #[test]
+    fn a_prefix_leaves_the_group_order_alone() {
+        let mut router = palette_router();
+        let rows = found(&mut router, Some("!"), "upd");
+        assert_eq!(rows, ["Update WinCraft", "Open settings"]);
+    }
+
+    #[test]
+    fn a_text_starts_a_word_only_at_the_front_of_one() {
+        assert!(starts_a_word("Update WinCraft", "UPD"));
+        assert!(starts_a_word("Update WinCraft", "update w"));
+        assert!(starts_a_word("Update WinCraft", "wincraft"));
+        assert!(!starts_a_word("Update WinCraft", "ate"));
+        assert!(!starts_a_word("Update", "update wincraft"));
+        assert!(!starts_a_word("Update", " "));
+    }
+
+    #[test]
+    fn a_pick_is_remembered_for_what_was_typed_and_its_starts() {
+        let mut router = palette_router();
+        router.record_pick("apps:java", None, "  UpD ", &settings(true));
+        assert_eq!(router.usage.typed_len(), 1);
+        assert_eq!(found(&mut router, None, "upd")[0], "Check For Updates");
+        assert_eq!(found(&mut router, None, "up")[0], "Check For Updates");
+        assert_eq!(found(&mut router, None, "u")[0], "Check For Updates");
+        // Longer than what was remembered, or something else: no help.
+        assert_eq!(found(&mut router, None, "updat")[0], "Update WinCraft");
+    }
+
+    #[test]
+    fn a_remembered_row_brings_its_group_and_keeps_its_group_header_whole() {
+        let mut router = palette_router();
+        router.record_pick("apps:java", None, "upd", &settings(true));
+        assert_eq!(
+            found(&mut router, None, "upd"),
+            [
+                "Check For Updates",
+                "update_server",
+                "Update WinCraft",
+                "Open settings"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_remembered_row_that_is_not_in_the_results_changes_nothing() {
+        let mut router = palette_router();
+        router.record_pick("apps:gone", None, "upd", &settings(true));
+        assert_eq!(found(&mut router, None, "upd")[0], "Update WinCraft");
+    }
+
+    #[test]
+    fn a_prefix_is_part_of_what_is_remembered() {
+        let mut router = palette_router();
+        router.record_pick("commands:settings", Some("!"), "se", &settings(true));
+        assert_eq!(found(&mut router, Some("!"), "s")[0], "Open settings");
+        assert_eq!(found(&mut router, Some("!"), "se")[0], "Open settings");
+        // The same letters without the prefix are another text.
+        assert!(router.usage.remembered("se", usage::now()).is_empty());
+        // A prefix with nothing after it is never remembered or used.
+        router.record_pick("commands:settings", Some("!"), " ", &settings(true));
+        assert_eq!(router.usage.typed_len(), 1);
+    }
+
+    #[test]
+    fn with_ranking_by_use_off_nothing_is_typed_remembered_or_used() {
+        let mut router = palette_router();
+        router.record_pick("apps:java", None, "upd", &settings(false));
+        assert_eq!(router.usage.typed_len(), 0);
+        router.record_pick("apps:java", None, "upd", &settings(true));
+        let off = SearchConfig {
+            rank_by_use: false,
+            ..SearchConfig::default()
+        };
+        let context = Context {
+            search: Box::leak(Box::new(off)),
+            ..test_context()
+        };
+        let results = router.search(None, "upd", &context);
+        assert_eq!(results.items[0].title, "Update WinCraft");
+    }
+
+    #[test]
+    fn clearing_forgets_what_was_typed_too() {
+        let mut router = palette_router();
+        router.record_pick("apps:java", None, "upd", &settings(true));
+        router.clear_usage();
+        assert_eq!(router.usage.typed_len(), 0);
+        assert_eq!(found(&mut router, None, "upd")[0], "Update WinCraft");
     }
 
     #[test]

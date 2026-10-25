@@ -237,9 +237,16 @@ gains a point that halves every 14 days. The points only reorder results
 that match about equally well: a clearly better match stays ahead and a
 result named exactly what you typed stays first. With nothing typed, the
 results you picked lead their own group. The calculator, web search and
-terminal are not ranked this way. The counts are kept in
+terminal are not ranked this way.
+
+WinCraft also remembers what you typed before you ran a result. Type the
+same text again, or the start of it, and that result comes first, so Enter
+runs it at once. If you picked two results for the same text, the one picked
+more often and more recently wins. When a WinCraft command has your text at
+the start of a word (`upd` finds "Update WinCraft"), the WinCraft group is
+shown above the apps. The counts and the typed texts are kept in
 `palette_usage.json` next to `config.json`; **Rank results by use** in
-Settings → General switches this off, and **Clear usage history** forgets
+Settings → General switches all of this off, and **Clear usage history** forgets
 them.
 
 The keys: ↑ ↓ move, Enter runs, Shift+Enter does the second action, Tab
@@ -411,7 +418,7 @@ in the log.
 | `search.terminal_shell` | What `>` runs commands in: `WSL bash`, `PowerShell 7`, `Windows PowerShell`, `Command Prompt` or `Custom`. |
 | `search.terminal_custom` | For `Custom`: a command line with `{cmd}` where the command goes and optionally `{cwd}` for the folder, such as `C:\msys64\usr\bin\bash.exe -lc {cmd}`. Without `{cmd}` WSL bash is used. |
 | `search.terminal_history` | Whether commands run from the palette are remembered. |
-| `search.rank_by_use` | Whether results you pick often move up, and picks are counted in `palette_usage.json`. |
+| `search.rank_by_use` | Whether results you pick often move up, and picks and the text typed for them are kept in `palette_usage.json`. |
 | `search.everything` | Whether files and folders are searched at all, in the blended list and after `.`: with Everything when it is running. |
 | `search.file_search_fallback` | Whether the Windows Search index answers file searches while Everything is not running. |
 | `updates.check_daily` | Whether GitHub is asked once a day for a newer release. |
