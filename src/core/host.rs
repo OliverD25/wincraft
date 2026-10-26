@@ -1,7 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
@@ -105,6 +105,13 @@ const WM_APP_NOTICE_CLICK: u32 = WM_APP + 23;
 /// Win+Alt+A, then a digit: the message the keyboard hook posts for a key it
 /// kept or for the end of the wait.
 const WM_APP_WAIT_KEY: u32 = WM_APP + 24;
+/// Win and a digit from a keyboard hook that runs on a thread of its own;
+/// see `post_taskbar_button`.
+const WM_APP_WIN_DIGIT: u32 = WM_APP + 25;
+/// The strip Win and a digit asked for counts as open this long before the
+/// UI thread has its window, so the same digit again picks the next card
+/// instead of opening the strip a second time.
+const STRIP_COMING: std::time::Duration = std::time::Duration::from_secs(1);
 /// The taskbar's buttons read this recently still count for a digit typed
 /// in the strip, which saves reading them again before it can jump.
 const BUTTONS_FRESH: std::time::Duration = std::time::Duration::from_secs(10);
@@ -164,6 +171,8 @@ struct Host {
     shortcut_keys: Vec<(i32, FirstPress, bool)>,
     /// The chord whose second press is awaited.
     chord_wait: Option<FirstPress>,
+    /// When Win and a digit last opened the strip; see `STRIP_COMING`.
+    win_digit_opened: Option<std::time::Instant>,
 }
 
 /// What became of a Win+number that WindowDeck's hook kept.
@@ -523,8 +532,10 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         autostart_note: autostart::hands_off_note(),
         shortcut_keys: Vec::new(),
         chord_wait: None,
+        win_digit_opened: None,
     };
     HOST_WINDOW.with(|cell| cell.set(hwnd));
+    HOST_HWND.store(hwnd as isize, Ordering::Relaxed);
     // Notices queued before the window existed have nobody to post them.
     plugin_changed();
     TASKBAR_CREATED
@@ -1716,7 +1727,10 @@ impl Host {
     /// same digit comes again while Win stayed down. The caller hands a
     /// `GiveBack` to Windows.
     fn win_digit(&mut self, digit: u8, again: bool) -> WinDigit {
-        if again && ui_bridge::arrange_window().is_some() {
+        let coming = self
+            .win_digit_opened
+            .is_some_and(|at| at.elapsed() < STRIP_COMING);
+        if again && (coming || ui_bridge::arrange_window().is_some()) {
             log::info!("Win+{digit} again: the next card");
             self.to_ui.send(UiCommand::ArrangeSelectNext);
             return WinDigit::NextCard;
@@ -1741,6 +1755,7 @@ impl Host {
         }
         log::info!("Win+{digit}: the strip for taskbar button {number} ({app}), window {place}");
         self.to_ui.send(UiCommand::ArrangeSelect(place));
+        self.win_digit_opened = Some(std::time::Instant::now());
         WinDigit::Opened
     }
 
@@ -2857,6 +2872,26 @@ pub fn open_taskbar_button(digit: u8, again: bool) {
     plugin_changed();
 }
 
+/// The host window, for the calls that other threads may make.
+static HOST_HWND: AtomicIsize = AtomicIsize::new(0);
+
+/// `open_taskbar_button` from any thread: for a keyboard hook that runs on
+/// a thread of its own, so it answers Windows at once however busy the
+/// host is.
+pub fn post_taskbar_button(digit: u8, again: bool) {
+    let hwnd = HOST_HWND.load(Ordering::Relaxed);
+    if hwnd != 0 {
+        unsafe {
+            PostMessageW(
+                hwnd as HWND,
+                WM_APP_WIN_DIGIT,
+                usize::from(digit),
+                isize::from(again),
+            )
+        };
+    }
+}
+
 /// Closes the Arrange strip if it is open. Safe to call from any callback.
 pub fn close_arrange() {
     ARRANGE_CLOSE.with(|cell| cell.set(true));
@@ -3508,6 +3543,10 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         }
         WM_TIMER if wparam == UPDATE_TIMER => {
             with_host_or_later(hwnd, msg, wparam, lparam, |host| host.daily_check());
+            0
+        }
+        WM_APP_WIN_DIGIT => {
+            open_taskbar_button(wparam as u8, lparam != 0);
             0
         }
         WM_APP_WAIT_KEY => {
@@ -4715,6 +4754,7 @@ mod tests {
             autostart_note: None,
             shortcut_keys: Vec::new(),
             chord_wait: None,
+            win_digit_opened: None,
         };
         for index in host.plugins.wanted() {
             host.enable_slot(index);
@@ -5264,6 +5304,10 @@ mod tests {
         // Win+2: Chrome has a window, even only one, so the strip opens on it.
         assert_eq!(host.win_digit(2, false), WinDigit::Opened);
         assert_eq!(opened(&ui), [0, 1]);
+        // The same digit again before the UI has the strip's window: the
+        // next card, not a second strip.
+        assert_eq!(host.win_digit(2, true), WinDigit::NextCard);
+        assert!(opened(&ui).is_empty());
         // Win+1: a pinned app that is not running goes back to Windows.
         assert_eq!(host.win_digit(1, false), WinDigit::GiveBack);
         assert!(opened(&ui).is_empty());
@@ -5277,6 +5321,13 @@ mod tests {
         });
         assert_eq!(host.win_digit(2, false), WinDigit::GiveBack);
         assert!(opened(&ui).is_empty());
+    }
+
+    #[test]
+    fn a_win_number_posted_from_another_thread_reaches_the_queue() {
+        let hwnd = 0x7fff_fff4 as HWND;
+        unsafe { wnd_proc(hwnd, WM_APP_WIN_DIGIT, 4, 1) };
+        assert_eq!(PluginRequests::take().win_digits, [(4, true)]);
     }
 
     #[test]

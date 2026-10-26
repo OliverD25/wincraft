@@ -11,20 +11,23 @@
 //! back to Windows by the host (`core::mask_key::replay_win_digit`), with a
 //! tag this hook lets through.
 //!
-//! The hook runs on the host thread and only decides and queues; the work
-//! happens when the host's message comes round.
+//! The hook runs on a thread of its own and only decides and posts; the
+//! work happens on the host thread when the host's message comes round.
 
 use std::cell::RefCell;
+use std::sync::{mpsc, Mutex, PoisonError};
 
 use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, VK_CONTROL, VK_LWIN, VK_MENU,
     VK_RWIN, VK_SHIFT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, SetWindowsHookExW, UnhookWindowsHookEx, KBDLLHOOKSTRUCT, WH_KEYBOARD_LL,
-    WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    CallNextHookEx, DispatchMessageW, GetMessageW, PeekMessageW, PostThreadMessageW,
+    SetWindowsHookExW, UnhookWindowsHookEx, KBDLLHOOKSTRUCT, MSG, PM_NOREMOVE, WH_KEYBOARD_LL,
+    WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 use crate::core::{chord, host, mask_key, taskbar_number};
@@ -93,56 +96,89 @@ impl Rule {
     }
 }
 
-#[derive(Default)]
-struct Hook {
-    handle: isize,
-    rule: Rule,
+/// The thread the hook runs on, while it is in.
+struct Worker {
+    thread_id: u32,
+    thread: std::thread::JoinHandle<()>,
 }
+
+static WORKER: Mutex<Option<Worker>> = Mutex::new(None);
 
 thread_local! {
-    static HOOK: RefCell<Hook> = RefCell::new(Hook::default());
+    /// Only the hook's own thread uses it.
+    static RULE: RefCell<Rule> = RefCell::new(Rule::default());
 }
 
-/// Puts the hook in on this thread, which must run a message loop. False
-/// when Windows refused it; Win+number then stays with Windows.
+fn worker() -> std::sync::MutexGuard<'static, Option<Worker>> {
+    WORKER.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Puts the hook in, on a thread of its own that does nothing else. Windows
+/// waits for a low-level hook before any key goes on, and passes the key to
+/// Windows when the hook is late; on the busy host thread a repeated
+/// Win+number could reach Windows that way, and Windows also removes a hook
+/// that is late too often. False when Windows refused it; Win+number then
+/// stays with Windows.
 pub fn start() -> bool {
-    HOOK.with(|cell| {
-        let mut hook = cell.borrow_mut();
-        if hook.handle != 0 {
-            return true;
+    let mut worker = worker();
+    if worker.is_some() {
+        return true;
+    }
+    let (ready, answer) = mpsc::channel();
+    let Ok(thread) = std::thread::Builder::new()
+        .name("win-number hook".to_string())
+        .spawn(move || run(ready))
+    else {
+        return false;
+    };
+    match answer.recv() {
+        Ok(Some(thread_id)) => {
+            *worker = Some(Worker { thread_id, thread });
+            true
         }
-        let handle = unsafe {
-            SetWindowsHookExW(
-                WH_KEYBOARD_LL,
-                Some(hook_proc),
-                GetModuleHandleW(std::ptr::null()),
-                0,
-            )
-        };
-        if handle.is_null() {
-            return false;
+        _ => {
+            let _ = thread.join();
+            false
         }
-        *hook = Hook {
-            handle: handle as isize,
-            rule: Rule::default(),
-        };
-        true
-    })
+    }
 }
 
-/// Takes the hook out, if it is in.
+/// The hook's thread: puts the hook in, says so, and runs the message loop
+/// Windows calls the hook from until `stop` asks it to end.
+fn run(ready: mpsc::Sender<Option<u32>>) {
+    let mut msg: MSG = unsafe { std::mem::zeroed() };
+    // Makes the thread's message queue, so `stop` can always reach it.
+    unsafe { PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE) };
+    let hook = unsafe {
+        SetWindowsHookExW(
+            WH_KEYBOARD_LL,
+            Some(hook_proc),
+            GetModuleHandleW(std::ptr::null()),
+            0,
+        )
+    };
+    if hook.is_null() {
+        let _ = ready.send(None);
+        return;
+    }
+    let _ = ready.send(Some(unsafe { GetCurrentThreadId() }));
+    while unsafe { GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) } > 0 {
+        unsafe { DispatchMessageW(&msg) };
+    }
+    unsafe { UnhookWindowsHookEx(hook) };
+}
+
+/// Takes the hook out, if it is in, and ends its thread.
 pub fn stop() {
-    HOOK.with(|cell| {
-        let mut hook = cell.borrow_mut();
-        if hook.handle != 0 {
-            unsafe { UnhookWindowsHookEx(hook.handle as *mut core::ffi::c_void) };
-        }
-        *hook = Hook::default();
-    });
+    let Some(worker) = worker().take() else {
+        return;
+    };
+    unsafe { PostThreadMessageW(worker.thread_id, WM_QUIT, 0, 0) };
+    let _ = worker.thread.join();
 }
 
 pub fn is_running() -> bool {
-    HOOK.with(|cell| cell.borrow().handle != 0)
+    worker().is_some()
 }
 
 fn down(vk: u16) -> bool {
@@ -176,11 +212,9 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
     let is_up = event == WM_KEYUP || event == WM_SYSKEYUP;
     let step = if is_down || is_up {
         let ours = mask_key::is_ours(info.dwExtraInfo);
-        HOOK.with(|cell| match cell.try_borrow_mut() {
-            Ok(mut hook) if hook.handle != 0 => {
-                hook.rule.step(info.vkCode, is_down, modifiers_now(), ours)
-            }
-            _ => Step::Pass,
+        RULE.with(|cell| match cell.try_borrow_mut() {
+            Ok(mut rule) => rule.step(info.vkCode, is_down, modifiers_now(), ours),
+            Err(_) => Step::Pass,
         })
     } else {
         Step::Pass
@@ -191,7 +225,7 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         Step::Take { digit, again } => {
             // After the borrow: the mask comes back through this hook.
             mask_key::send("WindowDeck");
-            host::open_taskbar_button(digit, again);
+            host::post_taskbar_button(digit, again);
             1
         }
     }
