@@ -6,6 +6,7 @@ mod layout;
 mod plugins;
 mod shortcuts;
 mod store;
+mod themes;
 
 use std::sync::{Arc, Mutex};
 
@@ -510,6 +511,7 @@ impl Settings {
                 )
                 .show(ui, |ui| match state.page {
                     Page::General => general::show(ui, snapshot, state, to_host),
+                    Page::Themes => themes::show(ui, snapshot, state, to_host),
                     Page::Plugins => plugins::show(ui, snapshot, state, to_host),
                     Page::Shortcuts => shortcuts::show(ui, snapshot, &mut state.shortcuts, to_host),
                     Page::Layout => layout::show(ui, snapshot, state, to_host),
@@ -522,7 +524,7 @@ impl Settings {
             }
             // The tiles end their own preview when the pointer leaves them,
             // but not when the page they are on is no longer drawn.
-            if state.page != Page::General && state.theme_preview.shown().is_some() {
+            if state.page != Page::Themes && state.theme_preview.shown().is_some() {
                 state.theme_preview = theme_tile::HoverPreview::default();
                 theme::preview(ui.ctx(), None);
             }
@@ -556,6 +558,7 @@ impl Settings {
 
 const PAGES: &[(Page, &str)] = &[
     (Page::General, "General"),
+    (Page::Themes, "Themes"),
     (Page::Plugins, "Plugins"),
     (Page::Shortcuts, "Keyboard shortcuts"),
     (Page::Layout, "Layout"),
@@ -581,8 +584,9 @@ mod tests {
 
     #[test]
     fn the_arrows_walk_the_side_menu_and_stop_at_its_ends() {
-        assert_eq!(next_page(Page::General, 1), Some(Page::Plugins));
-        assert_eq!(next_page(Page::Plugins, -1), Some(Page::General));
+        assert_eq!(next_page(Page::General, 1), Some(Page::Themes));
+        assert_eq!(next_page(Page::Themes, -1), Some(Page::General));
+        assert_eq!(next_page(Page::Plugins, -1), Some(Page::Themes));
         assert_eq!(next_page(Page::General, -1), None);
         assert_eq!(next_page(Page::About, 1), None);
         assert_eq!(next_page(Page::Layout, 0), None);

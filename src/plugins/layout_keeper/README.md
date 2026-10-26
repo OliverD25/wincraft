@@ -430,6 +430,15 @@ at all, keeps ordinary columns.
   its column, marked **(disconnected)**, with those windows faded; they are
   on another monitor until it is back. Drag one to another column to give it
   a new place.
+- When the main taskbar lists every window, the primary monitor's column
+  also shows a dashed **stand-in** for each window on another monitor, at
+  its taskbar number, so the column reads in taskbar order. A stand-in can
+  be picked with the keys, clicked to switch to its window, and dragged like
+  a picture. Dragged within the primary column, or moved with Ctrl+← and
+  Ctrl+→, it only changes the window's taskbar number: the window stays on
+  its monitor. Dragged to another monitor's column or another desktop's
+  band, or moved with Ctrl+Shift and the arrows, it moves the window as
+  dragging its own picture does.
 - **Keyboard:** the arrow keys only pick a window: ← and → the one before
   or after, ↑ and ↓ the nearest one on the line above or below, across
   columns and desktops. Ctrl+← and Ctrl+→ move the picked window within its

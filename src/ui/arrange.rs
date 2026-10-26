@@ -659,6 +659,9 @@ struct Drag {
     hwnd: isize,
     /// Where the card was grabbed, from its top-left corner.
     grab: Vec2,
+    /// The By monitor view's ghost of the window was picked up, not its own
+    /// card.
+    ghost: bool,
 }
 
 struct Shared {
@@ -1879,6 +1882,7 @@ fn flat(
                                             shared.drag = Some(Drag {
                                                 hwnd: window.hwnd,
                                                 grab: at - response.rect.min,
+                                                ghost: false,
                                             });
                                             shared.cursor = Some(window.hwnd);
                                         }
