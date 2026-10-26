@@ -591,6 +591,17 @@ mod tests {
     }
 
     #[test]
+    fn hotkeys_and_shortcuts_open_the_same_page() {
+        for name in ["hotkeys", "Hotkeys", "shortcuts"] {
+            assert_eq!(
+                settings_target(name),
+                Some(SettingsTarget::Page(Page::Shortcuts)),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
     fn settings_pages_are_named_in_any_case() {
         assert_eq!(
             settings_target("General"),

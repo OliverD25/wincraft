@@ -375,18 +375,19 @@ fn search_row(ui: &mut Ui, view: &mut View) {
     if ui.input_mut(|input| input.consume_key(Modifiers::COMMAND, Key::F)) {
         ui.memory_mut(|memory| memory.request_focus(search_id));
     }
+    let layout = search_layout(ui.available_width(), toggle_width(ui), help_width(ui));
     ui.horizontal(|ui| {
         ui.set_height(36.0);
+        ui.spacing_mut().item_spacing.x = SEARCH_GAP;
         if view.listening || !view.pressed.is_empty() {
-            keys_box(ui, view);
+            keys_box(ui, view, layout.search);
         } else {
-            let width = (ui.available_width() - 300.0).clamp(200.0, 560.0);
             let response = search_box::search_box(
                 ui,
                 search_id,
                 &mut view.query,
                 "Search by name, plugin or keys",
-                width,
+                layout.search,
             );
             if response.has_focus()
                 && !view.query.is_empty()
@@ -402,17 +403,70 @@ fn search_row(ui: &mut Ui, view: &mut View) {
         {
             view.toggle_listening();
         }
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            chord_help(ui, &tokens);
-        });
+        if layout.help_inline {
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                chord_help(ui, &tokens);
+            });
+        }
     });
+    if !layout.help_inline {
+        ui.add_space(8.0);
+        chord_help(ui, &tokens);
+    }
+}
+
+const SEARCH_GAP: f32 = 12.0;
+const SEARCH_MIN: f32 = 240.0;
+const SEARCH_MAX: f32 = 560.0;
+
+/// How wide the search field is and where "What is a chord?" goes.
+#[derive(Debug, PartialEq)]
+struct SearchLayout {
+    search: f32,
+    /// False when the row is too narrow: the link sits on its own line
+    /// below the row, so it is never cut off.
+    help_inline: bool,
+}
+
+/// Fits the field, the Search by keys button and the link into `available`
+/// with a 12 px gap between them. The field never goes below 240 px while
+/// the link is in the row.
+fn search_layout(available: f32, button: f32, help: f32) -> SearchLayout {
+    let room = available - button - help - 2.0 * SEARCH_GAP;
+    if room >= SEARCH_MIN {
+        return SearchLayout {
+            search: room.min(SEARCH_MAX),
+            help_inline: true,
+        };
+    }
+    SearchLayout {
+        search: (available - button - SEARCH_GAP).clamp(160.0, SEARCH_MAX),
+        help_inline: false,
+    }
+}
+
+const TOGGLE_LABEL: &str = "Search by keys";
+const HELP_LABEL: &str = "What is a chord?";
+
+fn text_width(ui: &Ui, label: &str, size: f32, colour: Color32) -> f32 {
+    ui.painter()
+        .layout_no_wrap(label.to_string(), theme::regular(size), colour)
+        .size()
+        .x
+}
+
+fn toggle_width(ui: &Ui) -> f32 {
+    12.0 + 16.0 + 8.0 + text_width(ui, TOGGLE_LABEL, 14.0, Color32::WHITE) + 12.0
+}
+
+fn help_width(ui: &Ui) -> f32 {
+    16.0 + 6.0 + text_width(ui, HELP_LABEL, 13.0, Color32::WHITE)
 }
 
 /// The search field while Search by keys is on: the presses as keycaps
 /// and "● Listening".
-fn keys_box(ui: &mut Ui, view: &mut View) {
+fn keys_box(ui: &mut Ui, view: &mut View, width: f32) {
     let tokens = Tokens::get(ui.ctx());
-    let width = (ui.available_width() - 300.0).clamp(200.0, 560.0);
     let (rect, response) = ui.allocate_exact_size(vec2(width, 36.0), Sense::click());
     let border = if view.listening {
         tokens.accent
@@ -471,7 +525,7 @@ fn keys_box(ui: &mut Ui, view: &mut View) {
 /// "Search by keys": 36 high, the keyboard icon, outlined; accent when on.
 fn toggle_button(ui: &mut Ui, on: bool) -> Response {
     let tokens = Tokens::get(ui.ctx());
-    let label = "Search by keys";
+    let label = TOGGLE_LABEL;
     let colour = if on {
         tokens.accent
     } else {
@@ -480,7 +534,7 @@ fn toggle_button(ui: &mut Ui, on: bool) -> Response {
     let galley = ui
         .painter()
         .layout_no_wrap(label.to_string(), theme::regular(14.0), colour);
-    let size = vec2(12.0 + 16.0 + 8.0 + galley.size().x + 12.0, 36.0);
+    let size = vec2(toggle_width(ui), 36.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let hover =
         ui.ctx()
@@ -514,11 +568,11 @@ fn toggle_button(ui: &mut Ui, on: bool) -> Response {
 
 /// "What is a chord?" and its popover.
 fn chord_help(ui: &mut Ui, tokens: &Tokens) {
-    let label = "What is a chord?";
+    let label = HELP_LABEL;
     let galley =
         ui.painter()
             .layout_no_wrap(label.to_string(), theme::regular(13.0), tokens.accent);
-    let size = vec2(16.0 + 6.0 + galley.size().x, 36.0);
+    let size = vec2(help_width(ui), 36.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let icon = Rect::from_center_size(pos2(rect.left() + 8.0, rect.center().y), vec2(16.0, 16.0));
     icons::paint(ui.painter(), icon, Icon::CircleHelp, tokens.accent);
@@ -815,6 +869,25 @@ fn send(to_host: &Arc<HostChannel>, id: &str, binding: Option<String>) {
     }]));
 }
 
+/// Where a group header puts its chevron and icon tile. The name starts at
+/// `INDENT`, 10 px after the tile.
+struct HeaderRects {
+    chevron: Rect,
+    tile: Rect,
+}
+
+fn header_rects(row: Rect) -> HeaderRects {
+    let chevron = Rect::from_center_size(
+        pos2(row.left() + 4.0 + 8.0, row.center().y),
+        vec2(16.0, 16.0),
+    );
+    let tile = Rect::from_center_size(
+        pos2(chevron.right() + 6.0 + 12.0, row.center().y),
+        vec2(24.0, 24.0),
+    );
+    HeaderRects { chevron, tile }
+}
+
 /// 44 high: chevron, the plugin's icon on a small tile, the name, the
 /// count and a warning badge for conflicts.
 fn group_header(
@@ -841,20 +914,13 @@ fn group_header(
         tokens.radius_row,
         tokens.hover_bg.gamma_multiply(hover),
     );
-    let chevron = Rect::from_center_size(
-        pos2(rect.left() + 4.0 + 8.0, rect.center().y),
-        vec2(16.0, 16.0),
-    );
+    let HeaderRects { chevron, tile } = header_rects(rect);
     let shape = if open {
         Icon::ChevronDown
     } else {
         Icon::ChevronRight
     };
     icons::paint(painter, chevron, shape, tokens.text_secondary);
-    let tile = Rect::from_center_size(
-        pos2(chevron.right() + 6.0 + 12.0, rect.center().y),
-        vec2(24.0, 24.0),
-    );
     let icon = if name == HOST_GROUP {
         Icon::Keyboard
     } else {
@@ -1715,6 +1781,39 @@ mod tests {
             ..View::default()
         };
         draw(&mut confirm, rows());
+    }
+
+    #[test]
+    fn the_group_header_items_do_not_overlap() {
+        let row = Rect::from_min_size(pos2(0.0, 0.0), vec2(500.0, GROUP_HEIGHT));
+        let HeaderRects { chevron, tile } = header_rects(row);
+        assert_eq!(tile.size(), vec2(24.0, 24.0));
+        assert!(chevron.right() <= tile.left());
+        assert!(tile.right() + 10.0 <= row.left() + INDENT, "the name clears the tile");
+        assert!(row.contains_rect(tile) && row.contains_rect(chevron));
+    }
+
+    #[test]
+    fn the_search_row_fits_at_the_smallest_and_the_default_window() {
+        // Content width: window minus the nav and both margins (720: 168 and
+        // 24 each side; 1024: 240 and 44 each side), less room for the scrollbar.
+        for (window, nav, side) in [(720.0, 168.0, 24.0), (1024.0, 240.0, 44.0)] {
+            let available = window - nav - 2.0 * side - 12.0;
+            for (button, help) in [(150.0, 130.0), (170.0, 150.0)] {
+                let layout = search_layout(available, button, help);
+                let mut used = layout.search + SEARCH_GAP + button;
+                if layout.help_inline {
+                    assert!(layout.search >= SEARCH_MIN, "{layout:?}");
+                    used += SEARCH_GAP + help;
+                } else {
+                    assert!(help <= available, "the link has a line of its own");
+                }
+                assert!(used <= available, "{window}: {used} > {available} {layout:?}");
+            }
+        }
+        // Wide: everything on one row and the field capped.
+        let wide = search_layout(2000.0, 150.0, 130.0);
+        assert_eq!(wide, SearchLayout { search: SEARCH_MAX, help_inline: true });
     }
 
     #[test]

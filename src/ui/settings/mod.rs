@@ -584,6 +584,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_side_menu_keeps_its_order_and_calls_the_page_hotkeys() {
+        let labels: Vec<&str> = PAGES.iter().map(|(_, label)| *label).collect();
+        assert_eq!(
+            labels,
+            [
+                "General",
+                "Themes",
+                "Plugins",
+                "Hotkeys",
+                "Layout",
+                "Bookmarks",
+                "Plugin Store",
+                "About"
+            ]
+        );
+    }
+
+    #[test]
     fn the_arrows_walk_the_side_menu_and_stop_at_its_ends() {
         assert_eq!(next_page(Page::General, 1), Some(Page::Themes));
         assert_eq!(next_page(Page::Themes, -1), Some(Page::General));
