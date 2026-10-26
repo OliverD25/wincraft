@@ -194,15 +194,19 @@ pub fn allowed_asset(url: &str, local_fake: bool) -> bool {
     url.starts_with(DOWNLOADS) || (local_fake && url.starts_with("http://127.0.0.1:"))
 }
 
+/// The error of a download the user cancelled; not a failure to report.
+pub const CANCELLED: &str = "cancelled";
+
 pub trait Fetch {
     fn text(&self, url: &str) -> Result<String, String>;
     /// Writes the body to `dest`, telling `progress` the bytes so far and
-    /// the total when the server gave one.
+    /// the total when the server gave one. `progress` answers false to stop
+    /// the download: the result is then `Err(CANCELLED)`.
     fn to_file(
         &self,
         url: &str,
         dest: &Path,
-        progress: &mut dyn FnMut(u64, Option<u64>),
+        progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
     ) -> Result<(), String>;
 }
 
@@ -218,7 +222,7 @@ impl Fetch for Web {
         &self,
         url: &str,
         dest: &Path,
-        progress: &mut dyn FnMut(u64, Option<u64>),
+        progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
     ) -> Result<(), String> {
         let agent = ureq::Agent::config_builder()
             .timeout_global(Some(DOWNLOAD_TIMEOUT))
@@ -246,7 +250,9 @@ impl Fetch for Web {
             file.write_all(&buffer[..read])
                 .map_err(|e| format!("cannot write {}: {e}", dest.display()))?;
             done += read as u64;
-            progress(done, total);
+            if !progress(done, total) {
+                return Err(CANCELLED.to_string());
+            }
         }
         file.sync_all()
             .map_err(|e| format!("cannot write {}: {e}", dest.display()))?;
@@ -266,7 +272,7 @@ pub fn download(
     dir: &Path,
     fetch: &dyn Fetch,
     local_fake: bool,
-    progress: &mut dyn FnMut(u64, Option<u64>),
+    progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
 ) -> Result<PathBuf, String> {
     let asset = |name: &str| {
         release
@@ -792,11 +798,13 @@ mod tests {
             &self,
             url: &str,
             dest: &Path,
-            progress: &mut dyn FnMut(u64, Option<u64>),
+            progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
         ) -> Result<(), String> {
             let bytes = self.files.get(url).ok_or("http status: 404")?;
             fs::write(dest, bytes).map_err(|e| e.to_string())?;
-            progress(bytes.len() as u64, Some(bytes.len() as u64));
+            if !progress(bytes.len() as u64, Some(bytes.len() as u64)) {
+                return Err(CANCELLED.to_string());
+            }
             Ok(())
         }
     }
@@ -837,12 +845,36 @@ mod tests {
             &dir,
             &FakeFetch::new(b"new exe", &sums),
             false,
-            &mut |done, total| seen.push((done, total)),
+            &mut |done, total| {
+                seen.push((done, total));
+                true
+            },
         )
         .unwrap();
         assert_eq!(path, dir.join(NEW_EXE));
         assert_eq!(fs::read(&path).unwrap(), b"new exe");
         assert_eq!(seen, [(7, Some(7))]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_cancelled_download_leaves_no_partial_file() {
+        let dir = scratch("cancel");
+        let sums = format!(
+            "{}  wincraft.exe
+",
+            sha256::of_bytes(b"new exe").unwrap()
+        );
+        let err = download(
+            &published(),
+            &dir,
+            &FakeFetch::new(b"new exe", &sums),
+            false,
+            &mut |_, _| false,
+        )
+        .unwrap_err();
+        assert_eq!(err, CANCELLED);
+        assert!(!dir.join(NEW_EXE).exists(), "the partial file is deleted");
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -855,7 +887,7 @@ mod tests {
             &dir,
             &FakeFetch::new(b"tampered", &sums),
             false,
-            &mut |_, _| {},
+            &mut |_, _| true,
         )
         .unwrap_err();
         assert!(err.contains("does not match its checksum"), "{err}");
@@ -867,15 +899,15 @@ mod tests {
     fn a_release_without_both_files_or_a_checksum_line_downloads_nothing() {
         let dir = scratch("missing");
         let fetch = FakeFetch::new(b"exe", "0000  other.txt\n");
-        let err = download(&published(), &dir, &fetch, false, &mut |_, _| {}).unwrap_err();
+        let err = download(&published(), &dir, &fetch, false, &mut |_, _| true).unwrap_err();
         assert!(err.contains("has no line for wincraft.exe"), "{err}");
         let mut only_exe = published();
         only_exe.assets.retain(|asset| asset.name == EXE_ASSET);
-        let err = download(&only_exe, &dir, &fetch, false, &mut |_, _| {}).unwrap_err();
+        let err = download(&only_exe, &dir, &fetch, false, &mut |_, _| true).unwrap_err();
         assert_eq!(err, "release v9.9.9 has no SHA256SUMS.txt");
         let mut elsewhere = published();
         elsewhere.assets[0].url = "https://example.com/wincraft.exe".to_string();
-        let err = download(&elsewhere, &dir, &fetch, false, &mut |_, _| {}).unwrap_err();
+        let err = download(&elsewhere, &dir, &fetch, false, &mut |_, _| true).unwrap_err();
         assert!(
             err.starts_with("refused to download https://example.com/"),
             "{err}"
@@ -1314,7 +1346,10 @@ mod tests {
         Web.to_file(
             &format!("http://127.0.0.1:{port}/download/wincraft.exe"),
             &dest,
-            &mut |done, total| last = (done, total),
+            &mut |done, total| {
+                last = (done, total);
+                true
+            },
         )
         .unwrap();
         server.join().unwrap();

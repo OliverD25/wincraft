@@ -530,6 +530,8 @@ pub enum HostRequest {
     CheckForUpdates,
     /// About's "Update now" for the newer release the host knows of.
     UpdateNow,
+    /// About's "Cancel" while the new version downloads.
+    CancelUpdate,
     OpenPath(PathBuf),
     Exit,
 }
@@ -657,6 +659,8 @@ pub struct UiSnapshot {
 pub struct UpdateView {
     pub check_daily: bool,
     pub status: UpdateStatus,
+    /// Unix seconds of the last answered check; 0 when there was none.
+    pub last_check: u64,
     /// A release newer than the running version.
     pub available: Option<NewRelease>,
     /// Why Update now cannot run in this copy; None when it can.

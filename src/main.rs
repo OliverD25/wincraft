@@ -203,6 +203,7 @@ fn main() {
         "--update-now",
         "--show-update-notice",
         "--show-update-progress",
+        "--show-update-available",
         "--allow-hide-popup",
     ] {
         if !has_flag(&args, flag) {
@@ -218,6 +219,8 @@ fn main() {
             scene.update_notice = true;
         } else if flag == "--show-update-progress" {
             scene.update_progress = true;
+        } else if flag == "--show-update-available" {
+            scene.update_available = true;
         } else if flag == "--allow-hide-popup" {
             scene.allow_hide_popup = true;
         } else {

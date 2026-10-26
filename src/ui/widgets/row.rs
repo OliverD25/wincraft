@@ -1,6 +1,6 @@
 use egui::{
     pos2, vec2, Align, Color32, CornerRadius, CursorIcon, Layout, Rect, Response, Sense, Shape,
-    StrokeKind, Ui, UiBuilder,
+    StrokeKind, TextWrapMode, Ui, UiBuilder,
 };
 
 use crate::core::theme::{self, Tokens};
@@ -63,6 +63,26 @@ pub fn settings_row(
     clickable: bool,
     controls: impl FnOnce(&mut Ui),
 ) -> Response {
+    settings_row_ruled(ui, id_salt, row, clickable, true, controls)
+}
+
+/// `settings_row` that can leave out the rule under it, for a row whose
+/// block goes on below it and draws the one rule itself.
+///
+/// The controls never wrap: buttons, links and values keep one line, and
+/// the text on the left gives way instead.
+pub fn settings_row_ruled(
+    ui: &mut Ui,
+    id_salt: &str,
+    row: RowText,
+    clickable: bool,
+    rule: bool,
+    controls: impl FnOnce(&mut Ui),
+) -> Response {
+    let controls = |ui: &mut Ui| {
+        ui.style_mut().wrap_mode = Some(TextWrapMode::Extend);
+        controls(ui);
+    };
     let tokens = Tokens::get(ui.ctx());
     let id = ui.id().with(("settings-row", id_salt));
     let width = ui.available_width();
@@ -126,9 +146,11 @@ pub fn settings_row(
 
     let response = scoped.response;
     let rect = response.rect;
-    let line = theme::line(ui.ctx(), tokens.border);
-    ui.painter()
-        .hline(rect.x_range(), rect.bottom() - line.width / 2.0, line);
+    if rule {
+        let line = theme::line(ui.ctx(), tokens.border);
+        ui.painter()
+            .hline(rect.x_range(), rect.bottom() - line.width / 2.0, line);
+    }
     if clickable {
         let hover = ui
             .ctx()
@@ -219,4 +241,56 @@ pub fn nav_item(ui: &mut Ui, label: &str, selected: bool) -> Response {
         focus::ring(ui, &response, f32::from(tokens.radius_row));
     }
     response.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::{ThemeChoice, ThemeName};
+    use crate::ui::widgets::button::{self, Kind};
+
+    /// Draws one row `frames` times at `width` and returns the boxes of the
+    /// description and of the two controls.
+    fn lay_out(width: f32, desc: &str) -> (Rect, Rect, Rect) {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx, ThemeName::Classic, ThemeChoice::Dark);
+        let mut boxes = (Rect::NOTHING, Rect::NOTHING, Rect::NOTHING);
+        for _ in 0..4 {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(width, 600.0))),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| {
+                let mut link = Rect::NOTHING;
+                let mut action = Rect::NOTHING;
+                let row = settings_row(
+                    ui,
+                    "test",
+                    RowText::new("Title").desc(desc, Color32::WHITE),
+                    false,
+                    |ui| {
+                        link = ui.label("Release page").rect;
+                        action = button::button(ui, "Check for updates", Kind::Secondary).rect;
+                    },
+                );
+                boxes = (row.rect, link, action);
+            });
+            output.textures_delta.clear();
+        }
+        boxes
+    }
+
+    #[test]
+    fn controls_keep_one_line_and_the_description_gives_way() {
+        let long = "A long description that has to wrap onto several lines because \
+                    the controls beside it are wide and may not shrink at all.";
+        let (row, link, action) = lay_out(640.0, long);
+        assert!(link.height() < 22.0, "the link wrapped: {link:?}");
+        assert!(action.height() <= CONTROL_HEIGHT + 0.5, "{action:?}");
+        assert!(action.right() <= row.right() + 0.5, "{action:?} in {row:?}");
+        assert!(link.right() <= action.left(), "no overlap");
+        // The description gave way: the row is taller than one line of text.
+        assert!(row.height() > 2.0 * PADDING + CONTROL_HEIGHT, "{row:?}");
+    }
 }

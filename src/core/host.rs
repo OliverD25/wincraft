@@ -214,6 +214,8 @@ struct Updates {
     newer: Option<Release>,
     /// Downloading or swapping; a second Update now waits for it.
     busy: bool,
+    /// About's Cancel was clicked: the download stops and its file is deleted.
+    cancel: Arc<AtomicBool>,
     /// Why this copy cannot update itself, worked out once at start.
     blocked: Option<String>,
     /// What went wrong with the update a rollback came back from.
@@ -244,6 +246,7 @@ impl Default for Updates {
             status: UpdateStatus::Idle,
             newer: None,
             busy: false,
+            cancel: Arc::new(AtomicBool::new(false)),
             blocked: None,
             failed: None,
             healthy_pending: None,
@@ -400,6 +403,8 @@ pub struct SceneFlags {
     /// Show About's update progress bar half way through a sample download;
     /// nothing is downloaded.
     pub update_progress: bool,
+    /// Show About with a sample newer release; nothing is downloaded.
+    pub update_available: bool,
     /// A window to mark as wanting attention, as if it had flashed.
     pub attention: Option<isize>,
 }
@@ -781,6 +786,7 @@ impl Host {
         UpdateView {
             check_daily: self.config.updates.check_daily,
             status: self.updates.status.clone(),
+            last_check: self.config.updates.last_check,
             available: self.updates.newer.as_ref().map(|release| NewRelease {
                 tag: release.tag.clone(),
                 notes: release.notes.clone(),
@@ -841,6 +847,19 @@ impl Host {
             self.updates.status = UpdateStatus::Downloading(Some(42));
             self.publish();
         }
+        if flags.scene.update_available {
+            self.updates.newer = Some(Release {
+                tag: "v9.9.9".to_string(),
+                notes: "- A sample release note
+- Another sample line
+
+Nothing is downloaded."
+                    .to_string(),
+                page: github::repo_url().to_string(),
+                assets: Vec::new(),
+            });
+            self.publish();
+        }
         if flags.scene.update_now {
             self.updates.auto_update = true;
             self.check_for_updates(true);
@@ -899,8 +918,10 @@ impl Host {
         };
         log::info!("downloading {}", release.tag);
         self.updates.busy = true;
+        self.updates.cancel.store(false, Ordering::Relaxed);
         self.updates.status = UpdateStatus::Downloading(None);
         self.publish();
+        let cancel = Arc::clone(&self.updates.cancel);
         let tx = self.updates.tx.clone();
         let hwnd = self.hwnd as isize;
         let dir = install::dir();
@@ -915,6 +936,9 @@ impl Host {
                 };
                 let mut shown = None;
                 let mut progress = |done: u64, total: Option<u64>| {
+                    if cancel.load(Ordering::Relaxed) {
+                        return false;
+                    }
                     let percent = total
                         .filter(|total| *total > 0)
                         .map(|total| (done.saturating_mul(100) / total).min(100) as u8);
@@ -922,6 +946,7 @@ impl Host {
                         shown = Some(percent);
                         post(UpdateEvent::Progress(percent));
                     }
+                    true
                 };
                 let result =
                     update::download(&release, &dir, &update::Web, local_fake, &mut progress);
@@ -942,6 +967,18 @@ impl Host {
             .as_ref()
             .map(|release| release.tag.clone())
             .unwrap_or_default();
+        // A click on Cancel that came too late to stop the download still
+        // stops the update: the file is deleted and the old version stays.
+        if self.updates.cancel.swap(false, Ordering::Relaxed) {
+            if let Ok(path) = &result {
+                let _ = std::fs::remove_file(path);
+            }
+            log::info!("the download of {tag} was cancelled; the old version stays");
+            self.updates.busy = false;
+            self.updates.reopen = None;
+            self.updates.status = UpdateStatus::Idle;
+            return;
+        }
         if let Err(err) = result {
             log::warn!("the update to {tag} was not installed: {err}");
             self.updates.busy = false;
@@ -1915,6 +1952,12 @@ impl Host {
                     self.updates.reopen = Some(update::Reopen::About);
                 }
                 self.update_now();
+            }
+            HostRequest::CancelUpdate => {
+                if self.updates.busy && matches!(self.updates.status, UpdateStatus::Downloading(_))
+                {
+                    self.updates.cancel.store(true, Ordering::Relaxed);
+                }
             }
             HostRequest::OpenPath(path) => open_in_notepad(&path),
             HostRequest::Exit => self.shutdown(),
@@ -4537,6 +4580,61 @@ mod tests {
             HostCommand::UpdateWinCraft,
         )));
         assert!(!host.updates.checking && !host.updates.auto_update && !host.updates.report);
+    }
+
+    #[test]
+    fn cancel_stops_only_a_download_and_keeps_the_old_version() {
+        let data = Scratch::new("update-cancel");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let (mut host, _ui) = test_host(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        // Nothing is downloading: Cancel does nothing.
+        host.handle_request(HostRequest::CancelUpdate);
+        assert!(!host.updates.cancel.load(Ordering::Relaxed));
+
+        // The restart is under way: too late to cancel.
+        host.updates.busy = true;
+        host.updates.status = UpdateStatus::Installing;
+        host.handle_request(HostRequest::CancelUpdate);
+        assert!(!host.updates.cancel.load(Ordering::Relaxed));
+
+        // A download: the flag is set, the download thread stops at its
+        // next block.
+        host.updates.status = UpdateStatus::Downloading(Some(40));
+        host.handle_request(HostRequest::CancelUpdate);
+        assert!(host.updates.cancel.load(Ordering::Relaxed));
+
+        // The download stopped by itself: no error, the release stays so
+        // Update now is offered again.
+        host.updates.newer = Some(release("v0.17.0"));
+        host.downloaded(Err(update::CANCELLED.to_string()));
+        assert_eq!(host.updates.status, UpdateStatus::Idle);
+        assert!(!host.updates.busy && !host.updates.cancel.load(Ordering::Relaxed));
+        assert!(host.updates.newer.is_some());
+    }
+
+    #[test]
+    fn a_cancel_that_comes_after_the_last_byte_still_deletes_the_file() {
+        let data = Scratch::new("update-cancel-late");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let (mut host, _ui) = test_host(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        let file =
+            std::env::temp_dir().join(format!("wincraft-cancel-late-{}", std::process::id()));
+        std::fs::write(&file, b"partly").unwrap();
+        host.updates.busy = true;
+        host.updates.status = UpdateStatus::Downloading(Some(100));
+        host.updates.cancel.store(true, Ordering::Relaxed);
+        host.downloaded(Ok(file.clone()));
+        assert!(!file.exists(), "the downloaded file is deleted");
+        assert_eq!(host.updates.status, UpdateStatus::Idle);
+        assert!(!host.updates.busy);
     }
 
     #[test]
