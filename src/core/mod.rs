@@ -16,6 +16,7 @@ pub mod install;
 pub mod instance;
 pub mod layered;
 pub mod live_windows;
+pub mod ll_hook;
 pub mod log_tail;
 pub mod logging;
 pub mod mask_key;

@@ -1235,14 +1235,12 @@ impl Host {
             return;
         }
         let keys = hotkeys::format(press.hotkey);
-        CHORD_PRESS.with(|cell| *cell.borrow_mut() = Some(press.clone()));
         if !chord::listen(
             self.hwnd as isize,
             WM_APP_WAIT_KEY,
             shortcuts::CHORD_WAIT,
-            chord_rule,
+            chord_rule(press.clone()),
         ) {
-            CHORD_PRESS.with(|cell| cell.borrow_mut().take());
             return;
         }
         log::info!("{keys}: waiting 3 s for the second key of a chord");
@@ -1551,7 +1549,8 @@ impl Host {
         self.wait_hint = None;
         if self.digits.may_follow(now) {
             let wait = std::time::Duration::from_millis(taskbar_number::SECOND_DIGIT_MS);
-            chord::listen(self.hwnd as isize, WM_APP_WAIT_KEY, wait, wait_rule);
+            let hotkey = WAIT_HOTKEY.with(|cell| cell.get());
+            chord::listen(self.hwnd as isize, WM_APP_WAIT_KEY, wait, wait_rule(hotkey));
         } else {
             chord::stop_for(self.hwnd as isize);
         }
@@ -1591,7 +1590,12 @@ impl Host {
         self.digits = taskbar_number::Digits::default();
         WAIT_HOTKEY.with(|cell| cell.set(Some(hotkey)));
         let wait = std::time::Duration::from_millis(taskbar_number::WAIT_MS);
-        if !chord::listen(self.hwnd as isize, WM_APP_WAIT_KEY, wait, wait_rule) {
+        if !chord::listen(
+            self.hwnd as isize,
+            WM_APP_WAIT_KEY,
+            wait,
+            wait_rule(Some(hotkey)),
+        ) {
             // No hook: the digits cannot be caught, so the strip opens at
             // once, as the hotkey did before.
             self.arrange_anchor = None;
@@ -1653,7 +1657,6 @@ impl Host {
     fn end_wait(&mut self) {
         chord::stop_for(self.hwnd as isize);
         self.chord_wait = None;
-        CHORD_PRESS.with(|cell| cell.borrow_mut().take());
         self.stop_reveal();
         self.wait_hint = None;
         self.digits = taskbar_number::Digits::default();
@@ -2939,9 +2942,6 @@ pub fn refresh_arrange() {
 }
 
 thread_local! {
-    /// The chord's first press while it waits for the second; the hook's
-    /// rule reads it.
-    static CHORD_PRESS: RefCell<Option<FirstPress>> = const { RefCell::new(None) };
     /// The Arrange strip's hotkey while it waits for a digit.
     static WAIT_HOTKEY: Cell<Option<Hotkey>> = const { Cell::new(None) };
     /// The hotkey that came last, as pressed and as the user names it, for
@@ -2949,13 +2949,10 @@ thread_local! {
     static LAST_HOTKEY: RefCell<Option<(Hotkey, String)>> = const { RefCell::new(None) };
 }
 
-/// The keyboard hook's rule while a chord waits for its second press.
-fn chord_rule(stroke: chord::Stroke) -> chord::Verdict {
-    CHORD_PRESS.with(|cell| {
-        cell.borrow().as_ref().map_or(chord::Verdict::End, |press| {
-            shortcuts::chord_verdict(shortcuts::chord_key(press, stroke))
-        })
-    })
+/// The keyboard hook's rule while a chord with first press `press` waits
+/// for its second press. It runs on the hook's thread, so it owns `press`.
+fn chord_rule(press: FirstPress) -> impl Fn(chord::Stroke) -> chord::Verdict + Send {
+    move |stroke| shortcuts::chord_verdict(shortcuts::chord_key(&press, stroke))
 }
 
 /// The part of a WinCraft command's shortcut id after "wincraft.".
@@ -2973,10 +2970,11 @@ fn host_slug(command: HostCommand) -> &'static str {
     }
 }
 
-/// The keyboard hook's rule while the Arrange hotkey waits; see
-/// `taskbar_number::wait_key`.
-fn wait_rule(stroke: chord::Stroke) -> chord::Verdict {
-    match WAIT_HOTKEY.with(|cell| cell.get()) {
+/// The keyboard hook's rule while the Arrange hotkey `hotkey` waits; see
+/// `taskbar_number::wait_key`. It runs on the hook's thread, so it owns
+/// the hotkey.
+fn wait_rule(hotkey: Option<Hotkey>) -> impl Fn(chord::Stroke) -> chord::Verdict + Send {
+    move |stroke| match hotkey {
         Some(hotkey) => taskbar_number::wait_verdict(taskbar_number::wait_key(stroke, hotkey)),
         None => chord::Verdict::End,
     }

@@ -15,21 +15,19 @@
 //! work happens on the host thread when the host's message comes round.
 
 use std::cell::RefCell;
-use std::sync::{mpsc, Mutex, PoisonError};
+use std::sync::{Mutex, PoisonError};
 
 use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
-use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, VK_CONTROL, VK_LWIN, VK_MENU,
     VK_RWIN, VK_SHIFT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GetMessageW, PeekMessageW, PostThreadMessageW,
-    SetWindowsHookExW, UnhookWindowsHookEx, KBDLLHOOKSTRUCT, MSG, PM_NOREMOVE, WH_KEYBOARD_LL,
-    WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    CallNextHookEx, KBDLLHOOKSTRUCT, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN,
+    WM_SYSKEYUP,
 };
 
+use crate::core::ll_hook::HookThread;
 use crate::core::{chord, host, mask_key, taskbar_number};
 
 /// What the hook does with one key event.
@@ -96,85 +94,35 @@ impl Rule {
     }
 }
 
-/// The thread the hook runs on, while it is in.
-struct Worker {
-    thread_id: u32,
-    thread: std::thread::JoinHandle<()>,
-}
-
-static WORKER: Mutex<Option<Worker>> = Mutex::new(None);
+/// The hook's thread, while the hook is in.
+static WORKER: Mutex<Option<HookThread>> = Mutex::new(None);
 
 thread_local! {
     /// Only the hook's own thread uses it.
     static RULE: RefCell<Rule> = RefCell::new(Rule::default());
 }
 
-fn worker() -> std::sync::MutexGuard<'static, Option<Worker>> {
+fn worker() -> std::sync::MutexGuard<'static, Option<HookThread>> {
     WORKER.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Puts the hook in, on a thread of its own that does nothing else. Windows
-/// waits for a low-level hook before any key goes on, and passes the key to
-/// Windows when the hook is late; on the busy host thread a repeated
-/// Win+number could reach Windows that way, and Windows also removes a hook
-/// that is late too often. False when Windows refused it; Win+number then
-/// stays with Windows.
+/// Puts the hook in, on a thread of its own (see `core::ll_hook`): on the
+/// busy host thread a repeated Win+number could reach Windows. False when
+/// Windows refused it; Win+number then stays with Windows.
 pub fn start() -> bool {
     let mut worker = worker();
-    if worker.is_some() {
-        return true;
+    if worker.is_none() {
+        *worker = HookThread::start("win-number hook", vec![(WH_KEYBOARD_LL, Some(hook_proc))]);
     }
-    let (ready, answer) = mpsc::channel();
-    let Ok(thread) = std::thread::Builder::new()
-        .name("win-number hook".to_string())
-        .spawn(move || run(ready))
-    else {
-        return false;
-    };
-    match answer.recv() {
-        Ok(Some(thread_id)) => {
-            *worker = Some(Worker { thread_id, thread });
-            true
-        }
-        _ => {
-            let _ = thread.join();
-            false
-        }
-    }
-}
-
-/// The hook's thread: puts the hook in, says so, and runs the message loop
-/// Windows calls the hook from until `stop` asks it to end.
-fn run(ready: mpsc::Sender<Option<u32>>) {
-    let mut msg: MSG = unsafe { std::mem::zeroed() };
-    // Makes the thread's message queue, so `stop` can always reach it.
-    unsafe { PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE) };
-    let hook = unsafe {
-        SetWindowsHookExW(
-            WH_KEYBOARD_LL,
-            Some(hook_proc),
-            GetModuleHandleW(std::ptr::null()),
-            0,
-        )
-    };
-    if hook.is_null() {
-        let _ = ready.send(None);
-        return;
-    }
-    let _ = ready.send(Some(unsafe { GetCurrentThreadId() }));
-    while unsafe { GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) } > 0 {
-        unsafe { DispatchMessageW(&msg) };
-    }
-    unsafe { UnhookWindowsHookEx(hook) };
+    worker.is_some()
 }
 
 /// Takes the hook out, if it is in, and ends its thread.
 pub fn stop() {
-    let Some(worker) = worker().take() else {
-        return;
-    };
-    unsafe { PostThreadMessageW(worker.thread_id, WM_QUIT, 0, 0) };
-    let _ = worker.thread.join();
+    let thread = worker().take();
+    if let Some(thread) = thread {
+        thread.stop();
+    }
 }
 
 pub fn is_running() -> bool {

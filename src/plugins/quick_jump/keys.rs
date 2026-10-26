@@ -3,8 +3,6 @@
 //! goes on to Windows (which hands it back as the hotkey, the "twice"),
 //! and any other key goes through and ends the wait.
 
-use std::cell::RefCell;
-
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN};
 
 use crate::core::chord::{Stroke, Verdict};
@@ -57,25 +55,16 @@ pub fn verdict(key: Key) -> Verdict {
     }
 }
 
-thread_local! {
-    /// The first press of the jump and pin shortcuts, which pass while the
-    /// strip waits.
-    static AGAIN: RefCell<Vec<Hotkey>> = const { RefCell::new(Vec::new()) };
-}
-
-/// Keeps the shortcuts' first presses for the hook's rule.
-pub fn set_again(jump: &str, pin: &str) {
-    let presses: Vec<Hotkey> = [jump, pin]
+/// The hook's rule while the strip waits for a digit. The first presses of
+/// the jump and pin shortcuts pass. It runs on the hook's own thread, so it
+/// owns them.
+pub fn rule(jump: &str, pin: &str) -> impl Fn(Stroke) -> Verdict + Send {
+    let again: Vec<Hotkey> = [jump, pin]
         .iter()
         .filter_map(|text| shortcuts::parse(text))
         .map(|keys| keys.first)
         .collect();
-    AGAIN.with(|cell| *cell.borrow_mut() = presses);
-}
-
-/// The hook's rule while the strip waits for a digit.
-pub fn rule(stroke: Stroke) -> Verdict {
-    AGAIN.with(|cell| verdict(kind(stroke, &cell.borrow())))
+    move |stroke| verdict(kind(stroke, &again))
 }
 
 /// The hook's rule while a notice with Undo shows: Ctrl+Z is kept for
@@ -112,7 +101,7 @@ mod tests {
 
     #[test]
     fn the_shortcut_again_goes_on_to_windows_and_other_keys_end_the_wait() {
-        set_again("Win+Alt+Q", "Win+Alt+Shift+Q");
+        let rule = rule("Win+Alt+Q", "Win+Alt+Shift+Q");
         let q = stroke(0x51, MOD_WIN | MOD_ALT);
         assert_eq!(rule(q), Verdict::Pass);
         assert_eq!(
@@ -122,8 +111,8 @@ mod tests {
         assert_eq!(rule(stroke(0x51, 0)), Verdict::End);
         assert_eq!(rule(stroke(0x32, MOD_WIN | MOD_ALT)), Verdict::Take);
         assert_eq!(rule(stroke(ESCAPE, 0)), Verdict::Take);
-        set_again("", "");
-        assert_eq!(rule(q), Verdict::End);
+        let none = super::rule("", "");
+        assert_eq!(none(q), Verdict::End);
     }
 
     #[test]

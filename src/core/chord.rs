@@ -4,25 +4,27 @@
 //! put in when the wait starts and taken out when it ends (Principle 5:
 //! nothing runs in the background that the user did not switch on).
 //!
-//! The hook runs on the thread that started the wait, which must run a
-//! message loop. Windows removes a low-level hook that answers slowly, so the
-//! hook only asks a rule about the key and, for a key it keeps, posts a
-//! message; the work happens when that message comes round.
+//! The hook runs on a thread of its own (`core::ll_hook`): Windows skips,
+//! and in the end removes, a low-level hook that answers slowly, and the
+//! thread that starts a wait can be busy. The hook only asks a rule about
+//! the key and, for a key it keeps, posts a message to the owner window;
+//! the work happens when that message comes round.
 
-use std::cell::RefCell;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, VK_CONTROL, VK_LWIN, VK_MENU,
     VK_RWIN, VK_SHIFT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, KillTimer, PostMessageW, SetTimer, SetWindowsHookExW, UnhookWindowsHookEx,
-    KBDLLHOOKSTRUCT, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
-    WM_MBUTTONDOWN, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN,
+    CallNextHookEx, KillTimer, PostMessageW, SetTimer, KBDLLHOOKSTRUCT, WH_KEYBOARD_LL,
+    WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_RBUTTONDOWN,
+    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN,
 };
+
+use crate::core::ll_hook::HookThread;
 
 /// The timer on the owner window that ends a wait. The owner's window
 /// procedure passes it to `on_timer`.
@@ -66,8 +68,9 @@ pub fn is_click(message: u32) -> bool {
     )
 }
 
-/// Decides about each key press while a wait runs.
-pub type Rule = fn(Stroke) -> Verdict;
+/// Decides about each key press while a wait runs. It is called on the
+/// hook's own thread, so it carries what it needs to know.
+pub type Rule = Box<dyn Fn(Stroke) -> Verdict + Send>;
 
 /// What the hook does with `stroke` at `now`, for a wait that started at
 /// `started` and lasts `wait`: after the wait every key passes.
@@ -76,7 +79,7 @@ pub fn verdict(
     started: Instant,
     wait: Duration,
     now: Instant,
-    rule: Rule,
+    rule: impl Fn(Stroke) -> Verdict,
 ) -> Verdict {
     if now.saturating_duration_since(started) > wait {
         Verdict::End
@@ -91,9 +94,19 @@ pub fn is_modifier(vk: u32) -> bool {
     matches!(vk, 0x10..=0x12 | 0x5B | 0x5C | 0xA0..=0xA5)
 }
 
+/// What the hook does with one key event.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Step {
+    Pass,
+    /// Kept from Windows: the release of a key that was taken.
+    Hide,
+    /// Kept for the owner, who hears of it.
+    Take,
+    /// Left to Windows, and the owner hears that the wait is over.
+    End,
+}
+
 struct Wait {
-    hook: isize,
-    mouse: isize,
     owner: isize,
     message: u32,
     started: Instant,
@@ -105,62 +118,8 @@ struct Wait {
 }
 
 impl Wait {
-    fn end(&mut self) {
-        if !self.news.ended {
-            self.news.ended = true;
-            unsafe { PostMessageW(self.owner as HWND, self.message, 0, 0) };
-        }
-    }
-}
-
-thread_local! {
-    static WAIT: RefCell<Option<Wait>> = const { RefCell::new(None) };
-}
-
-/// Starts a wait of `wait` on this thread: each key press goes to `rule`,
-/// and `message` is posted to `owner` for a key it takes and when the wait
-/// ends early (`take_for` says which). A mouse click ends the wait too; the
-/// click itself goes through. Starting again while a wait runs starts that
-/// wait over. A wait of another owner ends, and that owner gets its message
-/// so it can take its own hint off the screen. Returns false when Windows
-/// refused the hook; keys then go to Windows as usual.
-pub fn listen(owner: isize, message: u32, wait: Duration, rule: Rule) -> bool {
-    let before = WAIT.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .map(|wait| (wait.owner, wait.message))
-    });
-    stop();
-    if let Some((other, other_message)) = before.filter(|(other, _)| *other != owner) {
-        unsafe { PostMessageW(other as HWND, other_message, 0, 0) };
-    }
-    let hook = unsafe {
-        SetWindowsHookExW(
-            WH_KEYBOARD_LL,
-            Some(hook_proc),
-            GetModuleHandleW(std::ptr::null()),
-            0,
-        )
-    };
-    if hook.is_null() {
-        log::warn!("could not start waiting for the next key: the keyboard hook was refused");
-        return false;
-    }
-    // Without it a click only fails to end the wait; the keys still work.
-    let mouse = unsafe {
-        SetWindowsHookExW(
-            WH_MOUSE_LL,
-            Some(mouse_proc),
-            GetModuleHandleW(std::ptr::null()),
-            0,
-        )
-    };
-    let ms = wait.as_millis().min(u32::MAX as u128) as u32;
-    unsafe { SetTimer(owner as HWND, TIMER_ID, ms, None) };
-    WAIT.with(|cell| {
-        *cell.borrow_mut() = Some(Wait {
-            hook: hook as isize,
-            mouse: mouse as isize,
+    fn new(owner: isize, message: u32, wait: Duration, rule: Rule) -> Self {
+        Wait {
             owner,
             message,
             started: Instant::now(),
@@ -168,22 +127,119 @@ pub fn listen(owner: isize, message: u32, wait: Duration, rule: Rule) -> bool {
             rule,
             news: News::default(),
             held: Vec::new(),
-        })
-    });
+        }
+    }
+
+    /// One key going `down` or up, with `modifiers` held, at `now`.
+    fn key(&mut self, vk: u32, down: bool, modifiers: u32, now: Instant) -> Step {
+        if !down {
+            return match self.held.iter().position(|held| *held == vk) {
+                Some(at) => {
+                    self.held.swap_remove(at);
+                    Step::Hide
+                }
+                None => Step::Pass,
+            };
+        }
+        if is_modifier(vk) {
+            return Step::Pass;
+        }
+        let stroke = Stroke { vk, modifiers };
+        match verdict(stroke, self.started, self.wait, now, &*self.rule) {
+            Verdict::Take => {
+                self.news.taken.push(stroke);
+                if !self.held.contains(&vk) {
+                    self.held.push(vk);
+                }
+                Step::Take
+            }
+            Verdict::Pass => Step::Pass,
+            Verdict::End => self.end(),
+        }
+    }
+
+    /// The wait is over; `End` the first time only, so the owner hears of
+    /// it once.
+    fn end(&mut self) -> Step {
+        if self.news.ended {
+            return Step::Pass;
+        }
+        self.news.ended = true;
+        Step::End
+    }
+
+    fn tell_owner(&self) {
+        unsafe { PostMessageW(self.owner as HWND, self.message, 0, 0) };
+    }
+}
+
+/// The wait that runs, shared by the thread that started it and the hook's
+/// own thread. Held only for a moment by either.
+static WAIT: Mutex<Option<Wait>> = Mutex::new(None);
+/// The hook's thread while a wait runs; see `core::ll_hook`.
+static THREAD: Mutex<Option<HookThread>> = Mutex::new(None);
+
+fn wait_slot() -> MutexGuard<'static, Option<Wait>> {
+    WAIT.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn thread_slot() -> MutexGuard<'static, Option<HookThread>> {
+    THREAD.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Starts a wait of `wait`: each key press goes to `rule`, and `message` is
+/// posted to `owner` for a key it takes and when the wait ends early
+/// (`take_for` says which). A mouse click ends the wait too; the click
+/// itself goes through. Starting again while a wait runs starts that wait
+/// over. A wait of another owner ends, and that owner gets its message so it
+/// can take its own hint off the screen. Returns false when Windows refused
+/// the hook; keys then go to Windows as usual.
+///
+/// The hook runs on a thread of its own, so a busy caller never makes
+/// Windows skip it; the caller's thread gets the timer that ends the wait,
+/// and must run a message loop.
+pub fn listen(
+    owner: isize,
+    message: u32,
+    wait: Duration,
+    rule: impl Fn(Stroke) -> Verdict + Send + 'static,
+) -> bool {
+    let before = wait_slot().as_ref().map(|wait| (wait.owner, wait.message));
+    stop();
+    if let Some((other, other_message)) = before.filter(|(other, _)| *other != owner) {
+        unsafe { PostMessageW(other as HWND, other_message, 0, 0) };
+    }
+    *wait_slot() = Some(Wait::new(owner, message, wait, Box::new(rule)));
+    // Without the mouse hook a click only fails to end the wait; the keys
+    // still work.
+    let thread = HookThread::start(
+        "chord hook",
+        vec![
+            (WH_KEYBOARD_LL, Some(hook_proc)),
+            (WH_MOUSE_LL, Some(mouse_proc)),
+        ],
+    );
+    let Some(thread) = thread else {
+        wait_slot().take();
+        log::warn!("could not start waiting for the next key: the keyboard hook was refused");
+        return false;
+    };
+    *thread_slot() = Some(thread);
+    let ms = wait.as_millis().min(u32::MAX as u128) as u32;
+    unsafe { SetTimer(owner as HWND, TIMER_ID, ms, None) };
     true
 }
 
 /// Ends the wait, if one runs, and takes the hook out.
 fn stop() {
-    let ended = WAIT.with(|cell| cell.borrow_mut().take());
+    let ended = wait_slot().take();
+    // Neither lock is held here: the hook may be waiting for `WAIT`.
+    let thread = thread_slot().take();
+    if let Some(thread) = thread {
+        thread.stop();
+    }
     if let Some(wait) = ended {
-        unsafe {
-            UnhookWindowsHookEx(wait.hook as *mut core::ffi::c_void);
-            if wait.mouse != 0 {
-                UnhookWindowsHookEx(wait.mouse as *mut core::ffi::c_void);
-            }
-            KillTimer(wait.owner as HWND, TIMER_ID);
-        }
+        unsafe { KillTimer(wait.owner as HWND, TIMER_ID) };
     }
 }
 
@@ -201,29 +257,23 @@ pub fn on_timer(owner: isize) {
 
 /// Whether a wait of `owner` runs.
 pub fn waiting_for(owner: isize) -> bool {
-    WAIT.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .is_some_and(|wait| wait.owner == owner)
-    })
+    wait_slot().as_ref().is_some_and(|wait| wait.owner == owner)
 }
 
 /// What came for `owner` since its last call. When another owner's wait
 /// took over, or none runs, `owner`'s wait is over.
 pub fn take_for(owner: isize) -> News {
-    WAIT.with(|cell| {
-        cell.borrow_mut()
-            .as_mut()
-            .filter(|wait| wait.owner == owner)
-            .map(|wait| News {
-                taken: std::mem::take(&mut wait.news.taken),
-                ended: wait.news.ended,
-            })
-            .unwrap_or(News {
-                taken: Vec::new(),
-                ended: true,
-            })
-    })
+    wait_slot()
+        .as_mut()
+        .filter(|wait| wait.owner == owner)
+        .map(|wait| News {
+            taken: std::mem::take(&mut wait.news.taken),
+            ended: wait.news.ended,
+        })
+        .unwrap_or(News {
+            taken: Vec::new(),
+            ended: true,
+        })
 }
 
 fn down(vk: u16) -> bool {
@@ -254,57 +304,40 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
     }
     let info = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
     let event = wparam as u32;
-    let swallow = WAIT.with(|cell| {
-        let Ok(mut slot) = cell.try_borrow_mut() else {
-            return false;
-        };
-        let Some(wait) = slot.as_mut() else {
-            return false;
-        };
-        if event == WM_KEYUP || event == WM_SYSKEYUP {
-            let held = wait.held.iter().position(|vk| *vk == info.vkCode);
-            return held.map(|at| wait.held.swap_remove(at)).is_some();
-        }
-        if !(event == WM_KEYDOWN || event == WM_SYSKEYDOWN) || is_modifier(info.vkCode) {
-            return false;
-        }
-        let stroke = Stroke {
-            vk: info.vkCode,
-            modifiers: modifiers_now(),
-        };
-        match verdict(stroke, wait.started, wait.wait, Instant::now(), wait.rule) {
-            Verdict::Take => {
-                wait.news.taken.push(stroke);
-                if !wait.held.contains(&stroke.vk) {
-                    wait.held.push(stroke.vk);
+    let is_down = event == WM_KEYDOWN || event == WM_SYSKEYDOWN;
+    let is_up = event == WM_KEYUP || event == WM_SYSKEYUP;
+    let step = if is_down || is_up {
+        let mut slot = wait_slot();
+        match slot.as_mut() {
+            Some(wait) => {
+                let step = wait.key(info.vkCode, is_down, modifiers_now(), Instant::now());
+                if matches!(step, Step::Take | Step::End) {
+                    wait.tell_owner();
                 }
-                unsafe { PostMessageW(wait.owner as HWND, wait.message, 0, 0) };
-                true
+                step
             }
-            Verdict::Pass => false,
-            // The owner takes the hook out; doing it here, inside the
-            // hook's own call, is not allowed.
-            Verdict::End => {
-                wait.end();
-                false
-            }
+            None => Step::Pass,
         }
-    });
-    if swallow {
-        return 1;
+    } else {
+        Step::Pass
+    };
+    // The owner takes the hook out after `End`; doing it here, inside the
+    // hook's own call, is not allowed.
+    match step {
+        Step::Take | Step::Hide => 1,
+        Step::Pass | Step::End => unsafe {
+            CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam)
+        },
     }
-    unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
 }
 
 unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 && is_click(wparam as u32) {
-        WAIT.with(|cell| {
-            if let Ok(mut slot) = cell.try_borrow_mut() {
-                if let Some(wait) = slot.as_mut() {
-                    wait.end();
-                }
+        if let Some(wait) = wait_slot().as_mut() {
+            if wait.end() == Step::End {
+                wait.tell_owner();
             }
-        });
+        }
     }
     unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
 }
@@ -341,6 +374,49 @@ mod tests {
         }
     }
 
+    /// Digits are taken, Esc ends the wait, every other key passes.
+    fn digits(stroke: Stroke) -> Verdict {
+        match stroke.vk {
+            0x30..=0x39 => Verdict::Take,
+            0x1B => Verdict::End,
+            _ => Verdict::Pass,
+        }
+    }
+
+    #[test]
+    fn a_taken_key_is_kept_with_its_release_and_others_pass() {
+        let mut wait = Wait::new(1, 2, Duration::from_secs(3), Box::new(digits));
+        let now = Instant::now();
+        assert_eq!(wait.key(0x12, true, MOD_ALT, now), Step::Pass, "Alt");
+        assert_eq!(wait.key(0x33, true, MOD_WIN | MOD_ALT, now), Step::Take);
+        assert_eq!(
+            wait.key(0x33, true, MOD_WIN | MOD_ALT, now),
+            Step::Take,
+            "repeat"
+        );
+        assert_eq!(wait.key(0x33, false, MOD_WIN | MOD_ALT, now), Step::Hide);
+        assert_eq!(wait.key(0x33, false, 0, now), Step::Pass, "released once");
+        assert_eq!(wait.key(0x41, true, 0, now), Step::Pass, "A");
+        assert_eq!(wait.key(0x41, false, 0, now), Step::Pass);
+        let news = std::mem::take(&mut wait.news);
+        assert_eq!(news.taken.len(), 2);
+        assert!(!news.ended);
+    }
+
+    #[test]
+    fn the_end_is_told_once_and_late_keys_pass() {
+        let mut wait = Wait::new(1, 2, Duration::from_secs(3), Box::new(digits));
+        let now = Instant::now();
+        assert_eq!(wait.key(0x1B, true, 0, now), Step::End, "Esc");
+        assert_eq!(wait.key(0x1B, true, 0, now), Step::Pass, "told once");
+        assert!(wait.news.ended);
+
+        let mut late = Wait::new(1, 2, Duration::from_millis(10), Box::new(digits));
+        let after = Instant::now() + Duration::from_millis(50);
+        assert_eq!(late.key(0x31, true, 0, after), Step::End);
+        assert_eq!(late.end(), Step::Pass, "a click after it");
+    }
+
     #[test]
     fn with_no_wait_running_every_owner_hears_that_it_is_over() {
         assert!(!waiting_for(1));
@@ -353,6 +429,31 @@ mod tests {
         on_timer(2);
         assert!(!waiting_for(1));
         assert!(!waiting_for(2));
+    }
+
+    /// Lets every key through, so the test keeps nothing from the user.
+    fn pass_all(_: Stroke) -> Verdict {
+        Verdict::Pass
+    }
+
+    #[test]
+    fn a_second_listen_replaces_the_first_and_a_stop_ends_the_thread() {
+        // Window handles no window has, so the timer and posts go nowhere.
+        let (first, second) = (0x7fff_ff10, 0x7fff_ff20);
+        if !listen(first, 0x8001, Duration::from_secs(3), pass_all) {
+            return; // No keyboard hook on this machine: nothing to check.
+        }
+        assert!(waiting_for(first));
+        assert!(listen(second, 0x8001, Duration::from_secs(3), pass_all));
+        assert!(!waiting_for(first), "the first wait ended");
+        assert!(take_for(first).ended);
+        assert!(waiting_for(second));
+        assert!(thread_slot().is_some());
+        stop_for(second);
+        assert!(!waiting_for(second));
+        assert!(thread_slot().is_none(), "the hook's thread ended");
+        stop_for(second);
+        assert!(take_for(second).ended);
     }
 
     #[test]

@@ -308,12 +308,11 @@ impl Engine {
                 found
             }
         };
-        keys::set_again(&self.jump_keys, &self.pin_keys);
         let listening = chord::listen(
             self.hwnd as isize,
             WM_APP_KEY,
             shortcuts::CHORD_WAIT,
-            keys::rule,
+            keys::rule(&self.jump_keys, &self.pin_keys),
         );
         if !listening {
             self.notify(notice::no_keys(), None);
