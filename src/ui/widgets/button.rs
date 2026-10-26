@@ -12,7 +12,7 @@ pub enum Kind {
 }
 
 const HEIGHT: f32 = 32.0;
-const SMALL_HEIGHT: f32 = 28.0;
+const SMALL_HEIGHT: f32 = 26.0;
 const PADDING: f32 = 12.0;
 const ICON: f32 = 13.0;
 const ICON_GAP: f32 = 6.0;
@@ -21,9 +21,9 @@ pub fn button(ui: &mut Ui, label: &str, kind: Kind) -> Response {
     with_icon(ui, label, kind, None)
 }
 
-/// The button of a tile footer: 28 high, 13 px text.
+/// The button at the right end of a tile: 26 high, 12.5 px text.
 pub fn small(ui: &mut Ui, label: &str, kind: Kind) -> Response {
-    draw(ui, label, kind, None, SMALL_HEIGHT, 13.0)
+    draw(ui, label, kind, None, SMALL_HEIGHT, 12.5)
 }
 
 /// Outlined, never filled: colour lives in the stroke and the label, and the

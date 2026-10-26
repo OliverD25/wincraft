@@ -8,9 +8,7 @@ use crate::ui::settings::{self as page, SettingsState};
 use crate::ui::widgets::button::{self, Kind};
 use crate::ui::widgets::capture::{self, Outcome};
 use crate::ui::widgets::empty_state::empty_state;
-use crate::ui::widgets::icons::{self, Icon};
 use crate::ui::widgets::row::{settings_row, RowText};
-use crate::ui::widgets::tile::Part;
 use crate::ui::widgets::{field, keycap, text, toggle};
 
 pub fn show(
@@ -70,25 +68,16 @@ fn list(
         return;
     }
 
-    let tokens = Tokens::get(ui.ctx());
-    let picked = catalog::tiles(ui, &cards, &order, true, |ui, card, part| {
+    let picked = catalog::tiles(ui, &cards, &order, |ui, card| {
         let Some(plugin) = snapshot.plugins.iter().find(|plugin| plugin.id == card.id) else {
             return;
         };
-        match part {
-            Part::Header => {
-                let mut enabled = plugin.enabled;
-                if toggle::toggle(ui, &mut enabled).changed() {
-                    to_host.send(HostRequest::SetPluginEnabled {
-                        id: plugin.id.clone(),
-                        enabled,
-                    });
-                }
-            }
-            Part::Footer => {
-                icons::show(ui, Icon::ChevronRight, 14.0, tokens.text_secondary);
-                text::secondary(ui, "Settings", tokens.text_secondary);
-            }
+        let mut enabled = plugin.enabled;
+        if toggle::toggle(ui, &mut enabled).changed() {
+            to_host.send(HostRequest::SetPluginEnabled {
+                id: plugin.id.clone(),
+                enabled,
+            });
         }
     });
     let Some(picked) = picked else {

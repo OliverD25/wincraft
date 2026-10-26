@@ -9,7 +9,7 @@ use crate::store::github;
 use crate::store::index::IndexEntry;
 use crate::ui::widgets::button::Kind;
 use crate::ui::widgets::icons::Icon;
-use crate::ui::widgets::tile::{self, Part, Tile};
+use crate::ui::widgets::tile::{self, Tile};
 use crate::ui::widgets::{chips, choice, focus, search_box, text};
 
 /// The group a plugin without a category falls into.
@@ -66,10 +66,6 @@ impl Card {
             description: entry.description.clone(),
             category: category_name(category),
         }
-    }
-
-    fn meta(&self) -> String {
-        format!("{} \u{00B7} {}", self.version, self.author)
     }
 }
 
@@ -227,6 +223,14 @@ pub enum StoreAction {
     OpenReleases,
 }
 
+/// What a store tile shows at its right end.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TileControl {
+    /// A plain "Installed" mark, not a button.
+    Installed,
+    Button(ButtonSpec),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ButtonSpec {
     pub label: &'static str,
@@ -256,6 +260,15 @@ impl StoreState {
             StoreState::NotInstalled => return None,
         };
         Some(BadgeSpec { label, tone })
+    }
+
+    pub fn tile_control(&self) -> TileControl {
+        match self {
+            StoreState::Enabled | StoreState::Disabled => TileControl::Installed,
+            _ => self
+                .button()
+                .map_or(TileControl::Installed, TileControl::Button),
+        }
     }
 
     pub fn button(&self) -> Option<ButtonSpec> {
@@ -441,16 +454,15 @@ fn tile_id(grid: Id, card: &Card) -> Id {
     grid.with(("tile", &card.id))
 }
 
-/// The grid of tiles for `order` (positions in `cards`). `controls` draws what
-/// sits on a tile for each part of it. Arrow keys, Home and End move focus
+/// The grid of tiles for `order` (positions in `cards`). `control` draws what
+/// sits at the right end of a tile. Arrow keys, Home and End move focus
 /// between tiles; they are taken from the frame's input while a tile has
 /// focus.
 pub fn tiles(
     ui: &mut Ui,
     cards: &[Card],
     order: &[usize],
-    switch: bool,
-    mut controls: impl FnMut(&mut Ui, &Card, Part),
+    mut control: impl FnMut(&mut Ui, &Card),
 ) -> Option<Picked> {
     let width = ui.available_width();
     let columns = tile::columns(width);
@@ -467,7 +479,7 @@ pub fn tiles(
         .position(|id| ui.memory(|memory| memory.has_focus(*id)))
     {
         // Without this egui moves focus to whatever lies in that direction,
-        // which would land on a tile's switch.
+        // which would land on a tile's control.
         ui.memory_mut(|memory| {
             memory.set_focus_lock_filter(
                 ids[at],
@@ -497,24 +509,15 @@ pub fn tiles(
             ),
             vec2(each, tile::HEIGHT),
         );
-        let meta = card.meta();
         let face = Tile {
             icon: icon_for(&card.category),
             name: &card.name,
-            meta: &meta,
             description: &card.description,
-            category: &card.category,
-            switch,
         };
         let focused = ui.memory(|memory| memory.has_focus(ids[slot]));
-        let response = tile::show(
-            ui,
-            ids[slot],
-            rect,
-            &face,
-            focused && keyboard,
-            |ui, part| controls(ui, card, part),
-        );
+        let response = tile::show(ui, ids[slot], rect, &face, focused && keyboard, |ui| {
+            control(ui, card)
+        });
         if moved_to == Some(slot) {
             response.scroll_to_me(None);
         }
@@ -728,6 +731,26 @@ mod tests {
     }
 
     #[test]
+    fn a_store_tile_ends_in_installed_install_or_get_update() {
+        let installed = |on| StoreState::of(Some(on), "0.20.2", "0.20.2").tile_control();
+        assert_eq!(installed(true), TileControl::Installed);
+        assert_eq!(installed(false), TileControl::Installed);
+
+        let label = |control| match control {
+            TileControl::Button(spec) => (spec.label, spec.kind, spec.action),
+            TileControl::Installed => panic!("expected a button"),
+        };
+        assert_eq!(
+            label(StoreState::of(None, "0.20.2", "0.20.2").tile_control()),
+            ("Install", Kind::Primary, StoreAction::OpenReleases)
+        );
+        assert_eq!(
+            label(StoreState::of(None, "0.21.0", "0.20.2").tile_control()),
+            ("Get update", Kind::Secondary, StoreAction::OpenReleases)
+        );
+    }
+
+    #[test]
     fn arrows_walk_the_tiles_row_by_row_and_stop_at_the_edges() {
         // Seven tiles, three to a row:  0 1 2 / 3 4 5 / 6
         assert_eq!(step(0, Move::Right, 3, 7), 1);
@@ -756,7 +779,7 @@ mod tests {
         }
     }
 
-    /// Draws the five tiles in an 812 px wide window (three to a row) and
+    /// Draws the five tiles in an 894 px wide window (three to a row) and
     /// reports what was picked, whether Arrow Down was still in the input
     /// after the grid, and the id the grid was drawn under.
     fn frame(
@@ -765,14 +788,14 @@ mod tests {
         events: Vec<egui::Event>,
     ) -> (Option<Picked>, bool, Id) {
         let input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(812.0, 2000.0))),
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(894.0, 2000.0))),
             events,
             ..Default::default()
         };
         let order: Vec<usize> = (0..cards.len()).collect();
         let mut result = (None, false, Id::NULL);
         let mut output = ctx.run_ui(input, |ui| {
-            let picked = tiles(ui, cards, &order, true, |_, _, _| {});
+            let picked = tiles(ui, cards, &order, |_, _| {});
             let arrow_left = ui.input(|input| input.key_pressed(Key::ArrowDown));
             result = (picked, arrow_left, ui.id());
         });

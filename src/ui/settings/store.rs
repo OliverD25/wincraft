@@ -2,18 +2,19 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
 use crate::core::clock;
-use crate::core::theme::Tokens;
+use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{HostChannel, HostRequest, UiSnapshot};
 use crate::store::github;
 use crate::store::index::{self, IndexEntry, PluginIndex, Source};
-use crate::ui::settings::catalog::{self, Card, Sort, StoreAction, StoreState, Tone, View};
+use crate::ui::settings::catalog::{
+    self, Card, Sort, StoreAction, StoreState, TileControl, Tone, View,
+};
 use crate::ui::settings::{self as page, SettingsState};
 use crate::ui::widgets::badge;
 use crate::ui::widgets::button::{self, Kind};
 use crate::ui::widgets::empty_state::empty_state;
-use crate::ui::widgets::icons::Icon;
+use crate::ui::widgets::icons::{self, Icon};
 use crate::ui::widgets::text;
-use crate::ui::widgets::tile::Part;
 
 /// What the status line at the bottom of the page reports.
 #[derive(Clone, Debug)]
@@ -232,6 +233,33 @@ fn state_button(
     }
 }
 
+/// The control at the right end of a store tile.
+fn tile_control(
+    ui: &mut egui::Ui,
+    state: &StoreState,
+    plugin_id: &str,
+    to_host: &Arc<HostChannel>,
+) {
+    match state.tile_control() {
+        TileControl::Installed => {
+            let tokens = Tokens::get(ui.ctx());
+            ui.spacing_mut().item_spacing.x = 5.0;
+            // Right to left: the word is placed first, so the check ends up left of it.
+            text::single(
+                ui,
+                text::job(
+                    "Installed",
+                    theme::regular(12.0),
+                    tokens.success,
+                    Some(16.0),
+                ),
+            );
+            icons::show(ui, Icon::Check, 13.0, tokens.success);
+        }
+        TileControl::Button(_) => state_button(ui, state, plugin_id, to_host, true),
+    }
+}
+
 fn state_badge(ui: &mut egui::Ui, state: &StoreState) {
     let tokens = Tokens::get(ui.ctx());
     if let Some(spec) = state.badge() {
@@ -298,13 +326,9 @@ fn list(
         return;
     }
 
-    let picked = catalog::tiles(ui, &cards, &order, false, |ui, card, part| {
-        if part == Part::Footer {
-            let tile_state = state_of(&card.id, snapshot, &catalogue);
-            // Right to left: the button ends up on the right of the badge.
-            state_button(ui, &tile_state, &card.id, to_host, true);
-            state_badge(ui, &tile_state);
-        }
+    let picked = catalog::tiles(ui, &cards, &order, |ui, card| {
+        let tile_state = state_of(&card.id, snapshot, &catalogue);
+        tile_control(ui, &tile_state, &card.id, to_host);
     });
     if let Some(picked) = picked {
         // Space opens a tile here as Enter does; there is no switch to flip.
