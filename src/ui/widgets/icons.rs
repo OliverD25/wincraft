@@ -35,6 +35,8 @@ pub enum Icon {
     Trash,
     Loader,
     Grip,
+    Copy,
+    ArrowRightLeft,
 }
 
 struct Path {
@@ -365,6 +367,31 @@ fn paths(icon: Icon) -> Vec<Path> {
                     .map(move |y| Path::start(x - 0.5, y).line(x + 0.5, y))
             })
             .collect(),
+        // Lucide's copy: the front sheet, and the corner of the one behind it.
+        Icon::Copy => vec![
+            Path::start(10.0, 8.0)
+                .line(20.0, 8.0)
+                .corner(22.0, 8.0, 22.0, 10.0)
+                .line(22.0, 20.0)
+                .corner(22.0, 22.0, 20.0, 22.0)
+                .line(10.0, 22.0)
+                .corner(8.0, 22.0, 8.0, 20.0)
+                .line(8.0, 10.0)
+                .corner(8.0, 8.0, 10.0, 8.0),
+            Path::start(4.0, 16.0)
+                .corner(2.0, 16.0, 2.0, 14.0)
+                .line(2.0, 4.0)
+                .corner(2.0, 2.0, 4.0, 2.0)
+                .line(14.0, 2.0)
+                .corner(16.0, 2.0, 16.0, 4.0),
+        ],
+        // Lucide's arrow-right-left: one arrow each way.
+        Icon::ArrowRightLeft => vec![
+            Path::start(16.0, 3.0).line(20.0, 7.0).line(16.0, 11.0),
+            Path::start(20.0, 7.0).line(4.0, 7.0),
+            Path::start(8.0, 21.0).line(4.0, 17.0).line(8.0, 13.0),
+            Path::start(4.0, 17.0).line(20.0, 17.0),
+        ],
         Icon::Close => vec![
             Path::start(18.0, 6.0).line(6.0, 18.0),
             Path::start(6.0, 6.0).line(18.0, 18.0),
