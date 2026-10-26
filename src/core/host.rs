@@ -1459,7 +1459,7 @@ impl Host {
             let wait = std::time::Duration::from_millis(taskbar_number::SECOND_DIGIT_MS);
             chord::listen(self.hwnd as isize, WM_APP_WAIT_KEY, wait, wait_rule);
         } else {
-            chord::stop();
+            chord::stop_for(self.hwnd as isize);
         }
         self.open_button(number);
         log::info!(
@@ -1484,7 +1484,7 @@ impl Host {
         if self.chord_wait.is_some() {
             self.end_wait();
         }
-        if self.wait_hint.is_some() || chord::waiting() {
+        if self.wait_hint.is_some() || chord::waiting_for(self.hwnd as isize) {
             self.end_wait();
             let front = unsafe { GetForegroundWindow() } as isize;
             log::info!("the Arrange hotkey twice: the strip for the window in front");
@@ -1517,7 +1517,7 @@ impl Host {
     /// The wait after the Arrange hotkey is over: the badges and the line go,
     /// and a first digit is no longer joined by a second one.
     fn end_wait(&mut self) {
-        chord::stop();
+        chord::stop_for(self.hwnd as isize);
         self.chord_wait = None;
         CHORD_PRESS.with(|cell| cell.borrow_mut().take());
         self.wait_hint = None;
@@ -3211,12 +3211,12 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
                 deliver_later(hwnd, msg, wparam, lparam);
                 return 0;
             }
-            let news = chord::take();
+            let news = chord::take_for(hwnd as isize);
             with_host(|host| host.wait_news(news));
             0
         }
         WM_TIMER if wparam == chord::TIMER_ID => {
-            chord::on_timer();
+            chord::on_timer(hwnd as isize);
             with_host_or_later(hwnd, msg, wparam, lparam, |host| host.end_wait());
             0
         }

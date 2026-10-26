@@ -119,12 +119,21 @@ thread_local! {
 
 /// Starts a wait of `wait` on this thread: each key press goes to `rule`,
 /// and `message` is posted to `owner` for a key it takes and when the wait
-/// ends early (`take` says which). A mouse click ends the wait too; the
+/// ends early (`take_for` says which). A mouse click ends the wait too; the
 /// click itself goes through. Starting again while a wait runs starts that
-/// wait over. Returns false when Windows refused the hook; keys then go to
-/// Windows as usual.
+/// wait over. A wait of another owner ends, and that owner gets its message
+/// so it can take its own hint off the screen. Returns false when Windows
+/// refused the hook; keys then go to Windows as usual.
 pub fn listen(owner: isize, message: u32, wait: Duration, rule: Rule) -> bool {
+    let before = WAIT.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .map(|wait| (wait.owner, wait.message))
+    });
     stop();
+    if let Some((other, other_message)) = before.filter(|(other, _)| *other != owner) {
+        unsafe { PostMessageW(other as HWND, other_message, 0, 0) };
+    }
     let hook = unsafe {
         SetWindowsHookExW(
             WH_KEYBOARD_LL,
@@ -165,7 +174,7 @@ pub fn listen(owner: isize, message: u32, wait: Duration, rule: Rule) -> bool {
 }
 
 /// Ends the wait, if one runs, and takes the hook out.
-pub fn stop() {
+fn stop() {
     let ended = WAIT.with(|cell| cell.borrow_mut().take());
     if let Some(wait) = ended {
         unsafe {
@@ -178,26 +187,42 @@ pub fn stop() {
     }
 }
 
-/// The owner's `TIMER_ID` came round: the wait is over.
-pub fn on_timer() {
-    stop();
+/// Ends `owner`'s wait, if it runs; a wait of another owner goes on.
+pub fn stop_for(owner: isize) {
+    if waiting_for(owner) {
+        stop();
+    }
 }
 
-/// Whether a wait runs.
-pub fn waiting() -> bool {
-    WAIT.with(|cell| cell.borrow().is_some())
+/// `owner`'s `TIMER_ID` came round: its wait is over.
+pub fn on_timer(owner: isize) {
+    stop_for(owner);
 }
 
-/// What came since the last call.
-pub fn take() -> News {
+/// Whether a wait of `owner` runs.
+pub fn waiting_for(owner: isize) -> bool {
+    WAIT.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .is_some_and(|wait| wait.owner == owner)
+    })
+}
+
+/// What came for `owner` since its last call. When another owner's wait
+/// took over, or none runs, `owner`'s wait is over.
+pub fn take_for(owner: isize) -> News {
     WAIT.with(|cell| {
         cell.borrow_mut()
             .as_mut()
+            .filter(|wait| wait.owner == owner)
             .map(|wait| News {
                 taken: std::mem::take(&mut wait.news.taken),
                 ended: wait.news.ended,
             })
-            .unwrap_or_default()
+            .unwrap_or(News {
+                taken: Vec::new(),
+                ended: true,
+            })
     })
 }
 
@@ -317,11 +342,17 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_taken_until_a_wait_starts() {
-        assert!(!waiting());
-        assert_eq!(take(), News::default());
-        stop();
-        assert!(!waiting());
+    fn with_no_wait_running_every_owner_hears_that_it_is_over() {
+        assert!(!waiting_for(1));
+        let over = News {
+            taken: Vec::new(),
+            ended: true,
+        };
+        assert_eq!(take_for(1), over);
+        stop_for(1);
+        on_timer(2);
+        assert!(!waiting_for(1));
+        assert!(!waiting_for(2));
     }
 
     #[test]
