@@ -5,7 +5,7 @@ about any combination you press before you assign it to anything.
 
 ## What it does
 
-Open the window with `Win+Alt+Q` or from the tray menu. It scans when it opens,
+Open the window with `Win+Alt+S` or from the tray menu. It scans when it opens,
 and again whenever you press Refresh or F5. Nothing runs in the background while
 the window is closed.
 
@@ -41,7 +41,11 @@ about File Explorer instead of opening it. Press `Esc` to clear the box.
 
 | Action | Default |
 |---|---|
-| Open shortcut detector | `Win+Alt+Q` |
+| Open shortcut detector | `Win+Alt+S` |
+
+Before WinCraft 0.20.16 the default was `Win+Alt+Q`, which QuickJump uses
+now. A stored `Win+Alt+Q` is moved to `Win+Alt+S` once, at the first start;
+keys you chose yourself stay as they are.
 
 ## Settings
 

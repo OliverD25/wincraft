@@ -1928,6 +1928,8 @@ impl PluginSet {
 
         let mut plugin = PluginConfig::load_in(&self.data, meta.id);
         plugin.merge_defaults(&defaults, &settings);
+        slot.plugin
+            .migrate_hotkeys(&mut plugin.hotkeys, &mut plugin.settings);
         slot.plugin.migrate_settings(&mut plugin.settings);
         self.configs.insert(meta.id.to_string(), plugin);
         self.save(meta.id);

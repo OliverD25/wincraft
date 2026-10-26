@@ -181,6 +181,18 @@ pub trait WinCraftPlugin {
         let _ = settings;
     }
 
+    /// Rewrites stored hotkeys from an older version, as `migrate_settings`
+    /// does for settings: `hotkeys` maps each action's name to its keys as
+    /// config text. A plugin that keeps a note that it already did this
+    /// writes it to `settings`. The host saves the file afterwards.
+    fn migrate_hotkeys(
+        &self,
+        hotkeys: &mut std::collections::BTreeMap<String, String>,
+        settings: &mut serde_json::Value,
+    ) {
+        let _ = (hotkeys, settings);
+    }
+
     fn init(&mut self, ctx: &HostContext) -> Result<(), String>;
 
     fn hotkey_actions(&self) -> Vec<HotkeyAction> {

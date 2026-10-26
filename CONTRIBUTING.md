@@ -152,6 +152,7 @@ The About page lists the kinds the build you are running can draw.
 | `migrate_settings(settings)` | At startup, right after missing keys were filled in, to rewrite values an older version stored. The host saves the file afterwards. |
 | `settings_fields` | When drawing your settings page. |
 | `dynamic_fields` | When drawing your settings page, after `settings_fields`. For settings that depend on what the plugin sees, such as one per connected monitor: the key is a JSON pointer into your settings (`/monitors/PHL 323E7/mode`, each step made with `config::pointer_token`), and you give the current value. The host writes the chosen value at that place. |
+| `migrate_hotkeys(hotkeys, settings)` | At startup, right before `migrate_settings`, to move stored keys an older version wrote, such as an old default that another plugin now uses. Keep a note in `settings` if it must happen only once. |
 | `init` | When the plugin is switched on. Return `Err` and the host logs it, shows a tray notification and leaves the plugin off. |
 | `on_settings_changed` | After the user changes one of your settings. |
 | `hotkey_actions` | To register your hotkeys, and to list them in the palette and on your page. |

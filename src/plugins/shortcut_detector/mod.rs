@@ -2,16 +2,45 @@ pub mod known;
 pub mod probe;
 mod window;
 
+use std::collections::BTreeMap;
+
+use serde_json::Value;
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
 use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyWindow, IsWindow};
 
+use crate::core::shortcuts;
 use crate::core::traits::{
     FieldKind, HostContext, Hotkey, HotkeyAction, PluginMetadata, SettingField, TrayAction,
     WinCraftPlugin,
 };
 
 const ACTION_OPEN: u32 = 1;
+const OPEN_ACTION: &str = "open_window";
+/// The default before 0.20.16, which QuickJump took over.
+const OLD_OPEN_KEYS: &str = "Win+Alt+Q";
+const OPEN_KEYS: &str = "Win+Alt+S";
+/// Written once the old default was looked at, so a user who later picks
+/// Win+Alt+Q again keeps it.
+const MOVED_NOTE: &str = "open_window_moved";
+
+/// A stored key equal to the old default was never a choice, so it takes
+/// the new default, once. Returns whether it moved.
+fn move_old_default(hotkeys: &mut BTreeMap<String, String>, settings: &mut Value) -> bool {
+    if settings.get(MOVED_NOTE).and_then(Value::as_bool) == Some(true) {
+        return false;
+    }
+    if let Some(object) = settings.as_object_mut() {
+        object.insert(MOVED_NOTE.to_string(), Value::Bool(true));
+    }
+    let old = hotkeys
+        .get(OPEN_ACTION)
+        .is_some_and(|keys| shortcuts::same_text(keys, OLD_OPEN_KEYS));
+    if old {
+        hotkeys.insert(OPEN_ACTION.to_string(), OPEN_KEYS.to_string());
+    }
+    old
+}
 
 #[derive(Default)]
 pub struct ShortcutDetector {
@@ -96,13 +125,21 @@ impl WinCraftPlugin for ShortcutDetector {
     fn hotkey_actions(&self) -> Vec<HotkeyAction> {
         vec![HotkeyAction {
             id: ACTION_OPEN,
-            name: "open_window",
+            name: OPEN_ACTION,
             label: "Open shortcut detector",
             default: Hotkey {
                 modifiers: MOD_NOREPEAT | MOD_WIN | MOD_ALT,
-                vk: u32::from(b'Q'),
+                vk: u32::from(b'S'),
             },
         }]
+    }
+
+    fn migrate_hotkeys(&self, hotkeys: &mut BTreeMap<String, String>, settings: &mut Value) {
+        if move_old_default(hotkeys, settings) {
+            log::info!(
+                "shortcut_detector open_window was the old default {OLD_OPEN_KEYS}; now {OPEN_KEYS}, so QuickJump can use {OLD_OPEN_KEYS}"
+            );
+        }
     }
 
     fn on_hotkey(&mut self, action_id: u32) {
@@ -129,5 +166,39 @@ impl WinCraftPlugin for ShortcutDetector {
             unsafe { DestroyWindow(hwnd) };
         }
         self.window = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stored(keys: &str) -> BTreeMap<String, String> {
+        BTreeMap::from([(OPEN_ACTION.to_string(), keys.to_string())])
+    }
+
+    #[test]
+    fn the_old_default_moves_once_and_a_chosen_key_stays() {
+        let mut hotkeys = stored("Win+Alt+Q");
+        let mut settings = serde_json::json!({});
+        assert!(move_old_default(&mut hotkeys, &mut settings));
+        assert_eq!(hotkeys[OPEN_ACTION], "Win+Alt+S");
+        // Picked again later, it is a choice and stays.
+        let mut again = stored("win+alt+q");
+        assert!(!move_old_default(&mut again, &mut settings));
+        assert_eq!(again[OPEN_ACTION], "win+alt+q");
+
+        let mut custom = stored("Win+Alt+F12");
+        assert!(!move_old_default(&mut custom, &mut serde_json::json!({})));
+        assert_eq!(custom[OPEN_ACTION], "Win+Alt+F12");
+        let mut none = stored("");
+        assert!(!move_old_default(&mut none, &mut serde_json::json!({})));
+        assert_eq!(none[OPEN_ACTION], "");
+    }
+
+    #[test]
+    fn the_default_is_win_alt_s() {
+        let action = &ShortcutDetector::new().hotkey_actions()[0];
+        assert_eq!(crate::core::hotkeys::format(action.default), OPEN_KEYS);
     }
 }

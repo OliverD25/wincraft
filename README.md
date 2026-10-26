@@ -134,7 +134,7 @@ about any combination you press before you assign it.
 
 | Hotkey | What it does |
 |---|---|
-| `Win+Alt+Q` | Open the shortcut detector |
+| `Win+Alt+S` | Open the shortcut detector |
 
 It cannot see programs that read keys through a keyboard hook, such as
 AutoHotkey scripts or PowerToys Keyboard Manager. Nothing can, short of
