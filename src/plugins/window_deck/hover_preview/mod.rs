@@ -22,16 +22,13 @@ use std::sync::mpsc::TryRecvError;
 
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 use windows_sys::Win32::System::SystemInformation::GetTickCount64;
-use windows_sys::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK};
+use windows_sys::Win32::UI::Accessibility::HWINEVENTHOOK;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    FindWindowExW, FindWindowW, GetCursorPos, GetForegroundWindow, GetWindowRect,
-    GetWindowThreadProcessId, KillTimer, SetTimer, CHILDID_SELF, EVENT_OBJECT_SHOW,
-    EVENT_OBJECT_UNCLOAKED, OBJID_WINDOW, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
+    FindWindowExW, FindWindowW, GetCursorPos, GetForegroundWindow, GetWindowRect, KillTimer,
+    SetTimer,
 };
 
-use crate::core::taskbar_popup::keys::POPUP_CLASS;
 use crate::core::taskbar_popup::{self as popup, Method};
-use crate::core::windows_list::class_name;
 use crate::core::{taskbar, ui_bridge, wide};
 use machine::{contains, Answer, Button, Gate, Look, Machine, Point, Rect};
 pub use machine::{delay_ms, Command, DEFAULT_DELAY_MS, OLD_DEFAULT_DELAY_SECONDS};
@@ -252,34 +249,11 @@ impl HoverPreview {
         if !self.hooks.is_empty() || !self.may_hide {
             return;
         }
-        let tray = unsafe { FindWindowW(wide("Shell_TrayWnd").as_ptr(), std::ptr::null()) };
-        let mut explorer = 0u32;
-        unsafe { GetWindowThreadProcessId(tray, &mut explorer) };
-        if explorer == 0 {
-            return;
-        }
-        for event in [EVENT_OBJECT_SHOW, EVENT_OBJECT_UNCLOAKED] {
-            let hook = unsafe {
-                SetWinEventHook(
-                    event,
-                    event,
-                    std::ptr::null_mut(),
-                    Some(on_event),
-                    explorer,
-                    0,
-                    WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
-                )
-            };
-            if !hook.is_null() {
-                self.hooks.push(hook);
-            }
-        }
+        self.hooks = popup::hook_explorer(Some(on_event));
     }
 
     fn stop_hooks(&mut self) {
-        for hook in self.hooks.drain(..) {
-            unsafe { UnhookWinEvent(hook) };
-        }
+        popup::unhook_explorer(&mut self.hooks);
     }
 
     fn stop_watching(&mut self) {
@@ -310,13 +284,10 @@ unsafe extern "system" fn on_event(
     _thread: u32,
     _time: u32,
 ) {
-    if id_object != OBJID_WINDOW || id_child != CHILDID_SELF as i32 || hwnd.is_null() {
-        return;
-    }
     let Some(gate) = GATE.with(|cell| cell.get()) else {
         return;
     };
-    if class_name(hwnd) != POPUP_CLASS {
+    if !popup::is_popup_event(hwnd, id_object, id_child) {
         return;
     }
     if gate.allows(cursor(), popup::key_state(), unsafe { GetTickCount64() }) {

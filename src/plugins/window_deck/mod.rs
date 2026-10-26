@@ -7,6 +7,7 @@
 
 pub mod hover_preview;
 mod own_windows;
+mod popup_guard;
 mod win_digit;
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -113,6 +114,7 @@ impl WindowDeck {
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
         self.apply_win_number();
+        popup_guard::configure(self.host_hwnd, self.hover.may_hide, self.win_number);
     }
 
     /// Puts the Win+number hook in or takes it out to match the switch. The
@@ -413,6 +415,10 @@ impl WinCraftPlugin for WindowDeck {
     }
 
     fn strip_look(&self) -> Option<StripLook> {
+        // The host asks for the look each time it opens or refreshes the
+        // strip, however it was opened: the moment to guard it from
+        // Windows' popup.
+        popup_guard::watch();
         Some(StripLook {
             preview: self.preview_on_hover,
             view: self.view,
@@ -438,6 +444,7 @@ impl WinCraftPlugin for WindowDeck {
         }
         match wparam {
             hover_preview::TIMER_ID => self.hover_tick(),
+            popup_guard::TIMER_ID => popup_guard::tick(),
             REFRESH_TIMER_ID => {
                 if let Some(hwnd) = self.host_hwnd {
                     unsafe { KillTimer(hwnd, REFRESH_TIMER_ID) };
@@ -455,6 +462,7 @@ impl WinCraftPlugin for WindowDeck {
         self.own.clear();
         run_hover(self.hover.stop());
         win_digit::stop();
+        popup_guard::configure(None, false, false);
         self.hook_refused = false;
         // Off means the strip goes too, however it was opened.
         host::close_arrange();

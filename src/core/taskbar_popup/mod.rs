@@ -8,18 +8,24 @@
 
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+use windows_sys::Win32::UI::Accessibility::{
+    SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK, WINEVENTPROC,
+};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, VK_DOWN, VK_ESCAPE, VK_LBUTTON, VK_LEFT, VK_LWIN, VK_MBUTTON, VK_MENU,
     VK_RBUTTON, VK_RETURN, VK_RIGHT, VK_RWIN, VK_SPACE, VK_TAB, VK_UP,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    FindWindowExW, IsWindowVisible, SetWindowPos, ShowWindowAsync, SWP_ASYNCWINDOWPOS,
-    SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE,
+    FindWindowExW, FindWindowW, GetWindowThreadProcessId, IsWindowVisible, SetWindowPos,
+    ShowWindowAsync, CHILDID_SELF, EVENT_OBJECT_SHOW, EVENT_OBJECT_UNCLOAKED, OBJID_WINDOW,
+    SWP_ASYNCWINDOWPOS, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    SW_HIDE, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
 };
 
 pub mod keys;
 
 use crate::core::wide;
+use crate::core::windows_list::class_name;
 use keys::{KeyState, POPUP_CLASS};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -142,4 +148,48 @@ pub fn key_state() -> KeyState {
         mouse_button_down: key_down(VK_LBUTTON) || key_down(VK_RBUTTON) || key_down(VK_MBUTTON),
         middle_down: key_down(VK_MBUTTON),
     }
+}
+
+/// Two WinEvent hooks on Explorer that call `on_event` the moment it shows
+/// or uncloaks a window, so its popup can be hidden before it is drawn.
+/// Out of context: the events come through the calling thread's message
+/// loop and Explorer never waits for them. Empty when Explorer is not
+/// running.
+pub fn hook_explorer(on_event: WINEVENTPROC) -> Vec<HWINEVENTHOOK> {
+    let tray = unsafe { FindWindowW(wide("Shell_TrayWnd").as_ptr(), std::ptr::null()) };
+    let mut explorer = 0u32;
+    unsafe { GetWindowThreadProcessId(tray, &mut explorer) };
+    if explorer == 0 {
+        return Vec::new();
+    }
+    [EVENT_OBJECT_SHOW, EVENT_OBJECT_UNCLOAKED]
+        .into_iter()
+        .map(|event| unsafe {
+            SetWinEventHook(
+                event,
+                event,
+                std::ptr::null_mut(),
+                on_event,
+                explorer,
+                0,
+                WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+            )
+        })
+        .filter(|hook| !hook.is_null())
+        .collect()
+}
+
+/// Takes out the hooks `hook_explorer` put in.
+pub fn unhook_explorer(hooks: &mut Vec<HWINEVENTHOOK>) {
+    for hook in hooks.drain(..) {
+        unsafe { UnhookWinEvent(hook) };
+    }
+}
+
+/// Whether a WinEvent from `hook_explorer` is about the popup's own window.
+pub fn is_popup_event(hwnd: HWND, id_object: i32, id_child: i32) -> bool {
+    id_object == OBJID_WINDOW
+        && id_child == CHILDID_SELF as i32
+        && !hwnd.is_null()
+        && class_name(hwnd) == POPUP_CLASS
 }
