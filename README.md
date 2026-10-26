@@ -35,7 +35,9 @@ screenshots.
   shortcut of one key press or two in a row (a chord, such as `Win+Alt+K`,
   then `S`). See [Keyboard shortcuts](#keyboard-shortcuts).
 - **Themes** — Classic (the default), Fluent, Terminal, Paper and High
-  contrast, each in dark and light. Fluent's glass is solid for now.
+  contrast, each in dark and light. In Fluent the palette uses Windows 11
+  glass; it turns solid on battery saver or when transparency effects are
+  off.
   Settings → Themes shows a tile with a small picture of each
   one. Point at a tile and every WinCraft window shows that
   theme; move away and it goes back; click to keep it. Mode (System, Dark or
