@@ -58,7 +58,8 @@ Download `wincraft.exe` from the
 and run it. There is no installer and nothing to unpack: it is a single file
 that writes its settings to `%LOCALAPPDATA%\WinCraft`. The release also has
 `SHA256SUMS.txt`, so you can check the download. WinCraft is not code-signed
-yet, so Windows SmartScreen asks once before the first start.
+yet, so Windows SmartScreen asks once before the first start. See the
+[code signing policy](#code-signing-policy) and [privacy](#privacy).
 
 To build it yourself instead, you need [rustup](https://rustup.rs) and the
 Windows SDK (for `rc.exe`, which compiles the icon into the exe). The Rust
@@ -646,6 +647,43 @@ anyone should be able to add a useful feature in an afternoon.
   You describe your settings; WinCraft draws and saves them.
 
 Everyone follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Privacy
+
+WinCraft sends nothing about you anywhere: no telemetry, no account, no
+analytics. It goes on the network only in these cases:
+
+- **The daily update check**, which asks GitHub
+  (`api.github.com/repos/OliverD25/wincraft`) for the latest release. Switch it
+  off in Settings → About ("Check for updates daily").
+- **Update now**, which downloads `wincraft.exe` and `SHA256SUMS.txt` from
+  this repository's releases, only when you click it.
+- **The Plugin Store page**, which reads the plugin list from this repository
+  when you open it.
+- **Search and Ask AI in the palette**, which open your browser at the site
+  you chose, with your text, only when you press Enter.
+
+Your settings, layouts and palette history stay in `%LOCALAPPDATA%\WinCraft`
+on your PC.
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/),
+certificate by [SignPath Foundation](https://signpath.org/). The application
+is pending: until it is accepted, releases are unsigned, and each release's
+`SHA256SUMS.txt` is the way to check a download.
+
+- Every release is built from a git tag by GitHub Actions
+  ([release workflow](.github/workflows/release.yml)); nobody builds a release
+  by hand.
+- Only WinCraft's own code is signed. It contains no third-party binaries;
+  the Rust crates it uses are compiled from source in the same build.
+- Team roles:
+  - Committers and reviewers: [OliverD25](https://github.com/OliverD25)
+  - Approvers (approve each signing request): [OliverD25](https://github.com/OliverD25)
+- Changes from other contributors are reviewed in a pull request before they
+  are merged.
+- All team members use multi-factor authentication on GitHub and SignPath.
 
 ## Licence
 
