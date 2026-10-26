@@ -72,7 +72,7 @@ shows all ten slots with a live picture of each window.
 | Ctrl+↑ ↓, drag | Move the pin up or down |
 | 1 to 0 | Move the pin to that slot, swapping with a pin there |
 | Del | Remove the pin |
-| F2 | Open the details |
+| F2, click the selected pin | Open the details |
 | Esc | Close the details, then the list |
 
 The details give a pin a label, which the strip and the list show instead of

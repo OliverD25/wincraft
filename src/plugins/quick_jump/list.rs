@@ -1,7 +1,8 @@
 //! The pin list: all ten slots with a live picture of each pinned window,
 //! and a details panel that says how QuickJump finds the window. Keys:
 //! ↑↓ select, Enter jumps, Ctrl+↑↓ or a drag moves a pin, a digit moves it
-//! to that slot, Del removes, F2 opens the details, Esc closes.
+//! to that slot, Del removes, F2 (or a click on the selected pin) opens the
+//! details, Esc closes.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -375,12 +376,15 @@ fn contents(ui: &mut Ui, view: &View, state: &mut ListUi, out: &mut Vec<Outcome>
             Sense::click_and_drag(),
         );
         if response.clicked() {
+            // A click on the pin that is selected already opens its
+            // details, so they can be reached without F2 too.
+            let again = state.selected == view_slot.slot;
             state.selected = view_slot.slot;
-            if state
+            let other = state
                 .details
                 .as_ref()
-                .is_some_and(|d| d.slot != view_slot.slot)
-            {
+                .is_some_and(|d| d.slot != view_slot.slot);
+            if other || again {
                 state.details = draft(view, view_slot.slot);
             }
         }
@@ -1099,25 +1103,32 @@ mod tests {
         }
     }
 
-    fn draw(view: &View, state: &mut ListUi, events: Vec<egui::Event>) -> Vec<Outcome> {
+    /// Draws one frame per entry of `frames`, each with its events, then
+    /// one more in each theme with none.
+    fn frames(view: &View, state: &mut ListUi, frames: Vec<Vec<egui::Event>>) -> Vec<Outcome> {
         let ctx = egui::Context::default();
         theme::install_fonts(&ctx);
         let mut out = Vec::new();
-        for (frame, name) in ThemeName::ALL.into_iter().enumerate() {
+        let themes = ThemeName::ALL.into_iter().map(|name| (name, Vec::new()));
+        let steps = frames
+            .into_iter()
+            .map(|events| (ThemeName::Classic, events))
+            .chain(themes);
+        for (name, events) in steps {
             theme::apply(&ctx, name, crate::core::config::ThemeChoice::Dark);
             let input = egui::RawInput {
                 screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1180.0, 720.0))),
-                events: if frame == 0 {
-                    events.clone()
-                } else {
-                    Vec::new()
-                },
+                events,
                 ..Default::default()
             };
             let mut output = ctx.run_ui(input, |ui| contents(ui, view, state, &mut out));
             output.textures_delta.clear();
         }
         out
+    }
+
+    fn draw(view: &View, state: &mut ListUi, events: Vec<egui::Event>) -> Vec<Outcome> {
+        frames(view, state, vec![Vec::new(), events])
     }
 
     fn key(key: Key) -> egui::Event {
@@ -1143,6 +1154,30 @@ mod tests {
         let out = draw(&view, &mut state, vec![key(Key::Escape)]);
         assert!(out.is_empty());
         assert!(state.details.is_none(), "Esc drops the details first");
+    }
+
+    fn click(at: egui::Pos2) -> Vec<Vec<egui::Event>> {
+        let button = |pressed| egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        vec![
+            Vec::new(),
+            vec![egui::Event::PointerMoved(at)],
+            vec![button(true)],
+            vec![button(false)],
+        ]
+    }
+
+    #[test]
+    fn a_click_on_the_selected_pin_opens_its_details() {
+        let view = view();
+        let mut state = ListUi::default();
+        // The first row, slot 1, which starts selected.
+        frames(&view, &mut state, click(pos2(400.0, 130.0)));
+        assert_eq!(state.details.as_ref().map(|d| d.slot), Some(0));
     }
 
     #[test]
