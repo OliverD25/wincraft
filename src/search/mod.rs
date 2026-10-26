@@ -555,6 +555,10 @@ impl Router {
     /// ranks from this session's picks only and saves nothing.
     pub fn load_usage(&mut self, path: PathBuf) {
         self.usage = Usage::load(path);
+        self.usage.rename_keys(
+            providers::commands::WINDOW_DECK_SPLIT,
+            &providers::commands::WINDOW_DECK_RENAMES,
+        );
         log::info!(
             "palette usage: {} rows picked before, {} typed texts remembered",
             self.usage.len(),

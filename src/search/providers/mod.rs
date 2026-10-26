@@ -2,7 +2,7 @@ pub mod apps;
 mod apps_folder;
 pub mod bookmarks;
 mod calc;
-mod commands;
+pub mod commands;
 mod danger;
 mod drives;
 mod everything_ipc;

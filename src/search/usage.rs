@@ -63,6 +63,39 @@ impl Entry {
             in_month: 0,
         }
     }
+
+    /// Two entries for one row as one: both scores decayed to the later
+    /// pick and added, and the picks of the later month.
+    fn merged(self, other: Entry) -> Entry {
+        let updated = self.updated.max(other.updated);
+        let score = decayed(self.score, self.updated, updated)
+            + decayed(other.score, other.updated, updated);
+        let (month, in_month) = match self.month.cmp(&other.month) {
+            std::cmp::Ordering::Equal => (self.month, self.in_month + other.in_month),
+            std::cmp::Ordering::Greater => (self.month, self.in_month),
+            std::cmp::Ordering::Less => (other.month, other.in_month),
+        };
+        Entry {
+            score,
+            updated,
+            month,
+            in_month,
+        }
+    }
+}
+
+/// Moves `old`'s entry to `new`, adding it to one `new` has; true when
+/// there was one to move.
+fn move_entry(entries: &mut HashMap<String, Entry>, old: &str, new: &str) -> bool {
+    let Some(moved) = entries.remove(old) else {
+        return false;
+    };
+    let merged = match entries.get(new) {
+        Some(existing) => existing.merged(moved),
+        None => moved,
+    };
+    entries.insert(new.to_string(), merged);
+    true
 }
 
 /// The rows picked after one typed text, by usage key.
@@ -76,6 +109,9 @@ struct UsageFile {
     /// before WinCraft remembered what was typed.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     typed: HashMap<String, Picks>,
+    /// The one-time key renames already done (see `Usage::rename_keys`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    renamed: Vec<String>,
     /// Fields this version does not know, written back as they were.
     #[serde(flatten)]
     extra: BTreeMap<String, serde_json::Value>,
@@ -124,6 +160,7 @@ pub fn path_key(path: &str) -> String {
 pub struct Usage {
     entries: HashMap<String, Entry>,
     typed: HashMap<String, Picks>,
+    renamed: Vec<String>,
     extra: BTreeMap<String, serde_json::Value>,
     /// None for an in-memory store that is never saved, as in tests.
     path: Option<PathBuf>,
@@ -156,6 +193,7 @@ impl Usage {
         Self {
             entries: file.entries,
             typed: file.typed,
+            renamed: file.renamed,
             extra: file.extra,
             path: Some(path),
             dirty: false,
@@ -165,6 +203,35 @@ impl Usage {
 
     pub fn len(&self) -> usize {
         self.entries.len()
+    }
+
+    /// Once per `name`: gives each new key in `renames` the picks of its old
+    /// key, added to any it has, in the overall counts and under every typed
+    /// text. A row whose key changed (a command that moved to another
+    /// plugin) keeps its place in the ranking. Saves at once when something
+    /// moved. The name is kept in the file, so a later run does nothing even
+    /// if an old key comes back with another meaning. Returns how many
+    /// entries moved.
+    pub fn rename_keys(&mut self, name: &str, renames: &[(&str, &str)]) -> usize {
+        if self.renamed.iter().any(|done| done == name) {
+            return 0;
+        }
+        self.renamed.push(name.to_string());
+        let mut moved = 0;
+        for (old, new) in renames {
+            if old == new {
+                continue;
+            }
+            moved += usize::from(move_entry(&mut self.entries, old, new));
+            for picks in self.typed.values_mut() {
+                moved += usize::from(move_entry(picks, old, new));
+            }
+        }
+        if moved > 0 {
+            log::info!("palette usage: moved {moved} picks to renamed rows ({name})");
+            self.save_now();
+        }
+        moved
     }
 
     /// The decayed score of a key, 0 for one never picked.
@@ -418,6 +485,7 @@ impl Usage {
             version: VERSION,
             entries: self.entries.clone(),
             typed: self.typed.clone(),
+            renamed: self.renamed.clone(),
             extra: self.extra.clone(),
         };
         let text = serde_json::to_string(&file).map_err(|err| err.to_string())?;
@@ -949,5 +1017,148 @@ mod tests {
             loaded.picked("c", "apps:claude", 202610).map(|p| p.0),
             Some(2)
         );
+    }
+
+    const RENAMES: [(&str, &str); 2] = [
+        (
+            "commands:layout_keeper/hotkey/5",
+            "commands:window_deck/hotkey/1",
+        ),
+        (
+            "commands:layout_keeper/palette/2",
+            "commands:window_deck/palette/1",
+        ),
+    ];
+    const OLD: &str = "commands:layout_keeper/hotkey/5";
+    const NEW: &str = "commands:window_deck/hotkey/1";
+
+    #[test]
+    fn a_renamed_key_takes_the_old_keys_picks_and_typed_texts() {
+        let path = scratch("rename-moved");
+        let mut usage = Usage::load(path.clone());
+        let t = now();
+        for _ in 0..3 {
+            usage.record(OLD, t);
+        }
+        usage.record("apps:notepad", t);
+        usage.record_typed("arr", OLD, t, 202610);
+        usage.record_typed("arr", OLD, t, 202610);
+        usage.record_typed("ar", "apps:notepad", t, 202610);
+        assert_eq!(usage.rename_keys("split", &RENAMES), 2);
+        assert_eq!(usage.score(OLD, t), 0.0);
+        assert!((usage.score(NEW, t) - 3.0).abs() < 1e-9);
+        assert!((usage.score("apps:notepad", t) - 1.0).abs() < 1e-9);
+        assert_eq!(usage.remembered("arr", t), [NEW]);
+        assert_eq!(usage.picked("arr", NEW, 202610), Some((2, t)));
+        assert_eq!(usage.picked("arr", OLD, 202610), None);
+        assert_eq!(usage.remembered("ar", t), ["apps:notepad", NEW]);
+
+        // It was saved at once, without a flush.
+        let loaded = Usage::load(path.clone());
+        assert!((loaded.score(NEW, t) - 3.0).abs() < 0.01);
+        assert_eq!(loaded.score(OLD, t), 0.0);
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\"renamed\":[\"split\"]"), "{text}");
+    }
+
+    #[test]
+    fn a_renamed_key_adds_to_the_picks_the_new_key_already_has() {
+        let mut usage = Usage::default();
+        usage.record(OLD, T0);
+        usage.record(OLD, T0);
+        usage.record(NEW, T0 + DAY);
+        usage.record_typed("w", OLD, T0, 202609);
+        usage.record_typed("w", NEW, T0 + DAY, 202610);
+        usage.record_typed("o", OLD, T0, 202610);
+        usage.record_typed("o", NEW, T0 + DAY, 202610);
+        assert_eq!(usage.rename_keys("split", &RENAMES), 3);
+        let expected = decayed(2.0, T0, T0 + DAY) + 1.0;
+        assert!((usage.score(NEW, T0 + DAY) - expected).abs() < 1e-9);
+        assert_eq!(usage.len(), 1);
+        assert_eq!(
+            usage.picked("w", NEW, 202610),
+            Some((1, T0 + DAY)),
+            "a pick from an older month does not count as this month's"
+        );
+        assert_eq!(usage.picked("o", NEW, 202610), Some((2, T0 + DAY)));
+    }
+
+    #[test]
+    fn merged_entries_keep_the_later_pick_and_the_later_month() {
+        let early = Entry {
+            score: 2.0,
+            updated: T0,
+            month: 202609,
+            in_month: 4,
+        };
+        let late = Entry {
+            score: 1.0,
+            updated: T0 + 14 * DAY,
+            month: 202610,
+            in_month: 1,
+        };
+        for merged in [early.merged(late), late.merged(early)] {
+            assert_eq!(merged.updated, T0 + 14 * DAY);
+            assert!((merged.score - 2.0).abs() < 1e-9, "2 halved, plus 1");
+            assert_eq!((merged.month, merged.in_month), (202610, 1));
+        }
+        let same = Entry {
+            month: 202610,
+            in_month: 3,
+            ..early
+        }
+        .merged(late);
+        assert_eq!((same.month, same.in_month), (202610, 4));
+    }
+
+    #[test]
+    fn with_no_old_key_nothing_moves_and_nothing_is_written() {
+        let path = scratch("rename-absent");
+        let mut usage = Usage::load(path.clone());
+        assert_eq!(usage.rename_keys("split", &RENAMES), 0);
+        assert!(!path.exists(), "nothing to move is no reason to write");
+
+        usage.record(NEW, now());
+        usage.record("apps:x", now());
+        assert_eq!(usage.rename_keys("other", &RENAMES), 0);
+        assert!((usage.score(NEW, now()) - 1.0).abs() < 0.01);
+        assert_eq!(usage.len(), 2);
+        assert!(!path.exists());
+        // The names still reach the file with the next save.
+        usage.flush();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\"renamed\":[\"split\",\"other\"]"), "{text}");
+    }
+
+    #[test]
+    fn a_second_run_does_nothing_even_after_a_restart() {
+        let path = scratch("rename-twice");
+        let mut usage = Usage::load(path.clone());
+        usage.record(OLD, now());
+        assert_eq!(usage.rename_keys("split", &RENAMES), 1);
+        // An old key that comes back means something else now.
+        usage.record(OLD, now());
+        assert_eq!(usage.rename_keys("split", &RENAMES), 0);
+        assert!((usage.score(OLD, now()) - 1.0).abs() < 0.01);
+        assert!((usage.score(NEW, now()) - 1.0).abs() < 0.01);
+        usage.flush();
+
+        let mut loaded = Usage::load(path.clone());
+        let before = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(loaded.rename_keys("split", &RENAMES), 0);
+        assert!((loaded.score(OLD, now()) - 1.0).abs() < 0.01);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+        // Clearing the picks does not run it again either.
+        loaded.clear();
+        loaded.record(OLD, now());
+        assert_eq!(loaded.rename_keys("split", &RENAMES), 0);
+    }
+
+    #[test]
+    fn a_key_renamed_to_itself_is_left_alone() {
+        let mut usage = Usage::default();
+        usage.record(OLD, T0);
+        assert_eq!(usage.rename_keys("noop", &[(OLD, OLD)]), 0);
+        assert!((usage.score(OLD, T0) - 1.0).abs() < 1e-9);
     }
 }

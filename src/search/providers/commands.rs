@@ -91,6 +91,28 @@ pub fn command_key(entry: &PaletteEntry) -> String {
     }
 }
 
+/// The name `Usage::rename_keys` remembers for the WindowDeck split.
+pub const WINDOW_DECK_SPLIT: &str = "window_deck_split";
+
+/// Usage keys of the commands that moved from LayoutKeeper to WindowDeck in
+/// 0.20.26, old then new: "Arrange windows" (hotkey action 5, and its tray
+/// action, which the palette hides behind the hotkey of the same label) is
+/// "WindowDeck: Open", and the hover strip switch was palette command 2.
+pub const WINDOW_DECK_RENAMES: [(&str, &str); 3] = [
+    (
+        "commands:layout_keeper/hotkey/5",
+        "commands:window_deck/hotkey/1",
+    ),
+    (
+        "commands:layout_keeper/tray/5",
+        "commands:window_deck/tray/1",
+    ),
+    (
+        "commands:layout_keeper/palette/2",
+        "commands:window_deck/palette/1",
+    ),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;

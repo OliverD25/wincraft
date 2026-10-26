@@ -423,6 +423,48 @@ mod tests {
     }
 
     #[test]
+    fn the_palette_usage_renames_point_at_windowdecks_real_commands() {
+        use crate::core::ui_bridge::{CommandId, PaletteEntry};
+        use crate::search::providers::commands::{command_key, WINDOW_DECK_RENAMES};
+        let deck = test_deck();
+        let key = |kind: ActionKind, action: u32| {
+            let entry = PaletteEntry {
+                id: CommandId::Plugin {
+                    index: 9,
+                    kind,
+                    action,
+                },
+                group: "WindowDeck".to_string(),
+                label: String::new(),
+                hint: String::new(),
+                disabled: false,
+                plugin: Some(ID.to_string()),
+                subtitle: None,
+                shortcut_id: String::new(),
+                shortcut: String::new(),
+                quiet: false,
+                badge: None,
+            };
+            format!("commands:{}", command_key(&entry))
+        };
+        let open = deck.hotkey_actions()[0].id;
+        let tray = deck.tray_actions()[0].id;
+        let hover = deck.palette_commands()[0].id;
+        let new: Vec<&str> = WINDOW_DECK_RENAMES.iter().map(|(_, new)| *new).collect();
+        assert_eq!(
+            new,
+            [
+                key(ActionKind::Hotkey, open),
+                key(ActionKind::Tray, tray),
+                key(ActionKind::Palette, hover),
+            ]
+        );
+        for (old, _) in WINDOW_DECK_RENAMES {
+            assert!(old.starts_with("commands:layout_keeper/"), "{old}");
+        }
+    }
+
+    #[test]
     fn a_saved_old_default_hover_delay_becomes_the_new_default() {
         let mut old = serde_json::json!({ HOVER_DELAY_KEY: 0.4 });
         assert!(migrate_hover_delay(&mut old));
