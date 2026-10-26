@@ -1,11 +1,11 @@
 mod arrange;
-mod dwm_thumbs;
+pub(crate) mod dwm_thumbs;
 pub mod fuzzy;
 mod palette;
 mod peek;
-mod settings;
+pub(crate) mod settings;
 pub mod taskbar_badges;
-mod widgets;
+pub(crate) mod widgets;
 
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
@@ -13,6 +13,7 @@ use std::sync::Arc;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use crate::core::theme;
+use crate::core::traits::{PluginWindow, WindowFrame};
 use crate::core::ui_bridge::{
     HostChannel, HostRequest, MonitorRect, UiChannel, UiCommand, UiSnapshot,
 };
@@ -27,10 +28,11 @@ pub fn start(
     to_host: Arc<HostChannel>,
     snapshot: UiSnapshot,
     router: Router,
+    windows: Vec<(String, Box<dyn PluginWindow>)>,
 ) -> Option<std::thread::JoinHandle<()>> {
     let started = std::thread::Builder::new()
         .name("wincraft-ui".to_string())
-        .spawn(move || run(rx, to_ui, to_host, snapshot, router));
+        .spawn(move || run(rx, to_ui, to_host, snapshot, router, windows));
     match started {
         Ok(thread) => Some(thread),
         Err(err) => {
@@ -46,6 +48,7 @@ fn run(
     to_host: Arc<HostChannel>,
     snapshot: UiSnapshot,
     router: Router,
+    windows: Vec<(String, Box<dyn PluginWindow>)>,
 ) {
     // The palette is the root viewport because only the root exposes a Win32
     // handle, which the host needs for SetForegroundWindow and to switch off the
@@ -85,6 +88,7 @@ fn run(
                 snapshot,
                 palette_hwnd,
                 router,
+                windows,
             )))
         }),
     );
@@ -128,6 +132,8 @@ struct App {
     closing: bool,
     appear: f32,
     icon: Arc<egui::IconData>,
+    palette_hwnd: isize,
+    plugin_windows: Vec<(String, Box<dyn PluginWindow>)>,
 }
 
 fn motion_id() -> egui::Id {
@@ -151,6 +157,7 @@ impl App {
         snapshot: UiSnapshot,
         palette_hwnd: isize,
         router: Router,
+        plugin_windows: Vec<(String, Box<dyn PluginWindow>)>,
     ) -> Self {
         let to_host_for_settings = Arc::clone(&to_host);
         let snapshot_for_settings = snapshot.clone();
@@ -174,6 +181,8 @@ impl App {
             closing: false,
             appear: 0.0,
             icon: window_icon(),
+            palette_hwnd,
+            plugin_windows,
         }
     }
 
@@ -237,6 +246,34 @@ impl App {
                 UiCommand::LayoutUpdate(layout) => {
                     self.settings.set_layout(layout);
                     ctx.request_repaint_of(settings::viewport_id());
+                }
+                UiCommand::PluginWindow {
+                    plugin,
+                    window,
+                    open,
+                } => {
+                    for (_, found) in self
+                        .plugin_windows
+                        .iter_mut()
+                        .filter(|(id, found)| *id == plugin && found.id() == window)
+                    {
+                        if open {
+                            found.open();
+                        } else {
+                            found.close();
+                        }
+                    }
+                    ctx.request_repaint();
+                }
+                UiCommand::ClosePluginWindows(plugin) => {
+                    for (_, found) in self
+                        .plugin_windows
+                        .iter_mut()
+                        .filter(|(id, _)| *id == plugin)
+                    {
+                        found.close();
+                    }
+                    ctx.request_repaint();
                 }
                 UiCommand::ShowPluginPage(id) => {
                     self.settings.open_plugin(&id);
@@ -424,6 +461,23 @@ impl eframe::App for App {
             }
         }
 
+        if self
+            .plugin_windows
+            .iter()
+            .any(|(_, window)| window.is_open())
+        {
+            let frame = WindowFrame {
+                icon: Some(Arc::clone(&self.icon)),
+                palette_hwnd: self.palette_hwnd,
+                to_host: Arc::clone(&self.to_host),
+            };
+            for (_, window) in self.plugin_windows.iter_mut() {
+                if window.is_open() {
+                    window.show(&ctx, &frame);
+                }
+            }
+        }
+
         if !self.palette_visible {
             return;
         }
@@ -454,6 +508,9 @@ impl eframe::App for App {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.arrange.hidden();
+        for (_, window) in self.plugin_windows.iter_mut() {
+            window.close();
+        }
         self.palette.flush_usage();
         if !self.quitting {
             self.to_host.send(HostRequest::Exit);

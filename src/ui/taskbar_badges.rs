@@ -78,17 +78,20 @@ impl WaitHint {
     /// Only `line`, at the bottom of the monitor of the window in front:
     /// what shows while a chord waits for its second key.
     pub fn line_only(line: &str) -> Self {
-        let front = unsafe { GetForegroundWindow() };
-        let monitor = unsafe { MonitorFromWindow(front, MONITOR_DEFAULTTOPRIMARY) };
         Self {
-            windows: line_on(monitor, line).into_iter().collect(),
+            windows: line_on(front_monitor(), line).into_iter().collect(),
         }
     }
 }
 
-/// One line of text in a panel at the bottom centre of `monitor`.
-fn line_on(monitor: HMONITOR, line: &str) -> Option<Layered> {
-    let tokens = theme::current_tokens();
+/// The monitor of the window in front, where a panel about it belongs.
+pub fn front_monitor() -> HMONITOR {
+    let front = unsafe { GetForegroundWindow() };
+    unsafe { MonitorFromWindow(front, MONITOR_DEFAULTTOPRIMARY) }
+}
+
+/// A monitor's work area (left, top, right, bottom) and its scale.
+pub fn work_area(monitor: HMONITOR) -> Option<([i32; 4], f32)> {
     let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
     info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
     if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
@@ -99,6 +102,22 @@ fn line_on(monitor: HMONITOR, line: &str) -> Option<Layered> {
         x: (work.left + work.right) / 2,
         y: (work.top + work.bottom) / 2,
     });
+    Some(([work.left, work.top, work.right, work.bottom], scale))
+}
+
+/// Where a panel `size` big goes: centred at the bottom of `work`, `lift`
+/// physical pixels above its edge.
+pub fn bottom_centre(work: [i32; 4], size: (i32, i32), lift: i32) -> POINT {
+    POINT {
+        x: (work[0] + work[2] - size.0) / 2,
+        y: work[3] - size.1 - lift,
+    }
+}
+
+/// One line of text in a panel at the bottom centre of `monitor`.
+fn line_on(monitor: HMONITOR, line: &str) -> Option<Layered> {
+    let tokens = theme::current_tokens();
+    let (work, scale) = work_area(monitor)?;
     let look = Look {
         text: LINE_TEXT,
         weight: 1,
@@ -110,10 +129,11 @@ fn line_on(monitor: HMONITOR, line: &str) -> Option<Layered> {
         colour: tokens.text_primary,
     };
     let image = render(line, &look, scale)?;
-    let at = POINT {
-        x: (work.left + work.right - image.width) / 2,
-        y: work.bottom - image.height - (LINE_LIFT * scale).round() as i32,
-    };
+    let at = bottom_centre(
+        work,
+        (image.width, image.height),
+        (LINE_LIFT * scale).round() as i32,
+    );
     present(&image, at)
 }
 
@@ -135,7 +155,8 @@ pub fn badge_place(button: [i32; 4], size: (i32, i32), gap: i32) -> POINT {
     }
 }
 
-fn present(image: &Image, at: POINT) -> Option<Layered> {
+/// A click-through panel showing `image` at `at`, on top of every window.
+pub fn present(image: &Image, at: POINT) -> Option<Layered> {
     let window = Layered::create(CLASS_NAME)
         .map_err(|reason| log::warn!("a taskbar number badge could not be made: {reason}"))
         .ok()?;
@@ -146,7 +167,8 @@ fn present(image: &Image, at: POINT) -> Option<Layered> {
     Some(window)
 }
 
-fn scale_at(point: POINT) -> f32 {
+/// The scale of the monitor at a point: 1.5 at 150 %.
+pub fn scale_at(point: POINT) -> f32 {
     let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
     let (mut dpi_x, mut dpi_y) = (96u32, 96u32);
     unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) };
@@ -216,6 +238,12 @@ fn render(text: &str, look: &Look, scale: f32) -> Option<Image> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_panel_sits_centred_above_the_bottom_of_the_work_area() {
+        let at = bottom_centre([0, 0, 1920, 1032], (400, 100), 24);
+        assert_eq!((at.x, at.y), (760, 908));
+    }
 
     #[test]
     fn a_badge_sits_centred_just_above_its_button() {

@@ -33,7 +33,7 @@ use crate::core::attention::Attention;
 use crate::core::config::{Config, PluginConfig, UpdateConfig, DEFAULT_PALETTE_HOTKEY};
 use crate::core::hotkeys::Shortcut;
 use crate::core::shortcuts::{self, FirstPress};
-use crate::core::traits::{HostContext, Hotkey, WinCraftPlugin};
+use crate::core::traits::{HostContext, Hotkey, PluginWindow, WinCraftPlugin};
 use crate::core::tray::{show_menu, MenuItem, Tray, WM_TRAY_CALLBACK};
 use crate::core::ui_bridge::{
     self, ActionKind, ArrangeAction, ArrangeGroup, ArrangeSnapshot, CommandId, FieldInfo,
@@ -411,6 +411,9 @@ thread_local! {
     static ARRANGE_ANCHOR: RefCell<Option<(String, [i32; 4])>> = const { RefCell::new(None) };
     static ARRANGE_CLOSE: Cell<bool> = const { Cell::new(false) };
     static SETTINGS_WANTED: RefCell<Vec<(String, String, Value)>> = const { RefCell::new(Vec::new()) };
+    /// Plugin windows to open or close: the plugin, the window (None for
+    /// all of them) and whether to open it.
+    static WINDOWS_WANTED: RefCell<Vec<(String, Option<String>, bool)>> = const { RefCell::new(Vec::new()) };
     static RETRY: RefCell<Vec<(u32, WPARAM, LPARAM)>> = const { RefCell::new(Vec::new()) };
     /// The message the WndProc is working on, so the log can name a message
     /// that found the host busy.
@@ -523,6 +526,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         Arc::clone(&bridge.to_host),
         host.snapshot(),
         host.search_router(),
+        host.plugin_windows(),
     );
 
     host.tray.add();
@@ -1076,6 +1080,21 @@ impl Host {
         let mut router = Router::new(providers, &self.config.search.prefixes);
         router.load_usage(config::data_dir().join("palette_usage.json"));
         router
+    }
+
+    /// Every plugin's own windows, for the UI thread, each with its plugin.
+    fn plugin_windows(&self) -> Vec<(String, Box<dyn PluginWindow>)> {
+        self.plugins
+            .slots
+            .iter()
+            .flat_map(|slot| {
+                let id = slot.plugin.metadata().id;
+                slot.plugin
+                    .windows()
+                    .into_iter()
+                    .map(move |window| (id.to_string(), window))
+            })
+            .collect()
     }
 
     /// Every change that can switch a plugin on or off, or change a
@@ -2106,6 +2125,13 @@ impl PluginSet {
             });
         }
 
+        let bound: Vec<(u32, String)> = self.slots[index]
+            .registered
+            .iter()
+            .map(|entry| (entry.action_id, entry.keys.clone()))
+            .collect();
+        self.slots[index].plugin.on_hotkeys_bound(&bound);
+
         self.slots[index].enabled = true;
         self.config_mut(meta.id).enabled = true;
         self.save(meta.id);
@@ -2135,6 +2161,9 @@ impl PluginSet {
         }
         self.slots[index].plugin.teardown();
         self.slots[index].enabled = false;
+        let id = self.slots[index].plugin.metadata().id.to_string();
+        WINDOWS_WANTED.with(|queue| queue.borrow_mut().push((id, None, false)));
+        plugin_changed();
         true
     }
 
@@ -2594,6 +2623,17 @@ pub fn close_arrange() {
     plugin_changed();
 }
 
+/// Opens one of the plugin's own windows (see `WinCraftPlugin::windows`),
+/// or brings it back if it is open. Safe to call from any callback.
+pub fn show_window(plugin: &str, window: &str) {
+    WINDOWS_WANTED.with(|queue| {
+        queue
+            .borrow_mut()
+            .push((plugin.to_string(), Some(window.to_string()), true))
+    });
+    plugin_changed();
+}
+
 /// Changes one of a plugin's own settings and saves it, as if the user had
 /// changed it on the plugin's page; the plugin hears of it through
 /// `on_settings_changed`. Safe to call from any callback.
@@ -2950,6 +2990,7 @@ struct PluginRequests {
     stale: bool,
     prompt: Option<Prompt>,
     settings: Vec<(String, String, Value)>,
+    windows: Vec<(String, Option<String>, bool)>,
 }
 
 impl PluginRequests {
@@ -2964,6 +3005,7 @@ impl PluginRequests {
             stale: ARRANGE_STALE.with(|cell| cell.replace(false)),
             prompt: PROMPT.with(|cell| cell.borrow_mut().take()),
             settings: SETTINGS_WANTED.with(|queue| std::mem::take(&mut *queue.borrow_mut())),
+            windows: WINDOWS_WANTED.with(|queue| std::mem::take(&mut *queue.borrow_mut())),
         }
     }
 }
@@ -3162,6 +3204,19 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
                 }
                 if requests.close {
                     host.to_ui.send(UiCommand::HideArrange);
+                }
+                for (plugin, window, open) in requests.windows {
+                    match window {
+                        Some(window) if open && !host.plugins.is_on(&plugin) => {
+                            log::info!("{plugin} is off, so its window {window} stays closed");
+                        }
+                        Some(window) => host.to_ui.send(UiCommand::PluginWindow {
+                            plugin,
+                            window,
+                            open,
+                        }),
+                        None => host.to_ui.send(UiCommand::ClosePluginWindows(plugin)),
+                    }
                 }
                 if requests.arrange_hotkey {
                     match LAST_HOTKEY.with(|cell| cell.borrow_mut().take()) {

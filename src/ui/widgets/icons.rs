@@ -30,6 +30,11 @@ pub enum Icon {
     Settings,
     Sparkles,
     Clock,
+    Pin,
+    Info,
+    Trash,
+    Loader,
+    Grip,
 }
 
 struct Path {
@@ -304,6 +309,62 @@ fn paths(icon: Icon) -> Vec<Path> {
             Path::arc(pos2(12.0, 12.0), 10.0, 0.0, 360.0),
             Path::start(12.0, 6.0).line(12.0, 12.0).line(16.0, 14.0),
         ],
+        // Lucide's pin: the head, the collar and the point.
+        Icon::Pin => vec![
+            Path::start(5.0, 17.0)
+                .line(19.0, 17.0)
+                .line(19.0, 15.24)
+                .corner(19.0, 14.0, 17.9, 13.45)
+                .line(16.1, 12.55)
+                .corner(15.0, 12.0, 15.0, 10.76)
+                .line(15.0, 6.0)
+                .line(16.0, 6.0)
+                .corner(18.0, 6.0, 18.0, 4.0)
+                .corner(18.0, 2.0, 16.0, 2.0)
+                .line(8.0, 2.0)
+                .corner(6.0, 2.0, 6.0, 4.0)
+                .corner(6.0, 6.0, 8.0, 6.0)
+                .line(9.0, 6.0)
+                .line(9.0, 10.76)
+                .corner(9.0, 12.0, 7.9, 12.55)
+                .line(6.1, 13.45)
+                .corner(5.0, 14.0, 5.0, 15.24)
+                .line(5.0, 17.0),
+            Path::start(12.0, 17.0).line(12.0, 22.0),
+        ],
+        Icon::Info => vec![
+            Path::arc(pos2(12.0, 12.0), 10.0, 0.0, 360.0),
+            Path::start(12.0, 16.0).line(12.0, 12.0),
+            Path::start(11.5, 8.0).line(12.5, 8.0),
+        ],
+        // Lucide's trash-2: the lid, the bin and its two lines.
+        Icon::Trash => vec![
+            Path::start(3.0, 6.0).line(21.0, 6.0),
+            Path::start(19.0, 6.0)
+                .line(19.0, 20.0)
+                .corner(19.0, 22.0, 17.0, 22.0)
+                .line(7.0, 22.0)
+                .corner(5.0, 22.0, 5.0, 20.0)
+                .line(5.0, 6.0),
+            Path::start(8.0, 6.0)
+                .line(8.0, 4.0)
+                .corner(8.0, 2.0, 10.0, 2.0)
+                .line(14.0, 2.0)
+                .corner(16.0, 2.0, 16.0, 4.0)
+                .line(16.0, 6.0),
+            Path::start(10.0, 11.0).line(10.0, 17.0),
+            Path::start(14.0, 11.0).line(14.0, 17.0),
+        ],
+        // Lucide's loader-circle: most of a ring.
+        Icon::Loader => vec![Path::arc(pos2(12.0, 12.0), 9.0, 0.0, 288.0)],
+        Icon::Grip => [9.0, 15.0]
+            .into_iter()
+            .flat_map(|x| {
+                [5.0, 12.0, 19.0]
+                    .into_iter()
+                    .map(move |y| Path::start(x - 0.5, y).line(x + 0.5, y))
+            })
+            .collect(),
         Icon::Close => vec![
             Path::start(18.0, 6.0).line(6.0, 18.0),
             Path::start(6.0, 6.0).line(18.0, 18.0),
@@ -315,6 +376,21 @@ fn paths(icon: Icon) -> Vec<Path> {
             Path::start(2.0, 12.0).line(22.0, 12.0),
         ],
     }
+}
+
+/// The icon's lines as points in a square of `side` pixels, for drawing
+/// it somewhere egui does not paint, such as an on-screen panel.
+pub fn outline(icon: Icon, side: f32) -> Vec<Vec<(f32, f32)>> {
+    let scale = side / 24.0;
+    paths(icon)
+        .into_iter()
+        .map(|path| {
+            path.points
+                .into_iter()
+                .map(|point| (point.x * scale, point.y * scale))
+                .collect()
+        })
+        .collect()
 }
 
 /// Lucide's stroke is 2 units wide on its 24-unit grid; it scales with the

@@ -418,6 +418,14 @@ pub enum UiCommand {
     HideArrange,
     /// The Layout page's data; None when no plugin keeps a layout.
     LayoutUpdate(Option<LayoutSnapshot>),
+    /// Opens or closes one of a plugin's own windows.
+    PluginWindow {
+        plugin: String,
+        window: String,
+        open: bool,
+    },
+    /// Closes every window of a plugin that was switched off.
+    ClosePluginWindows(String),
     HideAll,
     Snapshot(Box<UiSnapshot>),
     ThemeChanged,

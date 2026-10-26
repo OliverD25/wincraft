@@ -95,7 +95,9 @@ impl IconCache {
     }
 }
 
-fn load(icon: &IconRef) -> Option<Pixels> {
+/// The picture for a row's icon, read now on the calling thread, which
+/// must have COM running.
+pub fn load(icon: &IconRef) -> Option<Pixels> {
     match icon {
         IconRef::Path(path) => shell_icon(path),
         IconRef::Window { hwnd, exe } => window_icon(*hwnd as HWND).or_else(|| shell_icon(exe)),

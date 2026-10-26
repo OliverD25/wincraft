@@ -1,6 +1,7 @@
 pub mod appid;
 pub mod attention;
 pub mod autostart;
+pub mod canvas;
 pub mod chord;
 pub mod clipboard;
 pub mod clock;

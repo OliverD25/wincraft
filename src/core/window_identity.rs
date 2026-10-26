@@ -38,6 +38,52 @@ pub fn page_title(title: &str) -> Option<&str> {
         .find_map(|suffix| title.strip_suffix(suffix))
 }
 
+/// The title without a browser's product name, or the whole title.
+pub fn bare_title(title: &str) -> &str {
+    page_title(title).unwrap_or(title).trim()
+}
+
+/// Whether `title` holds `part`, in any case. An empty part is in every
+/// title.
+pub fn title_contains(title: &str, part: &str) -> bool {
+    title.to_lowercase().contains(&title_key(part))
+}
+
+/// The program's file name in lower case, the part of its path that stays
+/// the same when an app updates itself into a new folder.
+pub fn exe_key(path: &str) -> String {
+    path.rsplit(['\\', '/'])
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase()
+}
+
+/// The browsers keep their product name in front of each web app's name:
+/// "Chrome · Gemini".
+pub fn browser_name(exe: &str) -> Option<&'static str> {
+    match exe {
+        "chrome.exe" => Some("Chrome"),
+        "msedge.exe" => Some("Edge"),
+        "firefox.exe" => Some("Firefox"),
+        "brave.exe" => Some("Brave"),
+        _ => None,
+    }
+}
+
+/// A name for a program known only by its file: "telegram.exe" -> "Telegram".
+pub fn program_name(exe: &str) -> String {
+    if let Some(browser) = browser_name(exe) {
+        return browser.to_string();
+    }
+    let stem = exe.strip_suffix(".exe").unwrap_or(exe);
+    let mut chars = stem.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => exe.to_string(),
+    }
+}
+
 pub fn name_from_title(title: &str) -> Option<String> {
     if title.is_empty()
         || PRODUCT_SUFFIXES
@@ -166,6 +212,31 @@ mod tests {
 
     fn chrome(title: &str, rect: Rect, maximized: bool) -> WindowIdentity {
         WindowIdentity::new("chrome.exe", title, rect, maximized)
+    }
+
+    #[test]
+    fn a_bare_title_drops_the_browser_name_only() {
+        assert_eq!(bare_title("Inbox - Gmail - Google Chrome"), "Inbox - Gmail");
+        assert_eq!(bare_title(" Thesis "), "Thesis");
+        assert_eq!(page_title("Thesis"), None);
+    }
+
+    #[test]
+    fn a_title_holds_a_part_in_any_case() {
+        assert!(title_contains("Inbox - Gmail - Google Chrome", "gmail"));
+        assert!(title_contains("Anything", ""));
+        assert!(title_contains("Anything", "  THING "));
+        assert!(!title_contains("Inbox", "Outlook"));
+    }
+
+    #[test]
+    fn a_program_is_known_by_its_file_name() {
+        assert_eq!(
+            exe_key(r"C:\Users\a\AppData\Local\AnthropicClaude\app-1.2\Claude.exe"),
+            "claude.exe"
+        );
+        assert_eq!(exe_key("chrome.exe"), "chrome.exe");
+        assert_eq!(exe_key(""), "");
     }
 
     #[test]

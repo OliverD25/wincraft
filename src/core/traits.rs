@@ -1,5 +1,6 @@
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 
+use crate::core::ui_bridge::HostChannel;
 use crate::core::ui_bridge::{
     ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeMonitor, ArrangeView,
     LayoutAction, LayoutSnapshot,
@@ -130,6 +131,37 @@ pub struct WindowGroups {
     pub view: ArrangeView,
 }
 
+/// A window a plugin draws itself with egui, such as a list it keeps. It
+/// lives on the UI thread, like a search provider: share data with the
+/// plugin through an `Arc<Mutex<…>>`, and wake the plugin with a message to
+/// a window of its own.
+pub trait PluginWindow: Send {
+    /// Unique within the plugin; `host::show_window` names it.
+    fn id(&self) -> &'static str;
+
+    /// The plugin asked for the window with `host::show_window`.
+    fn open(&mut self);
+
+    /// The plugin asked for the window to go, or was switched off.
+    fn close(&mut self);
+
+    fn is_open(&self) -> bool;
+
+    /// Draws the window's own viewport, every frame while it is open.
+    fn show(&mut self, ctx: &egui::Context, frame: &WindowFrame);
+}
+
+/// What the UI thread gives a plugin's window to draw with.
+pub struct WindowFrame {
+    pub icon: Option<std::sync::Arc<egui::IconData>>,
+    /// The palette's window, which the search for a viewport's own window
+    /// skips (see `ui::settings::find_window`).
+    pub palette_hwnd: isize,
+    /// For the requests only the host thread can do, such as bringing the
+    /// window to the front right after a hotkey.
+    pub to_host: std::sync::Arc<HostChannel>,
+}
+
 pub struct HostContext<'a> {
     pub hwnd: HWND,
     pub settings: &'a serde_json::Value,
@@ -157,6 +189,14 @@ pub trait WinCraftPlugin {
 
     fn on_hotkey(&mut self, action_id: u32) {
         let _ = action_id;
+    }
+
+    /// The keys each hotkey action has, as the user set them ("Win+Alt+Q",
+    /// "Win+Alt+K, J", or empty for none), right after `init`. A plugin
+    /// that names its keys on screen keeps them; a change starts the plugin
+    /// again, so this comes again too.
+    fn on_hotkeys_bound(&mut self, keys: &[(u32, String)]) {
+        let _ = keys;
     }
 
     fn on_windows_message(&mut self, msg: u32, wparam: WPARAM, lparam: LPARAM) {
@@ -214,6 +254,13 @@ pub trait WinCraftPlugin {
     /// provider for rows only while its plugin is on. The provider is moved
     /// to the UI thread and queried there on every keystroke.
     fn search_providers(&self) -> Vec<Box<dyn SearchProvider>> {
+        Vec::new()
+    }
+
+    /// Windows the plugin draws itself, asked once at startup whether the
+    /// plugin is on or not, and moved to the UI thread. `host::show_window`
+    /// opens one; the host closes them all when the plugin is switched off.
+    fn windows(&self) -> Vec<Box<dyn PluginWindow>> {
         Vec::new()
     }
 

@@ -40,7 +40,7 @@ use crate::core::{
 };
 use crate::search::providers::apps;
 use desktops::{Desktop, DesktopId};
-use identity::Rect;
+use identity::{browser_name, program_name, Rect};
 use order::{Handle, OrderModel};
 use restore::Restore;
 use state::{ProgramState, Programs, SavedMonitor, SavedWindow};
@@ -2574,31 +2574,6 @@ fn migrate_hover_delay(settings: &mut serde_json::Value) -> bool {
     settings[HOVER_DELAY_KEY] =
         serde_json::Value::from(hover_preview::DEFAULT_DELAY_MS as f64 / 1000.0);
     true
-}
-
-/// The browsers keep their product name in front of each web app's name:
-/// "Chrome · Gemini".
-fn browser_name(exe: &str) -> Option<&'static str> {
-    match exe {
-        "chrome.exe" => Some("Chrome"),
-        "msedge.exe" => Some("Edge"),
-        "firefox.exe" => Some("Firefox"),
-        "brave.exe" => Some("Brave"),
-        _ => None,
-    }
-}
-
-/// A name for a program known only by its file: "telegram.exe" -> "Telegram".
-fn program_name(exe: &str) -> String {
-    if let Some(browser) = browser_name(exe) {
-        return browser.to_string();
-    }
-    let stem = exe.strip_suffix(".exe").unwrap_or(exe);
-    let mut chars = stem.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().chain(chars).collect(),
-        None => exe.to_string(),
-    }
 }
 
 /// What the strip calls any other app's group: the name the app gives its

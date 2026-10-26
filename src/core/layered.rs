@@ -55,6 +55,16 @@ impl Layered {
         Self::build(class_name, click_proc, 0, true)
     }
 
+    /// Like `create`, but the panel takes the mouse and `proc` hears of
+    /// it; `proc` should answer WM_MOUSEACTIVATE with MA_NOACTIVATE so the
+    /// panel never takes the keyboard.
+    pub fn create_with(
+        class_name: &str,
+        proc: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT,
+    ) -> Result<Self, String> {
+        Self::build(class_name, proc, 0, true)
+    }
+
     fn build(
         class_name: &str,
         proc: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT,

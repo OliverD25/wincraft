@@ -45,6 +45,15 @@
       "description": "Give any window a name of your own. The taskbar, Alt+Tab and the title bar show it, and it comes back after a restart.",
       "readme": "src/plugins/window_namer/README.md",
       "category": "Windows"
+    },
+    {
+      "id": "quick_jump",
+      "name": "QuickJump",
+      "version": "1.0.0",
+      "author": "community",
+      "description": "Pin windows to the digits and jump back to one from anywhere.",
+      "readme": "src/plugins/quick_jump/README.md",
+      "category": "Windows"
     }
   ]
 }
