@@ -38,6 +38,7 @@ rule, and send the user a prompt so the design page is fixed too.
 | Compact view | Exactly 1 window on this desktop | 1 or 2 windows on this desktop. | 2026-10-26 |
 | Themes picker | "Theme" dropdown in General | Tiles with a live hover preview, on their own Settings page "Themes". | 2026-10-26 |
 | Palette Ask AI | Answer inside the palette from an AI provider | Opens the chosen AI website in the browser (Principle 5). No currency conversion. | 2026-10-26 |
+| Hotkeys page | Page "Keyboard shortcuts"; hotkey status list on About | The page is called "Hotkeys" and says "hotkey" throughout; each row shows its live status (working / taken / plugin off) with a summary line; About has no hotkey list. | 2026-10-26 |
 | Artboard desks | Windows drawn on a coloured desk with padding | The desk is background only: no outer frame, margin or extra glass around any window. | 2026-10-26 |
 
 ## Handouts so far
