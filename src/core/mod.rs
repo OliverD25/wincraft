@@ -16,6 +16,7 @@ pub mod instance;
 pub mod layered;
 pub mod log_tail;
 pub mod logging;
+pub mod mask_key;
 pub mod monitors;
 pub mod package;
 pub mod quit;

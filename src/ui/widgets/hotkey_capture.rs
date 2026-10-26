@@ -7,8 +7,9 @@
 //! - The mask key. When the hook hides a key while Alt or Win is held,
 //!   Windows still sees the modifier go down and up with nothing in between.
 //!   A lone Win tap opens the Start menu, and a lone Alt tap opens the menu of
-//!   the window in front. So the hook sends an unassigned key (`MASK_VK`) in
-//!   place of the hidden one, the same trick AutoHotkey and PowerToys use.
+//!   the window in front. So the hook sends an unassigned key
+//!   (`core::mask_key`) in place of the hidden one, the same trick AutoHotkey
+//!   and PowerToys use.
 //! - Hiding the release of a hidden key. Windows must never see half a key.
 //! - The window guard. winit hands every `WM_SYSKEYDOWN` to `DefWindowProc`,
 //!   which opens the system menu on Alt+Space and closes the window on
@@ -23,9 +24,9 @@ use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, MOD_ALT,
-    MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN, VIRTUAL_KEY, VK_CONTROL, VK_ESCAPE, VK_LMENU,
-    VK_LSHIFT, VK_LWIN, VK_MENU, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
+    GetKeyState, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN, VIRTUAL_KEY, VK_CONTROL,
+    VK_ESCAPE, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN,
+    VK_SHIFT,
 };
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -34,12 +35,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WM_KEYDOWN, WM_NCDESTROY, WM_SYSCHAR, WM_SYSCOMMAND, WM_SYSDEADCHAR, WM_SYSKEYDOWN,
 };
 
+use crate::core::mask_key::{self, VK as MASK_VK};
 use crate::core::traits::Hotkey;
-
-/// Unassigned by Windows, so no keyboard sends it and no app binds it.
-/// AutoHotkey masks with the same key, which is why it always passes: a mask
-/// another tool sends must not be recorded as the hotkey either.
-const MASK_VK: u32 = 0xE8;
 
 const GUARD_ID: usize = 0x5743_4B47;
 
@@ -261,32 +258,6 @@ fn held_for_message() -> u32 {
     modifiers
 }
 
-fn send_mask() {
-    let key = |up: bool| INPUT {
-        r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 {
-            ki: KEYBDINPUT {
-                wVk: MASK_VK as VIRTUAL_KEY,
-                wScan: 0,
-                dwFlags: if up { KEYEVENTF_KEYUP } else { 0 },
-                time: 0,
-                dwExtraInfo: 0,
-            },
-        },
-    };
-    let inputs = [key(false), key(true)];
-    let sent = unsafe {
-        SendInput(
-            inputs.len() as u32,
-            inputs.as_ptr(),
-            std::mem::size_of::<INPUT>() as i32,
-        )
-    };
-    if sent as usize != inputs.len() {
-        log::warn!("capture box: the mask key could not be sent");
-    }
-}
-
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code < 0 {
         return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
@@ -319,7 +290,7 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
 
     // Sent after the borrow ends: the mask comes back through this hook.
     if mask {
-        send_mask();
+        mask_key::send("capture box");
     }
     if hide {
         return 1;
