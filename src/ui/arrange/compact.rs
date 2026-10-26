@@ -1,6 +1,6 @@
 //! The compact Arrange strip: a small popup for an app with one or two
 //! windows on this desktop, where the full strip would be mostly empty. It
-//! shows those windows in their monitor's shape, and → or the button under
+//! shows those windows in their monitor's shape, and → or the button above
 //! them opens the app's windows on the other desktops to the right; Enter on
 //! one of those switches to its desktop.
 
@@ -57,7 +57,7 @@ pub fn applies(group: &ArrangeGroup, desktops: &[ArrangeDesktop], visible: &[boo
     (1..=MAX_WINDOWS).contains(&here)
 }
 
-/// The words on the button under the cards: how many windows wait on the
+/// The words on the button over the cards: how many windows wait on the
 /// other desktops, given as (desktop name, windows) for each of them. None
 /// when there are none.
 pub fn more_label(others: &[(String, usize)]) -> Option<String> {
@@ -103,7 +103,7 @@ pub fn keep_left(left: i32, width: i32, work: [i32; 4]) -> i32 {
     left.min(work[2] - width).max(work[0])
 }
 
-/// The key hints under the button. `switch_to` names the desktop of the
+/// The key hints under the button, over the cards. `switch_to` names the desktop of the
 /// picked window when it is on another one.
 pub fn hints(expanded: bool, more: bool, switch_to: Option<&str>) -> Vec<(String, String)> {
     let enter = match switch_to {
@@ -224,6 +224,24 @@ impl Layout {
         !self.others.is_empty()
     }
 
+    /// Where the "+N on Desktop X" button starts, from the popup's content top.
+    fn button_top(&self) -> f32 {
+        HEADER + GAP
+    }
+
+    /// Where the key hints start, from the content top.
+    fn hints_top(&self) -> f32 {
+        let button = if self.more() { BUTTON + GAP } else { 0.0 };
+        self.button_top() + button
+    }
+
+    /// Where the cards start, from the content top: under the hints, and
+    /// under the desktop labels once expanded.
+    fn cards_top(&self, expanded: bool) -> f32 {
+        let labels = if expanded { LABEL } else { 0.0 };
+        self.hints_top() + HINTS + GAP + labels
+    }
+
     /// The windows on screen, in the order ← and → walk them.
     fn order(&self, expanded: bool) -> Vec<usize> {
         let mut order = self.here.clone();
@@ -240,12 +258,8 @@ impl Layout {
     fn size(&self, expanded: bool) -> Vec2 {
         let cards = |count: usize| count as f32 * CARD_WIDTH + count.saturating_sub(1) as f32 * GAP;
         let mut width = cards(self.here.len());
-        let mut height = PAD + HEADER + GAP + self.card_height() + GAP + HINTS + PAD;
-        if self.more() {
-            height += BUTTON + GAP;
-        }
+        let height = PAD + self.cards_top(expanded) + self.card_height() + PAD;
         if expanded {
-            height += LABEL;
             for (_, members) in &self.others {
                 width += GAP + GROUP_LEAD + cards(members.len());
             }
@@ -311,19 +325,54 @@ pub fn body(
     let picker_id = ui.id().with("compact-group-picker");
     let chosen = group_picker(ui, header, snapshot, group, picker_id);
 
-    let mut top = header.bottom() + GAP;
-    if open {
-        top += LABEL;
+    let selected = shared.cursor.and_then(member_of);
+    let popup = Popup { group, snapshot };
+    // Header, the button and the key hints come first, so a title's tooltip
+    // opens downwards over the pictures and not over the button.
+    if let Some(text) = more_label(
+        &layout
+            .others
+            .iter()
+            .map(|(name, members)| (name.clone(), members.len()))
+            .collect::<Vec<_>>(),
+    ) {
+        let width = layout.size(false).x - 2.0 * PAD;
+        let rect = Rect::from_min_size(
+            pos2(content.left(), content.top() + layout.button_top()),
+            vec2(width, BUTTON),
+        );
+        let words = if open {
+            "Back to this desktop".to_string()
+        } else {
+            text
+        };
+        if more_button(ui, rect, &words, open).clicked() {
+            toggle(shared, group, &layout, open);
+        }
     }
+    let switch_to = selected
+        .filter(|member| !layout.here.contains(member))
+        .and_then(|member| {
+            layout
+                .others
+                .iter()
+                .find(|(_, members)| members.contains(&member))
+                .map(|(name, _)| name.as_str())
+        });
+    hint_line(
+        ui,
+        pos2(content.left(), content.top() + layout.hints_top()),
+        &hints(open, layout.more(), switch_to),
+    );
+    let top = content.top() + layout.cards_top(open);
+
     let numbers = taskbar_numbers(group, &snapshot.desktops);
     let card_height = layout.card_height();
     let mut x = content.left();
     let mut cards_area = Rect::NOTHING;
-    let selected = shared.cursor.and_then(member_of);
     if open {
         label(ui, pos2(x, top - LABEL), "This desktop", tokens.accent);
     }
-    let popup = Popup { group, snapshot };
     let mut draw_cards = |ui: &mut Ui,
                           shared: &mut Shared,
                           frame: &mut Frame,
@@ -380,41 +429,6 @@ pub fn body(
         }
     }
     frame.area = cards_area;
-
-    let mut y = top + card_height + GAP;
-    if let Some(text) = more_label(
-        &layout
-            .others
-            .iter()
-            .map(|(name, members)| (name.clone(), members.len()))
-            .collect::<Vec<_>>(),
-    ) {
-        let width = layout.size(false).x - 2.0 * PAD;
-        let rect = Rect::from_min_size(pos2(content.left(), y), vec2(width, BUTTON));
-        let words = if open {
-            "Back to this desktop".to_string()
-        } else {
-            text
-        };
-        if more_button(ui, rect, &words, open).clicked() {
-            toggle(shared, group, &layout, open);
-        }
-        y += BUTTON + GAP;
-    }
-    let switch_to = selected
-        .filter(|member| !layout.here.contains(member))
-        .and_then(|member| {
-            layout
-                .others
-                .iter()
-                .find(|(_, members)| members.contains(&member))
-                .map(|(name, _)| name.as_str())
-        });
-    hint_line(
-        ui,
-        pos2(content.left(), y),
-        &hints(open, layout.more(), switch_to),
-    );
 
     if !menu_open {
         keys(&ctx, shared, popup, &layout, &order, picker_id, &mut frame);
@@ -545,8 +559,11 @@ fn card(
     } else if response.hovered() {
         painter.rect_filled(rect, tokens.radius_tile, tokens.hover_bg);
     }
+    // The title row is first and the picture last, so the pictures of all
+    // cards sit on one line at the bottom of the popup.
+    let (title_top, thumb_top) = card_rows(rect.top());
     let thumb = Rect::from_min_size(
-        rect.min + Vec2::splat(CARD_PAD),
+        pos2(rect.left() + CARD_PAD, thumb_top),
         vec2(rect.width() - 2.0 * CARD_PAD, look.thumb),
     );
     painter.rect(
@@ -574,10 +591,9 @@ fn card(
         faded.multiply_opacity(opacity);
         name_card(&faded, picture, &window.label, "");
     }
-    let footer_top = thumb.bottom() + CARD_PAD;
     let chip = number_chip(
         painter,
-        pos2(rect.left() + CARD_PAD, footer_top),
+        pos2(rect.left() + CARD_PAD, title_top),
         KEYCAP,
         look.number,
     );
@@ -597,16 +613,35 @@ fn card(
     let galley = painter.layout_job(job);
     let elided = galley.elided;
     painter.galley(
-        pos2(left, footer_top + (KEYCAP - galley.size().y) / 2.0),
+        pos2(left, title_top + (KEYCAP - galley.size().y) / 2.0),
         galley,
         colour,
     );
-    let response = if elided {
-        response.on_hover_text(&window.label)
-    } else {
-        response
-    };
+    if elided {
+        title_tooltip(&response, title_top, &window.label);
+    }
     interact(shared, frame, group, snapshot, member, &response);
+}
+
+/// Where a card whose top is `top` starts its title row and its picture.
+fn card_rows(top: f32) -> (f32, f32) {
+    let title = top + CARD_PAD;
+    (title, title + KEYCAP + CARD_PAD)
+}
+
+/// The full title as a tooltip under the title row. Anchored to the row and
+/// not to the whole card: the card ends at the bottom of the popup, so a
+/// tooltip under it would not fit and would open upwards over the button.
+fn title_tooltip(card: &Response, title_top: f32, title: &str) {
+    let mut row = card.clone();
+    row.rect = Rect::from_min_size(
+        pos2(card.rect.left(), title_top),
+        vec2(card.rect.width(), KEYCAP),
+    );
+    egui::Tooltip::for_enabled(&row).show(|ui| {
+        ui.set_max_width(ui.spacing().tooltip_width);
+        ui.add(egui::Label::new(title));
+    });
 }
 
 /// Clicks, the menu and the hover peek of one card, as in the full strip:
@@ -943,6 +978,47 @@ mod tests {
             words(hints(true, true, Some("Desktop 5"))),
             ["Switch to Desktop 5", "Back", "Close"]
         );
+    }
+
+    #[test]
+    fn the_button_and_hints_sit_above_the_cards_and_each_picture_under_its_title() {
+        let desktops = desktops();
+        let group = group(&["d0", "d2"]);
+        let snapshot = ArrangeSnapshot {
+            plugin: "layout_keeper".to_string(),
+            groups: vec![group.clone()],
+            desktops,
+            focus: 0,
+            watched: Vec::new(),
+            preview: true,
+            can_rename: false,
+            monitors: Vec::new(),
+            view: crate::core::ui_bridge::ArrangeView::ByMonitor,
+            anchor: None,
+        };
+        let layout = Layout::new(&group, &snapshot, &[true; 2]);
+        assert!(layout.more());
+        for expanded in [false, true] {
+            let cards = layout.cards_top(expanded);
+            assert!(layout.button_top() >= HEADER);
+            assert!(layout.hints_top() >= layout.button_top() + BUTTON);
+            assert!(cards >= layout.hints_top() + HINTS);
+            let (title, thumb) = card_rows(cards);
+            assert!(
+                thumb >= title + KEYCAP,
+                "the picture is under the title row"
+            );
+            // The picture is the last thing in the card, so the pictures of
+            // all cards end on one line at the bottom of the popup.
+            assert_eq!(
+                thumb + layout.thumb + CARD_PAD,
+                cards + layout.card_height()
+            );
+            assert_eq!(
+                layout.size(expanded).y,
+                PAD + cards + layout.card_height() + PAD
+            );
+        }
     }
 
     #[test]
