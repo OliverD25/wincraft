@@ -1,7 +1,6 @@
 mod explorer;
 mod guard;
 pub mod hover_preview;
-mod identity;
 mod monitors;
 // The look of the panel is shared with the host's update notice.
 pub(crate) mod notice;
@@ -35,6 +34,7 @@ use crate::core::ui_bridge::{
     LayoutAction, LayoutApp, LayoutEntry, LayoutRef, LayoutSnapshot,
 };
 use crate::core::virtual_desktops as desktops;
+use crate::core::window_identity as identity;
 use crate::core::{
     appid, clock, host, instance, session, taskbar, taskbar_scope, wide, window_names,
 };
@@ -44,9 +44,6 @@ use identity::Rect;
 use order::{Handle, OrderModel};
 use restore::Restore;
 use state::{ProgramState, Programs, SavedMonitor, SavedWindow};
-
-/// WindowNamer tells a browser's page title from its product name the same way.
-pub use identity::PRODUCT_SUFFIXES;
 
 /// The host window is shared, so the timer id spells "LK" to stay clear of
 /// any other plugin's.

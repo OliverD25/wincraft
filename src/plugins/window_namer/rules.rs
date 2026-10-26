@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::core::config;
-use crate::plugins::layout_keeper::PRODUCT_SUFFIXES;
+use crate::core::window_identity::page_title;
 
 pub type Rect = [i32; 4];
 
@@ -126,15 +126,6 @@ impl TitleStyle {
             TitleStyle::NameOnly => title,
         }
     }
-}
-
-/// A browser window's page title, without the product name the browser
-/// adds; None for any other title, a window the user named in Chrome among
-/// them.
-pub fn page_title(title: &str) -> Option<&str> {
-    PRODUCT_SUFFIXES
-        .iter()
-        .find_map(|suffix| title.strip_suffix(suffix))
 }
 
 /// A top-level window that a saved name might belong to.

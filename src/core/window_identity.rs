@@ -1,3 +1,8 @@
+//! Telling windows apart by their program and title, for anything that
+//! has to find a window again after it was closed and opened, or after a
+//! restart: LayoutKeeper's saved layout, WindowNamer's names and
+//! QuickJump's pins.
+
 /// Left, top, right, bottom in screen pixels, as `GetWindowRect` reports it.
 pub type Rect = [i32; 4];
 
@@ -23,6 +28,15 @@ pub const PRODUCT_SUFFIXES: &[&str] = &[
     " - Mozilla Firefox",
     " - Brave",
 ];
+
+/// A browser window's page title, without the product name the browser
+/// adds; None for any other title, a window the user named in Chrome among
+/// them.
+pub fn page_title(title: &str) -> Option<&str> {
+    PRODUCT_SUFFIXES
+        .iter()
+        .find_map(|suffix| title.strip_suffix(suffix))
+}
 
 pub fn name_from_title(title: &str) -> Option<String> {
     if title.is_empty()
