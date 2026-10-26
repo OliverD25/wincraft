@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant};
 
 use egui::{
-    pos2, vec2, CursorIcon, EventFilter, Id, Key, Modifiers, Painter, Rect, Response, Sense,
-    StrokeKind, Ui,
+    pos2, vec2, Color32, CursorIcon, EventFilter, Id, Key, Modifiers, Painter, Rect, Response,
+    Sense, StrokeKind, Ui,
 };
 
 use crate::core::config::ThemeName;
@@ -251,12 +251,22 @@ fn tile(
         rect.min + vec2(PAD, PAD),
         vec2(rect.width() - 2.0 * PAD, PICTURE_HEIGHT),
     );
-    mini_settings(
-        &painter,
-        picture,
-        &Tokens::of(name, tokens.dark),
-        ui.ctx().pixels_per_point(),
-    );
+    let look = Tokens::of(name, tokens.dark);
+    if look.glass_alpha < 1.0 {
+        // A glass theme shows a colourful desktop through its window, so the
+        // tile reads as glass at a glance.
+        glass_desktop(&painter, picture, &look);
+        let mut glass = look;
+        glass.window_bg = look.window_bg.gamma_multiply(look.glass_alpha);
+        mini_settings(
+            &painter,
+            picture.shrink2(vec2(10.0, 8.0)),
+            &glass,
+            ui.ctx().pixels_per_point(),
+        );
+    } else {
+        mini_settings(&painter, picture, &look, ui.ctx().pixels_per_point());
+    }
 
     let name_top = picture.bottom() + 10.0;
     let label = painter.layout_no_wrap(
@@ -315,6 +325,44 @@ fn current_badge(ui: &Ui, painter: &Painter, right: f32, centre_y: f32) {
         StrokeKind::Inside,
     );
     painter.galley(chip.center() - galley.size() / 2.0, galley, tokens.accent);
+}
+
+/// A blurred desktop behind a glass tile's window: soft warm, blue and plum
+/// spots on a dark or light ground, like the design's desk.
+fn glass_desktop(painter: &Painter, rect: Rect, tokens: &Tokens) {
+    let ground = if tokens.dark {
+        Color32::from_rgb(0x12, 0x15, 0x1c)
+    } else {
+        Color32::from_rgb(0xe9, 0xed, 0xf3)
+    };
+    painter.rect_filled(rect, tokens.radius_window.div_ceil(2), ground);
+    let painter = painter.with_clip_rect(rect.intersect(painter.clip_rect()));
+    let spots = if tokens.dark {
+        [
+            (0.18, 0.30, Color32::from_rgb(0xb8, 0x69, 0x2a)),
+            (0.82, 0.72, Color32::from_rgb(0x2b, 0x4f, 0x94)),
+            (0.60, 0.10, Color32::from_rgb(0x6b, 0x3a, 0x5e)),
+        ]
+    } else {
+        [
+            (0.22, 0.30, Color32::from_rgb(0xf4, 0xc4, 0x8a)),
+            (0.80, 0.75, Color32::from_rgb(0x9c, 0xc0, 0xee)),
+            (0.60, 0.08, Color32::from_rgb(0xe4, 0xb6, 0xd0)),
+        ]
+    };
+    let reach = rect.width().max(rect.height()) * 0.45;
+    for (x, y, colour) in spots {
+        let centre = pos2(
+            rect.left() + rect.width() * x,
+            rect.top() + rect.height() * y,
+        );
+        // Many faint discs, largest first, make a soft round glow.
+        const RINGS: usize = 12;
+        for ring in 0..RINGS {
+            let share = 1.0 - ring as f32 / RINGS as f32;
+            painter.circle_filled(centre, reach * share, colour.gamma_multiply(0.12));
+        }
+    }
 }
 
 /// A Settings window in miniature, drawn only with `tokens`: the window, a
