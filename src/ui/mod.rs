@@ -292,6 +292,12 @@ impl App {
                     ctx.request_repaint();
                     log::info!("settings shown on the {id} page");
                 }
+                UiCommand::ShowHotkeyDialog { id, keys } => {
+                    self.settings.open_hotkey_scene(&id, keys);
+                    self.settings_open = true;
+                    ctx.request_repaint();
+                    log::info!("settings shown with the hotkey dialog on {id}");
+                }
                 UiCommand::TypeInPalette(text) => {
                     self.palette.type_in(&text);
                     ctx.request_repaint();

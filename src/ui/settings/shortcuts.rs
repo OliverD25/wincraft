@@ -1,7 +1,7 @@
 //! Settings → Hotkeys: every command the palette lists, grouped by plugin,
-//! with its keys and whether they work. A click, Enter or F2 records new keys; the
-//! checks in `core::shortcuts` run as soon as keys are pressed, and nothing
-//! is saved until Enter, Save, Replace or Save anyway.
+//! with its keys and whether they work. A click, Enter or F2 opens the
+//! hotkey dialog on the row (`ui::widgets::hotkey_dialog`), which checks the
+//! keys as they are pressed and saves them on Enter.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -11,20 +11,18 @@ use egui::{
     pos2, vec2, Align, Align2, Color32, CursorIcon, EventFilter, Id, Key, Layout, Modifiers, Rect,
     Response, Sense, StrokeKind, Ui,
 };
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::MOD_NOREPEAT;
 
 use crate::core::hotkeys::{self, Shortcut};
-use crate::core::shortcuts::{self, Check, Filter, CHORD_WAIT, HOST_GROUP};
+use crate::core::shortcuts::{self, Filter, CHORD_WAIT, HOST_GROUP};
 use crate::core::theme::{self, Tokens};
 use crate::core::traits::Hotkey;
 use crate::core::ui_bridge::{HostChannel, HostRequest, ShortcutChange, ShortcutInfo, UiSnapshot};
-use crate::plugins::shortcut_detector::probe::{self, Status};
 use crate::ui::settings::catalog;
 use crate::ui::settings::hotkey_status::{self, HotkeyState};
 use crate::ui::widgets::button::{self, Kind};
 use crate::ui::widgets::icons::{self, Icon};
 use crate::ui::widgets::keycap::{self, Caps};
-use crate::ui::widgets::{chips, focus, hotkey_capture, search_box, text};
+use crate::ui::widgets::{chips, focus, hotkey_capture, hotkey_dialog, search_box, text};
 
 const GROUP_HEIGHT: f32 = 44.0;
 const ROW_HEIGHT: f32 = 56.0;
@@ -32,92 +30,12 @@ const ROW_HEIGHT: f32 = 56.0;
 const INDENT: f32 = 60.0;
 const ACTIONS: f32 = 88.0;
 const GAP: f32 = 16.0;
-const FIELD_HEIGHT: f32 = 40.0;
-const MESSAGE_WIDTH: f32 = 464.0;
 
 /// One place in the list the keyboard can be on.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Spot {
     Group(String),
     Row(String),
-}
-
-/// Keys being recorded for one command.
-#[derive(Clone, Debug)]
-struct Recording {
-    id: String,
-    first: Option<Hotkey>,
-    second: Option<Hotkey>,
-    first_at: Option<Instant>,
-    check: Check,
-}
-
-impl Recording {
-    fn new(id: &str) -> Self {
-        Self {
-            id: id.to_string(),
-            first: None,
-            second: None,
-            first_at: None,
-            check: Check::Fine,
-        }
-    }
-
-    fn keys(&self) -> Option<Shortcut> {
-        self.first.map(|first| Shortcut {
-            first,
-            second: self.second,
-        })
-    }
-
-    /// Whether a second press could still make a chord.
-    fn chord_open(&self, now: Instant) -> bool {
-        self.second.is_none()
-            && self
-                .first_at
-                .is_some_and(|at| now.duration_since(at) < CHORD_WAIT)
-    }
-
-    /// A key that is not a control. A press after the chord window starts
-    /// over; one inside it is the chord's second press.
-    fn press(&mut self, hotkey: Hotkey, now: Instant) {
-        if self.chord_open(now) {
-            self.second = Some(hotkey);
-        } else {
-            self.first = Some(hotkey);
-            self.second = None;
-            self.first_at = Some(now);
-        }
-    }
-
-    fn clear(&mut self) {
-        self.first = None;
-        self.second = None;
-        self.first_at = None;
-        self.check = Check::Fine;
-    }
-}
-
-/// What a plain key does while recording: Enter, Esc, Backspace and Tab
-/// are controls unless a modifier is held with them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Control {
-    Save,
-    Clear,
-    Cancel,
-    Key,
-}
-
-pub fn control_of(hotkey: Hotkey) -> Control {
-    if hotkey.modifiers & !MOD_NOREPEAT != 0 {
-        return Control::Key;
-    }
-    match hotkey.vk {
-        0x0D => Control::Save,
-        0x08 => Control::Clear,
-        0x09 | 0x1B => Control::Cancel,
-        _ => Control::Key,
-    }
 }
 
 /// What the page remembers between frames.
@@ -131,7 +49,11 @@ pub struct View {
     /// Groups the user opened or closed by hand.
     open: BTreeMap<String, bool>,
     selected: Option<Spot>,
-    record: Option<Recording>,
+    /// A row asked for the hotkey dialog; the settings window opens it.
+    dialog_request: Option<String>,
+    /// The hotkey dialog is open over the page, so the list leaves the
+    /// keys alone.
+    pub editing: bool,
     confirm_reset: bool,
     /// Give the list the keyboard on the next frame, as when the palette
     /// opened the page on a command.
@@ -150,31 +72,27 @@ impl View {
         self.focus_list = true;
     }
 
-    /// The page is no longer shown: the keyboard hook goes.
+    /// The page is no longer shown, or the dialog takes the keyboard:
+    /// Search by keys stops and its keyboard hook goes.
     pub fn leave(&mut self) {
-        if self.record.take().is_some() || self.listening {
+        if self.listening {
             hotkey_capture::stop();
         }
         self.listening = false;
         self.confirm_reset = false;
     }
 
-    fn start_recording(&mut self, id: &str) {
-        hotkey_capture::stop();
-        self.listening = false;
-        self.record = Some(Recording::new(id));
+    /// Asks for the hotkey dialog on this row.
+    fn change(&mut self, id: &str) {
         self.selected = Some(Spot::Row(id.to_string()));
-        hotkey_capture::start();
+        self.dialog_request = Some(id.to_string());
     }
 
-    fn stop_recording(&mut self) {
-        if self.record.take().is_some() {
-            hotkey_capture::stop();
-        }
+    pub fn take_dialog_request(&mut self) -> Option<String> {
+        self.dialog_request.take()
     }
 
     fn toggle_listening(&mut self) {
-        self.stop_recording();
         if self.listening {
             self.listening = false;
             hotkey_capture::stop();
@@ -191,20 +109,11 @@ impl View {
     }
 }
 
-/// Whether another app holds `hotkey`, by trying to register it.
-fn held_by_app(hotkey: Hotkey) -> bool {
-    probe::verdict(std::ptr::null_mut(), hotkey, &[]).status == Status::TakenByApp
-}
-
-fn text_of(keys: &Shortcut) -> String {
-    hotkeys::format_shortcut(keys)
-}
-
 pub fn show(ui: &mut Ui, snapshot: &UiSnapshot, view: &mut View, to_host: &Arc<HostChannel>) {
     let tokens = Tokens::get(ui.ctx());
     let all = &snapshot.shortcuts;
     let states = hotkey_status::states(snapshot);
-    poll_keys(ui, view, all, to_host);
+    poll_keys(ui, view);
 
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
@@ -285,7 +194,7 @@ pub fn show(ui: &mut Ui, snapshot: &UiSnapshot, view: &mut View, to_host: &Arc<H
             text::single(
                 ui,
                 text::job(
-                    "A change is saved when you press Enter or Save. Reset brings back the default at any time.",
+                    "A change is saved when you press Enter in the hotkey box. Reset brings back the default at any time.",
                     theme::regular(12.0),
                     tokens.text_disabled,
                     None,
@@ -298,75 +207,30 @@ pub fn show(ui: &mut Ui, snapshot: &UiSnapshot, view: &mut View, to_host: &Arc<H
     }
 }
 
-/// Keys from the hook: a recording's presses, or Search by keys.
-fn poll_keys(ui: &Ui, view: &mut View, all: &[ShortcutInfo], to_host: &Arc<HostChannel>) {
+/// Keys from the hook for Search by keys.
+fn poll_keys(ui: &Ui, view: &mut View) {
+    if !view.listening {
+        return;
+    }
     let now = Instant::now();
     let focused = ui.ctx().input(|input| input.viewport().focused) != Some(false);
-    if view.listening {
-        if hotkey_capture::take_cancelled() || !focused {
-            view.listening = false;
-            hotkey_capture::stop();
-        }
-        if let Some(hotkey) = hotkey_capture::take_result() {
-            let joins = view.pressed.len() == 1
-                && view
-                    .pressed_at
-                    .is_some_and(|at| now.duration_since(at) < CHORD_WAIT);
-            if !joins {
-                view.pressed.clear();
-            }
-            view.pressed.push(hotkey);
-            view.pressed_at = Some(now);
-        }
-        ui.ctx().request_repaint_after(Duration::from_millis(30));
-        return;
-    }
-    let Some(record) = view.record.as_mut() else {
-        return;
-    };
     if hotkey_capture::take_cancelled() || !focused {
-        view.stop_recording();
-        return;
+        view.listening = false;
+        hotkey_capture::stop();
     }
     if let Some(hotkey) = hotkey_capture::take_result() {
-        match control_of(hotkey) {
-            Control::Save => {
-                if let Some(changes) = save_changes(record) {
-                    to_host.send(HostRequest::SetShortcuts(changes));
-                    view.stop_recording();
-                }
-                return;
-            }
-            Control::Clear => record.clear(),
-            Control::Cancel => {
-                view.stop_recording();
-                return;
-            }
-            Control::Key => {
-                record.press(hotkey, now);
-                if let Some(keys) = record.keys() {
-                    record.check = shortcuts::check(&keys, &record.id, all, held_by_app);
-                }
-            }
+        let joins = view.pressed.len() == 1
+            && view
+                .pressed_at
+                .is_some_and(|at| now.duration_since(at) < CHORD_WAIT);
+        if !joins {
+            view.pressed.clear();
         }
+        view.pressed.push(hotkey);
+        view.pressed_at = Some(now);
     }
-    // The hook runs between frames, and the chord bar empties over 3 s.
+    // The hook runs between frames.
     ui.ctx().request_repaint_after(Duration::from_millis(30));
-}
-
-/// What saving the recorded keys sends, or None while they cannot be saved.
-fn save_changes(record: &Recording) -> Option<Vec<ShortcutChange>> {
-    let keys = record.keys()?;
-    if record.check.blocks() {
-        return None;
-    }
-    if let Check::UsedBy { id, .. } = &record.check {
-        return Some(shortcuts::replace(&record.id, &keys, id));
-    }
-    Some(vec![ShortcutChange {
-        id: record.id.clone(),
-        binding: Some(text_of(&keys)),
-    }])
 }
 
 fn search_row(ui: &mut Ui, view: &mut View) {
@@ -731,7 +595,7 @@ fn list(
     let open_now = |name: &str| is_open(view, groups, name);
     let order = spots(groups, all, open_now);
     let has_focus = list_focus.has_focus();
-    if has_focus && view.record.is_none() {
+    if has_focus && !view.editing {
         keyboard(ui, view, all, groups, &order, list_id, to_host);
     }
     let keyboard_on = has_focus && focus::keyboard_active(ui.ctx());
@@ -784,7 +648,7 @@ struct Columns<'a> {
 }
 
 /// ↑↓ move, ← closes and → opens a group, Home and End, Enter or F2
-/// records, Delete removes and Ctrl+Backspace resets the row.
+/// opens the hotkey dialog, Delete removes and Ctrl+Backspace resets the row.
 fn keyboard(
     ui: &mut Ui,
     view: &mut View,
@@ -851,8 +715,11 @@ fn keyboard(
             let Some(info) = all.iter().find(|info| info.id == id) else {
                 return;
             };
-            if take(ui, Modifiers::NONE, Key::Enter) || take(ui, Modifiers::NONE, Key::F2) {
-                view.start_recording(&id);
+            if take(ui, Modifiers::NONE, Key::Enter)
+                || take(ui, Modifiers::NONE, Key::Space)
+                || take(ui, Modifiers::NONE, Key::F2)
+            {
+                view.change(&id);
             } else if take(ui, Modifiers::NONE, Key::Delete) && !info.one_press {
                 send(to_host, &id, Some(String::new()));
             } else if take(ui, Modifiers::COMMAND, Key::Backspace) && shortcuts::is_changed(info) {
@@ -984,22 +851,6 @@ fn group_header(
     response
 }
 
-/// Extra height of a row while it records: the field, the chord bar and
-/// hint, the message and the buttons.
-fn recording_height(record: &Recording, now: Instant) -> f32 {
-    let hint = if record.chord_open(now) && record.first.is_some() {
-        26.0
-    } else {
-        0.0
-    };
-    let message = if record.check.message("").is_some() {
-        64.0
-    } else {
-        0.0
-    };
-    12.0 + FIELD_HEIGHT + 3.0 + hint + message + 10.0 + 32.0 + 12.0
-}
-
 fn row(
     ui: &mut Ui,
     view: &mut View,
@@ -1009,21 +860,12 @@ fn row(
 ) {
     let (keyboard_on, list_id) = (columns.keyboard_on, columns.list_id);
     let tokens = Tokens::get(ui.ctx());
-    let now = Instant::now();
-    let recording = view
-        .record
-        .as_ref()
-        .filter(|record| record.id == info.id)
-        .cloned();
-    let height = recording.as_ref().map_or(ROW_HEIGHT, |record| {
-        recording_height(record, now).max(ROW_HEIGHT)
-    });
-    let (rect, response) = ui.allocate_exact_size(vec2(columns.width, height), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(vec2(columns.width, ROW_HEIGHT), Sense::click());
     let selected = view.selected.as_ref() == Some(&Spot::Row(info.id.clone()));
     if selected && std::mem::take(&mut view.focus_list) {
         response.scroll_to_me(Some(Align::Center));
     }
-    if !ui.is_rect_visible(rect) && recording.is_none() {
+    if !ui.is_rect_visible(rect) {
         return;
     }
     let hover =
@@ -1038,7 +880,7 @@ fn row(
             tokens.hover_bg.gamma_multiply(hover),
         );
     }
-    let top_line = Rect::from_min_size(rect.min, vec2(rect.width(), ROW_HEIGHT));
+    let top_line = rect;
     let name_width = (columns.shortcut_left - INDENT - GAP).max(40.0);
     let one_line = |text: &str, size: f32, colour: Color32| {
         let mut job = text::job(text, theme::regular(size), colour, None);
@@ -1077,35 +919,31 @@ fn row(
         pos2(rect.left() + columns.shortcut_left, top_line.top()),
         vec2(columns.shortcut_width, ROW_HEIGHT),
     );
-    match &recording {
-        Some(record) => recording_area(ui, view, record, info, cell, to_host),
-        None => shortcut_cell(
-            ui,
-            view,
-            info,
-            columns.states.get(&info.id),
-            cell,
-            response.hovered(),
-        ),
-    }
+    shortcut_cell(
+        ui,
+        view,
+        info,
+        columns.states.get(&info.id),
+        cell,
+        response.hovered(),
+    );
     let actions = Rect::from_min_size(
         pos2(rect.right() - ACTIONS, top_line.top()),
         vec2(ACTIONS, ROW_HEIGHT),
     );
     row_actions(ui, view, info, actions, to_host);
 
-    if response.clicked() && recording.is_none() {
-        view.selected = Some(Spot::Row(info.id.clone()));
+    if response.clicked() {
         ui.memory_mut(|memory| memory.request_focus(list_id));
-        view.start_recording(&info.id);
+        view.change(&info.id);
     }
     if selected && keyboard_on {
         focus::paint(ui, rect, f32::from(tokens.radius_row));
     }
 }
 
-/// The keys as caps, "Changed" when they are not the default, or
-/// "Add hotkey".
+/// The keys as caps in the hotkey box, or "Not set" in it, and "Changed"
+/// when they are not the default.
 fn shortcut_cell(
     ui: &mut Ui,
     view: &View,
@@ -1114,7 +952,6 @@ fn shortcut_cell(
     cell: Rect,
     hovered: bool,
 ) {
-    let tokens = Tokens::get(ui.ctx());
     let matched = if shortcuts::starts_with(info, &view.pressed) {
         view.pressed.len()
     } else {
@@ -1126,29 +963,16 @@ fn shortcut_cell(
             .layout(Layout::left_to_right(Align::Center)),
         |ui| {
             ui.spacing_mut().item_spacing.x = 10.0;
-            match shortcuts::parse(&info.binding) {
-                Some(keys) => {
-                    if let Some(state) = state {
-                        status_mark(ui, state);
-                    }
-                    keycap::caps(
-                        ui,
-                        &keys.steps(),
-                        Caps {
-                            matched,
-                            ..Caps::page()
-                        },
-                    );
-                }
-                None => {
-                    let (label, colour) = if hovered {
-                        ("+ Add hotkey", tokens.accent)
-                    } else {
-                        ("Add hotkey", tokens.text_disabled)
-                    };
-                    text::single(ui, text::job(label, theme::regular(13.0), colour, None));
+            if shortcuts::parse(&info.binding).is_some() {
+                if let Some(state) = state {
+                    status_mark(ui, state);
                 }
             }
+            let look = Caps {
+                matched,
+                ..Caps::page()
+            };
+            hotkey_dialog::trigger_box(ui, &info.binding, look, Sense::hover(), hovered);
             if shortcuts::is_changed(info) {
                 changed_tag(ui);
             }
@@ -1190,187 +1014,6 @@ fn changed_tag(ui: &mut Ui) {
         .galley(rect.center() - galley.size() / 2.0, galley, tokens.accent);
 }
 
-/// The recording field, the chord bar, the check's message and the buttons.
-fn recording_area(
-    ui: &mut Ui,
-    view: &mut View,
-    record: &Recording,
-    info: &ShortcutInfo,
-    cell: Rect,
-    to_host: &Arc<HostChannel>,
-) {
-    let tokens = Tokens::get(ui.ctx());
-    let now = Instant::now();
-    let state = match &record.check {
-        check if check.blocks() => tokens.danger,
-        Check::UsedBy { .. } | Check::HeldByApp { .. } => tokens.warning,
-        _ => tokens.accent,
-    };
-    let field = Rect::from_min_size(
-        pos2(cell.left(), cell.top() + 8.0),
-        vec2(cell.width(), FIELD_HEIGHT),
-    );
-    ui.painter().rect(
-        field,
-        tokens.radius_row,
-        tokens.window_bg,
-        theme::stroke(ui.ctx(), 2.0, state),
-        StrokeKind::Inside,
-    );
-    let chord_open = record.first.is_some() && record.chord_open(now);
-    ui.scope_builder(
-        egui::UiBuilder::new()
-            .max_rect(field.shrink2(vec2(10.0, 0.0)))
-            .layout(Layout::left_to_right(Align::Center)),
-        |ui| match record.keys() {
-            Some(keys) => {
-                let steps = keys.steps();
-                keycap::caps(
-                    ui,
-                    &steps,
-                    Caps {
-                        waiting: chord_open,
-                        ..Caps::page()
-                    },
-                );
-            }
-            None => {
-                let live = hotkey_capture::live_modifiers();
-                if live == 0 {
-                    text::single(
-                        ui,
-                        text::job(
-                            "Press the keys\u{2026}",
-                            theme::regular(14.0),
-                            tokens.text_disabled,
-                            None,
-                        ),
-                    );
-                } else {
-                    let held: Vec<String> = hotkeys::format_modifiers(live)
-                        .split('+')
-                        .map(str::to_string)
-                        .collect();
-                    keycap::caps(ui, &[held], Caps::page());
-                }
-            }
-        },
-    );
-    let mut y = field.bottom() + 3.0;
-    if chord_open {
-        let left = record
-            .first_at
-            .map_or(0.0, |at| {
-                1.0 - now.duration_since(at).as_secs_f32() / CHORD_WAIT.as_secs_f32()
-            })
-            .clamp(0.0, 1.0);
-        let bar = Rect::from_min_size(
-            pos2(field.left(), field.bottom() + 2.0),
-            vec2(field.width() * left, 3.0),
-        );
-        ui.painter().rect_filled(bar, 1, tokens.accent);
-        let keys = record.first.map(hotkeys::format).unwrap_or_default();
-        ui.painter().text(
-            pos2(field.left(), y + 8.0),
-            Align2::LEFT_TOP,
-            format!("Press one more key to make a chord. Enter saves {keys} now."),
-            theme::regular(12.0),
-            tokens.text_secondary,
-        );
-        y += 26.0;
-    }
-    if let Some((first, second)) = record.check.message(&info.label) {
-        let icon = if record.check.blocks() {
-            Icon::Ban
-        } else {
-            Icon::TriangleAlert
-        };
-        let width = field.width().min(MESSAGE_WIDTH);
-        let boxed = Rect::from_min_size(pos2(field.left(), y + 8.0), vec2(width, 56.0));
-        ui.painter().rect_stroke(
-            boxed,
-            tokens.radius_row,
-            theme::line(ui.ctx(), state),
-            StrokeKind::Inside,
-        );
-        let glyph = Rect::from_min_size(boxed.min + vec2(10.0, 10.0), vec2(16.0, 16.0));
-        icons::paint(ui.painter(), glyph, icon, state);
-        let text_width = (width - 46.0).max(40.0);
-        let clamp = |text: &str, size: f32, colour: Color32| {
-            let mut job = text::job(text, theme::regular(size), colour, None);
-            job.wrap = egui::text::TextWrapping {
-                max_width: text_width,
-                max_rows: 1,
-                break_anywhere: true,
-                overflow_character: Some('\u{2026}'),
-            };
-            ui.painter().layout_job(job)
-        };
-        let line_one = clamp(&first, 13.0, tokens.text_primary);
-        let line_two = clamp(&second, 12.0, tokens.text_secondary);
-        ui.painter().galley(
-            pos2(glyph.right() + 10.0, boxed.top() + 9.0),
-            line_one,
-            tokens.text_primary,
-        );
-        ui.painter().galley(
-            pos2(glyph.right() + 10.0, boxed.top() + 30.0),
-            line_two,
-            tokens.text_secondary,
-        );
-        y += 64.0;
-    }
-    let buttons = Rect::from_min_size(pos2(field.left(), y + 10.0), vec2(cell.width(), 32.0));
-    let mut save = None;
-    let mut cancel = false;
-    let mut clear = false;
-    ui.scope_builder(
-        egui::UiBuilder::new()
-            .max_rect(buttons)
-            .layout(Layout::left_to_right(Align::Center)),
-        |ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
-            let primary = match &record.check {
-                check if check.blocks() => None,
-                Check::UsedBy { .. } => Some("Replace"),
-                Check::HeldByApp { .. } => Some("Save anyway"),
-                _ => Some("Save"),
-            };
-            if let Some(label) = primary.filter(|_| record.first.is_some()) {
-                if keyed_button(ui, label, "\u{21B5}", Kind::Primary).clicked() {
-                    save = save_changes(record);
-                }
-            }
-            if keyed_button(ui, "Cancel", "Esc", Kind::Secondary).clicked() {
-                cancel = true;
-            }
-            if !matches!(record.check, Check::UsedBy { .. } | Check::HeldByApp { .. })
-                && keyed_button(ui, "Clear", "\u{232B}", Kind::Secondary).clicked()
-            {
-                clear = true;
-            }
-        },
-    );
-    if let Some(changes) = save {
-        to_host.send(HostRequest::SetShortcuts(changes));
-        view.stop_recording();
-    } else if cancel {
-        view.stop_recording();
-    } else if clear {
-        if let Some(record) = view.record.as_mut() {
-            record.clear();
-        }
-    }
-}
-
-/// A button with its key as a small cap after the label.
-fn keyed_button(ui: &mut Ui, label: &str, key: &str, kind: Kind) -> Response {
-    let response = button::button(ui, label, kind);
-    keycap::hint(ui, key, theme::mono(12.0));
-    ui.add_space(8.0);
-    response
-}
-
 /// The reset button on changed rows and the "…" menu.
 fn row_actions(
     ui: &mut Ui,
@@ -1408,8 +1051,8 @@ fn row_actions(
         .width(240.0)
         .show(|ui| {
             ui.set_width(240.0);
-            if menu_item(ui, Icon::Keyboard, "Change hotkey", "Enter", true).clicked() {
-                view.start_recording(&info.id);
+            if menu_item(ui, Icon::Pencil, "Change hotkey", "Enter", true).clicked() {
+                view.change(&info.id);
             }
             if menu_item(
                 ui,
@@ -1573,43 +1216,13 @@ pub fn reset_text(changed: &[&ShortcutInfo]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_CONTROL, MOD_WIN};
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
 
     fn key(modifiers: u32, vk: u32) -> Hotkey {
         Hotkey {
             modifiers: modifiers | MOD_NOREPEAT,
             vk,
         }
-    }
-
-    #[test]
-    fn plain_enter_esc_backspace_and_tab_are_controls() {
-        assert_eq!(control_of(key(0, 0x0D)), Control::Save);
-        assert_eq!(control_of(key(0, 0x08)), Control::Clear);
-        assert_eq!(control_of(key(0, 0x1B)), Control::Cancel);
-        assert_eq!(control_of(key(0, 0x09)), Control::Cancel);
-        assert_eq!(control_of(key(MOD_CONTROL, 0x0D)), Control::Key);
-        assert_eq!(control_of(key(MOD_ALT, 0x08)), Control::Key);
-        assert_eq!(control_of(key(0, 0x53)), Control::Key);
-    }
-
-    #[test]
-    fn a_second_key_within_three_seconds_makes_a_chord() {
-        let start = Instant::now();
-        let mut record = Recording::new("x");
-        record.press(key(MOD_WIN | MOD_ALT, 0x4B), start);
-        assert!(record.chord_open(start + Duration::from_secs(1)));
-        record.press(key(0, 0x53), start + Duration::from_secs(1));
-        assert_eq!(text_of(&record.keys().unwrap()), "Win+Alt+K, S");
-        assert!(!record.chord_open(start + Duration::from_secs(1)));
-        // A key after a full chord starts over.
-        record.press(key(MOD_WIN | MOD_ALT, 0x46), start + Duration::from_secs(2));
-        assert_eq!(text_of(&record.keys().unwrap()), "Win+Alt+F");
-        // A key after the window starts over too.
-        record.press(key(MOD_WIN | MOD_ALT, 0x47), start + Duration::from_secs(6));
-        assert_eq!(text_of(&record.keys().unwrap()), "Win+Alt+G");
-        record.clear();
-        assert!(record.keys().is_none());
     }
 
     fn info(id: &str, label: &str, binding: &str, default: &str) -> ShortcutInfo {
@@ -1627,31 +1240,6 @@ mod tests {
             registered: true,
             one_press: false,
         }
-    }
-
-    #[test]
-    fn saving_sends_the_keys_or_a_replace_and_nothing_when_blocked() {
-        let mut record = Recording::new("b");
-        assert!(save_changes(&record).is_none(), "no keys yet");
-        record.press(key(MOD_WIN | MOD_ALT, 0x46), Instant::now());
-        assert_eq!(
-            save_changes(&record),
-            Some(vec![ShortcutChange {
-                id: "b".to_string(),
-                binding: Some("Win+Alt+F".to_string()),
-            }])
-        );
-        record.check = Check::UsedBy {
-            keys: "Win+Alt+A".to_string(),
-            id: "a".to_string(),
-            label: "Arrange strip".to_string(),
-            group: "LayoutKeeper".to_string(),
-        };
-        assert_eq!(save_changes(&record).map(|changes| changes.len()), Some(2));
-        record.check = Check::Reserved {
-            keys: "Win+L".to_string(),
-        };
-        assert!(save_changes(&record).is_none());
     }
 
     #[test]
@@ -1761,25 +1349,12 @@ mod tests {
         };
         draw(&mut by_keys, rows());
 
-        let mut recording = View {
+        let mut editing = View {
             selected: Some(Spot::Row("b".to_string())),
+            editing: true,
             ..View::default()
         };
-        let mut record = Recording::new("b");
-        record.press(key(MOD_WIN | MOD_ALT, 0x41), Instant::now());
-        record.check = Check::UsedBy {
-            keys: "Win+Alt+A".to_string(),
-            id: "c".to_string(),
-            label: "Arrange strip".to_string(),
-            group: "LayoutKeeper".to_string(),
-        };
-        recording.record = Some(record.clone());
-        draw(&mut recording, rows());
-        record.check = Check::Reserved {
-            keys: "Win+L".to_string(),
-        };
-        recording.record = Some(record);
-        draw(&mut recording, rows());
+        draw(&mut editing, rows());
 
         let mut confirm = View {
             confirm_reset: true,
@@ -1831,6 +1406,16 @@ mod tests {
                 help_inline: true
             }
         );
+    }
+
+    #[test]
+    fn a_row_asks_for_the_dialog_once() {
+        let mut view = View::default();
+        assert_eq!(view.take_dialog_request(), None);
+        view.change("b");
+        assert_eq!(view.selected, Some(Spot::Row("b".to_string())));
+        assert_eq!(view.take_dialog_request(), Some("b".to_string()));
+        assert_eq!(view.take_dialog_request(), None);
     }
 
     #[test]

@@ -1,15 +1,14 @@
 use std::sync::Arc;
 
-use crate::core::hotkeys;
 use crate::core::theme::Tokens;
 use crate::core::ui_bridge::{HostChannel, HostRequest, HotkeyInfo, PluginInfo, UiSnapshot};
 use crate::ui::settings::catalog::{self, count_in_words, Activation, Card};
 use crate::ui::settings::{self as page, SettingsState};
 use crate::ui::widgets::button::{self, Kind};
-use crate::ui::widgets::capture::{self, Outcome};
 use crate::ui::widgets::empty_state::empty_state;
+use crate::ui::widgets::hotkey_dialog::{self, Target};
 use crate::ui::widgets::row::{settings_row, RowText};
-use crate::ui::widgets::{field, keycap, text, toggle};
+use crate::ui::widgets::{field, text, toggle};
 
 pub fn show(
     ui: &mut egui::Ui,
@@ -103,7 +102,7 @@ fn detail(
     let tokens = Tokens::get(ui.ctx());
     if text::link(ui, "\u{2039} All plugins").clicked() {
         state.open_plugin = None;
-        state.end_capture();
+        state.close_hotkey();
         return;
     }
     ui.add_space(8.0);
@@ -181,7 +180,8 @@ fn hotkey_row(
     to_host: &Arc<HostChannel>,
 ) {
     let tokens = Tokens::get(ui.ctx());
-    let owner = format!("{}/{}", plugin.id, info.action);
+    // The id the host gives this action on the Hotkeys page.
+    let id = format!("{}.{}", plugin.id, info.action);
     let (status, colour) = if info.registered {
         ("registered", tokens.success)
     } else {
@@ -189,17 +189,8 @@ fn hotkey_row(
     };
 
     let mut change = false;
-    settings_row(ui, &owner, RowText::new(&info.label), false, |ui| {
-        let chips = keycap::binding(ui, &keycap::spaced(&info.binding), false);
-        let chips = ui
-            .interact(
-                chips.rect,
-                ui.id().with(("rebind", &owner)),
-                egui::Sense::click(),
-            )
-            .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .on_hover_text("Click to change");
-        change = chips.clicked();
+    settings_row(ui, &id, RowText::new(&info.label), false, |ui| {
+        change = hotkey_dialog::trigger(ui, &info.binding).clicked();
         text::secondary(ui, status, colour);
         let is_default = info.binding == info.default_binding;
         let reset = ui.add_enabled_ui(!is_default, |ui| {
@@ -214,28 +205,13 @@ fn hotkey_row(
         }
     });
     if change {
-        state.begin_capture(owner.clone());
-    }
-
-    if let Some(session) = state
-        .capture
-        .as_mut()
-        .filter(|session| session.owner == owner)
-    {
-        match capture::show(ui, session, |hotkey| {
-            page::verdict(hotkey, snapshot, &tokens)
-        }) {
-            Some(Outcome::Apply(hotkey)) => {
-                to_host.send(HostRequest::SetHotkey {
-                    plugin: plugin.id.clone(),
-                    action: info.action.clone(),
-                    binding: hotkeys::format(hotkey),
-                });
-                state.end_capture();
-            }
-            Some(Outcome::Cancel) => state.end_capture(),
-            None => {}
-        }
+        let target = Target::find(&snapshot.shortcuts, &id).unwrap_or(Target {
+            id,
+            label: info.label.clone(),
+            chords: true,
+            removable: true,
+        });
+        state.open_hotkey(target);
     }
 }
 

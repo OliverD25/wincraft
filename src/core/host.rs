@@ -609,6 +609,9 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         Some(SettingsTarget::Plugin(id)) => {
             with_host(|host| host.to_ui.send(UiCommand::ShowPluginPage(id)));
         }
+        Some(SettingsTarget::HotkeyDialog { id, keys }) => {
+            with_host(|host| host.to_ui.send(UiCommand::ShowHotkeyDialog { id, keys }));
+        }
         None if flags.open_settings => {
             with_host(|host| host.to_ui.send(UiCommand::ShowSettings(Page::General)));
         }
@@ -1951,13 +1954,6 @@ impl Host {
                 theme::set_current(self.config.theme, mode);
                 self.to_ui.send(UiCommand::ThemeChanged);
             }
-            HostSetting::PaletteHotkey(binding) => match self.plugins.rebind_palette(&binding) {
-                Ok(text) => {
-                    self.config.palette_hotkey = text;
-                    self.show_warnings();
-                }
-                Err(err) => log::warn!("palette hotkey: {err}"),
-            },
         }
         self.save_config();
         self.publish();
@@ -4905,15 +4901,12 @@ mod tests {
         host.handle_request(HostRequest::ResetPlugin("fake_a".to_string()));
         assert_eq!(snapshots(&ui).len(), 3);
 
-        host.handle_request(HostRequest::SetHostSetting(HostSetting::PaletteHotkey(
-            "win+alt+f9".to_string(),
-        )));
+        host.handle_request(HostRequest::SetShortcuts(vec![ShortcutChange {
+            id: "wincraft.palette".to_string(),
+            binding: Some("win+alt+f9".to_string()),
+        }]));
         assert_eq!(host.config.palette_hotkey, "Win+Alt+F9");
         assert!(keyboard.held().contains(&"Win+Alt+F9".to_string()));
-        host.handle_request(HostRequest::SetHostSetting(HostSetting::PaletteHotkey(
-            "nonsense".to_string(),
-        )));
-        assert_eq!(host.config.palette_hotkey, "Win+Alt+F9");
         host.handle_request(HostRequest::SetHostSetting(HostSetting::CheckUpdatesDaily(
             false,
         )));

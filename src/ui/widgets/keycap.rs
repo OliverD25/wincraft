@@ -16,18 +16,8 @@ pub fn spaced(binding: &str) -> String {
     split(binding).join(" + ")
 }
 
-/// Modifiers held so far during a capture, open-ended: "Win + Alt +".
-pub fn held(modifiers: &str) -> String {
-    let keys = spaced(modifiers);
-    if keys.is_empty() {
-        keys
-    } else {
-        format!("{keys} +")
-    }
-}
-
 /// One chip for a whole binding: 13 regular, padding 3 8, panel fill, 1 px
-/// border, radius 4, secondary text. While capturing it is outlined and
+/// border, radius 4, secondary text; with `accent` it is outlined and
 /// written in the accent colour.
 pub fn binding(ui: &mut Ui, text: &str, accent: bool) -> Response {
     let tokens = Tokens::get(ui.ctx());
@@ -108,11 +98,12 @@ enum Piece {
     Waiting,
 }
 
-/// [Win][Alt][K] then [S]. `steps` holds each press's keys in order.
-pub fn caps(ui: &mut Ui, steps: &[Vec<String>], look: Caps) -> Response {
+/// Each piece of a drawn shortcut with its width and the gap before it, and
+/// the width of them all.
+fn layout_caps(ui: &Ui, steps: &[Vec<String>], look: Caps) -> (Vec<(Piece, f32, f32)>, f32) {
     let tokens = Tokens::get(ui.ctx());
     let font = theme::regular(12.0);
-    let painter = ui.painter().clone();
+    let painter = ui.painter();
     let then = || painter.layout_no_wrap("then".to_string(), font.clone(), tokens.text_disabled);
     let mut pieces: Vec<(Piece, f32, f32)> = Vec::new();
     for (index, keys) in steps.iter().enumerate() {
@@ -139,6 +130,19 @@ pub fn caps(ui: &mut Ui, steps: &[Vec<String>], look: Caps) -> Response {
         .enumerate()
         .map(|(at, (_, width, gap))| width + if at == 0 { 0.0 } else { *gap })
         .sum();
+    (pieces, width)
+}
+
+/// How wide `caps` draws these keys.
+pub fn caps_width(ui: &Ui, steps: &[Vec<String>], look: Caps) -> f32 {
+    layout_caps(ui, steps, look).1
+}
+
+/// [Win][Alt][K] then [S]. `steps` holds each press's keys in order.
+pub fn caps(ui: &mut Ui, steps: &[Vec<String>], look: Caps) -> Response {
+    let tokens = Tokens::get(ui.ctx());
+    let painter = ui.painter().clone();
+    let (pieces, width) = layout_caps(ui, steps, look);
     let (rect, response) = ui.allocate_exact_size(vec2(width, look.height), Sense::hover());
     if !ui.is_rect_visible(rect) {
         return response;
@@ -205,9 +209,142 @@ fn dashed(ui: &Ui, painter: &Painter, cell: Rect, colour: Color32) {
     }
 }
 
+/// One piece of the hotkey dialog's large keys row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Large {
+    /// A modifier still held: accent border on the selection fill.
+    Held(String),
+    /// A pressed key: neutral, on the elevated fill.
+    Key(String),
+    /// "+" after the held modifiers.
+    Plus,
+    /// "then" between the two presses of a chord.
+    Then,
+    /// The dashed empty cap of the key still to come.
+    Waiting,
+}
+
+const LARGE_HEIGHT: f32 = 44.0;
+const LARGE_PAD: f32 = 16.0;
+const LARGE_GAP: f32 = 10.0;
+const LARGE_WAITING: f32 = 60.0;
+const LARGE_FONT: f32 = 18.0;
+const LARGE_RADIUS: u8 = 6;
+/// The smallest the row may shrink to, so no key is written under 12 px.
+const LARGE_MIN_SCALE: f32 = 12.0 / LARGE_FONT;
+
+/// How much the row shrinks to fit `room`, from its width at full size.
+fn large_scale(natural: f32, room: f32) -> f32 {
+    if natural <= room || natural <= 0.0 {
+        1.0
+    } else {
+        (room / natural).max(LARGE_MIN_SCALE)
+    }
+}
+
+/// The dialog's keys: 44 px caps with 18 px text, a 1 px border with a
+/// 3 px bottom edge, 10 apart, centred in `row`. A row too wide for it
+/// shrinks, down to 12 px text.
+pub fn large(ui: &Ui, row: Rect, pieces: &[Large]) {
+    let tokens = Tokens::get(ui.ctx());
+    let painter = ui.painter();
+    let measure = |scale: f32| -> Vec<(f32, Option<std::sync::Arc<egui::Galley>>)> {
+        let font = theme::regular(LARGE_FONT * scale);
+        pieces
+            .iter()
+            .map(|piece| match piece {
+                Large::Held(key) | Large::Key(key) => {
+                    let galley =
+                        painter.layout_no_wrap(key.clone(), font.clone(), tokens.text_primary);
+                    let width = (galley.size().x + 2.0 * LARGE_PAD * scale).max(LARGE_HEIGHT);
+                    (width, Some(galley))
+                }
+                Large::Plus => {
+                    let galley =
+                        painter.layout_no_wrap("+".to_string(), font.clone(), tokens.text_disabled);
+                    (galley.size().x, Some(galley))
+                }
+                Large::Then => {
+                    let galley = painter.layout_no_wrap(
+                        "then".to_string(),
+                        theme::regular((13.0 * scale).max(12.0)),
+                        tokens.text_disabled,
+                    );
+                    (galley.size().x, Some(galley))
+                }
+                Large::Waiting => (LARGE_WAITING * scale, None),
+            })
+            .collect()
+    };
+    let total = |cells: &[(f32, Option<std::sync::Arc<egui::Galley>>)], scale: f32| {
+        let gaps = cells.len().saturating_sub(1) as f32 * LARGE_GAP * scale;
+        cells.iter().map(|(width, _)| width).sum::<f32>() + gaps
+    };
+    let natural = measure(1.0);
+    let scale = large_scale(total(&natural, 1.0), row.width());
+    let cells = if scale < 1.0 { measure(scale) } else { natural };
+    let mut x = row.center().x - total(&cells, scale) / 2.0;
+    for (piece, (width, galley)) in pieces.iter().zip(cells) {
+        let cell = Rect::from_min_size(
+            pos2(x, row.center().y - LARGE_HEIGHT / 2.0),
+            vec2(width, LARGE_HEIGHT),
+        );
+        match (piece, galley) {
+            (Large::Held(_), Some(galley)) => {
+                large_cap(ui, painter, cell, tokens.accent, tokens.selection_bg);
+                painter.galley(
+                    cell.center() - galley.size() / 2.0 - vec2(0.0, 1.0),
+                    galley,
+                    tokens.text_primary,
+                );
+            }
+            (Large::Key(_), Some(galley)) => {
+                large_cap(ui, painter, cell, tokens.border, tokens.elevated_bg);
+                painter.galley(
+                    cell.center() - galley.size() / 2.0 - vec2(0.0, 1.0),
+                    galley,
+                    tokens.text_primary,
+                );
+            }
+            (Large::Plus | Large::Then, Some(galley)) => {
+                painter.galley(
+                    pos2(cell.left(), cell.center().y - galley.size().y / 2.0),
+                    galley,
+                    tokens.text_disabled,
+                );
+            }
+            _ => dashed(ui, painter, cell, tokens.text_disabled),
+        }
+        x += width + LARGE_GAP * scale;
+    }
+}
+
+/// A large cap: 1 px border and 3 px at the bottom, radius 6.
+fn large_cap(ui: &Ui, painter: &Painter, cell: Rect, edge: Color32, fill: Color32) {
+    let line = theme::line(ui.ctx(), edge);
+    painter.rect(cell, LARGE_RADIUS, fill, line, StrokeKind::Inside);
+    let extra = theme::snap(2.0, ui.ctx().pixels_per_point());
+    let inner = f32::from(LARGE_RADIUS);
+    painter.hline(
+        cell.left() + inner..=cell.right() - inner,
+        cell.bottom() - line.width - extra / 2.0,
+        Stroke::new(extra, edge),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_large_row_shrinks_to_fit_but_never_under_12_px() {
+        assert_eq!(large_scale(300.0, 344.0), 1.0);
+        assert_eq!(large_scale(0.0, 344.0), 1.0);
+        assert_eq!(large_scale(688.0, 344.0), LARGE_MIN_SCALE);
+        assert!((large_scale(400.0, 344.0) - 0.86).abs() < 0.01);
+        assert_eq!(large_scale(10_000.0, 344.0), LARGE_MIN_SCALE);
+        assert!(LARGE_FONT * large_scale(10_000.0, 344.0) > 11.99);
+    }
 
     #[test]
     fn a_binding_is_written_as_one_spaced_chip() {
@@ -215,11 +352,5 @@ mod tests {
         assert_eq!(spaced("Win+Alt+F1"), "Win + Alt + F1");
         assert_eq!(spaced("Ctrl + Shift + ,"), "Ctrl + Shift + ,");
         assert_eq!(spaced(""), "");
-    }
-
-    #[test]
-    fn held_modifiers_stay_open_ended() {
-        assert_eq!(held("Win+Alt"), "Win + Alt +");
-        assert_eq!(held(""), "");
     }
 }

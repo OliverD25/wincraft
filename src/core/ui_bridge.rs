@@ -68,7 +68,6 @@ pub enum HostSetting {
     StartWithWindows(bool),
     Theme(ThemeName),
     Mode(ThemeChoice),
-    PaletteHotkey(String),
     /// The palette search settings, sent whole after one of them changed.
     Search(SearchConfig),
     CheckUpdatesDaily(bool),
@@ -406,6 +405,12 @@ pub enum UiCommand {
     ShowSettings(Page),
     /// Test instances only: a plugin's own page in the settings window.
     ShowPluginPage(String),
+    /// Test instances only: the hotkey dialog on a command, without the
+    /// keyboard hook, with these keys shown as pressed.
+    ShowHotkeyDialog {
+        id: String,
+        keys: Option<String>,
+    },
     /// The palette forgets every pick it recorded.
     ClearPaletteUsage,
     /// Test instances only: text put in the palette's box as if typed,
@@ -457,6 +462,12 @@ pub enum PeekCard {
 pub enum SettingsTarget {
     Page(Page),
     Plugin(String),
+    /// The Hotkeys page with the hotkey dialog open on a command, and the
+    /// keys shown as pressed.
+    HotkeyDialog {
+        id: String,
+        keys: Option<String>,
+    },
 }
 
 pub enum HostRequest {

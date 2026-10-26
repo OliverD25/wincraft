@@ -563,12 +563,12 @@ mod tests {
     fn a_plain_command_gets_the_default_footer() {
         let command = ResultItem {
             enter: choice("Run"),
-            shortcut: choice("Change shortcut\u{2026}"),
+            shortcut: choice("Change hotkey\u{2026}"),
             ..Default::default()
         };
         let actions = row_actions(&command, &Situation::default());
         assert_eq!(keys(&actions), [Key::Enter, Key::CtrlK]);
-        assert_eq!(actions[1].label, "Change shortcut\u{2026}");
+        assert_eq!(actions[1].label, "Change hotkey\u{2026}");
         let hints = footer_hints(&actions, false, "Close");
         assert_eq!(
             hint_keys(&hints),

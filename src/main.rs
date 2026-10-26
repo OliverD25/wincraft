@@ -278,8 +278,8 @@ fn arg_after(args: &[String], flag: &str) -> Option<String> {
 }
 
 /// The test-scene flags: `--open-palette=<query>`, `--open-settings=<page>`,
-/// `--open-arrange=<group>`, `--peek-card=<n|chip>`, `--attention=<hwnd>` and
-/// `--theme=<light|dark>`.
+/// `--open-hotkey-dialog=<id>[:<keys>]`, `--open-arrange=<group>`,
+/// `--peek-card=<n|chip>`, `--attention=<hwnd>` and `--theme=<light|dark>`.
 /// Only a test instance takes them, so the user's WinCraft can never be
 /// opened on a scene by a stray command line. The notes say what was
 /// ignored or could not be read, for the log.
@@ -298,6 +298,7 @@ fn scene_flags(
             flag,
             "--open-palette"
                 | "--open-settings"
+                | "--open-hotkey-dialog"
                 | "--open-arrange"
                 | "--peek-card"
                 | "--theme"
@@ -321,6 +322,10 @@ fn scene_flags(
             }
             "--open-settings" => {
                 scene.settings = settings_target(value);
+                scene.settings.is_some()
+            }
+            "--open-hotkey-dialog" => {
+                scene.settings = hotkey_dialog_target(value);
                 scene.settings.is_some()
             }
             "--open-arrange" => {
@@ -400,6 +405,20 @@ fn settings_target(value: &str) -> Option<SettingsTarget> {
         _ => return None,
     };
     Some(SettingsTarget::Page(page))
+}
+
+/// "wincraft.palette", or "wincraft.palette:Win+Alt+F1" to show those keys
+/// as pressed. A command id holds no colon, so the first one splits.
+fn hotkey_dialog_target(value: &str) -> Option<SettingsTarget> {
+    let (id, keys) = match value.split_once(':') {
+        Some((id, keys)) => (id, Some(keys.trim()).filter(|keys| !keys.is_empty())),
+        None => (value, None),
+    };
+    let id = id.trim();
+    (!id.is_empty()).then(|| SettingsTarget::HotkeyDialog {
+        id: id.to_string(),
+        keys: keys.map(str::to_string),
+    })
 }
 
 fn peek_card(value: &str) -> Option<PeekCard> {
@@ -588,6 +607,39 @@ mod tests {
         assert_eq!(scene, SceneFlags::default());
         assert_eq!(theme, None);
         assert_eq!(notes.len(), 4, "{notes:?}");
+    }
+
+    #[test]
+    fn the_hotkey_dialog_scene_names_a_command_and_maybe_keys() {
+        assert_eq!(
+            hotkey_dialog_target("wincraft.palette"),
+            Some(SettingsTarget::HotkeyDialog {
+                id: "wincraft.palette".to_string(),
+                keys: None
+            })
+        );
+        assert_eq!(
+            hotkey_dialog_target(" wincraft.palette : Win+Alt+F1"),
+            Some(SettingsTarget::HotkeyDialog {
+                id: "wincraft.palette".to_string(),
+                keys: Some("Win+Alt+F1".to_string())
+            })
+        );
+        assert_eq!(hotkey_dialog_target(""), None);
+        assert_eq!(hotkey_dialog_target(":Win+L"), None);
+        let list = args(&["wincraft.exe", "--open-hotkey-dialog=layout_keeper.save:"]);
+        let (scene, _, notes) = scene_flags(&list, true);
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(
+            scene.settings,
+            Some(SettingsTarget::HotkeyDialog {
+                id: "layout_keeper.save".to_string(),
+                keys: None
+            })
+        );
+        let (scene, _, notes) = scene_flags(&list, false);
+        assert_eq!(scene, SceneFlags::default());
+        assert_eq!(notes.len(), 1);
     }
 
     #[test]
