@@ -320,7 +320,7 @@ sources also have a short word: `w` and a space searches the open windows,
 |---|---|---|---|---|
 | none | Commands, apps and open windows | Run, open or switch to | | Put the title in the box; on a File Explorer window, browse its folder under `/` |
 | `<` | Open windows only, the ones Alt+Tab shows, by title or program; a window renamed with WindowNamer by its name or its app's own title | Switch to it, restoring it if minimized | | Put the title in the box; on a File Explorer window, browse its folder under `/` |
-| `/` | Drives, then one folder at a time: `/C:\Users\` | Open the file or folder | Show it in Explorer, selected | Go into the folder |
+| `/` | Drives, then one folder: `/C:\Users\`. Typing after the folder also finds matches in all the folders below it (nearest first; hidden folders and links are skipped, and a very big tree is read only in part) | Open the file or folder | Show it in Explorer, selected | Go into the folder |
 | `.` | Files and folders on every disk, through Everything (or the Windows index when it is not running): `.pswds` | Open it | Show it in Explorer, selected (Ctrl+Enter copies the path) | Go into the folder under `/` |
 | `'` | Your bookmarks, all of them when nothing is typed | Open it | Show it in Explorer, selected (Ctrl+Enter copies the target) | Go into the folder under `/` |
 | `=` | A sum: `+ - * / ^ %` and brackets; `×` and `÷` work too. Without `=`, a finished sum such as `12*3` is answered at the top of the list | Copy the answer (Ctrl+C copies the sum with it, Ctrl+Enter pastes the answer into the window you were in) | | Put the answer in the box |
