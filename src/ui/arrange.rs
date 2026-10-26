@@ -23,6 +23,7 @@ use crate::ui::dwm_thumbs::{self, picture_source, Placement, Thumbnail};
 use crate::ui::peek::{self, Hover, Peek, Step};
 use crate::ui::settings;
 use crate::ui::widgets::empty_state::empty_state;
+use crate::ui::widgets::icons::{self, Icon};
 use crate::ui::widgets::{choice, focus, text};
 
 mod by_monitor;
@@ -1357,6 +1358,9 @@ struct Pending {
     dest: Rect,
     clip: Rect,
     opacity: u8,
+    /// Badges drawn over the picture. DWM draws its picture above egui, so
+    /// the picture is kept off this rectangle (see `dwm_thumbs::clear_of`).
+    clear: Rect,
     /// For a ghost in the By monitor view, whose window also has its own
     /// card: a picture has one place, so a ghost needs a picture of its own.
     ghost: bool,
@@ -1836,7 +1840,7 @@ fn flat(
                                     let is_cursor = shared.cursor == Some(window.hwnd);
                                     let leaving = shared.is_leaving(window.hwnd);
                                     let motion = shared.motion(window.hwnd);
-                                    let (response, picture, rename) = card(
+                                    let (response, picture, rename, clear) = card(
                                         ui,
                                         widths[member],
                                         window,
@@ -1865,6 +1869,7 @@ fn flat(
                                             dest: picture,
                                             clip: ui.clip_rect(),
                                             opacity: (255.0 * motion.1).round() as u8,
+                                            clear,
                                             ghost: false,
                                         });
                                     }
@@ -2110,6 +2115,7 @@ fn float_picture(
             dest: area.shrink(1.0),
             clip: Rect::EVERYTHING,
             opacity: 204,
+            clear: Rect::NOTHING,
             ghost: false,
         });
     }
@@ -2237,8 +2243,7 @@ fn place_pictures(
             .unwrap_or_else(|| picture_source(dwm_thumbs::visible_frame(item.hwnd as HWND), size));
         // The card has the window's shape, so this only leaves a margin for
         // a window narrower or wider than a card can be.
-        let fitted = dwm_thumbs::fit(source.size(), item.dest.size());
-        let dest = Rect::from_center_size(item.dest.center(), fitted);
+        let dest = dwm_thumbs::fit_clear(item.dest, source.size(), item.clear);
         let placement =
             dwm_thumbs::crop(dest, item.clip, source).map(|(shown, cropped)| Placement {
                 dest: dwm_thumbs::physical(shown, pixels_per_point),
@@ -2487,20 +2492,20 @@ fn card_menu(
 const SAME_TITLE_HINT: &str = "Restores cannot tell these windows apart. Give one a name.";
 
 /// One window, `width` wide: the monitor chip when it is not on the primary
-/// monitor, an amber "Same title" chip at the right of that line when
-/// another window of the app has the same title (`can_rename` says whether
-/// WindowNamer is on, so the chip can offer to rename), its picture area
-/// (the live picture is put on top of it later) and its name underneath,
-/// after its taskbar number. Without a picture the area shows the name and
-/// desktop instead. Returns the card's response, the picture area, and
-/// whether the chip was clicked to rename.
+/// monitor, its picture area (the live picture is put on top of it later)
+/// with an amber "Same title" badge in its top right corner when another
+/// window of the app has the same title (`can_rename` says whether
+/// WindowNamer is on, so the badge can offer to rename), and its name
+/// underneath, after its taskbar number. Without a picture the area shows
+/// the name and desktop instead. Returns the card's response, the picture
+/// area, whether the badge was clicked to rename, and the badges' rectangle.
 fn card(
     ui: &mut Ui,
     width: f32,
     window: &ArrangeWindow,
     desktop: &str,
     info: CardInfo,
-) -> (Response, Rect, bool) {
+) -> (Response, Rect, bool, Rect) {
     let CardInfo {
         number,
         can_rename,
@@ -2541,21 +2546,18 @@ fn card(
     if !has_picture {
         name_card(painter, picture, label, desktop);
     }
-    let mut rename = false;
-    if let Some(can_rename) = same_title.filter(|_| !leaving) {
-        let chip = same_title_chip(painter, rect);
-        let mut chip_response = ui
-            .interact(chip, response.id.with("same-title"), Sense::click())
-            .on_hover_text(if can_rename {
-                format!("{SAME_TITLE_HINT} Click to rename.")
-            } else {
-                SAME_TITLE_HINT.to_string()
-            });
-        if can_rename {
-            chip_response = chip_response.on_hover_cursor(egui::CursorIcon::PointingHand);
-        }
-        rename = can_rename && chip_response.clicked();
+    let mut badge_list = Vec::new();
+    if same_title.is_some() && !leaving {
+        badge_list.push(Badge::SameTitle);
     }
+    let shown = paint_badges(
+        ui,
+        painter,
+        response.id,
+        area,
+        &badge_list,
+        same_title.unwrap_or(false),
+    );
 
     let name_top = area.bottom() + CARD_INSET;
     let chip = number_chip(painter, pos2(area.left(), name_top), NAME_HEIGHT, number);
@@ -2572,7 +2574,8 @@ fn card(
     (
         response.on_hover_cursor(egui::CursorIcon::Grab),
         picture,
-        rename,
+        shown.renamed,
+        shown.clear,
     )
 }
 
@@ -2661,31 +2664,164 @@ fn paint_look(painter: &egui::Painter, rect: Rect, radius: u8, look: Look) {
     }
 }
 
-/// The amber "Same title" chip, right-aligned in the card's label line;
-/// returns its rectangle.
-fn same_title_chip(painter: &egui::Painter, card: Rect) -> Rect {
-    let tokens = Tokens::get(painter.ctx());
-    let galley = painter.layout_no_wrap(
-        "Same title".to_string(),
-        theme::regular(12.0),
-        tokens.warning,
-    );
-    let chip = Rect::from_min_size(
-        pos2(
-            card.right() - CARD_INSET - galley.size().x - 12.0,
-            card.top() + CARD_INSET,
-        ),
-        vec2(galley.size().x + 12.0, LABEL_LINE),
-    );
-    painter.rect(
-        chip,
-        tokens.radius_row,
-        tokens.panel_bg,
-        theme::line(painter.ctx(), tokens.warning),
-        StrokeKind::Inside,
-    );
-    painter.galley(chip.center() - galley.size() / 2.0, galley, tokens.warning);
-    chip
+/// A badge on a card's picture: "Same title" (amber) or "Moved" (accent).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Badge {
+    SameTitle,
+    Moved,
+}
+
+impl Badge {
+    fn text(self) -> &'static str {
+        match self {
+            Self::SameTitle => "Same title",
+            Self::Moved => "Moved",
+        }
+    }
+
+    fn icon(self) -> Icon {
+        match self {
+            Self::SameTitle => Icon::Copy,
+            Self::Moved => Icon::ArrowRightLeft,
+        }
+    }
+
+    fn colour(self, tokens: &Tokens) -> Color32 {
+        match self {
+            Self::SameTitle => tokens.warning,
+            Self::Moved => tokens.accent,
+        }
+    }
+
+    /// The tooltip. An icon badge has no text, so its tooltip starts with
+    /// the badge's name.
+    fn hint(self, can_rename: bool, icon_only: bool) -> String {
+        let hint = match self {
+            Self::SameTitle if can_rename => format!("{SAME_TITLE_HINT} Click to rename."),
+            Self::SameTitle => SAME_TITLE_HINT.to_string(),
+            Self::Moved => "This window is on another monitor than in your saved layout.".into(),
+        };
+        if icon_only {
+            format!("{}. {hint}", self.text())
+        } else {
+            hint
+        }
+    }
+}
+
+/// The gap between a badge and the picture's top and right edges.
+const BADGE_INSET: f32 = 6.0;
+const BADGE_HEIGHT: f32 = 18.0;
+const BADGE_GAP: f32 = 4.0;
+/// The space a text badge adds round its text, in all.
+const BADGE_PAD: f32 = 12.0;
+const BADGE_ICON: f32 = 12.0;
+
+/// Where a picture's badges go, left to right and ending BADGE_INSET from
+/// its right edge, for badges whose text is `text_widths` wide. They are
+/// text badges when all of them fit in the picture's width less
+/// 2 * BADGE_INSET, otherwise every one of them is an 18 x 18 icon badge.
+/// Returns whether they are icons, and their rectangles.
+fn badge_rects(thumb: Rect, text_widths: &[f32]) -> (bool, Vec<Rect>) {
+    let gaps = BADGE_GAP * text_widths.len().saturating_sub(1) as f32;
+    let text_total: f32 = text_widths.iter().map(|width| width + BADGE_PAD).sum();
+    let icons = text_total + gaps > thumb.width() - 2.0 * BADGE_INSET;
+    let widths: Vec<f32> = text_widths
+        .iter()
+        .map(|width| {
+            if icons {
+                BADGE_HEIGHT
+            } else {
+                width + BADGE_PAD
+            }
+        })
+        .collect();
+    let total: f32 = widths.iter().sum::<f32>() + gaps;
+    let mut x = (thumb.right() - BADGE_INSET - total).max(thumb.left());
+    let top = thumb.top() + BADGE_INSET;
+    let rects = widths
+        .iter()
+        .map(|width| {
+            let rect = Rect::from_min_size(pos2(x, top), vec2(*width, BADGE_HEIGHT));
+            x += width + BADGE_GAP;
+            rect
+        })
+        .collect();
+    (icons, rects)
+}
+
+/// What `paint_badges` did.
+struct BadgesShown {
+    /// The rectangle round all the badges, or NOTHING when there are none.
+    clear: Rect,
+    /// The "Same title" badge was clicked and renaming is on.
+    renamed: bool,
+}
+
+/// Draws `badges` in the top right corner of a card's picture (`thumb`),
+/// never in the title line: as text when they all fit, else as icons with
+/// the text in a tooltip. "Same title" asks to rename when clicked, if
+/// `can_rename`.
+fn paint_badges(
+    ui: &Ui,
+    painter: &egui::Painter,
+    id: egui::Id,
+    thumb: Rect,
+    badges: &[Badge],
+    can_rename: bool,
+) -> BadgesShown {
+    let tokens = Tokens::get(ui.ctx());
+    let galleys: Vec<_> = badges
+        .iter()
+        .map(|badge| {
+            painter.layout_no_wrap(
+                badge.text().to_string(),
+                theme::regular(12.0),
+                badge.colour(&tokens),
+            )
+        })
+        .collect();
+    let widths: Vec<f32> = galleys.iter().map(|galley| galley.size().x).collect();
+    let (icons_only, rects) = badge_rects(thumb, &widths);
+    let mut shown = BadgesShown {
+        clear: Rect::NOTHING,
+        renamed: false,
+    };
+    for ((badge, galley), rect) in badges.iter().zip(galleys).zip(rects) {
+        let colour = badge.colour(&tokens);
+        painter.rect(
+            rect,
+            tokens.radius_row,
+            tokens.window_bg,
+            theme::line(ui.ctx(), colour),
+            StrokeKind::Inside,
+        );
+        if icons_only {
+            let glyph = Rect::from_center_size(rect.center(), Vec2::splat(BADGE_ICON));
+            icons::paint(painter, glyph, badge.icon(), colour);
+        } else {
+            painter.galley(rect.center() - galley.size() / 2.0, galley, colour);
+        }
+        let renames = *badge == Badge::SameTitle && can_rename;
+        let sense = if renames {
+            Sense::click()
+        } else {
+            Sense::hover()
+        };
+        let mut response = ui
+            .interact(rect, id.with(badge.text()), sense)
+            .on_hover_text(badge.hint(can_rename, icons_only));
+        if renames {
+            response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+            shown.renamed |= response.clicked();
+        }
+        shown.clear = if shown.clear.is_positive() {
+            shown.clear.union(rect)
+        } else {
+            rect
+        };
+    }
+    shown
 }
 
 /// Where a card's picture goes, below its label line.
@@ -3680,5 +3816,56 @@ mod tests {
         let mut none = HashMap::new();
         note_changes(&mut known, &mut none, &mut Vec::new(), None, &[back], now);
         assert!(none.is_empty());
+    }
+
+    fn thumb(width: f32) -> Rect {
+        Rect::from_min_size(pos2(100.0, 50.0), vec2(width, 81.0))
+    }
+
+    #[test]
+    fn badges_are_text_when_they_all_fit_in_the_picture_less_twelve() {
+        // 40 + 12 and 60 + 12 and a gap of 4 is 128.
+        let (icons, rects) = badge_rects(thumb(140.0), &[40.0, 60.0]);
+        assert!(!icons);
+        assert_eq!(rects[0].width(), 52.0);
+        assert_eq!(rects[1].width(), 72.0);
+        assert_eq!(rects[1].left() - rects[0].right(), BADGE_GAP);
+        assert_eq!(rects[1].right(), thumb(140.0).right() - BADGE_INSET);
+        assert_eq!(rects[0].top(), thumb(140.0).top() + BADGE_INSET);
+        assert_eq!(rects[0].height(), BADGE_HEIGHT);
+    }
+
+    #[test]
+    fn every_badge_becomes_an_icon_when_one_more_pixel_would_not_fit() {
+        assert!(!badge_rects(thumb(140.0), &[40.0, 60.0]).0);
+        let (icons, rects) = badge_rects(thumb(139.0), &[40.0, 60.0]);
+        assert!(icons);
+        assert!(rects.iter().all(|rect| rect.size() == Vec2::splat(18.0)));
+        let (icons, _) = badge_rects(thumb(139.0), &[40.0]);
+        assert!(!icons);
+    }
+
+    #[test]
+    fn badges_stay_inside_the_card_whatever_its_width() {
+        for width in [60.0, 90.0, 140.0, 228.0, 400.0] {
+            let card = Rect::from_min_size(pos2(96.0, 46.0), vec2(width + 8.0, 114.0));
+            let area = Rect::from_min_size(card.min + Vec2::splat(4.0), vec2(width, 81.0));
+            for widths in [vec![], vec![50.0], vec![50.0, 70.0]] {
+                let (_, rects) = badge_rects(area, &widths);
+                for rect in rects {
+                    assert!(card.contains_rect(rect), "{rect:?} in {card:?}");
+                    assert!(area.contains_rect(rect));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_title_row_keeps_no_room_for_badges() {
+        // The row's right edge is the picture's: a badge is on the picture.
+        let (_, rects) = badge_rects(thumb(200.0), &[50.0, 70.0]);
+        let picture = thumb(200.0);
+        assert!(rects.iter().all(|rect| rect.bottom() <= picture.bottom()));
+        assert!(rects.iter().all(|rect| rect.top() >= picture.top()));
     }
 }

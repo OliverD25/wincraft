@@ -8,9 +8,9 @@ use egui::{pos2, vec2, Rect, Response, Sense, Shape, StrokeKind, Ui, UiBuilder, 
 use super::{
     card_above_or_below, card_look, card_menu, ctrl_drop, ctrl_hint, ctrl_mark, ctrl_place,
     ctrl_target, float_picture, ghost_thumbnail, grown, hit_rect, line_width, middle_close,
-    name_card, nudge, number_chip, order_with_place, others, others_link, paint_look,
-    picture_width, place_in_row, taskbar_numbers, thumbnail, visible_flags, wrap, Drag, Frame,
-    Pending, Shared, NUMBER_GAP, SAME_TITLE_HINT, SLACK,
+    name_card, nudge, number_chip, order_with_place, others, others_link, paint_badges, paint_look,
+    picture_width, place_in_row, taskbar_numbers, thumbnail, visible_flags, wrap, Badge, Drag,
+    Frame, Pending, Shared, NUMBER_GAP, SLACK,
 };
 use crate::core::taskbar_scope::MultiMonitor;
 use crate::core::theme::{self, Tokens};
@@ -1611,6 +1611,17 @@ impl Draw<'_> {
             StrokeKind::Inside,
         );
         let picture = thumb.shrink(1.0);
+        let mut badges = Vec::new();
+        if window.same_title && !leaving {
+            badges.push(Badge::SameTitle);
+        }
+        if moved(window, self.monitors) {
+            badges.push(Badge::Moved);
+        }
+        let shown = paint_badges(ui, &painter, response.id, thumb, &badges, self.can_rename);
+        if shown.renamed {
+            frame.actions.push(ArrangeAction::AskName(window.hwnd));
+        }
         // The one live picture of a dragged window is the ghost's, so its
         // old place shows the name instead.
         let has_picture = !self.menu_open
@@ -1622,6 +1633,7 @@ impl Draw<'_> {
                 dest: picture,
                 clip: ui.clip_rect(),
                 opacity: (255.0 * alpha).round() as u8,
+                clear: shown.clear,
                 ghost: false,
             });
         } else {
@@ -1629,30 +1641,7 @@ impl Draw<'_> {
         }
 
         let title_top = thumb.bottom() + TITLE_GAP;
-        let mut right = rect.right() - CARD_PAD - 2.0;
-        // In the title line, not on the picture as in the design: DWM draws
-        // the picture over anything painted there.
-        if moved(window, self.monitors) {
-            let chip = title_chip(&painter, right, title_top, "Moved", tokens.accent);
-            right = chip.left() - 4.0;
-        }
-        if window.same_title && !leaving {
-            let chip = title_chip(&painter, right, title_top, "Same title", tokens.warning);
-            right = chip.left() - 4.0;
-            let mut chip_response = ui
-                .interact(chip, response.id.with("same-title"), Sense::click())
-                .on_hover_text(if self.can_rename {
-                    format!("{SAME_TITLE_HINT} Click to rename.")
-                } else {
-                    SAME_TITLE_HINT.to_string()
-                });
-            if self.can_rename {
-                chip_response = chip_response.on_hover_cursor(egui::CursorIcon::PointingHand);
-                if chip_response.clicked() {
-                    frame.actions.push(ArrangeAction::AskName(window.hwnd));
-                }
-            }
-        }
+        let right = rect.right() - CARD_PAD - 2.0;
         let number = number_chip(
             &painter,
             pos2(rect.left() + CARD_PAD + 2.0, title_top),
@@ -1831,6 +1820,7 @@ impl Draw<'_> {
                 dest: source.map_or(picture_box, |source| cover(source, picture_box)),
                 clip: picture_box.intersect(ui.clip_rect()),
                 opacity: (255.0 * GHOST_OPACITY * alpha).round() as u8,
+                clear: Rect::NOTHING,
                 ghost: true,
             });
         } else {
@@ -2182,32 +2172,6 @@ fn insertion_bar(ui: &Ui, others: &[Rect], index: usize, start: egui::Pos2) {
     };
     ui.painter()
         .vline(x, egui::Rangef::new(top, top + CARD_HEIGHT), stroke);
-}
-
-/// A chip at the right of a card's title line, ending at `right`; returns
-/// its rectangle.
-fn title_chip(
-    painter: &egui::Painter,
-    right: f32,
-    top: f32,
-    text_line: &str,
-    colour: egui::Color32,
-) -> Rect {
-    let tokens = Tokens::get(painter.ctx());
-    let galley = painter.layout_no_wrap(text_line.to_string(), theme::regular(12.0), colour);
-    let chip = Rect::from_min_max(
-        pos2(right - galley.size().x - 12.0, top),
-        pos2(right, top + TITLE),
-    );
-    painter.rect(
-        chip,
-        tokens.radius_row,
-        tokens.window_bg,
-        theme::line(painter.ctx(), colour),
-        StrokeKind::Inside,
-    );
-    painter.galley(chip.center() - galley.size() / 2.0, galley, colour);
-    chip
 }
 
 /// The key hints under the bands, most needed first: when the strip is too
