@@ -266,6 +266,13 @@ pub enum ArrangeAction {
     },
     /// Ask for a name for the window, in the palette.
     AskName(isize),
+    /// Start a new window of the app of `hwnd`, whose taskbar group is
+    /// `group`, and bring it to the front. The strip's own plugin does it,
+    /// whichever plugin gives the windows.
+    NewWindow {
+        group: String,
+        hwnd: isize,
+    },
 }
 
 impl ArrangeAction {

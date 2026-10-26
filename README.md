@@ -194,7 +194,8 @@ its settings and hotkey over with the same values.
 | `Win+Alt+A` | Wait 3 seconds for a taskbar number and open WindowDeck for that button; press `Win+Alt+A` again for the app in front. If no number comes within 0.7 s, a number shows over each taskbar button |
 
 Inside WindowDeck, a number opens the window whose card shows it (0 is
-10), and Ctrl and a number open WindowDeck for that taskbar button.
+10), and Ctrl and a number open WindowDeck for that taskbar button. Ctrl+W
+closes the picked window, and Ctrl+N opens a new window of the app.
 
 **Open WindowDeck with Win+1…9** (off until you switch it on in
 WindowDeck's settings): Win and a number open WindowDeck for that taskbar

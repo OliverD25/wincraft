@@ -202,6 +202,8 @@ impl OwnWindows {
             ArrangeAction::Close(_) => "closing a window",
             // The host sends names to WindowNamer; they never come here.
             ArrangeAction::Rename { .. } | ArrangeAction::AskName(_) => return After::Nothing,
+            // WindowDeck itself starts new windows; see `new_window`.
+            ArrangeAction::NewWindow { .. } => return After::Nothing,
         };
         if self.refuses(what) {
             return After::Nothing;
@@ -236,7 +238,9 @@ impl OwnWindows {
                 window_actions::close(*hwnd as HWND);
                 After::Refresh
             }
-            ArrangeAction::Rename { .. } | ArrangeAction::AskName(_) => After::Nothing,
+            ArrangeAction::Rename { .. }
+            | ArrangeAction::AskName(_)
+            | ArrangeAction::NewWindow { .. } => After::Nothing,
         }
     }
 

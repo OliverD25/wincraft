@@ -149,8 +149,9 @@ at all, keeps ordinary columns.
   window, a number switches to the window whose card shows that number
   (0 is 10), Ctrl and a number open WindowDeck for that taskbar button, D
   shows or hides the other desktops, Esc closes the strip, Alt+← and Alt+→ give it the next
-  lower or higher number (see **Changing a window's number**). The footer
-  lists the keys.
+  lower or higher number (see **Changing a window's number**). Ctrl+W
+  closes the picked window and Ctrl+N opens a new window of the app (see
+  **Close and new window**). The footer lists the keys.
 
 ### Flat
 
@@ -178,6 +179,10 @@ its height; beyond that the mouse wheel scrolls it. In both views:
   the taskbar shows one desktop at a time. The numbers change at once when
   you drag a picture. To give a window another number without moving it to
   another monitor, see **Changing a window's number** below.
+- **Move the mouse** onto a picture to pick it. The mouse counts only once
+  it moves after the strip opened, so a strip that opens under a resting
+  mouse picks nothing by itself; after that the picture under the mouse is
+  the picked one, and the keys go on from it. A click works at once.
 - **Rest the mouse** on a picture for a quarter of a second to see that
   window where it really is: its monitor goes dark and the window's live
   picture is drawn on top, even for a window on another desktop. The window
@@ -201,8 +206,25 @@ its height; beyond that the mouse wheel scrolls it. In both views:
 - **Keyboard (Flat):** ← and → pick a window, Ctrl+← and Ctrl+→ move it,
   Alt+← and Alt+→ change its number, D shows or hides the other desktops,
   Enter switches to it, a number switches to the window whose card shows it,
-  Ctrl and a number open WindowDeck for that taskbar button, Esc closes the
-  strip. The strip also closes when you click elsewhere.
+  Ctrl and a number open WindowDeck for that taskbar button, Ctrl+W closes
+  the window, Ctrl+N opens a new one, Esc closes the strip. The strip also
+  closes when you click elsewhere.
+
+### Close and new window
+
+These keys work in every view, on a card or a ghost.
+
+- **Ctrl+W** asks the picked window to close, as its own close button
+  would, so the app can still ask to save first. The next card is picked
+  (or the one before, after the last); WindowDeck stays open, and closes
+  when the app has no window left.
+- **Ctrl+N** starts the app again, as Shift and a click on its taskbar
+  button do: from its Start menu entry, or else from its program file with
+  nothing added. WindowDeck closes, and the new window comes to the front
+  when it appears within 5 seconds. Some apps only bring an old window
+  forward; then nothing more happens, and no other window is touched.
+
+A test instance closes and starts nothing.
 
 ### Changing a window's number
 

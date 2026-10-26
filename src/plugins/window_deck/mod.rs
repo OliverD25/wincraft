@@ -6,6 +6,7 @@
 //! windows itself (`own_windows`).
 
 pub mod hover_preview;
+mod new_window;
 mod own_windows;
 mod popup_guard;
 mod win_digit;
@@ -36,6 +37,8 @@ const COMMAND_HOVER_STRIP: u32 = 1;
 /// other plugin's.
 const REFRESH_TIMER_ID: usize = 0x5744_0003;
 const REFRESH_DELAY_MS: u32 = 300;
+/// Looks for the new window Ctrl+N asked for; "WD" and 5.
+const NEW_WINDOW_TIMER_ID: usize = 0x5744_0005;
 
 const HOVER_STRIP_KEY: &str = "taskbar_hover_strip";
 const HOVER_DELAY_KEY: &str = "hover_delay_seconds";
@@ -67,6 +70,8 @@ pub struct WindowDeck {
     read_only: bool,
     /// The windows for the strip when LayoutKeeper does not give them.
     own: own_windows::OwnWindows,
+    /// The new window Ctrl+N started, while it is awaited.
+    new_window: Option<new_window::Wait>,
 }
 
 impl Default for WindowDeck {
@@ -82,6 +87,7 @@ impl Default for WindowDeck {
             hook_refused: false,
             read_only: instance::is_test(),
             own: own_windows::OwnWindows::new(instance::is_test()),
+            new_window: None,
         }
     }
 }
@@ -158,6 +164,50 @@ impl WindowDeck {
             .hover
             .set(self.host_hwnd, self.hover_strip, self.hover_delay_ms);
         run_hover(commands);
+    }
+
+    /// Ctrl+N in the strip: a new window of the app of `hwnd`.
+    fn start_new_window(&mut self, group: &str, hwnd: isize) {
+        if self.read_only {
+            log::info!("read-only test instance: starting a new window of {group} skipped");
+            return;
+        }
+        self.stop_new_window();
+        self.new_window = new_window::start(group, hwnd);
+        if let (Some(_), Some(host)) = (&self.new_window, self.host_hwnd) {
+            unsafe { SetTimer(host, NEW_WINDOW_TIMER_ID, new_window::LOOK_MS, None) };
+        }
+    }
+
+    fn new_window_tick(&mut self) {
+        let Some(wait) = &self.new_window else {
+            self.stop_new_window();
+            return;
+        };
+        let now = new_window::windows_of(wait.group());
+        match wait.look(&now, std::time::Instant::now()) {
+            new_window::Look::Found(hwnd) => {
+                log::info!("Ctrl+N: the new window of {} came", wait.group());
+                new_window::bring(hwnd);
+                self.stop_new_window();
+            }
+            new_window::Look::TooLate => {
+                log::info!(
+                    "Ctrl+N: no new window of {} within {} s; nothing more is done",
+                    wait.group(),
+                    new_window::WAIT.as_secs()
+                );
+                self.stop_new_window();
+            }
+            new_window::Look::Waiting => {}
+        }
+    }
+
+    fn stop_new_window(&mut self) {
+        self.new_window = None;
+        if let Some(host) = self.host_hwnd {
+            unsafe { KillTimer(host, NEW_WINDOW_TIMER_ID) };
+        }
     }
 
     fn hover_tick(&mut self) {
@@ -432,6 +482,10 @@ impl WinCraftPlugin for WindowDeck {
     }
 
     fn on_arrange_action(&mut self, action: &ArrangeAction) {
+        if let ArrangeAction::NewWindow { group, hwnd } = action {
+            self.start_new_window(group, *hwnd);
+            return;
+        }
         if self.own.act(action) == own_windows::After::Refresh {
             self.refresh_soon();
         }
@@ -445,6 +499,7 @@ impl WinCraftPlugin for WindowDeck {
         match wparam {
             hover_preview::TIMER_ID => self.hover_tick(),
             popup_guard::TIMER_ID => popup_guard::tick(),
+            NEW_WINDOW_TIMER_ID => self.new_window_tick(),
             REFRESH_TIMER_ID => {
                 if let Some(hwnd) = self.host_hwnd {
                     unsafe { KillTimer(hwnd, REFRESH_TIMER_ID) };
@@ -460,6 +515,7 @@ impl WinCraftPlugin for WindowDeck {
             unsafe { KillTimer(hwnd, REFRESH_TIMER_ID) };
         }
         self.own.clear();
+        self.stop_new_window();
         run_hover(self.hover.stop());
         win_digit::stop();
         popup_guard::configure(None, false, false);
@@ -479,6 +535,16 @@ mod tests {
             read_only: true,
             ..WindowDeck::default()
         }
+    }
+
+    #[test]
+    fn a_read_only_instance_starts_no_new_window() {
+        let mut deck = test_deck();
+        deck.on_arrange_action(&ArrangeAction::NewWindow {
+            group: "notepad".to_string(),
+            hwnd: 0x7fff_fff0,
+        });
+        assert!(deck.new_window.is_none());
     }
 
     #[test]

@@ -143,6 +143,16 @@ fn middle_close(hwnd: isize, ghost: bool) -> Option<isize> {
     (!ghost).then_some(hwnd)
 }
 
+/// The card picked after Ctrl+W closes `closed`: the next one in `order`,
+/// else the one before. None when it was the only card.
+pub fn after_close(order: &[isize], closed: isize) -> Option<isize> {
+    let at = order.iter().position(|hwnd| *hwnd == closed)?;
+    order
+        .get(at + 1)
+        .or_else(|| at.checked_sub(1).and_then(|before| order.get(before)))
+        .copied()
+}
+
 /// A window that is gone, kept on screen while its card fades out.
 #[derive(Clone, Debug)]
 struct Leaving {
@@ -787,6 +797,8 @@ struct Shared {
     focus_wanted: bool,
     /// Whether the mouse has moved since the strip opened.
     pointer: pointer::Pointer,
+    /// Ctrl+W closed the last card: the strip goes once its window is gone.
+    close_when_empty: bool,
 }
 
 impl Shared {
@@ -1005,6 +1017,7 @@ impl Arrange {
                 reveal_window: 0,
                 focus_wanted: false,
                 pointer: pointer::Pointer::default(),
+                close_when_empty: false,
             })),
             palette_hwnd,
         }
@@ -1019,6 +1032,7 @@ impl Arrange {
             shared.reveal = reveal::Reveal::waiting(Instant::now());
         }
         shared.pointer.rest(cursor_position());
+        shared.close_when_empty = false;
         shared.key = snapshot
             .groups
             .get(snapshot.focus)
@@ -1587,8 +1601,14 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
         shared.thumbs.clear();
         shared.ghost_thumbs.clear();
         shared.hide_peek();
+        if shared.close_when_empty {
+            shared.closed = true;
+        }
         return;
     };
+    if shared.close_when_empty && group.windows.iter().all(|w| shared.is_leaving(w.hwnd)) {
+        shared.closed = true;
+    }
 
     let before = (shared.cursor, shared.cursor_ghost);
     let threshold = pointer::threshold(ui.ctx().pixels_per_point());
@@ -1713,6 +1733,33 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     if frame.activate.is_none() {
         frame.activate = digit_card;
     }
+    if !menu_open && shared.drag.is_none() {
+        let (close_key, new_key) = ctx.input_mut(|i| {
+            (
+                i.consume_key(egui::Modifiers::CTRL, egui::Key::W),
+                i.consume_key(egui::Modifiers::CTRL, egui::Key::N),
+            )
+        });
+        if close_key {
+            ctrl_w(shared, &mut frame);
+        }
+        if new_key {
+            let hwnd = shared
+                .cursor
+                .or_else(|| group.windows.first().map(|window| window.hwnd));
+            if let Some(hwnd) = hwnd {
+                shared.to_host.send(HostRequest::Arrange {
+                    plugin: snapshot.look_plugin.clone(),
+                    action: ArrangeAction::NewWindow {
+                        group: group.key.clone(),
+                        hwnd,
+                    },
+                });
+                shared.hide_peek();
+                shared.closed = true;
+            }
+        }
+    }
     // A card under a mouse that has not moved since the strip opened is not
     // hovered at all; one under a moved mouse is the selected card.
     if !awake || menu_open || shared.drag.is_some() {
@@ -1804,6 +1851,42 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
             action: ArrangeAction::Activate(hwnd),
         });
         shared.closed = true;
+    }
+}
+
+/// What Ctrl+W does: the window to close, the picked card's, and the card
+/// picked after it, from the cards on screen in their order. Nothing when
+/// no card is picked or its window is already going.
+pub fn ctrl_w_plan(
+    cards: &[isize],
+    cursor: Option<isize>,
+    leaving: &dyn Fn(isize) -> bool,
+) -> Option<(isize, Option<isize>)> {
+    let hwnd = cursor.filter(|hwnd| !leaving(*hwnd))?;
+    let mut order: Vec<isize> = Vec::new();
+    for card in cards {
+        if !order.contains(card) && !leaving(*card) {
+            order.push(*card);
+        }
+    }
+    if !order.contains(&hwnd) {
+        order.push(hwnd);
+    }
+    Some((hwnd, after_close(&order, hwnd)))
+}
+
+/// Ctrl+W: the picked card's window is asked to close, as a middle-click
+/// does, and the card next to it is picked. The strip stays open.
+fn ctrl_w(shared: &mut Shared, frame: &mut Frame) {
+    let cards: Vec<isize> = frame.cards.iter().map(|(hwnd, _)| *hwnd).collect();
+    let Some((hwnd, next)) = ctrl_w_plan(&cards, shared.cursor, &|h| shared.is_leaving(h)) else {
+        return;
+    };
+    shared.cursor = next;
+    shared.cursor_ghost = false;
+    shared.close_when_empty = next.is_none();
+    if !frame.close.contains(&hwnd) {
+        frame.close.push(hwnd);
     }
 }
 
@@ -2635,6 +2718,7 @@ fn apply_locally(shared: &mut Shared, action: &ArrangeAction) {
         }
         ArrangeAction::Rename { name: None, .. }
         | ArrangeAction::AskName(_)
+        | ArrangeAction::NewWindow { .. }
         | ArrangeAction::Activate(_) => {}
     }
 }
@@ -3839,6 +3923,30 @@ mod tests {
             reorder(ctrl_drop(&group, &desktops, 3, 2)),
             Some(vec![0, 1, 3, 2, 4, 5])
         );
+    }
+
+    #[test]
+    fn ctrl_w_picks_the_next_card_else_the_one_before() {
+        assert_eq!(after_close(&[1, 2, 3], 2), Some(3), "a middle card");
+        assert_eq!(after_close(&[1, 2, 3], 3), Some(2), "the last card");
+        assert_eq!(after_close(&[1, 2, 3], 1), Some(2), "the first card");
+        assert_eq!(after_close(&[7], 7), None, "the only card");
+        assert_eq!(after_close(&[1, 2], 9), None, "not on screen");
+    }
+
+    #[test]
+    fn ctrl_w_closes_the_picked_window_and_picks_its_neighbour() {
+        let none = |_: isize| false;
+        assert_eq!(ctrl_w_plan(&[1, 2, 3], Some(2), &none), Some((2, Some(3))));
+        assert_eq!(ctrl_w_plan(&[1, 2, 3], Some(3), &none), Some((3, Some(2))));
+        assert_eq!(ctrl_w_plan(&[4], Some(4), &none), Some((4, None)));
+        assert_eq!(ctrl_w_plan(&[1, 2], None, &none), None, "nothing picked");
+        // A ghost's window has a card too, so it appears twice.
+        assert_eq!(ctrl_w_plan(&[1, 2, 1], Some(1), &none), Some((1, Some(2))));
+        // Cards whose windows are already going are skipped.
+        let going = |hwnd: isize| hwnd == 3;
+        assert_eq!(ctrl_w_plan(&[1, 2, 3], Some(2), &going), Some((2, Some(1))));
+        assert_eq!(ctrl_w_plan(&[1, 3], Some(3), &going), None);
     }
 
     #[test]

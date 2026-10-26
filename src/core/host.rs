@@ -1862,7 +1862,10 @@ impl Host {
                     plugin.as_str()
                 };
                 self.arrange_action(owner, &action);
-                if !matches!(action, ArrangeAction::Activate(_)) {
+                if !matches!(
+                    action,
+                    ArrangeAction::Activate(_) | ArrangeAction::NewWindow { .. }
+                ) {
                     self.send_arrange(false);
                 }
             }

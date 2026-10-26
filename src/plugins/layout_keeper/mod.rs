@@ -2671,8 +2671,11 @@ impl WinCraftPlugin for LayoutKeeper {
             ArrangeAction::MoveToDesktop { .. } => "moving a window to another desktop",
             ArrangeAction::MoveToMonitor { .. } => "moving a window to another monitor",
             ArrangeAction::Close(_) => "closing a window",
-            // The host sends names to WindowNamer; they never come here.
-            ArrangeAction::Rename { .. } | ArrangeAction::AskName(_) => return,
+            // The host sends names to WindowNamer and new windows to the
+            // strip's own plugin; they never come here.
+            ArrangeAction::Rename { .. }
+            | ArrangeAction::AskName(_)
+            | ArrangeAction::NewWindow { .. } => return,
         };
         if self.refuses(what) {
             return;
@@ -2725,7 +2728,9 @@ impl WinCraftPlugin for LayoutKeeper {
                 window_actions::close(*hwnd as HWND);
                 self.arrange_stale = true;
             }
-            ArrangeAction::Rename { .. } | ArrangeAction::AskName(_) => {}
+            ArrangeAction::Rename { .. }
+            | ArrangeAction::AskName(_)
+            | ArrangeAction::NewWindow { .. } => {}
         }
     }
 
