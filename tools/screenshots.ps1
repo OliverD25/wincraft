@@ -76,6 +76,9 @@ public static class Shot {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassNameW(IntPtr hwnd, StringBuilder text, int length);
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
     [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out RECT rect, int size);
+    [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
+    [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT point);
+    [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
 
     static readonly IntPtr PerMonitorAware2 = new IntPtr(-4);
 
@@ -133,6 +136,32 @@ public static class Shot {
         }, IntPtr.Zero);
         SetThreadDpiAwarenessContext(previous);
         return found;
+    }
+
+    /// How many of a 5 x 5 grid of points inside `rect` show a window of
+    /// another process. Copying the screen captures whatever is on top, so a
+    /// covered test window would save the user's own window instead.
+    public static int CoveredPoints(RECT rect, uint pid) {
+        IntPtr previous = SetThreadDpiAwarenessContext(PerMonitorAware2);
+        int covered = 0;
+        try {
+            int inset = 8;
+            for (int i = 0; i < 5; i++) {
+                for (int j = 0; j < 5; j++) {
+                    POINT point;
+                    point.X = rect.Left + inset + (rect.Right - rect.Left - 2 * inset) * i / 4;
+                    point.Y = rect.Top + inset + (rect.Bottom - rect.Top - 2 * inset) * j / 4;
+                    IntPtr hit = WindowFromPoint(point);
+                    IntPtr root = hit == IntPtr.Zero ? IntPtr.Zero : GetAncestor(hit, 2);
+                    uint owner = 0;
+                    if (root != IntPtr.Zero) { GetWindowThreadProcessId(root, out owner); }
+                    if (owner != pid) { covered++; }
+                }
+            }
+        } finally {
+            SetThreadDpiAwarenessContext(previous);
+        }
+        return covered;
     }
 
     public static void Capture(RECT rect, string path) {
@@ -538,8 +567,16 @@ try {
                 $target = Find-Target $script:current $scene.Window
             }
             if ($target) {
-                [Shot]::Capture($target.Rect, (Join-Path $Out $file))
-                $line = '{0}  {1}x{2} at ({3},{4})' -f $file, $target.Width, $target.Height, $target.Rect.Left, $target.Rect.Top
+                # Never save another window in place of ours: it may be private.
+                [void][Shot]::SetForegroundWindow($target.Handle)
+                Start-Sleep -Milliseconds 300
+                $covered = [Shot]::CoveredPoints($target.Rect, [uint32]$script:current.Id)
+                if ($covered -eq 0) {
+                    [Shot]::Capture($target.Rect, (Join-Path $Out $file))
+                    $line = '{0}  {1}x{2} at ({3},{4})' -f $file, $target.Width, $target.Height, $target.Rect.Left, $target.Rect.Top
+                } else {
+                    $line = "$file  SKIPPED: another window covers $covered of 25 test points, so nothing was saved"
+                }
             } else {
                 $line = "$file  FAILED: no $($scene.Window) window appeared within 10 s"
             }
