@@ -19,7 +19,7 @@ use crate::core::ui_bridge::{
     self, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeMonitor, ArrangeSnapshot,
     ArrangeView, ArrangeWindow, HostChannel, HostRequest, PeekCard,
 };
-use crate::ui::dwm_thumbs::{self, Placement, Thumbnail};
+use crate::ui::dwm_thumbs::{self, picture_source, Placement, Thumbnail};
 use crate::ui::peek::{self, Hover, Peek, Step};
 use crate::ui::settings;
 use crate::ui::widgets::empty_state::empty_state;
@@ -487,24 +487,6 @@ pub fn picture_width(source: Option<Vec2>, height: f32) -> f32 {
         .filter(|size| size.x > 0.0 && size.y > 0.0)
         .unwrap_or(DEFAULT_SHAPE);
     (height * (shape.x / shape.y).clamp(NARROWEST, WIDEST)).round()
-}
-
-/// The part of a window its picture shows, in the window's own pixels: its
-/// visible frame, or the whole window when that frame does not fit it, as
-/// for a minimized window, whose frame is the small one it has while
-/// minimized.
-pub fn picture_source(frame: Option<Rect>, size: Vec2) -> Rect {
-    let whole = Rect::from_min_size(pos2(0.0, 0.0), size);
-    match frame {
-        Some(frame)
-            if whole.contains_rect(frame)
-                && frame.width() >= size.x / 2.0
-                && frame.height() >= size.y / 2.0 =>
-        {
-            Rect::from_min_max(frame.min.round(), frame.max.round())
-        }
-        _ => whole,
-    }
 }
 
 /// Cards of these widths in lines no wider than `available`, in order:

@@ -163,6 +163,24 @@ fn rect(r: [i32; 4]) -> RECT {
     }
 }
 
+/// The part of a window its picture shows, in the window's own pixels: its
+/// visible frame, or the whole window when that frame does not fit it, as
+/// for a minimized window, whose frame is the small one it has while
+/// minimized.
+pub fn picture_source(frame: Option<Rect>, size: Vec2) -> Rect {
+    let whole = Rect::from_min_size(pos2(0.0, 0.0), size);
+    match frame {
+        Some(frame)
+            if whole.contains_rect(frame)
+                && frame.width() >= size.x / 2.0
+                && frame.height() >= size.y / 2.0 =>
+        {
+            Rect::from_min_max(frame.min.round(), frame.max.round())
+        }
+        _ => whole,
+    }
+}
+
 /// The largest size with the source's aspect ratio that fits in `area`.
 pub fn fit(source: Vec2, area: Vec2) -> Vec2 {
     if source.x <= 0.0 || source.y <= 0.0 {

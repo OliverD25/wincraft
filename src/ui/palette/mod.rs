@@ -1233,8 +1233,7 @@ impl Palette {
             inspector::no_picture(painter, rect, tokens);
             return;
         };
-        let source =
-            crate::ui::arrange::picture_source(dwm_thumbs::visible_frame(hwnd as HWND), size);
+        let source = dwm_thumbs::picture_source(dwm_thumbs::visible_frame(hwnd as HWND), size);
         let fitted = dwm_thumbs::fit(source.size(), rect.size());
         let dest = Rect::from_center_size(rect.center(), fitted);
         let placement = dwm_thumbs::crop(dest, rect, source).map(|(shown, cropped)| Placement {
