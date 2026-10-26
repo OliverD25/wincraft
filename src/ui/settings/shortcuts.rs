@@ -718,7 +718,7 @@ fn list(
     painter.text(
         pos2(header.left() + shortcut_left, header.center().y),
         Align2::LEFT_CENTER,
-        "Shortcut",
+        "Hotkey",
         theme::regular(12.0),
         tokens.text_secondary,
     );
@@ -1101,7 +1101,7 @@ fn row(
 }
 
 /// The keys as caps, "Changed" when they are not the default, or
-/// "Add shortcut".
+/// "Add hotkey".
 fn shortcut_cell(
     ui: &mut Ui,
     view: &View,
@@ -1138,9 +1138,9 @@ fn shortcut_cell(
                 }
                 None => {
                     let (label, colour) = if hovered {
-                        ("+ Add shortcut", tokens.accent)
+                        ("+ Add hotkey", tokens.accent)
                     } else {
-                        ("Add shortcut", tokens.text_disabled)
+                        ("Add hotkey", tokens.text_disabled)
                     };
                     text::single(ui, text::job(label, theme::regular(13.0), colour, None));
                 }
@@ -1383,7 +1383,7 @@ fn row_actions(
     );
     if changed {
         let default = if info.default_binding.is_empty() {
-            "no shortcut".to_string()
+            "no hotkey".to_string()
         } else {
             info.default_binding.clone()
         };
@@ -1419,7 +1419,7 @@ fn row_actions(
                 send(to_host, &info.id, None);
             }
             let removable = !info.one_press && !info.binding.is_empty();
-            if menu_item(ui, Icon::Close, "Remove shortcut", "Delete", removable).clicked() {
+            if menu_item(ui, Icon::Close, "Remove hotkey", "Delete", removable).clicked() {
                 send(to_host, &info.id, Some(String::new()));
             }
         });
@@ -1495,7 +1495,7 @@ fn menu_item(ui: &mut Ui, icon: Icon, label: &str, key: &str, enabled: bool) -> 
     response
 }
 
-/// "Reset all shortcuts?" with the names of what goes back.
+/// "Reset all hotkeys?" with the names of what goes back.
 fn confirm_reset(ui: &mut Ui, view: &mut View, all: &[ShortcutInfo], to_host: &Arc<HostChannel>) {
     let tokens = Tokens::get(ui.ctx());
     let changed: Vec<&ShortcutInfo> = all
@@ -1507,7 +1507,7 @@ fn confirm_reset(ui: &mut Ui, view: &mut View, all: &[ShortcutInfo], to_host: &A
         text::single(
             ui,
             text::job(
-                "Reset all shortcuts?",
+                "Reset all hotkeys?",
                 theme::semibold(20.0),
                 tokens.text_primary,
                 Some(26.0),
@@ -1548,7 +1548,7 @@ fn confirm_reset(ui: &mut Ui, view: &mut View, all: &[ShortcutInfo], to_host: &A
     }
 }
 
-/// "2 shortcuts go back to their defaults: Arrange strip and Save current
+/// "2 hotkeys go back to their defaults: Arrange strip and Save current
 /// layout. You can change them again at any time."
 pub fn reset_text(changed: &[&ShortcutInfo]) -> String {
     let names: Vec<&str> = changed.iter().map(|info| info.label.as_str()).collect();
@@ -1558,9 +1558,9 @@ pub fn reset_text(changed: &[&ShortcutInfo]) -> String {
         [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     };
     let (count, verb, pronoun) = if names.len() == 1 {
-        ("1 shortcut".to_string(), "goes", "its default")
+        ("1 hotkey".to_string(), "goes", "its default")
     } else {
-        (format!("{} shortcuts", names.len()), "go", "their defaults")
+        (format!("{} hotkeys", names.len()), "go", "their defaults")
     };
     let them = if names.len() == 1 { "it" } else { "them" };
     format!("{count} {verb} back to {pronoun}: {listed}. You can change {them} again at any time.")
@@ -1655,11 +1655,11 @@ mod tests {
         let b = info("b", "Save current layout", "Win+Alt+K, S", "");
         assert_eq!(
             reset_text(&[&a, &b]),
-            "2 shortcuts go back to their defaults: Arrange strip and Save current layout. You can change them again at any time."
+            "2 hotkeys go back to their defaults: Arrange strip and Save current layout. You can change them again at any time."
         );
         assert_eq!(
             reset_text(&[&a]),
-            "1 shortcut goes back to its default: Arrange strip. You can change it again at any time."
+            "1 hotkey goes back to its default: Arrange strip. You can change it again at any time."
         );
     }
 

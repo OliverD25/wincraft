@@ -295,7 +295,7 @@ impl Filter {
         match self {
             Filter::All => "All",
             Filter::Changed => "Changed",
-            Filter::Unbound => "No shortcut",
+            Filter::Unbound => "No hotkey",
             Filter::Conflicts => "Conflicts",
         }
     }
