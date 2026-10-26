@@ -210,8 +210,10 @@ pub trait WinCraftPlugin {
     /// Moves what this plugin now owns out of `old`, the stored config of
     /// the `split_from` plugin, into `new`, and decides whether `new` starts
     /// on. Runs once, before `migrate_hotkeys`; the host saves both files.
-    fn take_over(&self, old: &mut PluginConfig, new: &mut PluginConfig) {
+    /// Returns whether anything was moved.
+    fn take_over(&self, old: &mut PluginConfig, new: &mut PluginConfig) -> bool {
         let _ = (old, new);
+        false
     }
 
     fn init(&mut self, ctx: &HostContext) -> Result<(), String>;

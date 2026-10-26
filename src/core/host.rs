@@ -2082,17 +2082,18 @@ impl PluginSet {
                     .get(from)
                     .cloned()
                     .unwrap_or_else(|| PluginConfig::load_in(&self.data, from));
-                slot.plugin.take_over(&mut old, &mut plugin);
-                log::info!(
-                    "{}: took over its settings from {from}; it starts {}",
-                    meta.id,
-                    if plugin.enabled { "on" } else { "off" }
-                );
-                if let Err(err) = old.save_in(&self.data, from) {
-                    log::error!("{err}");
-                }
-                if self.configs.contains_key(from) {
-                    self.configs.insert(from.to_string(), old);
+                if slot.plugin.take_over(&mut old, &mut plugin) {
+                    log::info!(
+                        "{}: took over its settings from {from}; it starts {}",
+                        meta.id,
+                        if plugin.enabled { "on" } else { "off" }
+                    );
+                    if let Err(err) = old.save_in(&self.data, from) {
+                        log::error!("{err}");
+                    }
+                    if self.configs.contains_key(from) {
+                        self.configs.insert(from.to_string(), old);
+                    }
                 }
             }
         }

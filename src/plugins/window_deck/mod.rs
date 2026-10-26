@@ -190,7 +190,7 @@ fn migrate_hover_delay(settings: &mut serde_json::Value) -> bool {
 /// when LayoutKeeper was on and the hover strip was on or the hotkey was
 /// set, so nothing the user had goes away (Principle 1). A LayoutKeeper
 /// file without any of them (a new install) changes nothing.
-fn take_over_from_keeper(old: &mut PluginConfig, new: &mut PluginConfig) {
+fn take_over_from_keeper(old: &mut PluginConfig, new: &mut PluginConfig) -> bool {
     let mut moved = false;
     if let Some(stored) = old.settings.as_object_mut() {
         if !new.settings.is_object() {
@@ -209,12 +209,13 @@ fn take_over_from_keeper(old: &mut PluginConfig, new: &mut PluginConfig) {
         moved = true;
     }
     if !moved {
-        return;
+        return false;
     }
     let hover_on = new.settings.get(HOVER_STRIP_KEY).and_then(|v| v.as_bool()) == Some(true);
     // A file without the hotkey used its default, so it was set.
     let hotkey_set = hotkey.is_none_or(|keys| !keys.trim().is_empty());
     new.enabled = old.enabled && (hover_on || hotkey_set);
+    true
 }
 
 impl WinCraftPlugin for WindowDeck {
@@ -288,8 +289,8 @@ impl WinCraftPlugin for WindowDeck {
         Some(SPLIT_FROM)
     }
 
-    fn take_over(&self, old: &mut PluginConfig, new: &mut PluginConfig) {
-        take_over_from_keeper(old, new);
+    fn take_over(&self, old: &mut PluginConfig, new: &mut PluginConfig) -> bool {
+        take_over_from_keeper(old, new)
     }
 
     fn on_settings_changed(&mut self, settings: &serde_json::Value) -> bool {
@@ -584,7 +585,7 @@ mod tests {
             true,
         );
         let mut new = PluginConfig::default();
-        test_deck().take_over(&mut old, &mut new);
+        assert!(test_deck().take_over(&mut old, &mut new));
         assert!(new.enabled);
         assert_eq!(new.settings["taskbar_hover_strip"], true);
         assert_eq!(new.settings["hover_delay_seconds"], 0.3);
@@ -642,7 +643,7 @@ mod tests {
             enabled: true,
             ..PluginConfig::default()
         };
-        take_over_from_keeper(&mut fresh, &mut new);
+        assert!(!take_over_from_keeper(&mut fresh, &mut new));
         assert!(new.enabled);
         assert!(new.hotkeys.is_empty());
         assert_eq!(fresh.settings, serde_json::json!({ "programs": "*" }));
