@@ -15,6 +15,10 @@ use crate::core::traits::Hotkey;
 pub const SECOND_DIGIT_MS: u64 = 400;
 /// How long Win+Alt+A waits for a digit.
 pub const WAIT_MS: u64 = 3000;
+/// How long the wait after Win+Alt+A goes without a digit before the
+/// badges and the line show. Someone who knows the number has typed it by
+/// then and never sees them.
+pub const REVEAL_MS: u64 = 700;
 const ESCAPE: u32 = 0x1B;
 
 /// The digits typed so far.
@@ -52,6 +56,47 @@ impl Digits {
     pub fn may_follow(&self, now: u64) -> bool {
         self.first
             .is_some_and(|(_, at)| now.saturating_sub(at) <= SECOND_DIGIT_MS)
+    }
+}
+
+/// When the badges and the line show during the wait after Win+Alt+A:
+/// only once the wait has gone `REVEAL_MS` without a digit.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Reveal {
+    since: Option<u64>,
+}
+
+impl Reveal {
+    /// A wait that started at `now` (milliseconds on any clock that only
+    /// goes forward).
+    pub fn start(now: u64) -> Self {
+        Self { since: Some(now) }
+    }
+
+    /// A digit came or the wait ended: this wait shows nothing any more.
+    pub fn cancel(&mut self) {
+        self.since = None;
+    }
+
+    /// Whether the badges are still to come.
+    pub fn pending(&self) -> bool {
+        self.since.is_some()
+    }
+
+    /// How long until the badges are due; `None` when they never will be.
+    pub fn left(&self, now: u64) -> Option<u64> {
+        self.since
+            .map(|since| (since + REVEAL_MS).saturating_sub(now))
+    }
+
+    /// True once, the first time it is asked at or after the badges are
+    /// due; after that they are no longer pending.
+    pub fn take_due(&mut self, now: u64) -> bool {
+        if self.left(now) == Some(0) {
+            self.since = None;
+            return true;
+        }
+        false
     }
 }
 
@@ -168,6 +213,25 @@ mod tests {
         assert_eq!(digits.press(1, 5000, 28), 1);
         assert!(!digits.may_follow(5401));
         assert_eq!(digits.press(3, 5401, 28), 3);
+    }
+
+    #[test]
+    fn the_badges_show_only_after_a_pause_without_a_digit() {
+        let mut reveal = Reveal::start(1000);
+        assert!(reveal.pending());
+        assert!(!reveal.take_due(1000));
+        assert!(!reveal.take_due(1699), "no badges before 700 ms");
+        assert_eq!(reveal.left(1500), Some(200));
+        assert!(reveal.take_due(1700), "badges at 700 ms");
+        assert!(!reveal.pending());
+        assert!(!reveal.take_due(1800), "once only");
+
+        let mut quick = Reveal::start(1000);
+        quick.cancel();
+        assert!(!quick.pending(), "a digit before 700 ms");
+        assert!(!quick.take_due(5000), "never shows them");
+        assert_eq!(quick.left(5000), None);
+        assert!(!Reveal::default().pending());
     }
 
     fn button(app: &str, left: i32) -> Button {

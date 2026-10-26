@@ -98,6 +98,9 @@ const CHECK_TIMER_MS: u32 = 60 * 60 * 1000;
 const HEALTHY_TIMER: usize = 0x5743_0003;
 /// Fades the "Updated to" notice, and the message its click posts.
 const NOTICE_TIMER: usize = 0x5743_0004;
+/// Shows the number badges once Win+Alt+A has waited a moment without a
+/// digit (`taskbar_number::REVEAL_MS`).
+const BADGE_TIMER: usize = 0x5743_0005;
 const WM_APP_NOTICE_CLICK: u32 = WM_APP + 23;
 /// Win+Alt+A, then a digit: the message the keyboard hook posts for a key it
 /// kept or for the end of the wait.
@@ -148,6 +151,9 @@ struct Host {
     clock: std::time::Instant,
     /// The number badges and the line while Win+Alt+A waits for a digit.
     wait_hint: Option<ui::taskbar_badges::WaitHint>,
+    /// When they show, and the line they show with it.
+    reveal: taskbar_number::Reveal,
+    reveal_line: String,
     updates: Updates,
     /// The "Updated to" panel while it is on screen.
     update_notice: Option<UpdateNotice>,
@@ -496,6 +502,8 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         buttons_at: None,
         clock: std::time::Instant::now(),
         wait_hint: None,
+        reveal: taskbar_number::Reveal::default(),
+        reveal_line: String::new(),
         updates: Updates::default(),
         update_notice: None,
         autostart_note: autostart::hands_off_note(),
@@ -1489,12 +1497,17 @@ impl Host {
         let fresh = self
             .buttons_at
             .is_some_and(|at| at.elapsed() < BUTTONS_FRESH);
-        if !(self.wait_hint.is_some() || self.digits.may_follow(now) || fresh) {
+        if !(self.wait_hint.is_some()
+            || self.reveal.pending()
+            || self.digits.may_follow(now)
+            || fresh)
+        {
             self.read_buttons();
         }
         let number = self.digits.press(digit, now, self.buttons.len());
-        // The badges go at once; the hook stays only as long as a second
-        // digit typed with Win+Alt still held could follow.
+        // The badges go at once, or never come; the hook stays only as long
+        // as a second digit typed with Win+Alt still held could follow.
+        self.stop_reveal();
         self.wait_hint = None;
         if self.digits.may_follow(now) {
             let wait = std::time::Duration::from_millis(taskbar_number::SECOND_DIGIT_MS);
@@ -1549,10 +1562,50 @@ impl Host {
             "the Arrange hotkey: waiting 3 s for a taskbar number ({} buttons)",
             self.buttons.len()
         );
-        self.wait_hint = Some(ui::taskbar_badges::WaitHint::show(
-            &self.buttons,
-            &taskbar_number::wait_line(keys),
-        ));
+        self.reveal = taskbar_number::Reveal::start(self.now_ms());
+        self.reveal_line = taskbar_number::wait_line(keys);
+        unsafe {
+            SetTimer(
+                self.hwnd,
+                BADGE_TIMER,
+                taskbar_number::REVEAL_MS as u32,
+                None,
+            )
+        };
+    }
+
+    fn now_ms(&self) -> u64 {
+        self.clock.elapsed().as_millis() as u64
+    }
+
+    /// The badge timer came round: the badges and the line show if the
+    /// wait still runs and no digit came.
+    fn reveal_tick(&mut self) {
+        unsafe { KillTimer(self.hwnd, BADGE_TIMER) };
+        let now = self.now_ms();
+        if !chord::waiting_for(self.hwnd as isize) {
+            self.reveal.cancel();
+            return;
+        }
+        if self.reveal.take_due(now) {
+            log::info!(
+                "no digit after {} ms: the badges show",
+                taskbar_number::REVEAL_MS
+            );
+            self.wait_hint = Some(ui::taskbar_badges::WaitHint::show(
+                &self.buttons,
+                &self.reveal_line,
+            ));
+        } else if let Some(left) = self.reveal.left(now) {
+            unsafe { SetTimer(self.hwnd, BADGE_TIMER, left.max(1) as u32, None) };
+        }
+    }
+
+    fn stop_reveal(&mut self) {
+        if self.reveal.pending() {
+            self.reveal.cancel();
+            unsafe { KillTimer(self.hwnd, BADGE_TIMER) };
+        }
     }
 
     /// The wait after the Arrange hotkey is over: the badges and the line go,
@@ -1561,6 +1614,7 @@ impl Host {
         chord::stop_for(self.hwnd as isize);
         self.chord_wait = None;
         CHORD_PRESS.with(|cell| cell.borrow_mut().take());
+        self.stop_reveal();
         self.wait_hint = None;
         self.digits = taskbar_number::Digits::default();
     }
@@ -3045,6 +3099,7 @@ fn message_name(msg: u32, wparam: WPARAM) -> String {
             UPDATE_TIMER => "WM_TIMER (update check)".to_string(),
             HEALTHY_TIMER => "WM_TIMER (healthy report)".to_string(),
             NOTICE_TIMER => "WM_TIMER (update notice)".to_string(),
+            BADGE_TIMER => "WM_TIMER (taskbar number badges)".to_string(),
             RETRY_TIMER => "WM_TIMER (redelivery)".to_string(),
             other => format!("WM_TIMER 0x{other:X}"),
         },
@@ -3349,6 +3404,10 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         WM_TIMER if wparam == chord::TIMER_ID => {
             chord::on_timer(hwnd as isize);
             with_host_or_later(hwnd, msg, wparam, lparam, |host| host.end_wait());
+            0
+        }
+        WM_TIMER if wparam == BADGE_TIMER => {
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| host.reveal_tick());
             0
         }
         WM_TIMER if wparam == NOTICE_TIMER => {
@@ -4478,6 +4537,8 @@ mod tests {
             buttons_at: None,
             clock: std::time::Instant::now(),
             wait_hint: None,
+            reveal: taskbar_number::Reveal::default(),
+            reveal_line: String::new(),
             updates: Updates::default(),
             update_notice: None,
             autostart_note: None,
