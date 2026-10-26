@@ -3,7 +3,7 @@
 //! monitors stand on the desk.
 
 use egui::text::TextWrapping;
-use egui::{pos2, vec2, Rect, Response, Sense, Shape, StrokeKind, Ui, UiBuilder, Vec2};
+use egui::{pos2, vec2, Color32, Rect, Response, Sense, Shape, StrokeKind, Ui, UiBuilder, Vec2};
 
 use super::{
     card_above_or_below, card_look, card_menu, ctrl_drop, ctrl_hint, ctrl_mark, ctrl_place,
@@ -1738,7 +1738,7 @@ impl Draw<'_> {
             alpha
         };
         painter.multiply_opacity(alpha);
-        dashed_box(ui, &painter, rect, false);
+        ghost_box(ui, &painter, rect, window.attention);
         if shared.cursor == Some(window.hwnd) && shared.cursor_ghost {
             // Outside the picture, which DWM would draw over.
             painter.rect_stroke(
@@ -2047,10 +2047,35 @@ fn ghost_chip(ui: &Ui, painter: &egui::Painter, centre_x: f32, bottom: f32, numb
     chip
 }
 
+/// A ghost's dashed outline. A window that wants attention gets the same
+/// orange tint as its real card, and the dashes turn orange, so the mark
+/// shows in the primary column too.
+fn ghost_box(ui: &Ui, painter: &egui::Painter, rect: Rect, attention: bool) {
+    let (fill, outline) = ghost_colours(&Tokens::get(ui.ctx()), attention);
+    if let Some(fill) = fill {
+        painter.rect_filled(rect, 4, fill);
+    }
+    dashed_outline(ui, painter, rect, outline);
+}
+
+/// A ghost's fill and dash colour.
+fn ghost_colours(tokens: &Tokens, attention: bool) -> (Option<Color32>, Color32) {
+    let outline = if attention {
+        tokens.warning
+    } else {
+        tokens.border
+    };
+    (card_look(tokens, None, attention).fill, outline)
+}
+
 /// A 1 px dashed outline, in the accent while a card is about to land in it.
 fn dashed_box(ui: &Ui, painter: &egui::Painter, rect: Rect, lit: bool) {
     let tokens = Tokens::get(ui.ctx());
     let colour = if lit { tokens.accent } else { tokens.border };
+    dashed_outline(ui, painter, rect, colour);
+}
+
+fn dashed_outline(ui: &Ui, painter: &egui::Painter, rect: Rect, colour: Color32) {
     let stroke = theme::line(ui.ctx(), colour);
     let r = rect.shrink(0.5);
     let corners = [
@@ -4140,5 +4165,15 @@ mod tests {
             drop_spot(pos2(210.0, 60.0), &zones, 5, (0, 1)),
             Some(spot(0, (0, 1), 1))
         );
+    }
+
+    #[test]
+    fn a_ghost_of_a_window_that_wants_attention_is_tinted_with_orange_dashes() {
+        let tokens = Tokens::dark();
+        let (fill, outline) = ghost_colours(&tokens, true);
+        assert_eq!(fill, card_look(&tokens, None, true).fill);
+        assert!(fill.is_some());
+        assert_eq!(outline, tokens.warning);
+        assert_eq!(ghost_colours(&tokens, false), (None, tokens.border));
     }
 }
