@@ -22,8 +22,10 @@ screenshots.
 - **Command palette** — `Win+Alt+P` opens a search box on the monitor your
   pointer is on. Type a few letters, press Enter. It finds WinCraft's commands,
   apps (Start menu, Store and installed), open windows, files and folders
-  (through Everything) and your bookmarks, and with a prefix it browses
-  folders, does sums and searches the web. See
+  (through Everything) and your bookmarks, works out sums as you type, and
+  with a prefix it browses folders, asks an AI website or searches the web.
+  Beside the list, an inspector shows what the selected row is and what it
+  can do. See
   [Command palette](#command-palette).
 - **Settings window** — General, Plugins, Keyboard shortcuts, Layout,
   Bookmarks, Plugin Store and About, with a page per plugin: its options, its
@@ -231,6 +233,19 @@ row, and Ctrl+K opens this page on that command.
 
 ## Command palette
 
+The palette is a list with an inspector beside it. The inspector follows the
+cursor: a live picture of a window, the row's title and words, what WinCraft
+knows about it, every action with its key (the first is what Enter does), and
+where the row comes from. → moves into the actions, ↑ ↓ pick one, Enter runs
+it, ← or Esc goes back. On a monitor narrower than 1100 px the palette is the
+list alone, and → opens the inspector over it.
+
+With nothing typed, the list starts with **Recent and suggested**: up to three
+open windows and apps you picked often. Open settings, the plugin store and
+Update WinCraft are not listed there; type their names to find them, or use
+the gear at the far left of the footer (Ctrl+,). Ctrl+P opens Settings →
+Plugins.
+
 Without a prefix, the palette searches five things at once and lists the best
 matches first: WinCraft's own commands (every plugin action, every plugin
 on/off switch, the host's items), your apps, the windows that are open on
@@ -244,7 +259,9 @@ second line of a row says which: the Start menu folder, "Store app" or
 from the install folder, skipping uninstallers, updaters and helper programs.
 
 A prefix typed at the start sends the search to one source only. It turns into
-a chip before the search box; Backspace in the empty box removes it.
+a chip before the search box; Backspace in the empty box removes it. Two
+sources also have a short word: `w` and a space searches the open windows,
+`a` and a space the apps (all of them, A to Z, while nothing else is typed).
 
 | Prefix | What it searches | Enter | Shift+Enter | Tab |
 |---|---|---|---|---|
@@ -253,10 +270,18 @@ a chip before the search box; Backspace in the empty box removes it.
 | `/` | Drives, then one folder at a time: `/C:\Users\` | Open the file or folder | Show it in Explorer, selected | Go into the folder |
 | `.` | Files and folders on every disk, through Everything (or the Windows index when it is not running): `.pswds` | Open it | Show it in Explorer, selected (Ctrl+Enter copies the path) | Go into the folder under `/` |
 | `'` | Your bookmarks, all of them when nothing is typed | Open it | Show it in Explorer, selected (Ctrl+Enter copies the target) | Go into the folder under `/` |
-| `=` | A sum: `+ - * / ^ %` and brackets; `×` and `÷` work too | Copy the answer | | Put the answer in the box |
+| `=` | A sum: `+ - * / ^ %` and brackets; `×` and `÷` work too. Without `=`, a finished sum such as `12*3` is answered at the top of the list | Copy the answer (Ctrl+C copies the sum with it, Ctrl+Enter pastes the answer into the window you were in) | | Put the answer in the box |
 | `>` | A command for the terminal shell chosen in settings (WSL bash unless you change it), then your earlier commands | Run it here, with its output in the palette | | Put the earlier command in the box |
 | `!` | WinCraft's own commands only: the host's items, then each plugin's actions and on/off switches. All of them when nothing is typed | Run it | | Put the command's name in the box |
-| `?` | Alone: this list of prefixes. With words: a web search | Pick the prefix, or search in your default browser | | Pick the prefix |
+| `?` | Alone: this list of prefixes. With words: Ask AI, then a web search. The **Ask AI** pill in the search bar does the same | Pick the prefix, or open the AI website chosen in settings with your question (Ctrl+Enter searches the web instead) | | Pick the prefix |
+
+Ask AI opens the website you choose in Settings → General → **Ask AI site**
+(Claude unless you change it; ChatGPT, Perplexity, Copilot or an address of
+your own) in your default browser, with the question filled in. WinCraft
+sends the question nowhere itself and needs no account or key.
+
+When nothing matches, the palette says so and offers **Try instead**: ask AI
+about what you typed (Enter), or search the web for it (Ctrl+Enter).
 
 In the calculator `%` after a number is a percentage (`200 * 15%` is 30) and
 between two numbers is the remainder (`10 % 3` is 1). A comma works as the
@@ -271,19 +296,32 @@ results you picked lead their own group. The calculator, web search and
 terminal are not ranked this way.
 
 WinCraft also remembers what you typed before you ran a result. Type the
-same text again, or the start of it, and that result comes first, so Enter
-runs it at once. If you picked two results for the same text, the one picked
+same text again, or the start of it, and that result comes first under
+**Best match**, marked "often picked", so Enter runs it at once. The
+inspector says how often you picked it for that text this month and when
+last; **Forget this pick** (Ctrl+Delete) stops it coming first for that text. If you picked two results for the same text, the one picked
 more often and more recently wins. When a WinCraft command has your text at
 the start of a word (`upd` finds "Update WinCraft"), the WinCraft group is
 shown above the apps. The counts and the typed texts are kept in
-`palette_usage.json` next to `config.json`; **Rank results by use** in
+`palette_usage.json` next to `config.json`; **Learn from my picks** in
 Settings → General switches all of this off, and **Clear usage history** forgets
 them.
 
 The keys: ↑ ↓ move, Enter runs, Shift+Enter does the second action, Tab
-completes, Esc closes. The footer always shows what Enter, Shift+Enter,
-Ctrl+Enter and Tab do on the selected row. On a folder or file row Ctrl+B
-bookmarks it, and Ctrl+Delete removes a bookmark.
+completes, Esc closes. The selected row shows the word for what Enter does,
+and the footer shows up to five keys for that row, Esc last. On a folder or
+file row Ctrl+B bookmarks it, and Ctrl+Delete removes a bookmark. On a
+command, Ctrl+K changes its shortcut.
+
+On a window row Enter switches to it, Shift+→ moves it to the next monitor,
+Ctrl+Enter opens it in the Arrange strip and Ctrl+W asks it to close, the way
+its own close button does. The inspector shows its program and process id,
+its monitor and virtual desktop, how much memory its program uses, and a
+**Show on all desktops** switch. Ctrl+Space, Shift+click or Ctrl+A mark
+windows; the inspector then lists the marked ones and its actions apply to
+all of them: arrange in the strip, move to the next monitor, minimise
+(Ctrl+M), close. Esc clears the marks before it closes the palette. Nothing
+happens to a window until you press one of these keys.
 
 ### Files and folders with Everything
 
@@ -452,7 +490,9 @@ in the log.
 | `search.terminal_shell` | What `>` runs commands in: `WSL bash`, `PowerShell 7`, `Windows PowerShell`, `Command Prompt` or `Custom`. |
 | `search.terminal_custom` | For `Custom`: a command line with `{cmd}` where the command goes and optionally `{cwd}` for the folder, such as `C:\msys64\usr\bin\bash.exe -lc {cmd}`. Without `{cmd}` WSL bash is used. |
 | `search.terminal_history` | Whether commands run from the palette are remembered. |
-| `search.rank_by_use` | Whether results you pick often move up, and picks and the text typed for them are kept in `palette_usage.json`. |
+| `search.rank_by_use` | **Learn from my picks**: whether results you pick often move up, and picks and the text typed for them are kept in `palette_usage.json`. |
+| `search.ask_ai_site` | The website Ask AI opens: `Claude`, `ChatGPT`, `Perplexity`, `Copilot` or `Custom URL`. |
+| `search.ask_ai_custom` | For `Custom URL`: the address with `{query}` where the question goes. It must start with `https://` or `http://`. |
 | `search.everything` | Whether files and folders are searched at all, in the blended list and after `.`: with Everything when it is running. |
 | `search.file_search_fallback` | Whether the Windows Search index answers file searches while Everything is not running. |
 | `updates.check_daily` | Whether GitHub is asked once a day for a newer release. |

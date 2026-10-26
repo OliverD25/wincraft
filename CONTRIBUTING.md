@@ -301,9 +301,21 @@ What to know:
   which returns another `Ask` when it needs more, such as a second Enter to
   confirm. `payload` is yours: it carries what the answer needs. The
   question is answered in the palette, with no trip through the host.
-- **Two more keys on a row:** `bookmark` is the action for Ctrl+B and
-  `delete` for Ctrl+Delete. The footer lists them and drops the least needed
-  hint instead of running into the wordmark.
+- **More keys on a row:** `bookmark` is the action for Ctrl+B, `delete` for
+  Ctrl+Delete and `copy` for Ctrl+C (when nothing is selected in the box).
+  The inspector lists every key a row has, the first being Enter, and the
+  footer shows at most five of them with Esc last, so give each choice a
+  short `label`: its first word is the Enter pill's verb ("Switch", "Copy").
+- **An answer leads the list.** Set `answer` on a row that is worked out
+  from the text, as the calculator's is: it goes first and its title is
+  drawn large.
+- **A scope word** is a short word that sends the search to you when a space
+  follows it, such as `w` for windows. Return it from `scope()`; a word that
+  is taken is not given twice, and the log says so.
+- **Suggestions under an empty box.** `suggestions()` returns rows for
+  "Recent and suggested". The palette shows the three picked most, and a row
+  with `open` set even when it was never picked; keep `open` for open
+  windows.
 - **Users can move or switch off your prefix** in config.json under
   `search.prefixes`, keyed by your provider's `id`. If your default prefix is
   already taken, your provider gets none and the log says so.
