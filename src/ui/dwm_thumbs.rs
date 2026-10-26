@@ -3,9 +3,9 @@ use windows_sys::Win32::Foundation::{HWND, RECT, SIZE};
 use windows_sys::Win32::Graphics::Dwm::{
     DwmGetWindowAttribute, DwmQueryThumbnailSourceSize, DwmRegisterThumbnail,
     DwmSetWindowAttribute, DwmUnregisterThumbnail, DwmUpdateThumbnailProperties,
-    DWMWA_BORDER_COLOR, DWMWA_EXTENDED_FRAME_BOUNDS, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
-    DWM_THUMBNAIL_PROPERTIES, DWM_TNP_OPACITY, DWM_TNP_RECTDESTINATION, DWM_TNP_RECTSOURCE,
-    DWM_TNP_SOURCECLIENTAREAONLY, DWM_TNP_VISIBLE,
+    DWMWA_BORDER_COLOR, DWMWA_CLOAK, DWMWA_EXTENDED_FRAME_BOUNDS, DWMWA_WINDOW_CORNER_PREFERENCE,
+    DWMWCP_ROUND, DWM_THUMBNAIL_PROPERTIES, DWM_TNP_OPACITY, DWM_TNP_RECTDESTINATION,
+    DWM_TNP_RECTSOURCE, DWM_TNP_SOURCECLIENTAREAONLY, DWM_TNP_VISIBLE,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowRect;
 
@@ -152,6 +152,20 @@ pub fn round_corners(window: HWND, border: u32) {
             std::mem::size_of::<u32>() as u32,
         );
     }
+}
+
+/// Keeps one of WinCraft's own windows off the screen while it still draws
+/// (`on`), or puts it back.
+pub fn cloak(window: HWND, on: bool) {
+    let value: i32 = on.into();
+    unsafe {
+        DwmSetWindowAttribute(
+            window,
+            DWMWA_CLOAK as u32,
+            &value as *const i32 as *const core::ffi::c_void,
+            std::mem::size_of::<i32>() as u32,
+        )
+    };
 }
 
 fn rect(r: [i32; 4]) -> RECT {

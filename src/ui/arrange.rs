@@ -10,7 +10,7 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetWindowRect, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE,
+    GetCursorPos, GetWindowRect, IsWindowVisible, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE,
 };
 
 use crate::core::taskbar_scope::MultiMonitor;
@@ -30,6 +30,7 @@ mod by_monitor;
 mod compact;
 mod hold;
 mod others;
+mod reveal;
 
 /// Unique, so the strip's window can be found among the UI thread's windows.
 const TITLE: &str = "WinCraft Arrange";
@@ -777,6 +778,12 @@ struct Shared {
     /// The compact popup's left edge while it is closed, kept when the other
     /// desktops open so its own cards stay where they are.
     compact_left: Option<i32>,
+    /// How far the strip's window is on its way to the screen.
+    reveal: reveal::Reveal,
+    /// The window `reveal` cloaked.
+    reveal_window: isize,
+    /// The strip is to take the keyboard once it is on screen.
+    focus_wanted: bool,
 }
 
 impl Shared {
@@ -923,6 +930,23 @@ impl Shared {
             _ => EMPTY_PANEL.min(limit),
         }
     }
+
+    /// Where the strip's window belongs now, in screen pixels.
+    fn wanted_rect(&mut self) -> Option<[i32; 4]> {
+        let monitor = self.monitor?;
+        let panel = self.panel();
+        let mut rect = monitor.rect_for(panel, self.anchor);
+        if self.compact() {
+            if self.others.shown(self.others_count()) {
+                if let Some(left) = self.compact_left {
+                    rect[0] = compact::keep_left(left, rect[2], monitor.work);
+                }
+            } else {
+                self.compact_left = Some(rect[0]);
+            }
+        }
+        Some(rect)
+    }
 }
 
 /// The mouse way to see and order a program's windows: live pictures of all
@@ -974,6 +998,9 @@ impl Arrange {
                 note: None,
                 anchor: None,
                 compact_left: None,
+                reveal: reveal::Reveal::Shown,
+                reveal_window: 0,
+                focus_wanted: false,
             })),
             palette_hwnd,
         }
@@ -983,6 +1010,10 @@ impl Arrange {
         let Ok(mut shared) = self.shared.lock() else {
             return;
         };
+        // A strip already on screen takes the new data where it is.
+        if shared.window == 0 && !shared.reveal.pending() {
+            shared.reveal = reveal::Reveal::waiting(Instant::now());
+        }
         shared.key = snapshot
             .groups
             .get(snapshot.focus)
@@ -1074,7 +1105,7 @@ impl Arrange {
             shared.select = Some(place);
             shared.wants_keyboard = true;
             if shared.window != 0 {
-                shared.to_host.send(HostRequest::FocusWindow(shared.window));
+                shared.focus_wanted = true;
             }
         }
     }
@@ -1123,6 +1154,9 @@ impl Arrange {
             shared.window = 0;
             ui_bridge::set_arrange_window(0);
             shared.anchor = None;
+            shared.reveal = reveal::Reveal::Shown;
+            shared.reveal_window = 0;
+            shared.focus_wanted = false;
             shared.only_monitor = None;
             shared.drag = None;
             shared.others.reset();
@@ -1137,7 +1171,58 @@ impl Arrange {
         }
     }
 
+    /// The palette thread's part of `reveal`: finds the strip's hidden
+    /// window, puts it in its place, cloaks it and lets it show; and shows a
+    /// strip that took too long to draw.
+    fn reveal_step(&self, ctx: &egui::Context) {
+        let Ok(mut shared) = self.shared.lock() else {
+            return;
+        };
+        let now = Instant::now();
+        let found = settings::find_window(TITLE, self.palette_hwnd);
+        if found != 0 && !shared.reveal.pending() && unsafe { IsWindowVisible(found as HWND) } == 0
+        {
+            // Made again by egui, or made after the wait had given up.
+            shared.reveal = reveal::Reveal::waiting(now);
+        }
+        if found != 0 && shared.reveal.found(now) {
+            if let Some(rect) = shared.wanted_rect() {
+                keep_placed(found as HWND, rect);
+            }
+            let border = theme::colorref(Tokens::get(ctx).border);
+            dwm_thumbs::round_corners(found as HWND, border);
+            dwm_thumbs::cloak(found as HWND, true);
+            shared.reveal_window = found;
+            ctx.send_viewport_cmd_to(viewport_id(), egui::ViewportCommand::Visible(true));
+            ctx.request_repaint_of(viewport_id());
+        }
+        let cloaked = matches!(shared.reveal, reveal::Reveal::Cloaked { .. });
+        if shared.reveal.overdue(now) {
+            if cloaked && shared.reveal_window != 0 {
+                dwm_thumbs::cloak(shared.reveal_window as HWND, false);
+                log::warn!(
+                    "the arrange strip was shown before it had drawn itself in place ({} ms)",
+                    reveal::LONGEST.as_millis()
+                );
+            } else {
+                log::warn!("the arrange strip's window did not come");
+            }
+        }
+        match shared.reveal {
+            reveal::Reveal::Waiting { .. } => {
+                ctx.request_repaint_after(Duration::from_millis(16));
+            }
+            reveal::Reveal::Cloaked { .. } => {
+                if let Some(left) = shared.reveal.left(now) {
+                    ctx.request_repaint_after(left);
+                }
+            }
+            reveal::Reveal::Shown => {}
+        }
+    }
+
     pub fn show(&self, ctx: &egui::Context, icon: Option<Arc<egui::IconData>>) {
+        self.reveal_step(ctx);
         let shared = Arc::clone(&self.shared);
         let palette_hwnd = self.palette_hwnd;
         let (panel, hovered) = self
@@ -1157,6 +1242,8 @@ impl Arrange {
             .with_taskbar(false)
             .with_resizable(false)
             .with_active(!hovered)
+            // Shown by `reveal_step` once it is in its place.
+            .with_visible(false)
             .with_inner_size(panel);
         if let Some(icon) = icon {
             builder = builder.with_icon(icon);
@@ -1170,33 +1257,36 @@ impl Arrange {
             if shared.window == 0 {
                 shared.window = settings::find_window(TITLE, palette_hwnd);
                 if shared.window != 0 {
-                    if let Some(asked) = shared.asked_at.take() {
-                        log::info!(
-                            "arrange strip on screen {} ms after the host asked for it",
-                            asked.elapsed().as_millis()
-                        );
-                    }
                     let border = theme::colorref(Tokens::get(ui.ctx()).border);
                     dwm_thumbs::round_corners(shared.window as HWND, border);
                     ui_bridge::set_arrange_window(shared.window);
                     if shared.anchor.is_none() || shared.wants_keyboard {
-                        shared.to_host.send(HostRequest::FocusWindow(shared.window));
+                        shared.focus_wanted = true;
                     }
                 }
             }
-            let panel = shared.panel();
-            if let (Some(monitor), true) = (shared.monitor, shared.window != 0) {
-                let mut rect = monitor.rect_for(panel, shared.anchor);
-                if shared.compact() {
-                    if shared.others.shown(shared.others_count()) {
-                        if let Some(left) = shared.compact_left {
-                            rect[0] = compact::keep_left(left, rect[2], monitor.work);
-                        }
-                    } else {
-                        shared.compact_left = Some(rect[0]);
-                    }
+            let mut placed = true;
+            if shared.window != 0 {
+                if let Some(rect) = shared.wanted_rect() {
+                    placed = keep_placed(shared.window as HWND, rect);
                 }
-                keep_placed(shared.window as HWND, rect);
+            }
+            if shared.reveal.frame(placed, Instant::now()) && shared.reveal_window != 0 {
+                dwm_thumbs::cloak(shared.reveal_window as HWND, false);
+            }
+            if shared.reveal.pending() {
+                ui.ctx().request_repaint();
+            } else if shared.window != 0 {
+                if let Some(asked) = shared.asked_at.take() {
+                    log::info!(
+                        "arrange strip on screen {} ms after the host asked for it",
+                        asked.elapsed().as_millis()
+                    );
+                }
+                // A cloaked window is not brought to the front.
+                if std::mem::take(&mut shared.focus_wanted) {
+                    shared.to_host.send(HostRequest::FocusWindow(shared.window));
+                }
             }
 
             let (escape, focused) = ui
@@ -1287,8 +1377,9 @@ fn under_cursor(rect: [i32; 4]) -> bool {
 }
 
 /// Moves the window where it belongs whenever it is not there: winit resizes
-/// it itself when it lands on a monitor with other scaling.
-fn keep_placed(hwnd: HWND, wanted: [i32; 4]) {
+/// it itself when it lands on a monitor with other scaling. True when it was
+/// there already.
+fn keep_placed(hwnd: HWND, wanted: [i32; 4]) -> bool {
     let mut now = RECT {
         left: 0,
         top: 0,
@@ -1302,19 +1393,21 @@ fn keep_placed(hwnd: HWND, wanted: [i32; 4]) {
         now.right - now.left,
         now.bottom - now.top,
     ];
-    if current != wanted {
-        unsafe {
-            SetWindowPos(
-                hwnd,
-                HWND_TOPMOST,
-                wanted[0],
-                wanted[1],
-                wanted[2],
-                wanted[3],
-                SWP_NOACTIVATE,
-            )
-        };
+    if current == wanted {
+        return true;
     }
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            wanted[0],
+            wanted[1],
+            wanted[2],
+            wanted[3],
+            SWP_NOACTIVATE,
+        )
+    };
+    false
 }
 
 /// A place in a row while laying out: a window, or the gap where the window
