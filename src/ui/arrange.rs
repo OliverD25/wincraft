@@ -265,6 +265,25 @@ pub fn taskbar_numbers(group: &ArrangeGroup, desktops: &[ArrangeDesktop]) -> Vec
     numbers
 }
 
+/// The window whose card shows number `digit` on this desktop (0 is 10),
+/// among the cards on screen (`visible`): what a plain digit in the strip
+/// opens. None when no card has that number.
+pub fn card_for_digit(
+    group: &ArrangeGroup,
+    desktops: &[ArrangeDesktop],
+    visible: &[bool],
+    digit: u8,
+) -> Option<isize> {
+    let number = if digit == 0 { 10 } else { usize::from(digit) };
+    let numbers = taskbar_numbers(group, desktops);
+    let this_desktop = rows(group, desktops).into_iter().next()?;
+    this_desktop
+        .members
+        .into_iter()
+        .find(|member| numbers[*member] == number && visible.get(*member).copied().unwrap_or(true))
+        .map(|member| group.windows[member].hwnd)
+}
+
 /// A window's place in its desktop's taskbar row (from 1) and how many
 /// windows the row has.
 pub fn place_in_row(
@@ -1500,12 +1519,21 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
         shared.others.toggle();
         ctx.request_repaint();
     }
+    // A plain digit opens the card with that number; Ctrl and a digit jump
+    // to that taskbar button's app, the way Win+Alt+A and a digit do.
+    let mut digit_card = None;
     if !menu_open && shared.drag.is_none() {
-        let digit = ctx.input_mut(|i| {
-            (0u8..=9).find(|digit| i.consume_key(egui::Modifiers::NONE, digit_key(*digit)))
-        });
-        if let Some(digit) = digit {
+        let typed = |modifiers: egui::Modifiers| {
+            ctx.input_mut(|i| (0u8..=9).find(|digit| i.consume_key(modifiers, digit_key(*digit))))
+        };
+        if let Some(digit) = typed(egui::Modifiers::CTRL) {
             shared.to_host.send(HostRequest::ArrangeDigit(digit));
+        }
+        if let Some(digit) = typed(egui::Modifiers::NONE) {
+            digit_card = card_for_digit(&group, &snapshot.desktops, &visible, digit);
+            if digit_card.is_none() {
+                log::info!("digit {digit} in the strip: no card has that number");
+            }
         }
     }
     if view != ArrangeView::ByMonitor {
@@ -1527,6 +1555,9 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
             flat(ui, shared, &group, &snapshot.desktops, rows_area, menu_open)
         }
     };
+    if frame.activate.is_none() {
+        frame.activate = digit_card;
+    }
 
     let in_rows = ctx
         .input(|i| i.pointer.hover_pos())
@@ -3078,6 +3109,40 @@ mod tests {
         let group = group(&["home", "work", "home", "work", "", "home"]);
         // The unknown desktop counts as this one, after the windows before it.
         assert_eq!(taskbar_numbers(&group, &desktops), [1, 1, 2, 2, 3, 3]);
+    }
+
+    #[test]
+    fn a_digit_opens_the_card_with_that_number_on_this_desktop() {
+        let desktops = [
+            desktop("home", "Home", false),
+            desktop("work", "Work", true),
+        ];
+        // This desktop's cards are windows 1, 3 and 4, numbered 1, 2, 3.
+        let group = group(&["home", "work", "home", "work", ""]);
+        let all = [true; 5];
+        assert_eq!(card_for_digit(&group, &desktops, &all, 1), Some(1));
+        assert_eq!(card_for_digit(&group, &desktops, &all, 3), Some(4));
+        assert_eq!(
+            card_for_digit(&group, &desktops, &all, 4),
+            None,
+            "no card 4"
+        );
+        assert_eq!(
+            card_for_digit(&group, &desktops, &all, 0),
+            None,
+            "no card 10"
+        );
+        // A card that is not on screen is not opened.
+        let hidden = [true, true, true, false, true];
+        assert_eq!(card_for_digit(&group, &desktops, &hidden, 2), None);
+
+        let twelve = self::group(&["work"; 12]);
+        let shown = [true; 12];
+        assert_eq!(
+            card_for_digit(&twelve, &desktops, &shown, 0),
+            Some(9),
+            "0 is 10"
+        );
     }
 
     #[test]

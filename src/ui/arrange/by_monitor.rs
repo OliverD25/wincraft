@@ -2202,6 +2202,7 @@ fn footer_hints(others_key: bool) -> Vec<(&'static str, &'static str)> {
         ("Ctrl + Shift + \u{2191}\u{2193}", "Next desktop"),
         ("Alt + \u{2190}\u{2192}", "Change number"),
         ("1\u{2013}9", "Open by number"),
+        ("Ctrl + 1\u{2013}9", "Taskbar button"),
     ];
     if others_key {
         hints.push(("D", "Other desktops"));
@@ -3649,11 +3650,13 @@ mod tests {
                 "Next desktop",
                 "Change number",
                 "Open by number",
+                "Taskbar button",
                 "Other desktops"
             ]
         );
         assert!(!keys(false).contains(&"Other desktops"));
         assert_eq!(footer_hints(false)[6].0, "1\u{2013}9");
+        assert_eq!(footer_hints(false)[7].0, "Ctrl + 1\u{2013}9");
         // Too narrow for all: they go from the end, and Select, Open and
         // Move stay even when they do not fit.
         let widths = [80.0, 60.0, 90.0, 140.0, 140.0];
