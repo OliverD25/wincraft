@@ -593,6 +593,8 @@ pub struct PaletteEntry {
     /// Found by typing only: left out of the list under an empty box, as
     /// Settings, the store and the update now live in Settings.
     pub quiet: bool,
+    /// A pill after the label, such as "0.20.20 available".
+    pub badge: Option<String>,
 }
 
 /// Everything the windows draw. Rebuilt whole after every change: a plugin's

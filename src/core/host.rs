@@ -1267,6 +1267,7 @@ impl Host {
 
     fn commands_with(&self, plugins: &[PluginInfo]) -> Vec<PaletteEntry> {
         let mut entries = self.plugins.palette_entries(plugins);
+        announce_update(&mut entries, &self.update_view());
         for entry in &mut entries {
             let hotkey = matches!(
                 entry.id,
@@ -2396,6 +2397,7 @@ impl PluginSet {
                         | HostCommand::OpenStore
                         | HostCommand::UpdateWinCraft
                 ),
+                badge: None,
             });
         }
         for (index, slot) in self.slots.iter().enumerate() {
@@ -2416,6 +2418,7 @@ impl PluginSet {
                 shortcut_id: String::new(),
                 shortcut: String::new(),
                 quiet: false,
+                badge: None,
             });
             // A plugin that is off keeps its commands in the list, dimmed, so
             // its hotkey does not seem to vanish; running one opens its page.
@@ -2442,6 +2445,7 @@ impl PluginSet {
                     shortcut_id: String::new(),
                     shortcut: String::new(),
                     quiet: false,
+                    badge: None,
                 });
             }
             for action in slot.plugin.tray_actions() {
@@ -2466,6 +2470,7 @@ impl PluginSet {
                     shortcut_id: String::new(),
                     shortcut: String::new(),
                     quiet: false,
+                    badge: None,
                 });
             }
             for command in slot.plugin.palette_commands() {
@@ -2486,6 +2491,7 @@ impl PluginSet {
                     shortcut_id: String::new(),
                     shortcut: String::new(),
                     quiet: false,
+                    badge: None,
                 });
             }
         }
@@ -2547,6 +2553,23 @@ impl PluginSet {
         };
         if let Err(err) = plugin.save_in(&self.data, id) {
             log::error!("could not save the settings for {id}: {err}");
+        }
+    }
+}
+
+/// A known newer release puts a badge on "Update WinCraft" and lifts it out
+/// of the typed-only entries, so the user sees it under an empty box. A copy
+/// that cannot update itself keeps the plain entry.
+fn announce_update(entries: &mut [PaletteEntry], update: &UpdateView) {
+    let (Some(release), None) = (&update.available, &update.blocked) else {
+        return;
+    };
+    let version = release.tag.trim_start_matches('v');
+    for entry in entries {
+        if entry.id == CommandId::Host(HostCommand::UpdateWinCraft) {
+            entry.badge = Some(format!("{version} available"));
+            entry.subtitle = Some(format!("Installs WinCraft {version} now"));
+            entry.quiet = false;
         }
     }
 }
@@ -4143,6 +4166,51 @@ mod tests {
             updates[0].subtitle.as_deref(),
             Some("Checks now and installs a newer version at once")
         );
+    }
+
+    #[test]
+    fn a_known_release_badges_the_update_entry_unless_updates_are_blocked() {
+        let data = Scratch::new("update-badge");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let set = plugin_set(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        let update_of = |view: &UpdateView| {
+            let mut entries = set.palette_entries(&[]);
+            announce_update(&mut entries, view);
+            entries
+                .into_iter()
+                .find(|entry| entry.id == CommandId::Host(HostCommand::UpdateWinCraft))
+                .unwrap()
+        };
+        let plain = update_of(&UpdateView::default());
+        assert!(plain.badge.is_none() && plain.quiet);
+
+        let newer = UpdateView {
+            available: Some(NewRelease {
+                tag: "v0.20.20".to_string(),
+                notes: String::new(),
+                page: String::new(),
+            }),
+            ..UpdateView::default()
+        };
+        let badged = update_of(&newer);
+        assert_eq!(badged.badge.as_deref(), Some("0.20.20 available"));
+        assert_eq!(
+            badged.subtitle.as_deref(),
+            Some("Installs WinCraft 0.20.20 now")
+        );
+        assert!(!badged.quiet);
+
+        let blocked = update_of(&UpdateView {
+            blocked: Some("a development build".to_string()),
+            ..newer
+        });
+        assert_eq!(blocked.badge, plain.badge);
+        assert_eq!(blocked.subtitle, plain.subtitle);
+        assert!(blocked.quiet);
     }
 
     #[test]

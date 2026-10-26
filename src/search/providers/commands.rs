@@ -60,6 +60,7 @@ impl SearchProvider for Commands {
                     }),
                     tab: Some(Completion::quiet(&entry.label)),
                     usage_key: Some(command_key(entry)),
+                    badge: entry.badge.clone(),
                     origin: entry.plugin.clone(),
                     keys: entry.shortcut.clone(),
                     shortcut: (!entry.shortcut_id.is_empty()).then(|| Choice {
@@ -132,7 +133,21 @@ mod tests {
             shortcut_id: String::new(),
             shortcut: String::new(),
             quiet: false,
+            badge: None,
         }
+    }
+
+    #[test]
+    fn a_badge_on_the_entry_reaches_the_row() {
+        let mut update = host_entry(HostCommand::UpdateWinCraft, "WinCraft", "Update WinCraft");
+        update.badge = Some("0.20.20 available".to_string());
+        let commands = [update];
+        let context = Context {
+            commands: &commands,
+            ..crate::search::test_context()
+        };
+        let rows = Commands.query(&Query::default(), &context);
+        assert_eq!(rows[0].badge.as_deref(), Some("0.20.20 available"));
     }
 
     #[test]

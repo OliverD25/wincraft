@@ -1917,15 +1917,19 @@ fn label_job(
 }
 
 /// A small outlined pill after a title.
+#[derive(Debug, PartialEq)]
 pub(crate) enum Badge {
     /// "open", with a success dot.
     Open,
     /// "often picked", with a clock.
     OftenPicked,
+    /// A text such as "0.20.20 available", with an accent dot.
+    Update(String),
 }
 
 /// The badges a row carries: "open" on a window beside other rows, "often
-/// picked" on the best match.
+/// picked" on the best match, and the command's own text, such as "0.20.20
+/// available" on Update WinCraft.
 pub(crate) fn row_badges(item: &ResultItem, best: bool) -> Vec<Badge> {
     let mut badges = Vec::new();
     if item.open && item.group == SUGGESTED_GROUP {
@@ -1933,6 +1937,9 @@ pub(crate) fn row_badges(item: &ResultItem, best: bool) -> Vec<Badge> {
     }
     if best {
         badges.push(Badge::OftenPicked);
+    }
+    if let Some(text) = &item.badge {
+        badges.push(Badge::Update(text.clone()));
     }
     badges
 }
@@ -1944,24 +1951,32 @@ pub(crate) fn badge(ui: &egui::Ui, at: egui::Pos2, kind: &Badge, tokens: &Tokens
     let (text, lead) = match kind {
         Badge::Open => ("open", 6.0),
         Badge::OftenPicked => ("often picked", 12.0),
+        Badge::Update(text) => (text.as_str(), 6.0),
     };
-    let galley = painter.layout_no_wrap(
-        text.to_string(),
-        theme::regular(12.0),
-        tokens.text_secondary,
-    );
+    let ink = match kind {
+        Badge::Update(_) => tokens.accent,
+        _ => tokens.text_secondary,
+    };
+    let line = match kind {
+        Badge::Update(_) => tokens.accent,
+        _ => tokens.border,
+    };
+    let galley = painter.layout_no_wrap(text.to_string(), theme::regular(12.0), ink);
     let rect = Rect::from_min_size(at, vec2(8.0 + lead + 4.0 + galley.size().x + 8.0, 18.0));
     painter.rect(
         rect,
         9,
         Color32::TRANSPARENT,
-        theme::line(ui.ctx(), tokens.border),
+        theme::line(ui.ctx(), line),
         StrokeKind::Inside,
     );
     let mark = pos2(rect.left() + 8.0 + lead / 2.0, rect.center().y);
     match kind {
         Badge::Open => {
             painter.circle_filled(mark, 3.0, tokens.success);
+        }
+        Badge::Update(_) => {
+            painter.circle_filled(mark, 3.0, tokens.accent);
         }
         Badge::OftenPicked => icons::paint(
             painter,
@@ -1976,7 +1991,7 @@ pub(crate) fn badge(ui: &egui::Ui, at: egui::Pos2, kind: &Badge, tokens: &Tokens
             rect.center().y - galley.size().y / 2.0,
         ),
         galley,
-        tokens.text_secondary,
+        ink,
     );
     rect
 }
@@ -2146,6 +2161,13 @@ fn result_row(
         .map(|kind| match kind {
             Badge::Open => 52.0,
             Badge::OftenPicked => 104.0,
+            Badge::Update(text) => {
+                let width = painter
+                    .layout_no_wrap(text.clone(), theme::regular(12.0), tokens.accent)
+                    .size()
+                    .x;
+                8.0 + 6.0 + 4.0 + width + 8.0 + 6.0
+            }
         })
         .sum();
     let off_width = off.as_ref().map_or(0.0, |galley| galley.size().x + 10.0);
@@ -2400,6 +2422,20 @@ fn footer_hints(ui: &mut egui::Ui, tokens: &Tokens, hints: &[Hint]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_row_with_a_badge_text_carries_the_update_badge() {
+        let plain = ResultItem::default();
+        assert!(row_badges(&plain, false).is_empty());
+        let item = ResultItem {
+            badge: Some("0.20.20 available".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            row_badges(&item, false),
+            [Badge::Update("0.20.20 available".to_string())]
+        );
+    }
 
     fn rename_prompt(renamed: bool) -> Prompt {
         Prompt {

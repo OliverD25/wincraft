@@ -284,6 +284,10 @@ pub struct ResultItem {
     /// An open window, marked "open" where other rows sit beside it.
     #[serde(default)]
     pub open: bool,
+    /// A short text drawn as a pill after the title, such as "0.20.20
+    /// available".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge: Option<String>,
     /// The plugin a command belongs to, for the inspector's source line.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
