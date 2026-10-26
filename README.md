@@ -292,7 +292,7 @@ where the row comes from. → moves into the actions, ↑ ↓ pick one, Enter ru
 it, ← or Esc goes back. On a monitor narrower than 1100 px the palette is the
 list alone, and → opens the inspector over it.
 
-With nothing typed, the list starts with **Recent and suggested**: up to three
+With nothing typed, the list starts with **Recent and suggested**: up to five
 open windows and apps you picked often. Open settings, the plugin store and
 Update WinCraft are not listed there; type their names to find them, or use
 the gear at the far left of the footer (Ctrl+,). Ctrl+P opens Settings →

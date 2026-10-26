@@ -487,7 +487,7 @@ pub struct PickInfo {
 
 const BLENDED_LIMIT: usize = 8;
 /// How many rows "Recent and suggested" shows.
-const SUGGESTED: usize = 3;
+const SUGGESTED: usize = 5;
 pub const SUGGESTED_GROUP: &str = "Recent and suggested";
 const PREFIXED_LIMIT: usize = 500;
 
@@ -869,7 +869,7 @@ impl Router {
     }
 
     /// "Recent and suggested": the rows the providers suggest, the most
-    /// picked first, up to three. An app is suggested only once it was
+    /// picked first, up to five. An app is suggested only once it was
     /// picked; a window always may be, in the order Alt+Tab shows them.
     fn suggested(&mut self, context: &Context) -> Vec<ResultItem> {
         let now = usage::now();
@@ -1751,7 +1751,7 @@ mod tests {
     }
 
     #[test]
-    fn the_empty_box_suggests_open_windows_and_picked_apps_up_to_three() {
+    fn the_empty_box_suggests_open_windows_and_picked_apps() {
         let mut router = scoped_router();
         let found = router.search(None, "", &context());
         assert_eq!(titles(&found.items), ["Inbox", "Docs", "Notes"]);
@@ -1759,11 +1759,51 @@ mod tests {
         // A picked app comes first; an app never picked is not suggested.
         router.record_pick("apps:Paint", None, "pa", &settings(true));
         let found = router.search(None, "", &context());
-        assert_eq!(titles(&found.items), ["Paint", "Inbox", "Docs"]);
+        assert_eq!(titles(&found.items), ["Paint", "Inbox", "Docs", "Notes"]);
         assert_eq!(found.items[0].provider, "apps");
         // Typing replaces the suggestions with matches.
         let typed = router.search(None, "x", &context());
         assert!(typed.items.iter().all(|item| item.group != SUGGESTED_GROUP));
+    }
+
+    #[test]
+    fn the_empty_box_suggests_at_most_five_rows_the_most_picked_first() {
+        let windows = ["One", "Two", "Three", "Four", "Five", "Six", "Seven"];
+        let mut router = Router::new(
+            vec![
+                (
+                    None,
+                    Box::new(Scoped {
+                        id: "apps",
+                        prefix: None,
+                        scope: Some("a"),
+                        suggested: vec![("Paint", false), ("Notepad", false)],
+                    }) as Box<dyn SearchProvider>,
+                ),
+                (
+                    None,
+                    Box::new(Scoped {
+                        id: "windows",
+                        prefix: Some("<"),
+                        scope: Some("w"),
+                        suggested: windows.iter().map(|title| (*title, true)).collect(),
+                    }),
+                ),
+            ],
+            &BTreeMap::new(),
+        );
+        let found = router.search(None, "", &context());
+        assert_eq!(
+            titles(&found.items),
+            ["One", "Two", "Three", "Four", "Five"]
+        );
+        // Picked apps push the open windows down; the list stays at five.
+        router.record_pick("apps:Paint", None, "pa", &settings(true));
+        router.record_pick("apps:Notepad", None, "no", &settings(true));
+        let found = router.search(None, "", &context());
+        assert_eq!(found.items.len(), SUGGESTED);
+        assert_eq!(&titles(&found.items)[2..], ["One", "Two", "Three"]);
+        assert!(found.items[..2].iter().all(|item| item.provider == "apps"));
     }
 
     #[test]
