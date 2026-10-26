@@ -355,7 +355,7 @@ mod tests {
             words.clear();
             for clipped in &output.shapes {
                 if let egui::Shape::Text(shape) = &clipped.shape {
-                    words.push_str(&shape.galley.text());
+                    words.push_str(shape.galley.text());
                     words.push(' ');
                 }
             }

@@ -1789,7 +1789,10 @@ mod tests {
         let HeaderRects { chevron, tile } = header_rects(row);
         assert_eq!(tile.size(), vec2(24.0, 24.0));
         assert!(chevron.right() <= tile.left());
-        assert!(tile.right() + 10.0 <= row.left() + INDENT, "the name clears the tile");
+        assert!(
+            tile.right() + 10.0 <= row.left() + INDENT,
+            "the name clears the tile"
+        );
         assert!(row.contains_rect(tile) && row.contains_rect(chevron));
     }
 
@@ -1808,12 +1811,21 @@ mod tests {
                 } else {
                     assert!(help <= available, "the link has a line of its own");
                 }
-                assert!(used <= available, "{window}: {used} > {available} {layout:?}");
+                assert!(
+                    used <= available,
+                    "{window}: {used} > {available} {layout:?}"
+                );
             }
         }
         // Wide: everything on one row and the field capped.
         let wide = search_layout(2000.0, 150.0, 130.0);
-        assert_eq!(wide, SearchLayout { search: SEARCH_MAX, help_inline: true });
+        assert_eq!(
+            wide,
+            SearchLayout {
+                search: SEARCH_MAX,
+                help_inline: true
+            }
+        );
     }
 
     #[test]
