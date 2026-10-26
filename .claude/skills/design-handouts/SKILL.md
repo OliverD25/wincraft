@@ -58,3 +58,4 @@ rule, and send the user a prompt so the design page is fixed too.
 | QuickJump.dc.html (QuickJump plugin: strips, notices, pin list, picker) | 2026-10-26, via DesignSync (page, no README) | plan `wincraft-quickjump.md` |
 | Palette Main View.dc.html + v2 (palette with inspector, 8 additions) | 2026-10-26, via DesignSync (pages, no README) | plan `wincraft-palette-v2.md` |
 | Plugins Grid v2.dc.html (option 1a, horizontal compact cards) | 2026-10-26, via DesignSync (page, no README) | plan `wincraft-plugins-grid-1a.md` |
+| design_handoff_hotkey_editor (option 1c, one hotkey editor dialog) | 2026-10-26, via DesignSync (README) | plan `wincraft-hotkey-editor.md` |
