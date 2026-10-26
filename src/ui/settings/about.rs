@@ -348,15 +348,15 @@ mod tests {
                 )),
                 ..Default::default()
             };
-            let output = ctx.run_ui(input, |ui| {
+            let mut output = ctx.run_ui(input, |ui| {
                 show(ui, &snapshot, &mut state, &bridge.to_host);
             });
+            output.textures_delta.clear();
             words.clear();
             for clipped in &output.shapes {
                 if let egui::Shape::Text(shape) = &clipped.shape {
                     words.push_str(&shape.galley.text());
-                    words.push('
-');
+                    words.push(' ');
                 }
             }
         }

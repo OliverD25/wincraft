@@ -1,5 +1,5 @@
-//! Settings → Keyboard shortcuts: every command the palette lists, grouped
-//! by plugin, with its keys. A click, Enter or F2 records new keys; the
+//! Settings → Hotkeys: every command the palette lists, grouped by plugin,
+//! with its keys and whether they work. A click, Enter or F2 records new keys; the
 //! checks in `core::shortcuts` run as soon as keys are pressed, and nothing
 //! is saved until Enter, Save, Replace or Save anyway.
 
@@ -20,6 +20,7 @@ use crate::core::traits::Hotkey;
 use crate::core::ui_bridge::{HostChannel, HostRequest, ShortcutChange, ShortcutInfo, UiSnapshot};
 use crate::plugins::shortcut_detector::probe::{self, Status};
 use crate::ui::settings::catalog;
+use crate::ui::settings::hotkey_status::{self, HotkeyState};
 use crate::ui::widgets::button::{self, Kind};
 use crate::ui::widgets::icons::{self, Icon};
 use crate::ui::widgets::keycap::{self, Caps};
@@ -27,7 +28,8 @@ use crate::ui::widgets::{chips, focus, hotkey_capture, search_box, text};
 
 const GROUP_HEIGHT: f32 = 44.0;
 const ROW_HEIGHT: f32 = 56.0;
-const INDENT: f32 = 46.0;
+/// Where a name starts: after the chevron and the 24 px icon tile of a group.
+const INDENT: f32 = 60.0;
 const ACTIONS: f32 = 88.0;
 const GAP: f32 = 16.0;
 const FIELD_HEIGHT: f32 = 40.0;
@@ -137,7 +139,7 @@ pub struct View {
 }
 
 impl View {
-    /// The palette's "Change shortcut…": the search set to the command's
+    /// The palette's "Change hotkey…": the search set to the command's
     /// name and its row picked, ready for Enter.
     pub fn open_at(&mut self, id: &str, label: &str) {
         self.leave();
@@ -201,6 +203,7 @@ fn text_of(keys: &Shortcut) -> String {
 pub fn show(ui: &mut Ui, snapshot: &UiSnapshot, view: &mut View, to_host: &Arc<HostChannel>) {
     let tokens = Tokens::get(ui.ctx());
     let all = &snapshot.shortcuts;
+    let states = hotkey_status::states(snapshot);
     poll_keys(ui, view, all, to_host);
 
     egui::ScrollArea::vertical()
@@ -210,8 +213,8 @@ pub fn show(ui: &mut Ui, snapshot: &UiSnapshot, view: &mut View, to_host: &Arc<H
                 all.iter().filter(|info| shortcuts::is_changed(info)).collect();
             catalog::page_title(
                 ui,
-                "Keyboard shortcuts",
-                "Give any command a shortcut. Click a row, then press the keys.",
+                "Hotkeys",
+                "Give any command a hotkey. Click a row, then press the keys.",
                 |ui| {
                     ui.add_enabled_ui(!changed.is_empty(), |ui| {
                         if button::with_icon(ui, "Reset all\u{2026}", Kind::Secondary, Some(Icon::RotateCcw))
@@ -225,6 +228,16 @@ pub fn show(ui: &mut Ui, snapshot: &UiSnapshot, view: &mut View, to_host: &Arc<H
             ui.add_space(20.0);
             search_row(ui, view);
             ui.add_space(8.0);
+            text::single(
+                ui,
+                text::job(
+                    &hotkey_status::summary(&states),
+                    theme::regular(13.0),
+                    tokens.text_secondary,
+                    None,
+                ),
+            );
+            ui.add_space(4.0);
 
             let conflicts = shortcuts::conflicts(all);
             let found: Vec<bool> = all
@@ -266,7 +279,7 @@ pub fn show(ui: &mut Ui, snapshot: &UiSnapshot, view: &mut View, to_host: &Arc<H
             if groups.is_empty() {
                 text::secondary(ui, "No command matches. Try other words, or choose All.", tokens.text_secondary);
             } else {
-                list(ui, view, all, &groups, &conflicts, to_host);
+                list(ui, view, all, &groups, &conflicts, &states, to_host);
             }
             ui.add_space(16.0);
             text::single(
@@ -626,6 +639,7 @@ fn list(
     all: &[ShortcutInfo],
     groups: &[(String, Vec<usize>)],
     conflicts: &BTreeSet<String>,
+    states: &BTreeMap<String, HotkeyState>,
     to_host: &Arc<HostChannel>,
 ) {
     let tokens = Tokens::get(ui.ctx());
@@ -673,6 +687,7 @@ fn list(
         shortcut_width,
         keyboard_on,
         list_id,
+        states,
     };
 
     for (name, rows) in groups {
@@ -705,7 +720,8 @@ fn list(
 }
 
 /// The list's widths, and where the keyboard is.
-struct Columns {
+struct Columns<'a> {
+    states: &'a BTreeMap<String, HotkeyState>,
     width: f32,
     shortcut_left: f32,
     shortcut_width: f32,
@@ -918,7 +934,7 @@ fn row(
     ui: &mut Ui,
     view: &mut View,
     info: &ShortcutInfo,
-    columns: &Columns,
+    columns: &Columns<'_>,
     to_host: &Arc<HostChannel>,
 ) {
     let (keyboard_on, list_id) = (columns.keyboard_on, columns.list_id);
@@ -993,7 +1009,14 @@ fn row(
     );
     match &recording {
         Some(record) => recording_area(ui, view, record, info, cell, to_host),
-        None => shortcut_cell(ui, view, info, cell, response.hovered()),
+        None => shortcut_cell(
+            ui,
+            view,
+            info,
+            columns.states.get(&info.id),
+            cell,
+            response.hovered(),
+        ),
     }
     let actions = Rect::from_min_size(
         pos2(rect.right() - ACTIONS, top_line.top()),
@@ -1013,7 +1036,14 @@ fn row(
 
 /// The keys as caps, "Changed" when they are not the default, or
 /// "Add shortcut".
-fn shortcut_cell(ui: &mut Ui, view: &View, info: &ShortcutInfo, cell: Rect, hovered: bool) {
+fn shortcut_cell(
+    ui: &mut Ui,
+    view: &View,
+    info: &ShortcutInfo,
+    state: Option<&HotkeyState>,
+    cell: Rect,
+    hovered: bool,
+) {
     let tokens = Tokens::get(ui.ctx());
     let matched = if shortcuts::starts_with(info, &view.pressed) {
         view.pressed.len()
@@ -1028,6 +1058,9 @@ fn shortcut_cell(ui: &mut Ui, view: &View, info: &ShortcutInfo, cell: Rect, hove
             ui.spacing_mut().item_spacing.x = 10.0;
             match shortcuts::parse(&info.binding) {
                 Some(keys) => {
+                    if let Some(state) = state {
+                        status_mark(ui, state);
+                    }
                     keycap::caps(
                         ui,
                         &keys.steps(),
@@ -1051,6 +1084,24 @@ fn shortcut_cell(ui: &mut Ui, view: &View, info: &ShortcutInfo, cell: Rect, hove
             }
         },
     );
+}
+
+/// 16 px cell before the keycaps: a 6 px dot, or a small triangle when the
+/// keys are taken. The tooltip says why.
+fn status_mark(ui: &mut Ui, state: &HotkeyState) {
+    let tokens = Tokens::get(ui.ctx());
+    let (rect, response) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
+    let painter = ui.painter();
+    match state {
+        HotkeyState::Taken(_) => icons::paint(painter, rect, Icon::TriangleAlert, tokens.warning),
+        HotkeyState::Registered => {
+            painter.circle_filled(rect.center(), 3.0, tokens.success);
+        }
+        HotkeyState::PluginOff => {
+            painter.circle_filled(rect.center(), 3.0, tokens.text_disabled);
+        }
+    }
+    response.on_hover_text(state.tooltip());
 }
 
 fn changed_tag(ui: &mut Ui) {
@@ -1287,7 +1338,7 @@ fn row_actions(
         .width(240.0)
         .show(|ui| {
             ui.set_width(240.0);
-            if menu_item(ui, Icon::Keyboard, "Change shortcut", "Enter", true).clicked() {
+            if menu_item(ui, Icon::Keyboard, "Change hotkey", "Enter", true).clicked() {
                 view.start_recording(&info.id);
             }
             if menu_item(
