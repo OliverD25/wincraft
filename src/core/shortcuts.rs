@@ -502,6 +502,7 @@ mod tests {
             group: group.to_string(),
             plugin: None,
             category: String::new(),
+            icon: None,
             label: label.to_string(),
             description: String::new(),
             binding: binding.to_string(),

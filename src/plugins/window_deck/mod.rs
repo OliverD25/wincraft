@@ -252,6 +252,7 @@ impl WinCraftPlugin for WindowDeck {
             version: "1.0.0",
             readme: include_str!("README.md"),
             category: "Windows",
+            icon: Some("copy"),
             thumbnail: None,
         }
     }

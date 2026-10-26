@@ -37,6 +37,35 @@ pub enum Icon {
     Grip,
     Copy,
     ArrowRightLeft,
+    Tag,
+}
+
+impl Icon {
+    /// The icons a plugin can name for its tile, by their lucide names.
+    pub const NAMED: [(&'static str, Icon); 12] = [
+        ("layout-grid", Icon::LayoutGrid),
+        ("copy", Icon::Copy),
+        ("pin", Icon::Pin),
+        ("tag", Icon::Tag),
+        ("monitor", Icon::Monitor),
+        ("keyboard", Icon::Keyboard),
+        ("globe", Icon::Globe),
+        ("terminal", Icon::Terminal),
+        ("clock", Icon::Clock),
+        ("sparkles", Icon::Sparkles),
+        ("lightbulb", Icon::Lightbulb),
+        ("calculator", Icon::Calculator),
+    ];
+
+    /// The icon with this lucide name, in any case; None for a name WinCraft
+    /// does not draw.
+    pub fn named(name: &str) -> Option<Icon> {
+        let name = name.trim();
+        Self::NAMED
+            .iter()
+            .find(|(known, _)| known.eq_ignore_ascii_case(name))
+            .map(|(_, icon)| *icon)
+    }
 }
 
 struct Path {
@@ -385,6 +414,22 @@ fn paths(icon: Icon) -> Vec<Path> {
                 .line(14.0, 2.0)
                 .corner(16.0, 2.0, 16.0, 4.0),
         ],
+        // Lucide's tag: the label with its cut corner pointing down right,
+        // and the hole drawn as a short dash.
+        Icon::Tag => vec![
+            Path::start(12.586, 2.586)
+                .corner(12.0, 2.0, 11.172, 2.0)
+                .line(4.0, 2.0)
+                .corner(2.0, 2.0, 2.0, 4.0)
+                .line(2.0, 11.172)
+                .corner(2.0, 12.0, 2.586, 12.586)
+                .line(11.29, 21.29)
+                .corner(13.0, 23.0, 14.71, 21.29)
+                .line(21.29, 14.71)
+                .corner(23.0, 13.0, 21.29, 11.29)
+                .line(12.586, 2.586),
+            Path::start(7.0, 7.5).line(8.0, 7.5),
+        ],
         // Lucide's arrow-right-left: one arrow each way.
         Icon::ArrowRightLeft => vec![
             Path::start(16.0, 3.0).line(20.0, 7.0).line(16.0, 11.0),
@@ -564,5 +609,36 @@ mod tests {
         assert_eq!(highest.color, top);
         assert_eq!(lowest.color, bottom);
         assert_ne!(tile_colours(Icon::Globe), tile_colours(Icon::FolderOpen));
+    }
+
+    #[test]
+    fn named_icons_are_found_by_their_lucide_name_in_any_case() {
+        assert_eq!(Icon::named("tag"), Some(Icon::Tag));
+        assert_eq!(Icon::named(" Layout-Grid "), Some(Icon::LayoutGrid));
+        assert_eq!(Icon::named("COPY"), Some(Icon::Copy));
+        assert_eq!(Icon::named("pin"), Some(Icon::Pin));
+        assert_eq!(Icon::named("no-such-icon"), None);
+        assert_eq!(Icon::named(""), None);
+        for (name, icon) in Icon::NAMED {
+            assert_eq!(Icon::named(name), Some(icon), "{name}");
+            assert_eq!(name, name.to_lowercase(), "lucide names are lower case");
+        }
+    }
+
+    #[test]
+    fn the_tag_stays_inside_the_24_unit_box_and_has_its_hole() {
+        let paths = paths(Icon::Tag);
+        assert_eq!(paths.len(), 2);
+        for point in paths.iter().flat_map(|path| &path.points) {
+            assert!((0.0..=24.0).contains(&point.x), "{point:?}");
+            assert!((0.0..=24.0).contains(&point.y), "{point:?}");
+        }
+        let outline = &paths[0].points;
+        assert_eq!(outline.first(), outline.last(), "the outline is closed");
+        let hole = &paths[1].points;
+        assert_eq!(hole.len(), 2, "a one-point path would draw nothing");
+        assert!(hole
+            .iter()
+            .all(|p| (p.y - 7.5).abs() < 0.01 && (p.x - 7.5).abs() <= 0.5));
     }
 }

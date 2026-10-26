@@ -20,6 +20,10 @@ pub struct PluginMetadata {
     /// store, such as "Windows" or "Input". Reuse a word another plugin
     /// already uses when it fits.
     pub category: &'static str,
+    /// The icon on the plugin's tile and on its Hotkeys group, by its lucide
+    /// name ("pin", "layout-grid"; see `ui::widgets::icons::Icon::named`).
+    /// `None`, or a name WinCraft does not draw, shows the category's icon.
+    pub icon: Option<&'static str>,
     /// A 16:9 picture for the plugin's tile, as a path inside the repository.
     /// `None` shows the category's icon instead.
     pub thumbnail: Option<&'static str>,

@@ -182,6 +182,7 @@ impl WinCraftPlugin for LanguageIndicator {
             version: "1.0.0",
             readme: include_str!("README.md"),
             category: "Input",
+            icon: None,
             thumbnail: None,
         }
     }

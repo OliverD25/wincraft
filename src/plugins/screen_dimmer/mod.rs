@@ -505,6 +505,7 @@ impl WinCraftPlugin for ScreenDimmer {
             version: "1.3.0",
             readme: include_str!("README.md"),
             category: "Monitors",
+            icon: None,
             thumbnail: None,
         }
     }

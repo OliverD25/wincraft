@@ -24,6 +24,8 @@ pub struct Card {
     pub author: String,
     pub description: String,
     pub category: String,
+    /// The plugin's own icon name, if it gives one.
+    pub icon: Option<String>,
 }
 
 fn category_name(raw: &str) -> String {
@@ -43,6 +45,7 @@ impl Card {
             author: plugin.author.clone(),
             description: plugin.description.clone(),
             category: category_name(&plugin.category),
+            icon: plugin.icon.clone(),
         }
     }
 
@@ -56,12 +59,18 @@ impl Card {
         } else {
             entry.category.as_str()
         };
+        // An index written before plugins named their icons has none either.
+        let icon = entry
+            .icon
+            .clone()
+            .or_else(|| installed.and_then(|plugin| plugin.icon.clone()));
         Self {
             id: entry.id.clone(),
             name: entry.name.clone(),
             author: entry.author.clone(),
             description: entry.description.clone(),
             category: category_name(category),
+            icon,
         }
     }
 }
@@ -153,7 +162,14 @@ pub fn counts(cards: &[Card], query: &str) -> Vec<(String, usize)> {
     found
 }
 
-/// A plugin's picture when it has no thumbnail: the icon of its category.
+/// A plugin's picture when it has no thumbnail: the icon it names, else
+/// the icon of its category.
+pub fn icon_of(icon: Option<&str>, category: &str) -> Icon {
+    icon.and_then(Icon::named)
+        .unwrap_or_else(|| icon_for(category))
+}
+
+/// The icon of a category.
 pub fn icon_for(category: &str) -> Icon {
     match category {
         "Monitors" => Icon::Monitor,
@@ -507,7 +523,7 @@ pub fn tiles(
             vec2(each, tile::HEIGHT),
         );
         let face = Tile {
-            icon: icon_for(&card.category),
+            icon: icon_of(card.icon.as_deref(), &card.category),
             name: &card.name,
             description: &card.description,
         };
@@ -543,7 +559,85 @@ mod tests {
             author: "community".to_string(),
             description: description.to_string(),
             category: category.to_string(),
+            icon: None,
         }
+    }
+
+    #[test]
+    fn a_plugin_shows_its_own_icon_else_its_categorys() {
+        assert_eq!(icon_of(Some("tag"), "Windows"), Icon::Tag);
+        assert_eq!(icon_of(Some("pin"), "Windows"), Icon::Pin);
+        assert_eq!(icon_of(None, "Windows"), Icon::LayoutGrid);
+        assert_eq!(icon_of(Some("no-such-icon"), "Input"), Icon::Globe);
+        assert_eq!(icon_of(None, "Unknown"), Icon::Terminal);
+    }
+
+    #[test]
+    fn the_windows_plugins_each_have_their_own_icon() {
+        let icon = |id: &str| {
+            let plugin = crate::plugins::load_active_plugins()
+                .into_iter()
+                .find(|plugin| plugin.metadata().id == id)
+                .unwrap_or_else(|| panic!("{id} is built in"));
+            let meta = plugin.metadata();
+            icon_of(meta.icon, meta.category)
+        };
+        assert_eq!(icon("layout_keeper"), Icon::LayoutGrid);
+        assert_eq!(icon("window_deck"), Icon::Copy);
+        assert_eq!(icon("quick_jump"), Icon::Pin);
+        assert_eq!(icon("window_namer"), Icon::Tag);
+        assert_eq!(icon("screen_dimmer"), Icon::Monitor);
+        assert_eq!(icon("shortcut_detector"), Icon::Keyboard);
+        assert_eq!(icon("language_indicator"), Icon::Globe);
+        for plugin in crate::plugins::load_active_plugins() {
+            let meta = plugin.metadata();
+            if let Some(name) = meta.icon {
+                assert!(Icon::named(name).is_some(), "{} names {name}", meta.id);
+            }
+        }
+    }
+
+    #[test]
+    fn a_store_card_takes_the_index_icon_else_the_installed_ones() {
+        let mut entry = IndexEntry {
+            id: "x".to_string(),
+            name: "X".to_string(),
+            version: "1.0.0".to_string(),
+            author: "a".to_string(),
+            description: String::new(),
+            readme: String::new(),
+            category: "Windows".to_string(),
+            icon: None,
+            thumbnail: None,
+        };
+        let installed = PluginInfo {
+            id: "x".to_string(),
+            name: "X".to_string(),
+            version: "1.0.0".to_string(),
+            author: "a".to_string(),
+            description: String::new(),
+            readme: String::new(),
+            category: "Windows".to_string(),
+            icon: Some("pin".to_string()),
+            enabled: true,
+            config_path: Default::default(),
+            hotkeys: Vec::new(),
+            fields: Vec::new(),
+            status: None,
+            page_action: None,
+        };
+        assert_eq!(Card::from_entry(&entry, None).icon, None);
+        assert_eq!(
+            Card::from_entry(&entry, Some(&installed)).icon.as_deref(),
+            Some("pin"),
+            "an index from before icons"
+        );
+        entry.icon = Some("tag".to_string());
+        assert_eq!(
+            Card::from_entry(&entry, Some(&installed)).icon.as_deref(),
+            Some("tag")
+        );
+        assert_eq!(Card::from_plugin(&installed).icon.as_deref(), Some("pin"));
     }
 
     fn five() -> Vec<Card> {
@@ -655,6 +749,7 @@ mod tests {
             description: String::new(),
             readme: String::new(),
             category: String::new(),
+            icon: None,
             thumbnail: None,
         };
         assert_eq!(Card::from_entry(&entry, None).category, OTHER);

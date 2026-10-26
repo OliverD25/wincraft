@@ -41,15 +41,19 @@ Use the same short lowercase id everywhere: the folder name, `id` in
 ## Category and picture
 
 The Plugins page and the Plugin Store show every plugin as a tile, with chips
-that filter the tiles by category. Two fields of `PluginMetadata` feed them:
+that filter the tiles by category. Three fields of `PluginMetadata` feed them:
 
 - `category` is one short word, such as `Monitors`, `Keyboard`, `Windows` or
   `Input`. Reuse a word another plugin already uses when it fits, so the chip
-  row stays short. The tile also uses it to pick the icon in its picture area.
-  An empty category is shown as `Other`.
+  row stays short. An empty category is shown as `Other`.
+- `icon` is `None`, or the lucide name of the icon on the plugin's tile and
+  on its group on the Hotkeys page, such as `Some("pin")`. The names WinCraft
+  draws are in `Icon::NAMED` in `src/ui/widgets/icons.rs`. With `None`, or a
+  name not in that list, the category's icon shows. It is written to
+  `plugins.json` for the store.
 - `thumbnail` is `None`, or the path of a 16:9 picture inside the repository.
   It is written to `plugins.json` for the store. The tiles do not draw it yet,
-  because WinCraft has no image decoder; they show the category's icon.
+  because WinCraft has no image decoder; they show the plugin's icon.
 
 Both fields are copied into `plugins.json` by `wincraft --write-plugin-index`.
 An index file without them still reads, and its plugins land under `Other`.
@@ -82,6 +86,7 @@ impl WinCraftPlugin for Hello {
             version: "1.0.0",
             readme: include_str!("README.md"),
             category: "Input",
+            icon: None,
             thumbnail: None,
         }
     }

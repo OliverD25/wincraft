@@ -537,6 +537,8 @@ pub struct ShortcutInfo {
     pub plugin: Option<String>,
     /// The plugin's category, for its icon; empty for WinCraft.
     pub category: String,
+    /// The plugin's own icon name, before its category's; None for WinCraft.
+    pub icon: Option<String>,
     pub label: String,
     pub description: String,
     /// "Win+Alt+K, S"; empty for none.
@@ -576,6 +578,8 @@ pub struct PluginInfo {
     pub readme: String,
     /// The word that groups the plugin, from its metadata.
     pub category: String,
+    /// The plugin's own icon name, from its metadata.
+    pub icon: Option<String>,
     pub enabled: bool,
     pub config_path: PathBuf,
     pub hotkeys: Vec<HotkeyInfo>,

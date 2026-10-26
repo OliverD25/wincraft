@@ -255,6 +255,7 @@ mod tests {
                 .to_string(),
             readme: String::new(),
             category: category.to_string(),
+            icon: None,
             enabled,
             config_path: Default::default(),
             hotkeys: Vec::new(),

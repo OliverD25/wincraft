@@ -727,6 +727,7 @@ impl Host {
                     description: meta.description.to_string(),
                     readme: meta.readme.to_string(),
                     category: meta.category.to_string(),
+                    icon: meta.icon.map(str::to_string),
                     enabled: slot.enabled,
                     config_path: config::plugin_path(meta.id),
                     hotkeys: self.plugins.hotkey_infos(index),
@@ -1340,6 +1341,7 @@ impl Host {
             group: shortcuts::HOST_GROUP.to_string(),
             plugin: None,
             category: String::new(),
+            icon: None,
             label: "Open the palette".to_string(),
             description: "Search apps, windows, files and commands".to_string(),
             binding: self.config.palette_hotkey.clone(),
@@ -1353,10 +1355,14 @@ impl Host {
                 CommandId::Host(HostCommand::TogglePlugin(index)) => Some(index),
                 CommandId::Host(_) => None,
             };
-            let category = index
+            let meta = index
                 .and_then(|index| self.plugins.slots.get(index))
-                .map(|slot| slot.plugin.metadata().category.to_string())
+                .map(|slot| slot.plugin.metadata());
+            let category = meta
+                .as_ref()
+                .map(|meta| meta.category.to_string())
                 .unwrap_or_default();
+            let icon = meta.and_then(|meta| meta.icon).map(str::to_string);
             let (default_binding, registered) = match entry.id {
                 CommandId::Plugin {
                     index,
@@ -1389,6 +1395,7 @@ impl Host {
                 group: entry.group.clone(),
                 plugin: entry.plugin.clone(),
                 category,
+                icon,
                 label: entry.label.clone(),
                 description: entry.subtitle.clone().unwrap_or_default(),
                 binding: entry.shortcut.clone(),
@@ -3725,6 +3732,7 @@ mod tests {
                 version: "1.0.0",
                 readme: "",
                 category: "Test",
+                icon: None,
                 thumbnail: None,
             }
         }
@@ -4353,6 +4361,7 @@ mod tests {
                 description: String::new(),
                 readme: String::new(),
                 category: String::new(),
+                icon: None,
                 enabled: set.slots[0].enabled,
                 config_path: PathBuf::new(),
                 hotkeys: set.hotkey_infos(0),

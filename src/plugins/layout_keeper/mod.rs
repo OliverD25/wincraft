@@ -2369,6 +2369,7 @@ impl WinCraftPlugin for LayoutKeeper {
             version: "1.2.1",
             readme: include_str!("README.md"),
             category: "Windows",
+            icon: Some("layout-grid"),
             thumbnail: None,
         }
     }

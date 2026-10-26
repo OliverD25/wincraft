@@ -29,6 +29,10 @@ pub struct IndexEntry {
     /// Missing in an index written before categories existed.
     #[serde(default)]
     pub category: String,
+    /// The plugin's own icon name; missing in older indexes and for a plugin
+    /// that uses its category's icon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     /// Path of the tile picture, when the plugin has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thumbnail: Option<String>,
@@ -49,6 +53,7 @@ pub fn generate() -> PluginIndex {
                     description: meta.description.to_string(),
                     readme: format!("src/plugins/{}/README.md", meta.id),
                     category: meta.category.to_string(),
+                    icon: meta.icon.map(str::to_string),
                     thumbnail: meta.thumbnail.map(str::to_string),
                 }
             })
@@ -207,6 +212,7 @@ mod tests {
                     description: "First.".to_string(),
                     readme: "src/plugins/a/README.md".to_string(),
                     category: "Windows".to_string(),
+                    icon: Some("tag".to_string()),
                     thumbnail: Some("src/plugins/a/thumbnail.png".to_string()),
                 },
                 IndexEntry {
@@ -217,12 +223,15 @@ mod tests {
                     description: "Second.".to_string(),
                     readme: "src/plugins/b/README.md".to_string(),
                     category: "Input".to_string(),
+                    icon: None,
                     thumbnail: None,
                 },
             ],
         };
         let text = to_json(&index);
         assert!(text.contains("\"category\": \"Windows\""));
+        assert!(text.contains("\"icon\": \"tag\""));
+        assert_eq!(text.matches("\"icon\":").count(), 1, "none is left out");
         assert_eq!(
             text.matches("\"thumbnail\":").count(),
             1,
@@ -237,6 +246,7 @@ mod tests {
         let index = parse(old).expect("an old index parses");
         assert_eq!(index.plugins[0].category, "");
         assert_eq!(index.plugins[0].thumbnail, None);
+        assert_eq!(index.plugins[0].icon, None);
     }
 
     #[test]

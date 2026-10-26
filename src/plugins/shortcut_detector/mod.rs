@@ -84,6 +84,7 @@ impl WinCraftPlugin for ShortcutDetector {
             version: "1.1.0",
             readme: include_str!("README.md"),
             category: "Keyboard",
+            icon: None,
             thumbnail: None,
         }
     }

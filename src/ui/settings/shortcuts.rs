@@ -924,7 +924,11 @@ fn group_header(
     let icon = if name == HOST_GROUP {
         Icon::Keyboard
     } else {
-        catalog::icon_for(rows.first().map_or("", |info| info.category.as_str()))
+        let first = rows.first();
+        catalog::icon_of(
+            first.and_then(|info| info.icon.as_deref()),
+            first.map_or("", |info| info.category.as_str()),
+        )
     };
     if tokens.icon_tiles {
         icons::paint_on_tile(
@@ -1615,6 +1619,7 @@ mod tests {
             group: "LayoutKeeper".to_string(),
             plugin: None,
             category: String::new(),
+            icon: None,
             label: label.to_string(),
             description: String::new(),
             binding: binding.to_string(),

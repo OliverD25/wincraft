@@ -26,7 +26,8 @@
       "author": "community",
       "description": "Remembers which desktop and monitor each window is on, the taskbar thumbnail order and which window is in front, and restores them after a reboot.",
       "readme": "src/plugins/layout_keeper/README.md",
-      "category": "Windows"
+      "category": "Windows",
+      "icon": "layout-grid"
     },
     {
       "id": "window_deck",
@@ -35,7 +36,8 @@
       "author": "community",
       "description": "Shows all windows of an app in a row above the taskbar, to pick, move and close them from the keyboard.",
       "readme": "src/plugins/window_deck/README.md",
-      "category": "Windows"
+      "category": "Windows",
+      "icon": "copy"
     },
     {
       "id": "language_indicator",
@@ -53,7 +55,8 @@
       "author": "community",
       "description": "Give any window a name of your own. The taskbar, Alt+Tab and the title bar show it, and it comes back after a restart.",
       "readme": "src/plugins/window_namer/README.md",
-      "category": "Windows"
+      "category": "Windows",
+      "icon": "tag"
     },
     {
       "id": "quick_jump",
@@ -62,7 +65,8 @@
       "author": "community",
       "description": "Pin windows to the digits and jump back to one from anywhere.",
       "readme": "src/plugins/quick_jump/README.md",
-      "category": "Windows"
+      "category": "Windows",
+      "icon": "pin"
     }
   ]
 }

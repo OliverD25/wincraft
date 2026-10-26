@@ -426,6 +426,7 @@ mod tests {
             description: "Does one useful thing.".to_string(),
             readme: format!("src/plugins/{id}/README.md"),
             category: category.to_string(),
+            icon: None,
             thumbnail: None,
         }
     }
@@ -439,6 +440,7 @@ mod tests {
             description: String::new(),
             readme: String::new(),
             category: String::new(),
+            icon: None,
             enabled,
             config_path: Default::default(),
             hotkeys: Vec::new(),
