@@ -1051,6 +1051,8 @@ struct Draw<'a> {
     /// Each window's place in Windows' taskbar row, indexed like the group.
     numbers: Vec<usize>,
     dragged: Option<usize>,
+    /// The dragged window was picked up by its ghost.
+    dragged_ghost: bool,
     target: Option<Spot>,
     /// How far each rail is unfolded, shaped like `rows`.
     open: Vec<Vec<f32>>,
@@ -1103,6 +1105,7 @@ pub fn body(
     if dragged.is_none() {
         shared.drag = None;
     }
+    let dragged_ghost = shared.drag.as_ref().is_some_and(|drag| drag.ghost);
     let home = |member: usize| {
         locate(&model.bands, member)
             .map(|spot| spot.cell)
@@ -1129,13 +1132,18 @@ pub fn body(
                     ctrl_card.and_then(|card| ctrl_drop(group, &snapshot.desktops, member, card)),
                 );
             } else if let Some(spot) = target {
-                frame.actions.extend(drop_actions(
+                let moved = if dragged_ghost {
+                    Item::Ghost(member)
+                } else {
+                    Item::Card(member)
+                };
+                frame.actions.extend(drop_item_actions(
                     group,
                     &snapshot.desktops,
                     &model.bands,
                     &model.rows,
                     &snapshot.monitors,
-                    member,
+                    moved,
                     spot,
                 ));
             }
@@ -1196,6 +1204,7 @@ pub fn body(
         can_rename: snapshot.can_rename,
         numbers: taskbar_numbers(group, &snapshot.desktops),
         dragged: dragged.filter(|_| dragging),
+        dragged_ghost,
         target: target.filter(|_| dragging && !ctrl),
         open,
         rail_focus: shared.rail_focus,
@@ -1498,7 +1507,7 @@ impl Draw<'_> {
                 if !monitor.connected {
                     card_alpha *= DISCONNECTED;
                 }
-                if self.dragged == Some(member) {
+                if self.dragged == Some(member) && !self.dragged_ghost {
                     card_alpha *= DRAGGED;
                 }
                 self.card(ui, shared, frame, member, card_rect, card_alpha);
@@ -1557,12 +1566,11 @@ impl Draw<'_> {
         let leaving = shared.is_leaving(window.hwnd);
         let (scale, fade) = shared.motion(window.hwnd);
         let alpha = alpha * fade;
-        let sense = if leaving {
-            Sense::hover()
-        } else {
-            Sense::click_and_drag()
-        };
-        let response = ui.interact(rect, egui::Id::new(("arrange-card", window.hwnd)), sense);
+        let response = ui.interact(
+            rect,
+            egui::Id::new(("arrange-card", window.hwnd)),
+            item_sense(Item::Card(member), leaving),
+        );
         let mut painter = ui.painter().clone();
         painter.multiply_opacity(alpha);
         let is_cursor = shared.cursor == Some(window.hwnd) && !shared.cursor_ghost && !leaving;
@@ -1714,9 +1722,15 @@ impl Draw<'_> {
         let response = ui.interact(
             rect,
             egui::Id::new(("arrange-ghost", window.hwnd)),
-            Sense::click(),
+            item_sense(Item::Ghost(member), false),
         );
         let mut painter = ui.painter().clone();
+        // Its old place stays behind, faded, while it is dragged.
+        let alpha = if self.dragged == Some(member) && self.dragged_ghost {
+            alpha * DRAGGED
+        } else {
+            alpha
+        };
         painter.multiply_opacity(alpha);
         dashed_box(ui, &painter, rect, false);
         if shared.cursor == Some(window.hwnd) && shared.cursor_ghost {
@@ -1827,6 +1841,11 @@ impl Draw<'_> {
 
         let response =
             response.on_hover_text(format!("{} \u{b7} on {}", window.label, monitor.label));
+        let response = if self.dragged.is_none() {
+            response.on_hover_cursor(egui::CursorIcon::Grab)
+        } else {
+            response
+        };
         // A click opens the window, as on its real card.
         if response.clicked() {
             pick(shared, self.group, Some(Item::Ghost(member)));
@@ -1835,6 +1854,16 @@ impl Draw<'_> {
         }
         if response.middle_clicked() {
             frame.close.extend(middle_close(window.hwnd, true));
+        }
+        if response.drag_started() {
+            if let Some(at) = response.interact_pointer_pos() {
+                shared.drag = Some(Drag {
+                    hwnd: window.hwnd,
+                    grab: at - response.rect.min,
+                    ghost: true,
+                });
+                pick(shared, self.group, Some(Item::Ghost(member)));
+            }
         }
     }
 
@@ -1856,6 +1885,7 @@ impl Draw<'_> {
                 shared.drag = Some(Drag {
                     hwnd: window.hwnd,
                     grab: at - response.rect.min,
+                    ghost: false,
                 });
                 pick(shared, self.group, Some(Item::Card(member)));
             }
@@ -2299,6 +2329,63 @@ fn footer(ui: &Ui, panel: Rect, note: bool, others_key: bool) {
     );
 }
 
+/// How a card or a ghost takes the mouse: both can be clicked and dragged,
+/// except a card whose window is gone and fading out.
+pub fn item_sense(item: Item, leaving: bool) -> Sense {
+    match item {
+        Item::Card(_) if leaving => Sense::hover(),
+        Item::Card(_) | Item::Ghost(_) => Sense::click_and_drag(),
+    }
+}
+
+/// Where Ctrl+← (`forward` false) or Ctrl+→ puts window `member`'s ghost:
+/// one place along the primary column's cards and ghosts. None at either
+/// end, or when the window has no ghost.
+pub fn ghost_step(bands: &[Band], member: usize, forward: bool) -> Option<Spot> {
+    let band = bands
+        .iter()
+        .position(|band| band.ghosts.contains(&member))?;
+    let cell = bands[band].ghost_cell?;
+    let flow = bands[band].flow(cell);
+    let at = flow.iter().position(|item| *item == Item::Ghost(member))?;
+    let others = flow.len() - 1;
+    let index = if forward {
+        Some(at + 1).filter(|index| *index <= others)?
+    } else {
+        at.checked_sub(1)?
+    };
+    Some(Spot { band, cell, index })
+}
+
+/// What putting `moved`, a card or a ghost, at `spot` means. A ghost's
+/// window is on another monitor. Put among the primary column's cards and
+/// ghosts on its own desktop, it only takes that taskbar place and stays on
+/// its monitor; put anywhere else, it goes where its own card would.
+pub fn drop_item_actions(
+    group: &ArrangeGroup,
+    desktops: &[ArrangeDesktop],
+    bands: &[Band],
+    rows: &[Vec<usize>],
+    monitors: &[ArrangeMonitor],
+    moved: Item,
+    spot: Spot,
+) -> Vec<ArrangeAction> {
+    let member = moved.member();
+    let mut actions = drop_actions(group, desktops, bands, rows, monitors, member, spot);
+    let own_band = locate(bands, member).map(|from| from.band) == Some(spot.band);
+    if let Item::Ghost(_) = moved {
+        if own_band && bands[spot.band].ghost_cell == Some(spot.cell) {
+            let now: Vec<isize> = group.windows.iter().map(|window| window.hwnd).collect();
+            actions.retain(|action| match action {
+                ArrangeAction::MoveToMonitor { .. } => false,
+                ArrangeAction::Reorder { order, .. } => *order != now,
+                _ => true,
+            });
+        }
+    }
+    actions
+}
+
 /// The keys that move a window or change its number, for the compact popup,
 /// which picks and opens windows itself and leaves these to the rules here.
 pub(super) fn move_keys(
@@ -2404,19 +2491,39 @@ fn keyboard(
         frame.activate = Some(group.windows[cursor].hwnd);
         return;
     }
-    // A ghost's window is on another monitor: the keys only pick from it.
-    if let Item::Ghost(_) = item {
-        if let Some(key @ (Key::Prev | Key::Next)) = pressed {
-            if let Some(next) = next_item(&model.bands, item, key == Key::Next) {
-                pick(shared, group, Some(next));
-            }
-        }
-        return;
-    }
     if alt_left || alt_right {
         let step = if alt_left { -1 } else { 1 };
         frame.actions.extend(nudge(group, desktops, cursor, step));
         return;
+    }
+    // A ghost's window is on another monitor: Ctrl+← and Ctrl+→ give it
+    // another taskbar place and leave it there; the keys to another monitor
+    // or desktop move it as its own card does.
+    if let Item::Ghost(_) = item {
+        match pressed {
+            Some(key @ (Key::Prev | Key::Next)) => {
+                if let Some(next) = next_item(&model.bands, item, key == Key::Next) {
+                    pick(shared, group, Some(next));
+                }
+                return;
+            }
+            Some(key @ (Key::MoveLeft | Key::MoveRight)) => {
+                if let Some(spot) = ghost_step(&model.bands, cursor, key == Key::MoveRight) {
+                    frame.actions.extend(drop_item_actions(
+                        group,
+                        desktops,
+                        &model.bands,
+                        &model.rows,
+                        monitors,
+                        item,
+                        spot,
+                    ));
+                }
+                return;
+            }
+            Some(_) => pick(shared, group, Some(Item::Card(cursor))),
+            None => return,
+        }
     }
     // A move to another desktop looks through all of them, so it also
     // works while they are hidden.
@@ -3622,6 +3729,113 @@ mod tests {
             anchor: None,
         };
         (group, snapshot)
+    }
+
+    // The user wants ghosts draggable; earlier designs said they were not.
+    // These tests fail if that ever comes back.
+
+    #[test]
+    fn ghosts_can_be_dragged_with_the_mouse_like_cards() {
+        assert_eq!(item_sense(Item::Ghost(1), false), Sense::click_and_drag());
+        assert_eq!(item_sense(Item::Card(1), false), Sense::click_and_drag());
+        // Only a card whose window is gone takes no drag.
+        assert_eq!(item_sense(Item::Card(1), true), Sense::hover());
+    }
+
+    fn reorder(order: Vec<isize>) -> ArrangeAction {
+        ArrangeAction::Reorder {
+            group: "claude.exe".to_string(),
+            order,
+        }
+    }
+
+    #[test]
+    fn ghosts_can_be_dragged_within_the_primary_column_and_their_window_stays() {
+        let (group, snapshot) = spread();
+        let model = spread_model(1);
+        let drop = |moved: Item, index: usize| {
+            drop_item_actions(
+                &group,
+                &snapshot.desktops,
+                &model.bands,
+                &model.rows,
+                &snapshot.monitors,
+                moved,
+                spot(0, (0, 1), index),
+            )
+        };
+        // Window 1 (on the right monitor) by its ghost, after card 2: it
+        // takes number 3, and no move to the primary monitor is asked for.
+        assert_eq!(drop(Item::Ghost(1), 2), [reorder(vec![0, 2, 1, 3, 4, 5])]);
+        // Its real card dropped at the same place moves it there too.
+        assert!(matches!(
+            drop(Item::Card(1), 2).first(),
+            Some(ArrangeAction::MoveToMonitor { hwnd: 1, .. })
+        ));
+        // Put back where it was: nothing to do.
+        assert!(drop(Item::Ghost(1), 1).is_empty());
+    }
+
+    #[test]
+    fn ghosts_can_be_dragged_to_another_monitors_column_and_move_the_window() {
+        let (group, snapshot) = spread();
+        let model = spread_model(1);
+        let to_right = spot(0, (0, 2), 0);
+        let by_ghost = drop_item_actions(
+            &group,
+            &snapshot.desktops,
+            &model.bands,
+            &model.rows,
+            &snapshot.monitors,
+            Item::Ghost(4),
+            to_right,
+        );
+        assert_eq!(
+            by_ghost[0],
+            ArrangeAction::MoveToMonitor {
+                hwnd: 4,
+                monitor: snapshot.monitors[2].device.clone()
+            }
+        );
+        // Exactly what its own card would do.
+        assert_eq!(
+            by_ghost,
+            drop_item_actions(
+                &group,
+                &snapshot.desktops,
+                &model.bands,
+                &model.rows,
+                &snapshot.monitors,
+                Item::Card(4),
+                to_right,
+            )
+        );
+    }
+
+    #[test]
+    fn ghosts_can_be_moved_with_ctrl_arrows_and_their_window_stays() {
+        let (group, snapshot) = spread();
+        let model = spread_model(1);
+        let actions = |spot: Spot| {
+            drop_item_actions(
+                &group,
+                &snapshot.desktops,
+                &model.bands,
+                &model.rows,
+                &snapshot.monitors,
+                Item::Ghost(1),
+                spot,
+            )
+        };
+        let right = ghost_step(&model.bands, 1, true).expect("a place to the right");
+        assert_eq!(right, spot(0, (0, 1), 2));
+        assert_eq!(actions(right), [reorder(vec![0, 2, 1, 3, 4, 5])]);
+        let left = ghost_step(&model.bands, 1, false).expect("a place to the left");
+        assert_eq!(actions(left), [reorder(vec![1, 0, 2, 3, 4, 5])]);
+        // Ghost 4 to the right: after card 5, the last place.
+        assert_eq!(ghost_step(&model.bands, 4, true), Some(spot(0, (0, 1), 5)));
+        // A window with no ghost has no ghost place to step to.
+        assert_eq!(ghost_step(&model.bands, 0, true), None);
     }
 
     fn spread_model(mode: u32) -> Model {
