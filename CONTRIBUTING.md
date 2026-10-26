@@ -388,6 +388,12 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   feel like one family. `wincraft --hotkey-verdict=Win+Alt+Shift+F1,Win+Alt+K`
   prints ShortcutDetector's verdict on each combination before you pick one;
   a key your own running WinCraft holds shows as taken by another app.
+- **Record hotkeys only through `ui::widgets::hotkey_capture`.** Its hook
+  sends an unassigned mask key (`0xE8`) when it hides a key while Alt or Win
+  is held, and it hides that key's release too. Its guard on the recording
+  window drops `SC_KEYMENU` and character messages. Keep all three: without
+  them Alt+Space opens the window's system menu, Alt+F4 closes the window and
+  Win+<key> opens the Start menu while the user is only naming a hotkey.
 - **No new crates without discussing it first.** WinCraft depends on
   `windows-sys`, `serde`, `serde_json`, `log`, `eframe`/`egui`,
   `egui_commonmark`, `ureq`, `winit` and `raw-window-handle`, and that is
