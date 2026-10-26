@@ -3,7 +3,7 @@
 //! registers each first press once, and after it waits up to three seconds
 //! for the second with `core::chord`. This module holds the rules that need
 //! no Windows: which keys can be used, what clashes, the search on the
-//! Keyboard shortcuts page, and which first presses to register.
+//! Hotkeys page, and which first presses to register.
 
 use std::collections::BTreeSet;
 use std::time::Duration;

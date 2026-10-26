@@ -67,7 +67,7 @@ pub enum Outcome {
     Stay,
     Hide,
     OpenPlugin(String),
-    /// Settings → Keyboard shortcuts on a command: its id and name.
+    /// Settings → Hotkeys on a command: its id and name.
     OpenShortcut {
         id: String,
         label: String,

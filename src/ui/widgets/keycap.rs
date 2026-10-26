@@ -71,7 +71,7 @@ fn chip(ui: &mut Ui, text: &str, font: FontId, text_colour: Color32, stroke: Col
 /// chord joined by "then".
 #[derive(Clone, Copy, Debug)]
 pub struct Caps {
-    /// 24 on the Keyboard shortcuts page, 22 in the palette.
+    /// 24 on the Hotkeys page, 22 in the palette.
     pub height: f32,
     /// This many presses from the start get an accent border, for Search
     /// by keys.

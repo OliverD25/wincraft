@@ -1218,7 +1218,7 @@ impl Host {
         ));
     }
 
-    /// Applies the Keyboard shortcuts page's changes in order, so Replace
+    /// Applies the Hotkeys page's changes in order, so Replace
     /// frees the keys before the new command takes them.
     fn set_shortcuts(&mut self, changes: Vec<ShortcutChange>) {
         let infos = self.shortcut_infos(&self.commands());
@@ -1309,7 +1309,7 @@ impl Host {
         entries
     }
 
-    /// The rows of the Keyboard shortcuts page: the palette hotkey, then
+    /// The rows of the Hotkeys page: the palette hotkey, then
     /// every command the palette lists.
     fn shortcut_infos(&self, commands: &[PaletteEntry]) -> Vec<ShortcutInfo> {
         let mut infos = vec![ShortcutInfo {
@@ -2533,7 +2533,7 @@ impl PluginSet {
         entries
     }
 
-    /// The id a command has on the Keyboard shortcuts page and in
+    /// The id a command has on the Hotkeys page and in
     /// config.json: the plugin's id and the action, never a place in a list.
     fn shortcut_id(&self, id: CommandId) -> String {
         let plugin = |index: usize| {

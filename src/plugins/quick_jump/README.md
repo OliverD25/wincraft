@@ -15,7 +15,7 @@ Win and Alt held while you press the digit, or let them go first. QuickJump
 waits 3 seconds for the digit. Esc, a click, or any other key stops the wait
 and changes nothing.
 
-Every shortcut can be changed in Settings, Keyboard shortcuts. The pin list
+Every shortcut can be changed in Settings, Hotkeys. The pin list
 has a row there too, "Open pin list", with no keys at first.
 
 ## The strip

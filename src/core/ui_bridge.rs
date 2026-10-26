@@ -496,7 +496,7 @@ pub enum HostRequest {
         value: Value,
     },
     ResetPlugin(String),
-    /// From the Keyboard shortcuts page, all at once: Replace changes two.
+    /// From the Hotkeys page, all at once: Replace changes two.
     SetShortcuts(Vec<ShortcutChange>),
     SetHostSetting(HostSetting),
     /// About's "Check for updates".
@@ -515,7 +515,7 @@ pub struct ShortcutChange {
     pub binding: Option<String>,
 }
 
-/// One row of the Keyboard shortcuts page: a command the palette lists.
+/// One row of the Hotkeys page: a command the palette lists.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ShortcutInfo {
     /// Stable across restarts: "wincraft.open-settings",
@@ -587,7 +587,7 @@ pub struct PaletteEntry {
     pub plugin: Option<String>,
     /// A second line under the label, such as a monitor's state.
     pub subtitle: Option<String>,
-    /// The command's id on the Keyboard shortcuts page, and its keys there.
+    /// The command's id on the Hotkeys page, and its keys there.
     pub shortcut_id: String,
     pub shortcut: String,
     /// Found by typing only: left out of the list under an empty box, as

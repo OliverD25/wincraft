@@ -381,7 +381,7 @@ fn scene_tip(args: &[String], test_instance: bool) -> (Option<String>, Option<St
     (Some(id.to_string()), None)
 }
 
-/// "general", "themes", "plugins", "layout", "bookmarks", "store", "about", or "plugin:<id>".
+/// "general", "themes", "plugins", "hotkeys" (or "shortcuts"), "layout", "bookmarks", "store", "about", or "plugin:<id>".
 fn settings_target(value: &str) -> Option<SettingsTarget> {
     let value = value.trim();
     if let Some(id) = value.strip_prefix("plugin:") {
@@ -392,7 +392,7 @@ fn settings_target(value: &str) -> Option<SettingsTarget> {
         "general" => Page::General,
         "themes" => Page::Themes,
         "plugins" => Page::Plugins,
-        "shortcuts" => Page::Shortcuts,
+        "shortcuts" | "hotkeys" => Page::Shortcuts,
         "layout" => Page::Layout,
         "bookmarks" => Page::Bookmarks,
         "store" => Page::Store,

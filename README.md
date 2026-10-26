@@ -28,12 +28,12 @@ screenshots.
   Beside the list, an inspector shows what the selected row is and what it
   can do. See
   [Command palette](#command-palette).
-- **Settings window** — General, Plugins, Keyboard shortcuts, Layout,
+- **Settings window** — General, Plugins, Hotkeys, Layout,
   Bookmarks, Plugin Store and About, with a page per plugin: its options, its
   hotkeys, its config file and its README.
-- **Keyboard shortcuts** — every command the palette lists can have a
+- **Hotkeys** — every command the palette lists can have a
   shortcut of one key press or two in a row (a chord, such as `Win+Alt+K`,
-  then `S`). See [Keyboard shortcuts](#keyboard-shortcuts).
+  then `S`). See [Hotkeys](#hotkeys).
 - **Themes** — Classic (the default), Fluent, Terminal, Paper and High
   contrast, each in dark and light. In Fluent the palette uses Windows 11
   glass; it turns solid on battery saver or when transparency effects are
@@ -233,9 +233,9 @@ the pins. [Full README](src/plugins/quick_jump/README.md)
 |---|---|
 | `Win+Alt+P` | Open the command palette |
 
-### Keyboard shortcuts
+### Hotkeys
 
-Settings → Keyboard shortcuts lists every command the palette lists, grouped
+Settings → Hotkeys lists every command the palette lists, grouped
 by plugin. Click a row (or select it and press Enter or F2) and press the
 keys. A second key within 3 seconds makes a chord: `Win+Alt+K, S` means
 Win+Alt+K, then S. While a chord waits, a small WinCraft line at the bottom
@@ -251,6 +251,11 @@ Replace; keys another app holds can be saved anyway. Nothing changes until
 Enter, Save, Replace or Save anyway. Search by keys finds what uses a
 combination. In the palette, a command's shortcut shows at the right of its
 row, and Ctrl+K opens this page on that command.
+
+Each row with keys shows if they work: a green dot means working, a
+warning triangle means another app (or another WinCraft command) holds
+them, and a grey dot means the plugin is off. A line under the search box
+sums it up, such as "12 working · 1 taken by another app".
 
 ## Command palette
 
@@ -581,7 +586,7 @@ A bare key without modifiers is accepted too, such as `F13` or `Pause`. Keep
 it to keys you never type with, because WinCraft takes that key from every
 other program while it runs. If another program already owns a combination,
 WinCraft keeps running, shows a tray notification and marks the hotkey
-"taken by another app" on the plugin's page and on the About page.
+"taken by another app" on the plugin's page and on the Hotkeys page.
 
 ## Command line
 

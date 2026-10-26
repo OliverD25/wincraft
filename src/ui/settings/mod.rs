@@ -2,6 +2,7 @@ mod about;
 mod bookmarks;
 mod catalog;
 mod general;
+mod hotkey_status;
 mod layout;
 mod plugins;
 mod shortcuts;
@@ -233,7 +234,7 @@ pub struct SettingsState {
     pub bookmarks: bookmarks::BookmarksView,
     /// The theme the General page's tiles are previewing.
     pub theme_preview: theme_tile::HoverPreview,
-    /// The Keyboard shortcuts page's search, filter and recording.
+    /// The Hotkeys page's search, filter and recording.
     pub shortcuts: shortcuts::View,
 }
 
@@ -370,7 +371,7 @@ impl Settings {
         }
     }
 
-    /// The palette's "Change shortcut…": Keyboard shortcuts on that command.
+    /// The palette's "Change hotkey…": Hotkeys on that command.
     pub fn open_shortcut(&self, id: &str, label: &str) {
         if let Ok(mut shared) = self.shared.lock() {
             shared.state.page = Page::Shortcuts;
@@ -560,7 +561,7 @@ const PAGES: &[(Page, &str)] = &[
     (Page::General, "General"),
     (Page::Themes, "Themes"),
     (Page::Plugins, "Plugins"),
-    (Page::Shortcuts, "Keyboard shortcuts"),
+    (Page::Shortcuts, "Hotkeys"),
     (Page::Layout, "Layout"),
     (Page::Bookmarks, "Bookmarks"),
     (Page::Store, "Plugin Store"),
