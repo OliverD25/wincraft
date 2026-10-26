@@ -151,6 +151,12 @@ pub fn effective(chosen: ThemeName, preview: Option<ThemeName>, forced: bool) ->
 }
 
 /// Whether the Windows high contrast setting is on.
+/// Settings → Personalization → Colors → Transparency effects; on when the
+/// value is missing, as Windows has it.
+pub fn transparency_effects() -> bool {
+    read_personalize("EnableTransparency") != Some(0)
+}
+
 pub fn windows_high_contrast() -> bool {
     let mut info = HIGHCONTRASTW {
         cbSize: std::mem::size_of::<HIGHCONTRASTW>() as u32,
@@ -246,6 +252,9 @@ pub struct Tokens {
     pub top_highlight: Color32,
     /// Glyph icons sit on small coloured tiles in white.
     pub icon_tiles: bool,
+    /// How opaque the palette's panel is while Windows' glass shows behind
+    /// it; 1 in themes without glass.
+    pub glass_alpha: f32,
     /// An accent rule under the palette's search field; 0 for none.
     pub search_line: f32,
     /// The selected row gets an accent outline instead of a tint.
@@ -336,6 +345,7 @@ impl Tokens {
             pill_radius: 1,
             top_highlight: Color32::TRANSPARENT,
             icon_tiles: false,
+            glass_alpha: 1.0,
             search_line: 0.0,
             selection_ring: false,
             tile_fill: true,
@@ -482,6 +492,7 @@ impl Tokens {
             pill_radius: 2,
             search_line: 2.0,
             icon_tiles: true,
+            glass_alpha: if dark { 0.66 } else { 0.68 },
             ..Self::painted(ThemeName::Fluent, dark, colours)
         }
     }
@@ -1194,6 +1205,7 @@ mod tests {
             assert_eq!(tokens.pill_height, None);
             assert_eq!(tokens.pill_radius, 1);
             assert_eq!(tokens.top_highlight, Color32::TRANSPARENT);
+            assert_eq!(tokens.glass_alpha, 1.0);
             assert!(!tokens.icon_tiles);
             assert_eq!(tokens.search_line, 0.0);
             assert!(!tokens.selection_ring);

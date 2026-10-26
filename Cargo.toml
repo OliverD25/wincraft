@@ -50,6 +50,7 @@ features = [
     "Win32_UI_Shell_PropertiesSystem",
     "Win32_UI_Accessibility",
     "Win32_System_Pipes",
+    "Win32_System_Power",
     "Win32_System_JobObjects",
     "Win32_System_IO",
     "Win32_Security_Authentication_Identity",

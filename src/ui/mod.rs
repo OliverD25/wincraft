@@ -115,6 +115,9 @@ fn report_palette_window(cc: &eframe::CreationContext<'_>, to_host: &Arc<HostCha
 }
 
 struct App {
+    /// The palette's HWND, and its own style while the glass is on.
+    palette_window: isize,
+    palette_style: Option<isize>,
     rx: Receiver<UiCommand>,
     to_host: Arc<HostChannel>,
     snapshot: UiSnapshot,
@@ -164,6 +167,8 @@ impl App {
         let mut palette = Palette::new(router);
         palette.set_window(palette_hwnd);
         Self {
+            palette_window: palette_hwnd,
+            palette_style: None,
             rx,
             to_host,
             snapshot,
@@ -190,6 +195,7 @@ impl App {
         while let Ok(command) = self.rx.try_recv() {
             match command {
                 UiCommand::ShowPalette(monitor) => {
+                    self.update_glass(ctx);
                     self.palette.opened();
                     self.fit_palette(ctx, monitor);
                     self.palette_visible = true;
@@ -199,6 +205,7 @@ impl App {
                     log::info!("palette shown");
                 }
                 UiCommand::ShowPrompt(prompt, monitor) => {
+                    self.update_glass(ctx);
                     self.palette.opened();
                     self.fit_palette(ctx, monitor);
                     self.palette.ask(prompt);
@@ -310,12 +317,14 @@ impl App {
                     let look = (snapshot.theme, snapshot.mode);
                     if look != (self.snapshot.theme, self.snapshot.mode) {
                         theme::apply(ctx, look.0, look.1);
+                        self.update_glass(ctx);
                     }
                     self.snapshot = *snapshot;
                     self.palette.invalidate();
                 }
                 UiCommand::ThemeChanged => {
-                    theme::apply(ctx, self.snapshot.theme, self.snapshot.mode)
+                    theme::apply(ctx, self.snapshot.theme, self.snapshot.mode);
+                    self.update_glass(ctx);
                 }
                 UiCommand::Quit => {
                     self.quitting = true;
@@ -349,6 +358,26 @@ impl App {
         self.set_palette_visible(ctx, false);
     }
 
+    /// Puts Windows' glass behind the palette, or takes it away, when the
+    /// theme or the Windows settings that decide it changed. Asked when the
+    /// palette opens and when the theme or Windows' colours change, which
+    /// covers the transparency switch; battery saver is seen at the next
+    /// opening, the only time the glass can be seen anyway.
+    fn update_glass(&mut self, ctx: &egui::Context) {
+        let theme = theme::Tokens::get(ctx).theme;
+        let wanted = self.palette_window != 0
+            && crate::core::glass::allowed(theme, crate::core::glass::conditions());
+        if wanted == self.palette.glass() {
+            return;
+        }
+        crate::core::glass::set_palette(self.palette_window, wanted, &mut self.palette_style);
+        self.palette.set_glass(wanted);
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+            self.palette.window_width(),
+            self.palette.window_height(),
+        )));
+    }
+
     /// On a monitor narrower than 1100 px the inspector does not fit beside
     /// the list, so the window narrows to the list and the inspector opens
     /// over it.
@@ -360,7 +389,7 @@ impl App {
         if (self.palette.window_width() - before).abs() > f32::EPSILON {
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
                 self.palette.window_width(),
-                palette::HEIGHT,
+                self.palette.window_height(),
             )));
         }
     }
@@ -377,7 +406,7 @@ impl App {
         // 18 % down is where the panel's top edge goes; the window starts the
         // shadow margin above it.
         let top = monitor.top as f32 + (monitor.bottom - monitor.top) as f32 * 0.18
-            - palette::MARGIN * scale;
+            - self.palette.margin() * scale;
         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
             left / scale,
             top / scale,

@@ -479,7 +479,7 @@ impl Pinner {
     }
 }
 
-fn os_build() -> Option<u32> {
+pub(crate) fn os_build() -> Option<u32> {
     reg_value_in(
         HKEY_LOCAL_MACHINE,
         r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",

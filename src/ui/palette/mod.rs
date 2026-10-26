@@ -77,6 +77,9 @@ pub enum Outcome {
 }
 
 pub struct Palette {
+    /// Windows' glass shows behind the panel: the window is the panel, with
+    /// no room around it for a shadow of its own.
+    glass: bool,
     query: String,
     /// The prefix the user typed, drawn as a chip before the search box. The
     /// query holds only what came after it.
@@ -186,6 +189,7 @@ impl Palette {
             bookmarks: None,
             place: None,
             narrow: false,
+            glass: false,
             overlay: false,
             action_cursor: None,
             marks: Marks::default(),
@@ -246,7 +250,29 @@ impl Palette {
 
     /// The OS window's width: the panel and the shadow margins.
     pub fn window_width(&self) -> f32 {
-        self.panel_width() + MARGIN * 2.0
+        self.panel_width() + self.margin() * 2.0
+    }
+
+    pub fn window_height(&self) -> f32 {
+        PANEL_HEIGHT + self.margin() * 2.0
+    }
+
+    /// The transparent room for the panel's shadow; none with the glass,
+    /// where the window is the panel.
+    pub fn margin(&self) -> f32 {
+        if self.glass {
+            0.0
+        } else {
+            MARGIN
+        }
+    }
+
+    pub fn glass(&self) -> bool {
+        self.glass
+    }
+
+    pub fn set_glass(&mut self, on: bool) {
+        self.glass = on;
     }
 
     /// Turns the freshly opened palette into a text box for `prompt`.
@@ -827,7 +853,7 @@ impl Palette {
 
         let strip = self.current_strip(to_host);
         let panel_width = self.panel_width();
-        let (panel, painter, line) = paint_panel(ui, &tokens, appear, panel_width);
+        let (panel, painter, line) = paint_panel(ui, &tokens, appear, panel_width, self.glass);
 
         // Search bar: 56 high, 16 px sides, the search icon, the scope chip
         // when one is on, the query, and the Ask AI pill at the right.
@@ -1345,7 +1371,7 @@ impl Palette {
         }
 
         let panel_width = self.panel_width();
-        let (panel, painter, line) = paint_panel(ui, &tokens, appear, panel_width);
+        let (panel, painter, line) = paint_panel(ui, &tokens, appear, panel_width, self.glass);
         let search = Rect::from_min_size(panel.min, vec2(panel_width, SEARCH_HEIGHT));
         let rule = search_rule(ui.ctx(), &tokens, line);
         painter.hline(search.x_range(), search.bottom() - rule.width / 2.0, rule);
@@ -1551,23 +1577,35 @@ fn paint_panel(
     tokens: &Tokens,
     appear: f32,
     width: f32,
+    glass: bool,
 ) -> (Rect, egui::Painter, egui::Stroke) {
     let ctx = ui.ctx().clone();
     ui.multiply_opacity(appear);
     let window = ui.max_rect();
+    // With the glass the panel is the window: no margin, and no room to rise.
+    let (margin, rise) = if glass {
+        (0.0, 0.0)
+    } else {
+        (MARGIN, (1.0 - appear) * RISE)
+    };
     let panel = Rect::from_min_size(
-        window.min + vec2(MARGIN, MARGIN + (1.0 - appear) * RISE),
+        window.min + vec2(margin, margin + rise),
         vec2(width, PANEL_HEIGHT),
     );
     let radius = CornerRadius::same(tokens.radius_window);
     let painter = ui.painter().clone();
-    if tokens.shadows {
+    if tokens.shadows && !glass {
         painter.add(theme::window_shadow(tokens).as_shape(panel, radius));
     }
+    let fill = if glass {
+        theme::with_alpha(tokens.elevated_bg, tokens.glass_alpha)
+    } else {
+        tokens.elevated_bg
+    };
     painter.rect(
         panel,
         radius,
-        tokens.elevated_bg,
+        fill,
         theme::line(&ctx, tokens.rim),
         StrokeKind::Inside,
     );
@@ -3355,6 +3393,28 @@ mod tests {
             palette.window_width(),
             PANEL_WIDTH - inspector::WIDTH + 2.0 * MARGIN
         );
+    }
+
+    #[test]
+    fn with_the_glass_the_window_is_the_panel() {
+        let mut palette = windows_palette();
+        assert_eq!(palette.window_height(), HEIGHT);
+        palette.set_glass(true);
+        assert!(palette.glass());
+        assert_eq!(palette.margin(), 0.0);
+        assert_eq!(palette.window_width(), PANEL_WIDTH);
+        assert_eq!(palette.window_height(), PANEL_HEIGHT);
+        let bridge = crate::core::ui_bridge::create();
+        let ctx = drawing_context();
+        frame(
+            &mut palette,
+            &ctx,
+            &UiSnapshot::default(),
+            &bridge,
+            Vec::new(),
+        );
+        palette.set_glass(false);
+        assert_eq!(palette.window_width(), WIDTH);
     }
 
     #[test]
