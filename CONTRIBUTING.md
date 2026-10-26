@@ -156,6 +156,7 @@ The About page lists the kinds the build you are running can draw.
 | `on_settings_changed` | After the user changes one of your settings. |
 | `hotkey_actions` | To register your hotkeys, and to list them in the palette and on your page. |
 | `on_hotkey(id)` | When one of your hotkeys is pressed. |
+| `on_hotkeys_bound(keys)` | Right after `init`, with the keys each of your hotkey actions has, as the user set them (`"Win+Alt+Q"`, `"Win+Alt+K, J"`, or empty for none). Keep them if you name your keys on screen; a change starts your plugin again. |
 | `on_taskbar_created` | When Explorer restarts and builds a new taskbar. It is still empty then, so wait a few seconds before touching its buttons. |
 | `tray_actions` | Every time the tray menu opens. Only your **first** tray action goes into the tray menu; every tray action appears in the palette. |
 | `on_tray_action(id)` | When your menu entry or its palette entry is chosen. |
@@ -163,6 +164,7 @@ The About page lists the kinds the build you are running can draw.
 | `palette_commands` | For entries that are neither a hotkey nor a tray item. |
 | `on_palette_command(id)` | When one of those is chosen. |
 | `search_providers` | Once at startup, whether the plugin is on or not. Extra sources of palette results; see below. |
+| `windows` | Once at startup, whether the plugin is on or not. Windows your plugin draws itself with egui; see below. |
 | `status` | When building your page. One line under your description; call `host::plugin_changed()` when it changes. |
 | `page_action` | When building your page. One of your hotkey actions, or failing that one of your palette commands, shown as a button under the status line. |
 | `palette_subtitle(kind, id)` | Each time the palette's list is rebuilt. A second line under one of your palette entries, such as the state the command would change; `kind` says whether `id` is a hotkey, tray or palette id, because those numbers can overlap. Return `None` for no subtitle, and call `host::plugin_changed()` when the answer changes. |
@@ -204,6 +206,22 @@ what Enter does with some text and with none. When the user presses Enter,
 the text comes back through `on_prompt_answer`; Esc sends nothing.
 WindowNamer's rename box works this way. Like `notify`, it is safe to call
 from any callback.
+
+## A window of your own
+
+Most plugins need no window: settings, the tray, the palette and the
+notices are the host's. When yours keeps a list that people browse and
+edit, such as QuickJump's pin list, return a `PluginWindow` from
+`windows()`. Like a search provider it is made once at startup and moved to
+the UI thread, so share data with your plugin through an `Arc<Mutex<…>>`
+and wake your plugin with a message to a window of its own.
+`host::show_window(plugin_id, window_id)` opens it from any callback, and
+the host closes every window of a plugin that is switched off. Its `show`
+runs every frame while `is_open` says so, and draws its own viewport with
+`ctx.show_viewport_deferred`; `WindowFrame` gives it the app icon, the
+palette's handle (to find its own window with `ui::settings::find_window`)
+and the channel to the host, for `HostRequest::FocusWindow`. The widgets in
+`ui::widgets`, the theme tokens and `ui::dwm_thumbs` are there to reuse.
 
 ## Window titles
 
@@ -400,7 +418,10 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   copy: `com` (the owned COM pointer), `windows_list` (the Alt+Tab window
   filter, window text, a process's program path), `desktop_manager` (which
   virtual desktop a window is on), `clipboard`, `monitors` (left, centre,
-  right) and `wide` / `from_wide_ptr` for UTF-16 strings.
+  right), `wide` / `from_wide_ptr` for UTF-16 strings,
+  `window_identity` (finding a window again by its program and title),
+  `chord` (waiting for the key after a hotkey) and `canvas` (drawing an
+  on-screen panel for `core::layered`).
 - **Clean up in `teardown`.** A plugin can be switched off and on again from
   the settings window, so `init` must work a second time.
 - **`cargo fmt`, `cargo test`, `cargo clippy --all-targets` and a

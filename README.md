@@ -6,8 +6,9 @@ hotkeys, a command palette and a settings window. Features are written as
 **plugins** that plug into one Rust trait, so adding a feature never means
 touching the Win32 plumbing or writing any UI code.
 
-WinCraft ships five plugins: **ScreenDimmer**, **ShortcutDetector**,
-**LayoutKeeper**, **LanguageIndicator** and **WindowNamer**, and a palette
+WinCraft ships six plugins: **ScreenDimmer**, **ShortcutDetector**,
+**LayoutKeeper**, **LanguageIndicator**, **WindowNamer** and **QuickJump**,
+and a palette
 that also finds apps, open windows, files and folders on every disk (through
 Everything), your own bookmarks, sums, web searches and terminal commands.
 The newest version is on the
@@ -205,6 +206,24 @@ makes it lose a window. [Full README](src/plugins/window_namer/README.md)
 | Hotkey | What it does |
 |---|---|
 | `Win+Alt+E` | Rename the active window: the palette opens with the current name selected; Enter sets the name, Enter on an empty box clears it |
+
+### QuickJump
+
+Pins up to ten windows to the digits, like Harpoon in Neovim, and jumps back
+to any of them from anywhere, on any virtual desktop. While it waits for the
+digit, a strip at the bottom of the screen shows the ten slots. A jump
+switches desktop when it has to and restores a minimized window; nothing is
+moved. A pin finds its window again by app and title, also after a restart,
+and starts the app when it is not open. Every change shows a notice with
+Undo. The pin list (the tray menu, the palette, or the jump keys twice)
+shows every slot with a live picture and lets you reorder, rename and tune
+the pins. [Full README](src/plugins/quick_jump/README.md)
+
+| Hotkey | What it does |
+|---|---|
+| `Win+Alt+Q`, then a digit | Jump to the window in that slot |
+| `Win+Alt+Shift+Q`, then a digit | Pin the window in front to that slot |
+| `Win+Alt+Q` twice | Open the pin list |
 
 ### Host hotkeys
 
@@ -431,8 +450,10 @@ plugins\
   layout_keeper.json
   language_indicator.json
   window_namer.json
+  quick_jump.json
   layout_keeper.state.json   the saved window layout, written by LayoutKeeper
   window_namer.names.json    the saved window names, written by WindowNamer
+  quick_jump.state.json      the pinned windows, written by QuickJump
   layout_keeper.state.prev.json   the layout from before a browser crash or restart
   layout_keeper.state.shutdown.json   the layout at the last shutdown or quit
 cache\                 the last plugin index fetched from GitHub
