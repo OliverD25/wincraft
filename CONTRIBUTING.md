@@ -401,6 +401,8 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   window drops `SC_KEYMENU` and character messages. Keep all three: without
   them Alt+Space opens the window's system menu, Alt+F4 closes the window and
   Win+<key> opens the Start menu while the user is only naming a hotkey.
+  A place where the user changes a hotkey opens the one hotkey dialog,
+  `ui::widgets::hotkey_dialog`, which records through that hook.
 - **No new crates without discussing it first.** WinCraft depends on
   `windows-sys`, `serde`, `serde_json`, `log`, `eframe`/`egui`,
   `egui_commonmark`, `ureq`, `winit` and `raw-window-handle`, and that is
@@ -493,6 +495,7 @@ it is a separate instance:
   |---|---|
   | `--open-palette=<query>` | The palette with the query typed in, prefix and all: `/`, `=2+2*3`, `<chrome`, `?`. Nothing runs. |
   | `--open-settings=<page>` | `general`, `plugins`, `hotkeys` (or `shortcuts`), `layout`, `store`, `about`, or a plugin's page: `plugin:layout_keeper`. |
+  | `--open-hotkey-dialog=<id>[:<keys>]` | The Hotkeys page with the hotkey dialog open on that command (`wincraft.palette`, `screen_dimmer.toggle_monitor_1`), and the keys after the colon shown as pressed: `wincraft.palette:Win+L`. No keyboard hook runs and nothing is saved. |
   | `--open-arrange=<group>` | WindowDeck on a group, by its place (`0` is the first) or its key. |
   | `--peek-card=<n>` | The strip with the hover peek on card `n` (from 0), or `chip` for the first card of a window that is not on the primary monitor. |
   | `--attention=<hwnd>` | Marks that window as wanting attention at start, as if it had flashed its taskbar button, so its card in the strip is orange. The window itself is not touched. |
@@ -530,7 +533,8 @@ it is a separate instance:
 ### Screenshots while you are away
 
 `tools\screenshots.ps1` takes a PNG of every scene (the palette empty and
-with `/`, `=2+2*3`, `<` and `?`; settings General, Plugins, LayoutKeeper's
+with `/`, `=2+2*3`, `<` and `?`; settings General, Plugins, Hotkeys, the
+hotkey dialog waiting, with free keys, a conflict and a Windows shortcut, LayoutKeeper's
 page and About; the empty Bookmarks page and the palette's two bookmark tips; the strip in the view Auto picks and in the Flat view; the
 strip with a peek on a card of a window off the primary monitor; WindowNamer's rename box for the window that was in front; the strip
 with a renamed window, which is a minimized window the harness opens

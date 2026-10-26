@@ -262,21 +262,28 @@ the pins. [Full README](src/plugins/quick_jump/README.md)
 ### Hotkeys
 
 Settings → Hotkeys lists every command the palette lists, grouped
-by plugin. Click a row (or select it and press Enter or F2) and press the
-keys. A second key within 3 seconds makes a chord: `Win+Alt+K, S` means
+by plugin. Click a row (or select it and press Enter or F2): the hotkey
+dialog opens and records at once, so just press the keys. The same dialog
+changes the palette hotkey on General and a plugin's hotkeys on its page;
+there the keys in their box are the control (click it, or Tab to it and
+press Enter or Space). In the dialog, Enter saves, Esc cancels, and
+Backspace clears the keys; Backspace again removes the hotkey. A hotkey
+needs Win, Ctrl or Alt with its key; F13 to F24 may be used alone. A
+second key within 3 seconds makes a chord: `Win+Alt+K, S` means
 Win+Alt+K, then S. While a chord waits, a small WinCraft line at the bottom
 of the screen says so; the second key may come with the first press's
 modifiers still held. Any other key ends the wait and goes to the app in
 front, and so does Esc or 3 seconds without a key.
 
-Before anything is saved, the page checks the keys in this order: keys
+Before anything is saved, the dialog checks the keys in this order: keys
 Windows keeps (Win+L, Ctrl+Alt+Delete, Ctrl+Shift+Esc, Win+number, Alt+Tab
-and similar) are refused; a combination cannot be both a shortcut and the
-start of a chord; keys another WinCraft command has can be moved with
-Replace; keys another app holds can be saved anyway. Nothing changes until
-Enter, Save, Replace or Save anyway. Search by keys finds what uses a
-combination. In the palette, a command's shortcut shows at the right of its
-row, and Ctrl+K opens this page on that command.
+and similar) are refused; a combination cannot be both a hotkey and the
+start of a chord; keys another WinCraft command has can be taken with Move
+here, which leaves that command without a hotkey; keys another app or a
+Windows shortcut holds are refused. Nothing changes until Enter or Move
+here. Search by keys finds what uses a combination. In the palette, a
+command's hotkey shows at the right of its row, and Ctrl+K opens the same
+dialog over the palette.
 
 Each row with keys shows if they work: a green dot means working, a
 warning triangle means another app (or another WinCraft command) holds
@@ -363,7 +370,7 @@ The keys: ↑ ↓ move, Enter runs, Shift+Enter does the second action, Tab
 completes, Esc closes. The selected row shows the word for what Enter does,
 and the footer shows up to five keys for that row, Esc last. On a folder or
 file row Ctrl+B bookmarks it, and Ctrl+Delete removes a bookmark. On a
-command, Ctrl+K changes its shortcut.
+command, Ctrl+K changes its hotkey.
 
 On a window row Enter switches to it, Shift+→ moves it to the next monitor,
 Ctrl+Enter opens it in WindowDeck and Ctrl+W asks it to close, the way

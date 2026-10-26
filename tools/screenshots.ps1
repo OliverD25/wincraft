@@ -161,6 +161,14 @@ $scenes = @(
     @{ Name = 'palette-help';           Args = @('--open-palette=?');                      Window = 'palette' },
     @{ Name = 'settings-general';       Args = @('--open-settings=general');               Window = 'settings' },
     @{ Name = 'settings-plugins';       Args = @('--open-settings=plugins');               Window = 'settings' },
+    # The Hotkeys page, and the hotkey dialog over it: waiting for keys, with
+    # free keys, with WindowNamer's keys (a conflict) and with Win+L (a
+    # Windows shortcut). No keyboard hook runs in these scenes.
+    @{ Name = 'settings-shortcuts';       Args = @('--open-settings=hotkeys');             Window = 'settings' },
+    @{ Name = 'settings-hotkey-dialog';   Args = @('--open-hotkey-dialog=window_namer.rename_active'); Window = 'settings' },
+    @{ Name = 'settings-hotkey-free';     Args = @('--open-hotkey-dialog=wincraft.palette:Win+Ctrl+Alt+Shift+F21'); Window = 'settings' },
+    @{ Name = 'settings-hotkey-conflict'; Args = @('--open-hotkey-dialog=wincraft.palette:Win+Ctrl+Alt+Shift+F22'); Window = 'settings' },
+    @{ Name = 'settings-hotkey-taken';    Args = @('--open-hotkey-dialog=wincraft.palette:Win+L'); Window = 'settings' },
     # The store lists the plugins of the public index, or the ones built into
     # this copy when the machine is offline; the wait lets the fetch finish.
     @{ Name = 'settings-store';         Args = @('--open-settings=store');                 Window = 'settings'; Settle = 2500 },
