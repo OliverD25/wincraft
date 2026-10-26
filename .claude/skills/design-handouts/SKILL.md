@@ -22,6 +22,24 @@ This file holds WinCraft's own facts and decisions.
 - **Skip:** `_ds/` bundles, `support.js`, `uploads/` images, unless a task needs them.
 - **Truncated file (> 256 KiB):** ask the user for the page's share link.
 
+## User decisions that override the design
+
+The design session is the source of truth for the look, but the user has
+overruled some rules in chat. Every plan made from a design page must check
+this list first and copy each matching override into the plan, so a coder never
+rebuilds the old rule. Add a line here whenever the user overrules a design
+rule, and send the user a prompt so the design page is fixed too.
+
+| Area | Design said | The user decided | Date |
+|---|---|---|---|
+| Arrange strip ghosts | "Ghosts are not draggable" | Ghosts are draggable: inside the primary column a drag changes the window's taskbar place (it stays on its monitor); into another column or desktop it moves the window like its real card. Ctrl/Alt+←→ change its place. | 2026-10-26 |
+| Arrange strip ghosts | Click selects the real card; arrow keys skip ghosts | A click opens the window; arrow keys land on ghosts like cards; Enter opens. | 2026-10-25 |
+| Arrange strip keys | ←→ move the window, Shift+←→ next monitor | Arrows only select; Ctrl+←→ move, Ctrl+Shift+←→ next monitor, Ctrl+Shift+↑↓ next desktop. | 2026-10-25 |
+| Compact view | Exactly 1 window on this desktop | 1 or 2 windows on this desktop. | 2026-10-26 |
+| Themes picker | "Theme" dropdown in General | Tiles with a live hover preview, on their own Settings page "Themes". | 2026-10-26 |
+| Palette Ask AI | Answer inside the palette from an AI provider | Opens the chosen AI website in the browser (Principle 5). No currency conversion. | 2026-10-26 |
+| Artboard desks | Windows drawn on a coloured desk with padding | The desk is background only: no outer frame, margin or extra glass around any window. | 2026-10-26 |
+
 ## Handouts so far
 
 | Handout | Arrived | Became |
