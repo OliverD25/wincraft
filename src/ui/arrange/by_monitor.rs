@@ -1593,7 +1593,7 @@ impl Draw<'_> {
         let is_cursor = shared.cursor == Some(window.hwnd) && !shared.cursor_ghost && !leaving;
         let lit = if is_cursor {
             Some(tokens.selection_bg)
-        } else if response.hovered() && self.dragged.is_none() {
+        } else if response.hovered() && shared.pointer.moved() && self.dragged.is_none() {
             Some(tokens.hover_bg)
         } else {
             None
@@ -1853,6 +1853,9 @@ impl Draw<'_> {
         } else {
             response
         };
+        if response.hovered() {
+            frame.hovered_ghost = Some(window.hwnd);
+        }
         // A click opens the window, as on its real card.
         if response.clicked() {
             pick(shared, self.group, Some(Item::Ghost(member)));

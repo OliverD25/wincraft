@@ -30,6 +30,7 @@ mod by_monitor;
 mod compact;
 mod hold;
 mod others;
+mod pointer;
 mod reveal;
 
 /// Unique, so the strip's window can be found among the UI thread's windows.
@@ -784,6 +785,8 @@ struct Shared {
     reveal_window: isize,
     /// The strip is to take the keyboard once it is on screen.
     focus_wanted: bool,
+    /// Whether the mouse has moved since the strip opened.
+    pointer: pointer::Pointer,
 }
 
 impl Shared {
@@ -1001,6 +1004,7 @@ impl Arrange {
                 reveal: reveal::Reveal::Shown,
                 reveal_window: 0,
                 focus_wanted: false,
+                pointer: pointer::Pointer::default(),
             })),
             palette_hwnd,
         }
@@ -1014,6 +1018,7 @@ impl Arrange {
         if shared.window == 0 && !shared.reveal.pending() {
             shared.reveal = reveal::Reveal::waiting(Instant::now());
         }
+        shared.pointer.rest(cursor_position());
         shared.key = snapshot
             .groups
             .get(snapshot.focus)
@@ -1369,6 +1374,12 @@ fn note_line(ctx: &egui::Context, panel: Rect, text: &str) {
     );
 }
 
+/// Where the mouse is, in screen pixels.
+fn cursor_position() -> Option<(i32, i32)> {
+    let mut point = POINT { x: 0, y: 0 };
+    (unsafe { GetCursorPos(&mut point) } != 0).then_some((point.x, point.y))
+}
+
 /// Whether the mouse is on this rectangle, in screen pixels.
 fn under_cursor(rect: [i32; 4]) -> bool {
     let mut point = POINT { x: 0, y: 0 };
@@ -1515,6 +1526,8 @@ struct Frame {
     /// Every card in its order on screen, with whether it has a monitor chip.
     cards: Vec<(isize, bool)>,
     hovered: Option<isize>,
+    /// The ghost under the mouse, in the By monitor view.
+    hovered_ghost: Option<isize>,
     actions: Vec<ArrangeAction>,
     /// Windows a middle-click asked to close. Their cards stay until the
     /// windows are really gone: an app may ask to save first.
@@ -1533,6 +1546,7 @@ impl Default for Frame {
             pending: Vec::new(),
             cards: Vec::new(),
             hovered: None,
+            hovered_ghost: None,
             actions: Vec::new(),
             close: Vec::new(),
             activate: None,
@@ -1576,6 +1590,9 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
         return;
     };
 
+    let before = (shared.cursor, shared.cursor_ghost);
+    let threshold = pointer::threshold(ui.ctx().pixels_per_point());
+    let awake = shared.pointer.see(cursor_position(), threshold);
     if let Some(hwnd) = shared.select_window.take() {
         if group.windows.iter().any(|window| window.hwnd == hwnd) {
             shared.cursor = Some(hwnd);
@@ -1695,6 +1712,22 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     };
     if frame.activate.is_none() {
         frame.activate = digit_card;
+    }
+    // A card under a mouse that has not moved since the strip opened is not
+    // hovered at all; one under a moved mouse is the selected card.
+    if !awake || menu_open || shared.drag.is_some() {
+        frame.hovered = None;
+        frame.hovered_ghost = None;
+    }
+    let hovered = frame
+        .hovered
+        .map(|hwnd| (Some(hwnd), false))
+        .or(frame.hovered_ghost.map(|hwnd| (Some(hwnd), true)));
+    let (selection, rest) = pointer::settle(before, (shared.cursor, shared.cursor_ghost), hovered);
+    (shared.cursor, shared.cursor_ghost) = selection;
+    if rest && awake {
+        shared.pointer.rest(cursor_position());
+        frame.hovered = None;
     }
 
     let in_rows = ctx
@@ -2022,6 +2055,7 @@ fn flat(
                                             is_cursor,
                                             leaving,
                                             motion,
+                                            awake: shared.pointer.moved(),
                                         },
                                     );
                                     if rename {
@@ -2683,6 +2717,7 @@ fn card(
         is_cursor,
         leaving,
         motion: (scale, fade),
+        awake,
     } = info;
     let label = window.label.as_str();
     let monitor = window.monitor.as_deref();
@@ -2694,7 +2729,7 @@ fn card(
         Sense::click_and_drag()
     };
     let (rect, response) = ui.allocate_exact_size(vec2(width, CARD_HEIGHT), sense);
-    let lit = !leaving && (response.hovered() || is_cursor);
+    let lit = !leaving && ((awake && response.hovered()) || is_cursor);
     let mut faded = ui.painter().clone();
     faded.multiply_opacity(fade);
     let painter = &faded;
@@ -2760,6 +2795,8 @@ struct CardInfo {
     /// The card's size and opacity; see `card_motion`.
     motion: (f32, f32),
     is_cursor: bool,
+    /// The mouse has moved since the strip opened, so hover counts.
+    awake: bool,
 }
 
 /// The gap between the taskbar number and the name after it.

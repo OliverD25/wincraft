@@ -556,7 +556,7 @@ fn card(
             theme::stroke(ui.ctx(), 2.0, tokens.accent),
             StrokeKind::Inside,
         );
-    } else if response.hovered() {
+    } else if response.hovered() && shared.pointer.moved() {
         painter.rect_filled(rect, tokens.radius_tile, tokens.hover_bg);
     }
     // The title row is first and the picture last, so the pictures of all
