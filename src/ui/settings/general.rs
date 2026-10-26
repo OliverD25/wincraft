@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use crate::core::config::SearchConfig;
-use crate::core::hotkeys;
 use crate::core::theme::{self, Tokens};
 use crate::core::tips::TipsConfig;
 use crate::core::ui_bridge::{HostChannel, HostRequest, HostSetting, UiSnapshot};
@@ -10,12 +9,13 @@ use crate::search::providers::shell::{self, Shell, SHELL_NAMES};
 use crate::search::providers::web;
 use crate::ui::settings::{self as page, SettingsState};
 use crate::ui::widgets::button::{self, Kind};
-use crate::ui::widgets::capture::{self, Outcome};
+use crate::ui::widgets::hotkey_dialog::{self, Target};
 use crate::ui::widgets::input::{self, Face};
 use crate::ui::widgets::row::{settings_row, RowText};
-use crate::ui::widgets::{choice, keycap, text, toggle};
+use crate::ui::widgets::{choice, text, toggle};
 
-const PALETTE_OWNER: &str = "host/palette";
+/// The palette's own hotkey on the Hotkeys page and in config.json.
+const PALETTE_ID: &str = "wincraft.palette";
 
 pub fn show(
     ui: &mut egui::Ui,
@@ -63,34 +63,19 @@ pub fn show(
             } else {
                 ("taken by another app", tokens.warning)
             };
+            let mut change = false;
             settings_row(
                 ui,
                 "palette-hotkey",
                 RowText::new("Palette hotkey").desc(verdict, colour),
                 false,
                 |ui| {
-                    keycap::binding(ui, &keycap::spaced(&snapshot.palette_hotkey), false);
-                    if button::button(ui, "Change", Kind::Secondary).clicked() {
-                        state.begin_capture(PALETTE_OWNER.to_string());
-                    }
+                    change = hotkey_dialog::trigger(ui, &snapshot.palette_hotkey).clicked();
                 },
             );
-            if let Some(session) = state
-                .capture
-                .as_mut()
-                .filter(|session| session.owner == PALETTE_OWNER)
-            {
-                match capture::show(ui, session, |hotkey| {
-                    page::verdict(hotkey, snapshot, &tokens)
-                }) {
-                    Some(Outcome::Apply(hotkey)) => {
-                        to_host.send(HostRequest::SetHostSetting(HostSetting::PaletteHotkey(
-                            hotkeys::format(hotkey),
-                        )));
-                        state.end_capture();
-                    }
-                    Some(Outcome::Cancel) => state.end_capture(),
-                    None => {}
+            if change {
+                if let Some(target) = Target::find(&snapshot.shortcuts, PALETTE_ID) {
+                    state.open_hotkey(target);
                 }
             }
 

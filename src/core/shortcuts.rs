@@ -47,6 +47,12 @@ const RESERVED: &[&str] = &[
     "Win+0",
 ];
 
+/// F13 to F24: no keyboard types with them, so one of them alone is a
+/// hotkey that needs no modifier.
+pub fn stands_alone(vk: u32) -> bool {
+    (0x7C..=0x87).contains(&vk)
+}
+
 pub fn is_reserved(hotkey: Hotkey) -> bool {
     RESERVED.iter().any(|text| {
         hotkeys::parse(text)
@@ -142,25 +148,25 @@ impl Check {
                 "Hold Win, Ctrl or Alt and press a key.".to_string(),
             ),
             Check::OnePressOnly => (
-                "The palette's shortcut is one key press, not a chord.".to_string(),
+                "The palette's hotkey is one key press, not a chord.".to_string(),
                 "Choose keys without a second press.".to_string(),
             ),
             Check::ChordStart { keys, .. } => (
                 format!(
-                    "{keys} is the start of a chord, so it cannot also be a shortcut on its own."
+                    "{keys} is the start of a chord, so it cannot also be a hotkey on its own."
                 ),
                 "Press a second key to make a chord, or choose other keys.".to_string(),
             ),
             Check::StartTaken { keys, other, group } => (
-                format!("{keys} is already the shortcut of {other} in {group}."),
-                "A chord cannot start with another command's shortcut. Choose other keys."
+                format!("{keys} is already the hotkey of {other} in {group}."),
+                "A chord cannot start with another command's hotkey. Choose other keys."
                     .to_string(),
             ),
             Check::UsedBy {
                 keys, label, group, ..
             } => (
                 format!("Already used by {label} in {group}."),
-                format!("Replace gives {keys} to {target}. {label} is left with no shortcut."),
+                format!("Replace gives {keys} to {target}. {label} is left with no hotkey."),
             ),
             Check::HeldByApp { keys } => (
                 format!("Another app holds {keys}, so it may not reach WinCraft."),
@@ -189,7 +195,9 @@ pub fn check(
             keys: hotkeys::format(second),
         };
     }
-    if candidate.first.modifiers & (MOD_WIN | MOD_CONTROL | MOD_ALT) == 0 {
+    if candidate.first.modifiers & (MOD_WIN | MOD_CONTROL | MOD_ALT) == 0
+        && !stands_alone(candidate.first.vk)
+    {
         return Check::NeedsModifier { keys: first_keys };
     }
     let me = all.iter().find(|info| info.id == target);
@@ -566,6 +574,18 @@ mod tests {
             check(&keys("Shift+K"), "wincraft.quit", &all, never),
             Check::NeedsModifier { .. }
         ));
+        assert!(matches!(
+            check(&keys("F12"), "wincraft.quit", &all, never),
+            Check::NeedsModifier { .. }
+        ));
+        assert_eq!(
+            check(&keys("F13"), "wincraft.quit", &all, never),
+            Check::Fine
+        );
+        assert_eq!(
+            check(&keys("F24"), "wincraft.quit", &all, never),
+            Check::Fine
+        );
         // A plain shortcut that starts another command's chord.
         assert!(matches!(
             check(&keys("Win+Alt+K"), "wincraft.quit", &all, always),
@@ -633,7 +653,7 @@ mod tests {
         assert_eq!(first, "Already used by Dim all monitors in ScreenDimmer.");
         assert_eq!(
             second,
-            "Replace gives Win+Alt+D to Forget saved layout. Dim all monitors is left with no shortcut."
+            "Replace gives Win+Alt+D to Forget saved layout. Dim all monitors is left with no hotkey."
         );
         assert!(Check::Fine.message("x").is_none());
         let reserved = Check::Reserved {

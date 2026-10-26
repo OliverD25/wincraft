@@ -21,6 +21,16 @@ pub fn button(ui: &mut Ui, label: &str, kind: Kind) -> Response {
     with_icon(ui, label, kind, None)
 }
 
+/// How wide `button` draws `label`, for centring a row of buttons.
+pub fn width(ui: &Ui, label: &str) -> f32 {
+    let galley = ui.painter().layout_no_wrap(
+        label.to_string(),
+        theme::regular(14.0),
+        Color32::PLACEHOLDER,
+    );
+    PADDING * 2.0 + galley.size().x
+}
+
 /// The button at the right end of a tile: 26 high, 12.5 px text.
 pub fn small(ui: &mut Ui, label: &str, kind: Kind) -> Response {
     draw(ui, label, kind, None, SMALL_HEIGHT, 12.5)

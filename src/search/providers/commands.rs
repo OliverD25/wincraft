@@ -64,7 +64,7 @@ impl SearchProvider for Commands {
                     origin: entry.plugin.clone(),
                     keys: entry.shortcut.clone(),
                     shortcut: (!entry.shortcut_id.is_empty()).then(|| Choice {
-                        label: "Change shortcut\u{2026}".to_string(),
+                        label: "Change hotkey\u{2026}".to_string(),
                         action: Action::ChangeShortcut {
                             id: entry.shortcut_id.clone(),
                             label: entry.label.clone(),

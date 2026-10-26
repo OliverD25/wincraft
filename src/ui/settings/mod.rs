@@ -22,11 +22,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{EnumThreadWindows, GetWindowTe
 
 use crate::core::hotkeys;
 use crate::core::theme::{self, Tokens};
-use crate::core::traits::Hotkey;
-use crate::core::ui_bridge::{HostChannel, LayoutSnapshot, Page, UiSnapshot};
-use crate::plugins::shortcut_detector::probe::{self, Status};
-use crate::ui::widgets::capture::{self, Verdict};
-use crate::ui::widgets::{focus, hotkey_capture, row, text, theme_tile};
+use crate::core::ui_bridge::{HostChannel, HostRequest, LayoutSnapshot, Page, UiSnapshot};
+use crate::ui::widgets::hotkey_dialog::{self, Dialog, Editor, Outcome, Target};
+use crate::ui::widgets::{focus, row, text, theme_tile};
 
 /// A window of this thread by its title. The palette and the settings window
 /// are both titled "WinCraft" and winit keeps WS_CAPTION on the undecorated
@@ -216,7 +214,11 @@ pub struct SettingsState {
     pub open_plugin: Option<String>,
     /// The Plugins page's search and category chips.
     pub plugins_view: catalog::View,
-    pub capture: Option<capture::Session>,
+    /// The hotkey dialog, over whichever page opened it.
+    pub hotkey_dialog: Option<Editor>,
+    /// A test scene's dialog, opened once its command is in the snapshot:
+    /// the command's id and the keys to show as pressed.
+    pub scene_dialog: Option<(String, Option<String>)>,
     pub readme: Readme,
     pub store: store::Store,
     pub update: about::Update,
@@ -239,46 +241,65 @@ pub struct SettingsState {
 }
 
 impl SettingsState {
-    pub fn begin_capture(&mut self, owner: String) {
-        hotkey_capture::stop();
-        self.capture = Some(capture::Session {
-            owner,
-            pending: None,
-        });
-        hotkey_capture::start();
+    /// Opens the hotkey dialog on `target`; it records at once.
+    pub fn open_hotkey(&mut self, target: Target) {
+        // Search by keys shares the keyboard hook, and the old dialog's
+        // drop removes the hook, so both go before the new one starts it.
+        self.shortcuts.leave();
+        self.hotkey_dialog = None;
+        self.hotkey_dialog = Some(Editor::open(target));
     }
 
-    pub fn end_capture(&mut self) {
-        hotkey_capture::stop();
-        self.capture = None;
+    pub fn close_hotkey(&mut self) {
+        self.hotkey_dialog = None;
+    }
+
+    /// The dialog over the page, and the requests that open it.
+    fn draw_hotkey_dialog(
+        &mut self,
+        ctx: &egui::Context,
+        snapshot: &UiSnapshot,
+        to_host: &HostChannel,
+    ) {
+        if let Some((id, keys)) = self.scene_dialog.take() {
+            match Target::find(&snapshot.shortcuts, &id) {
+                Some(target) => self.hotkey_dialog = Some(scene_editor(target, keys, snapshot)),
+                None => self.scene_dialog = Some((id, keys)),
+            }
+        }
+        if let Some(id) = self.shortcuts.take_dialog_request() {
+            if let Some(target) = Target::find(&snapshot.shortcuts, &id) {
+                self.open_hotkey(target);
+            }
+        }
+        let Some(editor) = self.hotkey_dialog.as_mut() else {
+            return;
+        };
+        let cover = ctx.content_rect();
+        if let Some(outcome) = hotkey_dialog::show(ctx, editor, &snapshot.shortcuts, cover, 0) {
+            if let Outcome::Save(changes) = outcome {
+                to_host.send(HostRequest::SetShortcuts(changes));
+            }
+            self.close_hotkey();
+        }
     }
 }
 
-/// What the capture box says under a combination. WinCraft's own bindings
-/// come from the snapshot; everything else from a live probe, which is plain
-/// Win32 and safe to run on this thread.
-pub(crate) fn verdict(hotkey: Hotkey, snapshot: &UiSnapshot, tokens: &Tokens) -> Verdict {
-    let mine: Vec<(String, String, Hotkey)> = snapshot
-        .plugins
-        .iter()
-        .flat_map(|plugin| {
-            plugin.hotkeys.iter().filter_map(move |info| {
-                hotkeys::parse(&info.binding)
-                    .ok()
-                    .map(|parsed| (plugin.name.clone(), info.label.clone(), parsed))
-            })
-        })
-        .collect();
-    let entry = probe::verdict(std::ptr::null_mut(), hotkey, &mine);
-    let colour = match entry.status {
-        Status::Free => tokens.success,
-        Status::TakenByApp => tokens.warning,
-        Status::Windows | Status::WinCraft => tokens.info,
-    };
-    Verdict {
-        text: probe::verdict_text(&entry),
-        colour,
+/// A test scene's dialog: no keyboard hook, and the keys shown as if
+/// pressed, so a picture can show a conflict or taken keys.
+fn scene_editor(target: Target, keys: Option<String>, snapshot: &UiSnapshot) -> Editor {
+    let mut dialog = Dialog::new(target.clone());
+    if let Some(keys) = keys.and_then(|text| hotkeys::parse_shortcut(&text).ok()) {
+        let now = std::time::Instant::now();
+        let judge = |pressed: &hotkeys::Shortcut| {
+            hotkey_dialog::verdict(pressed, &target, &snapshot.shortcuts)
+        };
+        dialog.press(keys.first, now, judge);
+        if let Some(second) = keys.second {
+            dialog.press(second, now, judge);
+        }
     }
+    Editor::preview(dialog)
 }
 
 /// Paths are long; "%LOCALAPPDATA%\WinCraft\config.json" says the same in a
@@ -371,7 +392,20 @@ impl Settings {
         }
     }
 
-    /// The palette's "Change hotkey…": Hotkeys on that command.
+    /// A test scene: the Hotkeys page with the dialog open on a command,
+    /// and the keys it shows as pressed.
+    pub fn open_hotkey_scene(&self, id: &str, keys: Option<String>) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.state.page = Page::Shortcuts;
+            shared.state.open_plugin = None;
+            shared.state.scene_dialog = Some((id.to_string(), keys));
+            shared.closed = false;
+            shared.window = 0;
+        }
+    }
+
+    /// The palette's "Change hotkey…" when its command is not in the
+    /// snapshot: Hotkeys on that command.
     pub fn open_shortcut(&self, id: &str, label: &str) {
         if let Ok(mut shared) = self.shared.lock() {
             shared.state.page = Page::Shortcuts;
@@ -403,7 +437,7 @@ impl Settings {
     /// The caller also ends a theme preview, which needs the egui context.
     pub fn hidden(&self) {
         if let Ok(mut shared) = self.shared.lock() {
-            shared.state.end_capture();
+            shared.state.close_hotkey();
             shared.state.shortcuts.leave();
             shared.state.theme_preview = theme_tile::HoverPreview::default();
             shared.closed = false;
@@ -494,7 +528,7 @@ impl Settings {
                         if row::nav_item(ui, label, state.page == *page).clicked() {
                             state.page = *page;
                             state.open_plugin = None;
-                            state.end_capture();
+                            state.close_hotkey();
                         }
                     }
                 });
@@ -514,7 +548,10 @@ impl Settings {
                     Page::General => general::show(ui, snapshot, state, to_host),
                     Page::Themes => themes::show(ui, snapshot, state, to_host),
                     Page::Plugins => plugins::show(ui, snapshot, state, to_host),
-                    Page::Shortcuts => shortcuts::show(ui, snapshot, &mut state.shortcuts, to_host),
+                    Page::Shortcuts => {
+                        state.shortcuts.editing = state.hotkey_dialog.is_some();
+                        shortcuts::show(ui, snapshot, &mut state.shortcuts, to_host)
+                    }
                     Page::Layout => layout::show(ui, snapshot, state, to_host),
                     Page::Bookmarks => bookmarks::show(ui, snapshot, state, to_host),
                     Page::Store => store::show(ui, snapshot, state, to_host),
@@ -523,6 +560,7 @@ impl Settings {
             if state.page != Page::Shortcuts {
                 state.shortcuts.leave();
             }
+            state.draw_hotkey_dialog(ui.ctx(), snapshot, to_host);
             // The tiles end their own preview when the pointer leaves them,
             // but not when the page they are on is no longer drawn.
             if state.page != Page::Themes && state.theme_preview.shown().is_some() {
@@ -532,7 +570,7 @@ impl Settings {
 
             // After the page, so a tile grid that has focus takes the arrows
             // first. Typing in a box or recording a hotkey keeps them too.
-            let free = !ui.ctx().egui_wants_keyboard_input() && state.capture.is_none();
+            let free = !ui.ctx().egui_wants_keyboard_input() && state.hotkey_dialog.is_none();
             let step = ui.ctx().input(|i| {
                 if !free || i.modifiers.any() {
                     0
@@ -624,6 +662,56 @@ mod tests {
             })
             .collect();
         assert_eq!(kinds, vec!["h1:Title", "md:1", "h2:Settings", "md:5"]);
+    }
+
+    #[test]
+    fn a_scene_opens_the_dialog_once_its_command_is_listed_and_shows_its_keys() {
+        use crate::core::ui_bridge::ShortcutInfo;
+        use crate::ui::widgets::hotkey_dialog::{Phase, Verdict};
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let bridge = crate::core::ui_bridge::create();
+        let mut state = SettingsState {
+            scene_dialog: Some(("wincraft.palette".to_string(), Some("Win+L".to_string()))),
+            ..SettingsState::default()
+        };
+        let mut snapshot = UiSnapshot::default();
+        let run = |state: &mut SettingsState, snapshot: &UiSnapshot| {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                state.draw_hotkey_dialog(ui.ctx(), snapshot, &bridge.to_host);
+            });
+            output.textures_delta.clear();
+        };
+        run(&mut state, &snapshot);
+        assert!(state.hotkey_dialog.is_none(), "waits for the snapshot");
+        assert!(state.scene_dialog.is_some());
+        snapshot.shortcuts.push(ShortcutInfo {
+            id: "wincraft.palette".to_string(),
+            command: None,
+            group: "WinCraft".to_string(),
+            plugin: None,
+            category: String::new(),
+            icon: None,
+            label: "Open the palette".to_string(),
+            description: String::new(),
+            binding: "Win+Alt+P".to_string(),
+            default_binding: "Win+Alt+P".to_string(),
+            registered: true,
+            one_press: true,
+        });
+        run(&mut state, &snapshot);
+        run(&mut state, &snapshot);
+        let editor = state.hotkey_dialog.as_ref().expect("the scene's dialog");
+        assert!(matches!(
+            editor.dialog().phase(),
+            Phase::Captured {
+                verdict: Verdict::Taken { .. },
+                ..
+            }
+        ));
+        assert!(bridge.host_rx.try_recv().is_err(), "a scene saves nothing");
+        state.close_hotkey();
+        assert!(state.hotkey_dialog.is_none());
     }
 
     #[test]

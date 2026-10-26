@@ -91,7 +91,7 @@ pub enum Action {
         provider: String,
         command: String,
     },
-    /// Opens Settings → Hotkeys on this command.
+    /// Opens the hotkey dialog on this command.
     ChangeShortcut {
         id: String,
         label: String,

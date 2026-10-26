@@ -28,6 +28,7 @@ use crate::search::{
 };
 use crate::ui::dwm_thumbs::{self, Placement, Thumbnail};
 use crate::ui::fuzzy;
+use crate::ui::widgets::hotkey_dialog::{self, Editor, Target};
 use crate::ui::widgets::icons::{self, Icon};
 use crate::ui::widgets::tip::{self, STRIP_HEIGHT};
 use crate::ui::widgets::{keycap, row, text};
@@ -67,7 +68,8 @@ pub enum Outcome {
     Stay,
     Hide,
     OpenPlugin(String),
-    /// Settings → Hotkeys on a command: its id and name.
+    /// Settings → Hotkeys on a command that the snapshot does not list:
+    /// its id and name.
     OpenShortcut {
         id: String,
         label: String,
@@ -135,6 +137,10 @@ pub struct Palette {
     /// The search box's id from the last frame, to read its text cursor
     /// before it is drawn again.
     query_id: Option<egui::Id>,
+    /// Ctrl+K's hotkey dialog, over the panel.
+    hotkey_dialog: Option<Editor>,
+    /// Where the panel was drawn last, for the dialog's backdrop.
+    panel: Rect,
 }
 
 /// The line over the footer.
@@ -199,6 +205,8 @@ impl Palette {
             details: None,
             pinner: None,
             query_id: None,
+            hotkey_dialog: None,
+            panel: Rect::NOTHING,
         }
     }
 
@@ -230,9 +238,11 @@ impl Palette {
         }
     }
 
-    /// The palette's window was hidden: the live picture goes with it.
+    /// The palette's window was hidden: the live picture goes with it, and
+    /// an open hotkey dialog with its keyboard hook.
     pub fn hidden(&mut self) {
         self.thumbnail = None;
+        self.hotkey_dialog = None;
     }
 
     /// On a monitor narrower than 1100 px the panel is the list alone.
@@ -654,6 +664,46 @@ impl Palette {
         appear: f32,
         interactive: bool,
     ) -> Outcome {
+        // While the dialog is open the list stays still: it neither acts on
+        // keys nor hides when the window loses focus, which the dialog
+        // answers itself by cancelling.
+        let editing = self.hotkey_dialog.is_some();
+        let outcome = self.show_view(ui, snapshot, to_host, appear, interactive && !editing);
+        self.show_hotkey_dialog(ui.ctx(), snapshot, to_host);
+        outcome
+    }
+
+    /// Ctrl+K's dialog over the panel; a save goes to the host at once.
+    fn show_hotkey_dialog(
+        &mut self,
+        ctx: &egui::Context,
+        snapshot: &UiSnapshot,
+        to_host: &Arc<HostChannel>,
+    ) {
+        let Some(editor) = self.hotkey_dialog.as_mut() else {
+            return;
+        };
+        let radius = Tokens::get(ctx).radius_window;
+        let Some(outcome) =
+            hotkey_dialog::show(ctx, editor, &snapshot.shortcuts, self.panel, radius)
+        else {
+            return;
+        };
+        if let hotkey_dialog::Outcome::Save(changes) = outcome {
+            to_host.send(HostRequest::SetShortcuts(changes));
+            self.searched = None;
+        }
+        self.hotkey_dialog = None;
+    }
+
+    fn show_view(
+        &mut self,
+        ui: &mut egui::Ui,
+        snapshot: &UiSnapshot,
+        to_host: &Arc<HostChannel>,
+        appear: f32,
+        interactive: bool,
+    ) -> Outcome {
         if self.prompt.is_some() {
             self.thumbnail = None;
             return self.show_prompt(ui, snapshot, to_host, appear, interactive);
@@ -854,6 +904,7 @@ impl Palette {
         let strip = self.current_strip(to_host);
         let panel_width = self.panel_width();
         let (panel, painter, line) = paint_panel(ui, &tokens, appear, panel_width, self.glass);
+        self.panel = panel;
 
         // Search bar: 56 high, 16 px sides, the search icon, the scope chip
         // when one is on, the query, and the Ask AI pill at the right.
@@ -1306,7 +1357,16 @@ impl Palette {
     ) -> Outcome {
         match action {
             Action::OpenPlugin(plugin) => Outcome::OpenPlugin(plugin),
-            Action::ChangeShortcut { id, label } => Outcome::OpenShortcut { id, label },
+            Action::ChangeShortcut { id, label } => match Target::find(&snapshot.shortcuts, &id) {
+                Some(target) => {
+                    // The old dialog's drop removes the hook, so it goes
+                    // before the new one starts it.
+                    self.hotkey_dialog = None;
+                    self.hotkey_dialog = Some(Editor::open(target));
+                    Outcome::Stay
+                }
+                None => Outcome::OpenShortcut { id, label },
+            },
             Action::SetPrefix(prefix) => {
                 self.set_prefix(Some(prefix).filter(|prefix| !prefix.is_empty()));
                 Outcome::Stay
@@ -2764,6 +2824,44 @@ mod tests {
             crate::core::config::ThemeChoice::Dark,
         );
         ctx
+    }
+
+    #[test]
+    fn ctrl_k_on_a_command_the_snapshot_does_not_list_opens_the_hotkeys_page() {
+        let mut palette = Palette::new(Router::new(Vec::new(), &Default::default()));
+        let bridge = crate::core::ui_bridge::create();
+        let change = Action::ChangeShortcut {
+            id: "x.go".to_string(),
+            label: "Go".to_string(),
+        };
+        let outcome = palette.perform(change, &UiSnapshot::default(), &bridge.to_host);
+        assert!(matches!(outcome, Outcome::OpenShortcut { id, .. } if id == "x.go"));
+        assert!(palette.hotkey_dialog.is_none());
+    }
+
+    #[test]
+    fn the_hotkey_dialog_sits_over_the_panel_and_the_palette_stays_open() {
+        use crate::ui::widgets::hotkey_dialog::Dialog;
+        let mut palette = Palette::new(Router::new(Vec::new(), &Default::default()));
+        let bridge = crate::core::ui_bridge::create();
+        let snapshot = UiSnapshot::default();
+        let ctx = drawing_context();
+        palette.opened();
+        palette.hotkey_dialog = Some(Editor::preview(Dialog::new(Target {
+            id: "x.go".to_string(),
+            label: "Go".to_string(),
+            chords: true,
+            removable: true,
+        })));
+        for _ in 0..3 {
+            let outcome = frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+            assert!(matches!(outcome, Outcome::Stay));
+        }
+        assert!(palette.hotkey_dialog.is_some());
+        assert!(window().contains_rect(palette.panel) && palette.panel.width() > 0.0);
+        assert!(bridge.host_rx.try_recv().is_err(), "nothing saved");
+        palette.hidden();
+        assert!(palette.hotkey_dialog.is_none(), "hiding closes the dialog");
     }
 
     #[test]

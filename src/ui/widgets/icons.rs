@@ -23,7 +23,6 @@ pub enum Icon {
     Keyboard,
     LayoutGrid,
     RotateCcw,
-    Ban,
     TriangleAlert,
     Ellipsis,
     CircleHelp,
@@ -38,6 +37,7 @@ pub enum Icon {
     Copy,
     ArrowRightLeft,
     Tag,
+    Pencil,
 }
 
 impl Icon {
@@ -279,10 +279,6 @@ fn paths(icon: Icon) -> Vec<Path> {
             Path::arc(pos2(12.0, 12.0), 9.0, 180.0, 500.0),
             Path::start(3.0, 3.0).line(3.0, 8.0).line(8.0, 8.0),
         ],
-        Icon::Ban => vec![
-            Path::arc(pos2(12.0, 12.0), 10.0, 0.0, 360.0),
-            Path::start(4.9, 4.9).line(19.1, 19.1),
-        ],
         Icon::TriangleAlert => vec![
             Path::start(10.3, 3.9)
                 .line(1.8, 18.0)
@@ -429,6 +425,18 @@ fn paths(icon: Icon) -> Vec<Path> {
                 .corner(23.0, 13.0, 21.29, 11.29)
                 .line(12.586, 2.586),
             Path::start(7.0, 7.5).line(8.0, 7.5),
+        ],
+        // Lucide's pencil: the rounded end top right, the point bottom left.
+        Icon::Pencil => vec![
+            Path::arc(pos2(19.18, 4.82), 2.82, 45.0, -135.0)
+                .line(3.84, 16.17)
+                .corner(3.5, 16.5, 3.34, 17.0)
+                .line(2.02, 21.36)
+                .corner(1.9, 22.1, 2.64, 21.98)
+                .line(7.0, 20.66)
+                .corner(7.5, 20.5, 7.83, 20.16)
+                .line(21.17, 6.81),
+            Path::start(15.0, 5.0).line(19.0, 9.0),
         ],
         // Lucide's arrow-right-left: one arrow each way.
         Icon::ArrowRightLeft => vec![
@@ -623,6 +631,19 @@ mod tests {
             assert_eq!(Icon::named(name), Some(icon), "{name}");
             assert_eq!(name, name.to_lowercase(), "lucide names are lower case");
         }
+    }
+
+    #[test]
+    fn the_pencil_stays_inside_the_24_unit_box_and_closes() {
+        let paths = paths(Icon::Pencil);
+        assert_eq!(paths.len(), 2);
+        for point in paths.iter().flat_map(|path| &path.points) {
+            assert!((0.0..=24.0).contains(&point.x), "{point:?}");
+            assert!((0.0..=24.0).contains(&point.y), "{point:?}");
+        }
+        let outline = &paths[0].points;
+        let (first, last) = (outline[0], outline[outline.len() - 1]);
+        assert!(first.distance(last) < 0.05, "{first:?} {last:?}");
     }
 
     #[test]
