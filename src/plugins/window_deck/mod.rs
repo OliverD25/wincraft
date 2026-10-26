@@ -4,6 +4,7 @@
 //! (Win+Alt+A, a rest on a taskbar button) and how it looks.
 
 pub mod hover_preview;
+mod win_digit;
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
@@ -30,6 +31,7 @@ const HOVER_STRIP_KEY: &str = "taskbar_hover_strip";
 const HOVER_DELAY_KEY: &str = "hover_delay_seconds";
 const PREVIEW_KEY: &str = "preview_on_hover";
 const VIEW_KEY: &str = "arrange_view";
+const WIN_NUMBER_KEY: &str = "win_number_opens";
 const HOTKEY_NAME: &str = "arrange";
 const HOVER_STRIP_LABEL: &str = "WindowDeck on taskbar hover";
 
@@ -45,6 +47,10 @@ pub struct WindowDeck {
     hover_strip: bool,
     hover_delay_ms: u64,
     hover: hover_preview::HoverPreview,
+    /// "Open WindowDeck with Win+1…9".
+    win_number: bool,
+    /// The switch is on but Windows refused the keyboard hook.
+    hook_refused: bool,
     /// A test instance (WINCRAFT_INSTANCE) never hides Windows' preview
     /// unless it was started with `--allow-hide-popup`.
     read_only: bool,
@@ -59,6 +65,8 @@ impl Default for WindowDeck {
             hover_strip: false,
             hover_delay_ms: hover_preview::DEFAULT_DELAY_MS,
             hover: hover_preview::HoverPreview::default(),
+            win_number: false,
+            hook_refused: false,
             read_only: instance::is_test(),
         }
     }
@@ -87,6 +95,35 @@ impl WindowDeck {
         self.hover_delay_ms =
             hover_preview::delay_ms(settings.get(HOVER_DELAY_KEY).and_then(|v| v.as_f64()));
         self.apply_hover();
+        self.win_number = settings
+            .get(WIN_NUMBER_KEY)
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        self.apply_win_number();
+    }
+
+    /// Puts the Win+number hook in or takes it out to match the switch. The
+    /// hook goes in only once the plugin runs on the host thread.
+    fn apply_win_number(&mut self) {
+        let wanted = self.win_number && self.host_hwnd.is_some();
+        if wanted == win_digit::is_running() {
+            return;
+        }
+        if !wanted {
+            win_digit::stop();
+            self.hook_refused = false;
+            log::info!("Win+number: back to Windows");
+            return;
+        }
+        self.hook_refused = !win_digit::start();
+        if self.hook_refused {
+            log::warn!(
+                "Win+number: Windows refused the keyboard hook, so Win+number stays with Windows"
+            );
+        } else {
+            log::info!("Win+number: opens WindowDeck for that taskbar button");
+        }
+        host::plugin_changed();
     }
 
     /// Starts or stops the hover strip to match the settings, at once.
@@ -200,6 +237,7 @@ impl WinCraftPlugin for WindowDeck {
             VIEW_KEY: ArrangeView::Auto.setting(),
             HOVER_STRIP_KEY: false,
             HOVER_DELAY_KEY: hover_preview::DEFAULT_DELAY_MS as f64 / 1000.0,
+            WIN_NUMBER_KEY: false,
         })
     }
 
@@ -226,6 +264,12 @@ impl WinCraftPlugin for WindowDeck {
                     max: 1.5,
                     step: 0.05,
                 },
+            },
+            SettingField {
+                key: WIN_NUMBER_KEY,
+                label: "Open WindowDeck with Win+1\u{2026}9",
+                help: "Win and a number open WindowDeck for that taskbar button, even for an app with one window; press the number again with Win still held to pick the next window. A pinned app that is not running starts as before. Win+Shift, Win+Ctrl and Win+Alt with a number stay with Windows.",
+                kind: FieldKind::Toggle,
             },
         ]
     }
@@ -325,14 +369,21 @@ impl WinCraftPlugin for WindowDeck {
     }
 
     fn status(&self) -> Option<String> {
-        if !self.hover.is_on() {
-            return None;
+        let mut parts = Vec::new();
+        if self.hook_refused {
+            parts.push(
+                "Win+1\u{2026}9: Windows refused WinCraft's keyboard hook, so Win+number stays with Windows"
+                    .to_string(),
+            );
         }
-        Some(if self.hover.may_hide {
-            "WindowDeck on taskbar hover: on".to_string()
-        } else {
-            "WindowDeck on taskbar hover: on, but Windows' preview is left alone in this test instance".to_string()
-        })
+        if self.hover.is_on() {
+            parts.push(if self.hover.may_hide {
+                "WindowDeck on taskbar hover: on".to_string()
+            } else {
+                "WindowDeck on taskbar hover: on, but Windows' preview is left alone in this test instance".to_string()
+            });
+        }
+        (!parts.is_empty()).then(|| parts.join(" \u{b7} "))
     }
 
     fn strip_look(&self) -> Option<StripLook> {
@@ -351,6 +402,8 @@ impl WinCraftPlugin for WindowDeck {
 
     fn teardown(&mut self) {
         run_hover(self.hover.stop());
+        win_digit::stop();
+        self.hook_refused = false;
         // Off means the strip goes too, however it was opened.
         host::close_arrange();
         self.host_hwnd = None;
@@ -448,6 +501,36 @@ mod tests {
         let look = deck.strip_look().expect("a look");
         assert!(!look.preview);
         assert_eq!(look.view, ArrangeView::Flat);
+    }
+
+    #[test]
+    fn win_number_is_off_by_default_and_needs_no_hook_until_switched_on() {
+        let mut deck = test_deck();
+        assert_eq!(deck.default_settings()[WIN_NUMBER_KEY], false);
+        deck.apply_settings(&deck.default_settings());
+        assert!(!deck.win_number);
+        assert!(!win_digit::is_running());
+        // Outside the host thread (no host window yet) the switch is only
+        // remembered; the hook goes in at init.
+        deck.apply_settings(&serde_json::json!({ WIN_NUMBER_KEY: true }));
+        assert!(deck.win_number);
+        assert!(!win_digit::is_running());
+        let field = deck
+            .settings_fields()
+            .into_iter()
+            .find(|field| field.key == WIN_NUMBER_KEY)
+            .expect("the switch is on the page");
+        assert_eq!(field.label, "Open WindowDeck with Win+1\u{2026}9");
+        assert!(field
+            .help
+            .contains("Win+Shift, Win+Ctrl and Win+Alt with a number stay with Windows."));
+        deck.hook_refused = true;
+        assert!(deck
+            .status()
+            .unwrap_or_default()
+            .contains("stays with Windows"));
+        deck.teardown();
+        assert!(!deck.hook_refused);
     }
 
     #[test]

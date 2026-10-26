@@ -284,6 +284,17 @@ pub fn card_for_digit(
         .map(|member| group.windows[member].hwnd)
 }
 
+/// The card after `cursor` among `cards` (this desktop's, in taskbar
+/// order), round to the first after the last; the first when none is
+/// picked or the picked one is not among them.
+pub fn next_card(cards: &[isize], cursor: Option<isize>) -> Option<isize> {
+    let at = cursor.and_then(|hwnd| cards.iter().position(|card| *card == hwnd));
+    match at {
+        Some(at) => cards.get((at + 1) % cards.len()).copied(),
+        None => cards.first().copied(),
+    }
+}
+
 /// A window's place in its desktop's taskbar row (from 1) and how many
 /// windows the row has.
 pub fn place_in_row(
@@ -746,6 +757,8 @@ struct Shared {
     /// The window to pick once the strip has its group, for the strip the
     /// hotkey pressed twice opened.
     select_window: Option<isize>,
+    /// Pick the card after the picked one: Win and the same number again.
+    select_next: bool,
     /// A short line on screen, and since when.
     note: Option<(String, Instant)>,
     /// When the host asked for the strip, for the log line that says how
@@ -946,6 +959,7 @@ impl Arrange {
                 appeared: HashMap::new(),
                 leaving: Vec::new(),
                 select: None,
+                select_next: false,
                 wants_keyboard: false,
                 select_window: None,
                 asked_at: None,
@@ -975,6 +989,7 @@ impl Arrange {
         shared.select = None;
         shared.wants_keyboard = false;
         shared.select_window = None;
+        shared.select_next = false;
         shared.asked_at = Some(Instant::now());
         shared.compact_left = None;
         shared.note = None;
@@ -1053,6 +1068,14 @@ impl Arrange {
             if shared.window != 0 {
                 shared.to_host.send(HostRequest::FocusWindow(shared.window));
             }
+        }
+    }
+
+    /// Win and the same number came again: pick the next card on this
+    /// desktop, round to the first after the last.
+    pub fn select_next(&self) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.select_next = true;
         }
     }
 
@@ -1455,6 +1478,20 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     if let Some(hwnd) = shared.select_window.take() {
         if group.windows.iter().any(|window| window.hwnd == hwnd) {
             shared.cursor = Some(hwnd);
+            shared.cursor_ghost = false;
+        }
+    }
+    if std::mem::take(&mut shared.select_next) {
+        let visible = shared.visible(&group);
+        let this_desktop = rows(&group, &snapshot.desktops).swap_remove(0);
+        let shown: Vec<isize> = this_desktop
+            .members
+            .iter()
+            .filter(|member| visible.get(**member).copied().unwrap_or(true))
+            .map(|member| group.windows[*member].hwnd)
+            .collect();
+        if let Some(next) = next_card(&shown, shared.cursor) {
+            shared.cursor = Some(next);
             shared.cursor_ghost = false;
         }
     }
@@ -3143,6 +3180,20 @@ mod tests {
             Some(9),
             "0 is 10"
         );
+    }
+
+    #[test]
+    fn win_and_the_same_number_again_picks_the_next_card_round_to_the_first() {
+        let cards = [10, 11, 12];
+        assert_eq!(next_card(&cards, Some(10)), Some(11));
+        assert_eq!(next_card(&cards, Some(12)), Some(10));
+        assert_eq!(next_card(&cards, None), Some(10));
+        assert_eq!(
+            next_card(&cards, Some(99)),
+            Some(10),
+            "a card of another desktop"
+        );
+        assert_eq!(next_card(&[], Some(10)), None);
     }
 
     #[test]

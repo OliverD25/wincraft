@@ -195,6 +195,13 @@ its settings and hotkey over with the same values.
 Inside WindowDeck, a number opens the window whose card shows it (0 is
 10), and Ctrl and a number open WindowDeck for that taskbar button.
 
+**Open WindowDeck with Win+1…9** (off until you switch it on in
+WindowDeck's settings): Win and a number open WindowDeck for that taskbar
+button, even for an app with one window; the same number again with Win
+still held picks the next window. A pinned app that is not running starts
+as before, and Win+Shift, Win+Ctrl and Win+Alt with a number stay with
+Windows. With the switch off, Win+number works exactly as before.
+
 **WindowDeck instead of Windows' taskbar preview** (off until you switch it
 on in WindowDeck's settings, the tray menu or the palette): resting the
 mouse on the taskbar button of an app with 2 or more windows opens

@@ -44,8 +44,8 @@ use crate::core::ui_bridge::{
 use crate::core::update::{self, Checked, Handover};
 use crate::core::update_notice::{self, UpdateNotice};
 use crate::core::{
-    autostart, chord, config, hotkeys, install, instance, release_notes, taskbar, taskbar_number,
-    theme, wide,
+    autostart, chord, config, hotkeys, install, instance, mask_key, release_notes, taskbar,
+    taskbar_number, theme, wide,
 };
 use crate::search::{self, Router, SearchProvider};
 use crate::store::github::{self, Release};
@@ -164,6 +164,17 @@ struct Host {
     shortcut_keys: Vec<(i32, FirstPress, bool)>,
     /// The chord whose second press is awaited.
     chord_wait: Option<FirstPress>,
+}
+
+/// What became of a Win+number that WindowDeck's hook kept.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WinDigit {
+    Opened,
+    NextCard,
+    /// The button's app has no window the strip shows (a pinned app that
+    /// is not running, say), or there is no such button: Windows gets the
+    /// keys back and does what it always does.
+    GiveBack,
 }
 
 /// What clicking the last balloon opens: a "hotkey is taken" balloon opens
@@ -423,6 +434,9 @@ thread_local! {
     static ARRANGE_STALE: Cell<bool> = const { Cell::new(false) };
     static ARRANGE_ANCHOR: RefCell<Option<(String, [i32; 4])>> = const { RefCell::new(None) };
     static ARRANGE_CLOSE: Cell<bool> = const { Cell::new(false) };
+    /// Win+number presses a plugin's hook kept: the digit, and whether it
+    /// is the same digit again while Win stayed down.
+    static WIN_DIGITS: RefCell<Vec<(u8, bool)>> = const { RefCell::new(Vec::new()) };
     static SETTINGS_WANTED: RefCell<Vec<(String, String, Value)>> = const { RefCell::new(Vec::new()) };
     /// Plugin windows to open or close: the plugin, the window (None for
     /// all of them) and whether to open it.
@@ -1429,7 +1443,7 @@ impl Host {
         });
         let Some((id, mut groups)) = found else {
             log::info!("no enabled plugin keeps a window order");
-            if open {
+            if open && !need_app {
                 notify(
                     "WindowDeck",
                     "WindowDeck shows the windows LayoutKeeper sees. Switch LayoutKeeper on in Plugins.",
@@ -1700,6 +1714,39 @@ impl Host {
         }
         log::info!("arrange opens for taskbar button {number} ({app}), window {place}");
         self.to_ui.send(UiCommand::ArrangeSelect(place));
+    }
+
+    /// Win and a digit, kept by WindowDeck's hook: the strip for that
+    /// taskbar button with its window picked, or the next card when the
+    /// same digit comes again while Win stayed down. The caller hands a
+    /// `GiveBack` to Windows.
+    fn win_digit(&mut self, digit: u8, again: bool) -> WinDigit {
+        if again && ui_bridge::arrange_window().is_some() {
+            log::info!("Win+{digit} again: the next card");
+            self.to_ui.send(UiCommand::ArrangeSelectNext);
+            return WinDigit::NextCard;
+        }
+        let fresh = self
+            .buttons_at
+            .is_some_and(|at| at.elapsed() < BUTTONS_FRESH);
+        if !fresh {
+            self.read_buttons();
+        }
+        let number = if digit == 0 { 10 } else { usize::from(digit) };
+        let Some((button, place)) = taskbar_number::button_number(&self.buttons, number) else {
+            log::info!("Win+{digit}: taskbar button {number} does not exist; Windows has it");
+            return WinDigit::GiveBack;
+        };
+        let (app, rect) = (button.app.clone(), button.rect);
+        self.arrange_anchor = Some((app.clone(), rect));
+        if !self.send_arrange_for(true, true) {
+            self.arrange_anchor = None;
+            log::info!("Win+{digit}: {app} has no windows the strip shows; Windows has it");
+            return WinDigit::GiveBack;
+        }
+        log::info!("Win+{digit}: the strip for taskbar button {number} ({app}), window {place}");
+        self.to_ui.send(UiCommand::ArrangeSelect(place));
+        WinDigit::Opened
     }
 
     /// Asks the first enabled plugin that keeps a layout for its saved
@@ -2788,6 +2835,16 @@ pub fn open_arrange_at(app: String, button: [i32; 4]) {
     open_arrange();
 }
 
+/// Win and `digit` were pressed and a plugin's keyboard hook kept them:
+/// the strip for that taskbar button, even for an app with one window.
+/// `again` is the same digit once more while Win stayed down, which picks
+/// the next card of an open strip. A button whose app has no window goes
+/// back to Windows. Safe to call from any callback, a hook's too.
+pub fn open_taskbar_button(digit: u8, again: bool) {
+    WIN_DIGITS.with(|queue| queue.borrow_mut().push((digit, again)));
+    plugin_changed();
+}
+
 /// Closes the Arrange strip if it is open. Safe to call from any callback.
 pub fn close_arrange() {
     ARRANGE_CLOSE.with(|cell| cell.set(true));
@@ -3160,6 +3217,7 @@ struct PluginRequests {
     anchor: Option<(String, [i32; 4])>,
     close: bool,
     stale: bool,
+    win_digits: Vec<(u8, bool)>,
     prompt: Option<Prompt>,
     settings: Vec<(String, String, Value)>,
     windows: Vec<(String, Option<String>, bool)>,
@@ -3175,6 +3233,7 @@ impl PluginRequests {
             anchor: ARRANGE_ANCHOR.with(|cell| cell.borrow_mut().take()),
             close: ARRANGE_CLOSE.with(|cell| cell.replace(false)),
             stale: ARRANGE_STALE.with(|cell| cell.replace(false)),
+            win_digits: WIN_DIGITS.with(|queue| std::mem::take(&mut *queue.borrow_mut())),
             prompt: PROMPT.with(|cell| cell.borrow_mut().take()),
             settings: SETTINGS_WANTED.with(|queue| std::mem::take(&mut *queue.borrow_mut())),
             windows: WINDOWS_WANTED.with(|queue| std::mem::take(&mut *queue.borrow_mut())),
@@ -3406,6 +3465,11 @@ fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
                 } else if requests.stale {
                     host.send_arrange(false);
                 }
+                for (digit, again) in requests.win_digits {
+                    if host.win_digit(digit, again) == WinDigit::GiveBack {
+                        mask_key::replay_win_digit(0x30 + u32::from(digit));
+                    }
+                }
                 host.publish();
                 if let Some(prompt) = requests.prompt {
                     host.to_ui
@@ -3546,7 +3610,7 @@ mod tests {
     use crate::core::traits::{
         HotkeyAction, PaletteCommand, StripLook, TrayAction, TrayToggle, WindowGroups,
     };
-    use crate::core::ui_bridge::{ArrangeView, LayoutAction};
+    use crate::core::ui_bridge::{ArrangeView, ArrangeWindow, LayoutAction};
 
     #[test]
     fn the_strip_hears_of_windows_that_come_go_or_take_the_front() {
@@ -3733,7 +3797,21 @@ mod tests {
 
         fn window_groups(&mut self) -> Option<WindowGroups> {
             self.groups.then(|| WindowGroups {
-                groups: Vec::new(),
+                groups: vec![ArrangeGroup {
+                    key: "Chrome.UserData.Profile3".to_string(),
+                    label: "Chrome".to_string(),
+                    windows: vec![ArrangeWindow {
+                        hwnd: 0x7fff_fff0,
+                        label: "one".to_string(),
+                        desktop: String::new(),
+                        monitor: None,
+                        on_monitor: None,
+                        saved_monitor: None,
+                        renamed: false,
+                        same_title: false,
+                        attention: false,
+                    }],
+                }],
                 desktops: Vec::new(),
                 focus: 0,
                 watched: vec!["*".to_string()],
@@ -5081,6 +5159,60 @@ mod tests {
         });
         assert!(!host.send_arrange_for(true, false), "the deck is off");
         assert!(shown(&ui).is_empty());
+    }
+
+    #[test]
+    fn win_number_opens_the_strip_for_its_button_or_gives_the_keys_back() {
+        let data = Scratch::new("win-number");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let mut keeper = fake("fake_keeper", "Keeper", "Win+Alt+F1", &log);
+        keeper.groups = true;
+        let mut deck = fake("fake_deck", "Deck", "Win+Alt+F2", &log);
+        deck.look = true;
+        let (mut host, ui) = test_host(vec![keeper, deck], &keyboard, &data);
+        let button = |app: &str, left: i32| taskbar::Button {
+            app: app.to_string(),
+            rect: [left, 1040, left + 48, 1088],
+        };
+        // Read moments ago, so no test reads the real taskbar.
+        host.buttons = vec![
+            button("Microsoft.WindowsTerminal", 0),
+            button("Chrome.UserData.Profile3", 48),
+        ];
+        host.buttons_at = Some(std::time::Instant::now());
+        let opened = |ui: &Receiver<UiCommand>| {
+            ui.try_iter()
+                .filter_map(|command| match command {
+                    UiCommand::ShowArrange(_) => Some(0),
+                    UiCommand::ArrangeSelect(place) => Some(place),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        // Win+2: Chrome has a window, even only one, so the strip opens on it.
+        assert_eq!(host.win_digit(2, false), WinDigit::Opened);
+        assert_eq!(opened(&ui), [0, 1]);
+        // Win+1: a pinned app that is not running goes back to Windows.
+        assert_eq!(host.win_digit(1, false), WinDigit::GiveBack);
+        assert!(opened(&ui).is_empty());
+        assert!(host.arrange_anchor.is_none());
+        // Win+5: no such button.
+        assert_eq!(host.win_digit(5, false), WinDigit::GiveBack);
+        // With WindowDeck off nothing opens, and Windows keeps the keys.
+        host.handle_request(HostRequest::SetPluginEnabled {
+            id: "fake_deck".to_string(),
+            enabled: false,
+        });
+        assert_eq!(host.win_digit(2, false), WinDigit::GiveBack);
+        assert!(opened(&ui).is_empty());
+    }
+
+    #[test]
+    fn a_hook_queues_win_number_for_the_host() {
+        open_taskbar_button(3, false);
+        open_taskbar_button(3, true);
+        assert_eq!(PluginRequests::take().win_digits, [(3, false), (3, true)]);
+        assert!(PluginRequests::take().win_digits.is_empty());
     }
 
     #[test]

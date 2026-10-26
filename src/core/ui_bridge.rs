@@ -420,6 +420,8 @@ pub enum UiCommand {
     ArrangeNote(String),
     /// The strip just opened for the window in front: pick its card.
     ArrangeSelectWindow(isize),
+    /// Win and the same number again: pick the next card on this desktop.
+    ArrangeSelectNext,
     HideArrange,
     /// The Layout page's data; None when no plugin keeps a layout.
     LayoutUpdate(Option<LayoutSnapshot>),

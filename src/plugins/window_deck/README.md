@@ -20,6 +20,28 @@ app whose taskbar button is under the mouse. Esc, any other key, a click or
 3 seconds without a key end the wait and nothing opens. The palette, the
 tray menu and the button on this page open WindowDeck at once.
 
+### Win+1…9
+
+This is off until you switch it on: **Open WindowDeck with Win+1…9** in
+Settings → Plugins → WindowDeck. With it on, Win and a number (1 to 9, and
+0 for button 10) open WindowDeck above that taskbar button with its window
+picked, even for an app with only one window, instead of Windows' own
+switch. Nothing is switched to until you press Enter, click a card or type
+a card's number, and WindowDeck stays open after you let go of Win. Press
+the same number again while you still hold Win to pick the next card.
+
+- A pinned app that is not running has no window to show, so Win and its
+  number go to Windows, which starts the app as always.
+- Win+Shift, Win+Ctrl and Win+Alt with a number stay with Windows.
+- With the switch off, Win+number works exactly as Windows makes it work.
+  Switching WindowDeck off switches this off too.
+
+To see the keys before Windows does, WinCraft uses a keyboard hook (a way
+for a program to look at each key press), only while this switch is on. It
+keeps only Win and a number; every other key goes on unchanged. If Windows
+refuses the hook, the plugin page says so and Win+number stays with
+Windows.
+
 WindowDeck shows the windows LayoutKeeper sees, so LayoutKeeper must be on;
 if it is off, WindowDeck says so. Switching WindowDeck off frees `Win+Alt+A`,
 stops the hover strip and closes WindowDeck if it is open.
@@ -253,7 +275,8 @@ With it on:
   button closes it. Clicking the button then does what it always does.
 - The strip does not take the keyboard from the window you are working in.
   Click once inside the strip to use its keys (arrows, D, Enter).
-- **Win+number and Alt+Tab work exactly as before.** Windows' preview is
+- **Win+number and Alt+Tab work exactly as before** (unless you switched
+  on **Open WindowDeck with Win+1…9**). Windows' preview is
   never hidden while a Windows key or Alt is down, within 1.5 s of
   Win+number, within half a second of letting go of a Windows key or of
   pressing an arrow key, Tab, Enter, Space or Esc, or while a mouse button is
@@ -289,6 +312,7 @@ log says "hiding Windows' taskbar preview skipped". The flag
 | Preview window on hover | on | Resting the mouse on a picture in WindowDeck shows that window on its monitor. |
 | Show WindowDeck instead of Windows' taskbar preview | off | Resting the mouse on the taskbar button of an app with 2 or more windows opens WindowDeck above it (see **WindowDeck instead of Windows' taskbar preview**). Also in the tray menu and the palette. |
 | Hover delay (seconds) | 0.15 | How long the mouse rests on a taskbar button before WindowDeck opens, from 0.05 to 1.5. |
+| Open WindowDeck with Win+1…9 | off | Win and a number open WindowDeck for that taskbar button (see **Win+1…9**). Win+Shift, Win+Ctrl and Win+Alt with a number stay with Windows. |
 
 The view you pick last is kept as `arrange_view` in
 `plugins\window_deck.json`.

@@ -239,6 +239,10 @@ impl App {
                     self.arrange.select_window(hwnd);
                     ctx.request_repaint_of(arrange::viewport_id());
                 }
+                UiCommand::ArrangeSelectNext => {
+                    self.arrange.select_next();
+                    ctx.request_repaint_of(arrange::viewport_id());
+                }
                 UiCommand::ArrangeNote(text) => {
                     self.arrange.note(text);
                     ctx.request_repaint_of(arrange::viewport_id());
