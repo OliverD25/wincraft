@@ -3,11 +3,13 @@
 use egui::Color32;
 
 use crate::core::canvas::{Area, Canvas, Fonts};
-use crate::core::layered::FILL_ALPHA;
 use crate::core::theme::{self, Tokens};
 
 /// Room around the panel for its shadow, in logical pixels.
 pub const SHADOW: f32 = 16.0;
+/// The tiles hold small text, so the panel lets less of the page through
+/// than the one-line panels (`layered::FILL_ALPHA`) do.
+const FILL_ALPHA: f32 = 0.96;
 
 /// The panel's shadow, fill and 1 px rim, inset by the shadow's room.
 pub fn panel(canvas: &mut Canvas, tokens: &Tokens, scale: f32) -> Area {
@@ -31,7 +33,7 @@ pub fn panel(canvas: &mut Canvas, tokens: &Tokens, scale: f32) -> Area {
     canvas.fill(
         area,
         radius,
-        theme::with_alpha(tokens.elevated_bg, FILL_ALPHA.max(0.96)),
+        theme::with_alpha(tokens.elevated_bg, FILL_ALPHA),
     );
     canvas.outline(area, radius, border(tokens, scale), tokens.rim);
     area
