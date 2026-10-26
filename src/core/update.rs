@@ -44,6 +44,52 @@ const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// one, after a rollback, with `--update-failed <new version>`.
 pub const UPDATED_FROM: &str = "--updated-from";
 pub const UPDATE_FAILED: &str = "--update-failed";
+/// Given after either of those, only when the user started the update from
+/// the palette or from About: `--reopen palette` or `--reopen about`.
+pub const REOPEN: &str = "--reopen";
+
+/// What the user was looking at when they started an update, so the next
+/// start can open it again. An unattended update or the tray menu has none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reopen {
+    Palette,
+    About,
+}
+
+impl Reopen {
+    pub fn word(self) -> &'static str {
+        match self {
+            Reopen::Palette => "palette",
+            Reopen::About => "about",
+        }
+    }
+
+    pub fn from_word(word: &str) -> Option<Self> {
+        match word {
+            "palette" => Some(Reopen::Palette),
+            "about" => Some(Reopen::About),
+            _ => None,
+        }
+    }
+}
+
+/// What a starting process reopens: only when an update (or its rollback)
+/// started it, so a normal start never opens anything by itself.
+pub fn reopen_at_start(started_by_update: bool, word: Option<&str>) -> Option<Reopen> {
+    word.filter(|_| started_by_update)
+        .and_then(Reopen::from_word)
+}
+
+/// The arguments the next process starts with: what started it, the version
+/// that goes with it, and where to reopen.
+fn start_args(flag: &str, version: &str, reopen: Option<Reopen>) -> Vec<String> {
+    let mut args = vec![flag.to_string(), version.to_string()];
+    if let Some(reopen) = reopen {
+        args.push(REOPEN.to_string());
+        args.push(reopen.word().to_string());
+    }
+    args
+}
 /// How long the new version must run before it counts as healthy: by then
 /// it has started its plugins and registered its hotkeys, and the usual
 /// crash at start would have happened.
@@ -399,6 +445,9 @@ pub struct Handover {
     pub dir: PathBuf,
     pub from: String,
     pub to: String,
+    /// Opened again by whichever version runs next, the new one or, after a
+    /// rollback, the old one: the user is waiting for it either way.
+    pub reopen: Option<Reopen>,
 }
 
 static PENDING: Mutex<Option<Handover>> = Mutex::new(None);
@@ -448,7 +497,7 @@ pub fn hand_over(
     wait: Duration,
 ) -> Outcome {
     let exe = plan.dir.join(EXE_NAME);
-    let reason = match launcher.start(&exe, &[UPDATED_FROM.to_string(), plan.from.clone()]) {
+    let reason = match launcher.start(&exe, &start_args(UPDATED_FROM, &plan.from, plan.reopen)) {
         Err(err) => format!("{} did not start: {err}", plan.to),
         Ok(mut started) => match started.wait(wait) {
             Waited::Healthy => return Outcome::Healthy,
@@ -468,7 +517,7 @@ pub fn hand_over(
             }
         },
     };
-    let again = [UPDATE_FAILED.to_string(), plan.to.clone()];
+    let again = start_args(UPDATE_FAILED, &plan.to, plan.reopen);
     if let Err(err) = swap_back(&plan.dir, files) {
         // Better the old version from its odd name than no WinCraft at all.
         let old = plan.dir.join(OLD_EXE);
@@ -971,7 +1020,68 @@ mod tests {
             dir: PathBuf::from(DIR),
             from: "0.16.0".to_string(),
             to: "v0.17.0".to_string(),
+            reopen: None,
         }
+    }
+
+    #[test]
+    fn the_reopen_word_round_trips_and_unknown_words_mean_nothing() {
+        for reopen in [Reopen::Palette, Reopen::About] {
+            assert_eq!(Reopen::from_word(reopen.word()), Some(reopen));
+        }
+        assert_eq!(Reopen::from_word(""), None);
+        assert_eq!(Reopen::from_word("tray"), None);
+    }
+
+    #[test]
+    fn a_start_reopens_only_when_an_update_started_it() {
+        assert_eq!(
+            reopen_at_start(true, Some("palette")),
+            Some(Reopen::Palette)
+        );
+        assert_eq!(reopen_at_start(true, Some("about")), Some(Reopen::About));
+        assert_eq!(reopen_at_start(true, None), None);
+        assert_eq!(reopen_at_start(true, Some("nonsense")), None);
+        assert_eq!(
+            reopen_at_start(false, Some("palette")),
+            None,
+            "a normal start"
+        );
+    }
+
+    #[test]
+    fn the_new_version_is_told_where_to_reopen_only_when_the_user_asked_for_the_update() {
+        for (reopen, tail) in [
+            (None, ""),
+            (Some(Reopen::Palette), " --reopen palette"),
+            (Some(Reopen::About), " --reopen about"),
+        ] {
+            let mut launcher = FakeLauncher::new(vec![Ok((Some(30), None))]);
+            let plan = Handover { reopen, ..plan() };
+            hand_over(&plan, &mut launcher, &mut swapped(), HANDOVER_WAIT);
+            assert_eq!(
+                launcher.started,
+                [format!("wincraft.exe --updated-from 0.16.0{tail}")]
+            );
+        }
+    }
+
+    #[test]
+    fn a_rollback_starts_the_old_version_with_the_same_place_to_reopen() {
+        let mut launcher = FakeLauncher::new(vec![Ok((None, Some(2))), Ok((None, None))]);
+        let plan = Handover {
+            reopen: Some(Reopen::About),
+            ..plan()
+        };
+        let outcome = hand_over(&plan, &mut launcher, &mut swapped(), HANDOVER_WAIT);
+        assert!(matches!(outcome, Outcome::RolledBack(_)), "{outcome:?}");
+        assert_eq!(
+            launcher.started,
+            [
+                "wincraft.exe --updated-from 0.16.0 --reopen about",
+                "wincraft.exe --update-failed v0.17.0 --reopen about"
+            ]
+        );
     }
 
     fn swapped() -> FakeFiles {

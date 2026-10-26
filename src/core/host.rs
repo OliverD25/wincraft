@@ -202,6 +202,9 @@ struct Updates {
     report: bool,
     /// What About shows under "What's new": the notes of this version.
     installed_notes: Option<String>,
+    /// Where the user started the update that is under way, for the next
+    /// start to open again. None for the tray menu and for unattended ones.
+    reopen: Option<update::Reopen>,
     tx: Sender<UpdateEvent>,
     rx: Receiver<UpdateEvent>,
 }
@@ -221,6 +224,7 @@ impl Default for Updates {
             auto_update: false,
             report: false,
             installed_notes: None,
+            reopen: None,
             tx,
             rx,
         }
@@ -333,6 +337,9 @@ pub struct StartupFlags {
     pub updated_from: Option<String>,
     /// `--update-failed <version>`: a rollback from that version started it.
     pub update_failed: Option<String>,
+    /// `--reopen palette|about`, given with either of those: the surface the
+    /// user started the update from.
+    pub reopen: Option<update::Reopen>,
     /// `--restarted`: Windows started WinCraft again after an installer
     /// closed it.
     pub restarted: bool,
@@ -541,7 +548,10 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
     if flags.open_detector {
         open_shortcut_detector();
     }
-    if flags.open_palette || flags.scene.palette_query.is_some() {
+    if flags.open_palette
+        || flags.scene.palette_query.is_some()
+        || flags.reopen == Some(update::Reopen::Palette)
+    {
         show_palette();
     }
     if let Some(text) = flags.scene.palette_query.filter(|text| !text.is_empty()) {
@@ -579,6 +589,9 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         }
         None if flags.open_settings => {
             with_host(|host| host.to_ui.send(UiCommand::ShowSettings(Page::General)));
+        }
+        None if flags.reopen == Some(update::Reopen::About) => {
+            with_host(|host| host.to_ui.send(UiCommand::ShowSettings(Page::About)));
         }
         None => {}
     }
@@ -828,6 +841,7 @@ impl Host {
         }
         self.updates.auto_update = true;
         self.updates.report = true;
+        self.updates.reopen = Some(update::Reopen::Palette);
         self.check_for_updates(true);
     }
 
@@ -894,6 +908,7 @@ impl Host {
         if let Err(err) = result {
             log::warn!("the update to {tag} was not installed: {err}");
             self.updates.busy = false;
+            self.updates.reopen = None;
             self.updates.status = UpdateStatus::Error(err);
             return;
         }
@@ -907,6 +922,7 @@ impl Host {
         if let Err(err) = update::swap_in(&dir, &mut update::Disk) {
             log::error!("could not put {tag} in place: {err}");
             self.updates.busy = false;
+            self.updates.reopen = None;
             self.updates.status =
                 UpdateStatus::Error(format!("Could not put the new version in place: {err}"));
             return;
@@ -916,6 +932,7 @@ impl Host {
             dir,
             from: env!("CARGO_PKG_VERSION").to_string(),
             to: tag,
+            reopen: self.updates.reopen.take(),
         });
         self.shutdown();
     }
@@ -1056,6 +1073,9 @@ impl Host {
         }
         if let Some(text) = after.notice {
             self.update_notice(&text);
+        }
+        if !after.update_now && !self.updates.busy {
+            self.updates.reopen = None;
         }
         if after.update_now {
             self.update_now();
@@ -1750,7 +1770,12 @@ impl Host {
             HostRequest::ResetPlugin(id) => self.reset_plugin(&id),
             HostRequest::SetHostSetting(setting) => self.set_host_setting(setting),
             HostRequest::CheckForUpdates => self.check_for_updates(true),
-            HostRequest::UpdateNow => self.update_now(),
+            HostRequest::UpdateNow => {
+                if !self.updates.busy && self.updates.blocked.is_none() {
+                    self.updates.reopen = Some(update::Reopen::About);
+                }
+                self.update_now();
+            }
             HostRequest::OpenPath(path) => open_in_notepad(&path),
             HostRequest::Exit => self.shutdown(),
         }
@@ -3069,6 +3094,7 @@ fn handle_menu_choice(choice: u32) {
         MENU_UPDATE => {
             with_host(|host| {
                 host.to_ui.send(UiCommand::ShowSettings(Page::About));
+                host.updates.reopen = None;
                 host.update_now();
             });
         }
@@ -4245,6 +4271,33 @@ mod tests {
             HostCommand::UpdateWinCraft,
         )));
         assert!(!host.updates.checking && !host.updates.auto_update && !host.updates.report);
+    }
+
+    #[test]
+    fn an_update_that_does_not_happen_leaves_nothing_to_reopen() {
+        let data = Scratch::new("update-reopen");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let (mut host, _ui) = test_host(
+            vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+            &keyboard,
+            &data,
+        );
+        // About's Update now on a copy that cannot update itself.
+        host.updates.blocked = Some("a development build".to_string());
+        host.handle_request(HostRequest::UpdateNow);
+        assert_eq!(host.updates.reopen, None);
+
+        // A check that finds nothing newer forgets where it was asked from.
+        host.updates.blocked = None;
+        host.updates.reopen = Some(update::Reopen::Palette);
+        let version = env!("CARGO_PKG_VERSION");
+        host.checked(Ok(Checked::UpToDate(format!("v{version}"))));
+        assert_eq!(host.updates.reopen, None);
+
+        // So does a download that fails.
+        host.updates.reopen = Some(update::Reopen::About);
+        host.downloaded(Err("offline".to_string()));
+        assert_eq!(host.updates.reopen, None);
     }
 
     #[test]

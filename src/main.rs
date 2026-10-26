@@ -161,6 +161,10 @@ fn main() {
 
     let updated_from = arg_after(&args, update::UPDATED_FROM);
     let update_failed = arg_after(&args, update::UPDATE_FAILED);
+    let reopen = update::reopen_at_start(
+        updated_from.is_some() || update_failed.is_some(),
+        arg_after(&args, update::REOPEN).as_deref(),
+    );
     if updated_from.is_some() || update_failed.is_some() {
         logging::init_appending();
     } else {
@@ -235,6 +239,7 @@ fn main() {
         open_palette: has_flag(&args, "--open-palette"),
         open_arrange: has_flag(&args, "--open-arrange"),
         open_settings: has_flag(&args, "--open-settings"),
+        reopen,
         updated_from,
         update_failed,
         restarted: has_flag(&args, autostart::RESTARTED_FLAG),
