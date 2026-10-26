@@ -1,3 +1,8 @@
+//! The order of the window thumbnails in one app's taskbar group, and the
+//! public taskbar calls that put a group in that order. LayoutKeeper keeps
+//! one model per group and saves it; WindowDeck keeps one for the session
+//! when LayoutKeeper is off.
+
 use std::ffi::c_void;
 use std::time::{Duration, Instant};
 
@@ -6,8 +11,9 @@ use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::System::Com::CLSCTX_INPROC_SERVER;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
-use super::identity::{match_windows, WindowIdentity};
 use crate::core::com::{self, ComPtr};
+use crate::core::window_identity::{match_windows, WindowIdentity};
+use crate::core::window_names;
 
 /// A window handle kept as a number: the model is compared and cloned freely,
 /// and a raw HWND is neither Eq nor Send.
@@ -295,6 +301,36 @@ impl Taskbar {
         }
         (started.elapsed(), refused)
     }
+}
+
+/// Puts the buttons of `handles` in that order, making `taskbar` on first
+/// use, and logs each call the taskbar refused. Returns how long it took, or
+/// None when the taskbar interface cannot be had.
+pub fn apply_logged(taskbar: &mut Option<Taskbar>, handles: &[Handle]) -> Option<Duration> {
+    if taskbar.is_none() {
+        match Taskbar::new() {
+            Ok(made) => *taskbar = Some(made),
+            Err(err) => {
+                log::error!("{err}; the taskbar order cannot be changed");
+                return None;
+            }
+        }
+    }
+    let taskbar = taskbar.as_ref()?;
+    let (took, refused) = taskbar.apply(handles);
+    for (call, hr) in &refused {
+        let (what, hwnd) = match call {
+            TabCall::Delete(hwnd) => ("remove", *hwnd),
+            TabCall::Add(hwnd) => ("add", *hwnd),
+            TabCall::Activate(hwnd) => ("highlight", *hwnd),
+        };
+        log::warn!(
+            "the taskbar refused to {what} the button of \"{}\" ({}), so it may keep its old place",
+            window_names::display_title(hwnd as HWND),
+            com::hex(*hr)
+        );
+    }
+    Some(took)
 }
 
 #[cfg(test)]

@@ -1277,7 +1277,7 @@ pub fn body(
         }
     }
 
-    footer(ui, panel, shown, others_count > 0);
+    footer(ui, panel, shown && snapshot.keeps_order, others_count > 0);
 
     if !menu_open && !dragging {
         keyboard(
@@ -2228,7 +2228,8 @@ fn hints_that_fit(widths: &[f32], gap: f32, room: f32, keep: usize) -> usize {
 }
 
 /// The note on order and the key hints under the bands. The note is only
-/// true while other desktops are on screen; the D hint needs some to show.
+/// true while other desktops are on screen and a plugin saves the order;
+/// the D hint needs some to show.
 fn footer(ui: &Ui, panel: Rect, note: bool, others_key: bool) {
     let tokens = Tokens::get(ui.ctx());
     let painter = ui.painter();
@@ -3292,6 +3293,7 @@ mod tests {
         let snapshot = ArrangeSnapshot {
             plugin: "layout_keeper".to_string(),
             look_plugin: "window_deck".to_string(),
+            keeps_order: true,
             groups: vec![group.clone()],
             desktops: vec![ArrangeDesktop {
                 id: "d1".to_string(),
@@ -3745,6 +3747,7 @@ mod tests {
         let snapshot = ArrangeSnapshot {
             plugin: "layout_keeper".to_string(),
             look_plugin: "window_deck".to_string(),
+            keeps_order: true,
             groups: vec![group.clone()],
             desktops: vec![ArrangeDesktop {
                 id: "d1".to_string(),

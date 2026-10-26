@@ -42,9 +42,26 @@ keeps only Win and a number; every other key goes on unchanged. If Windows
 refuses the hook, the plugin page says so and Win+number stays with
 Windows.
 
-WindowDeck shows the windows LayoutKeeper sees, so LayoutKeeper must be on;
-if it is off, WindowDeck says so. Switching WindowDeck off frees `Win+Alt+A`,
-stops the hover strip and closes WindowDeck if it is open.
+Switching WindowDeck off frees `Win+Alt+A`, stops the hover strip and
+closes WindowDeck if it is open.
+
+### With or without LayoutKeeper
+
+WindowDeck works on its own. With LayoutKeeper on, it shows the windows
+LayoutKeeper watches, in the order LayoutKeeper saves, and a new order is
+saved with the layout. With LayoutKeeper off, WindowDeck lists the windows
+of every app itself (not WinCraft's own, and not Windows' helper programs)
+when it opens, and keeps a new order only until WinCraft closes.
+
+Switching to a window, closing it, moving it to another monitor or desktop
+and putting a group in a new taskbar order work the same either way. A few
+things need a saved layout, so they show only while LayoutKeeper is on:
+
+- the **Moved** chip and the **(disconnected)** column of an unplugged
+  monitor;
+- the line "Order on other desktops applies at the next restore": without
+  LayoutKeeper there is no restore, so a new order for windows on another
+  desktop is kept in WindowDeck but not put on their taskbar.
 
 WindowDeck shows a live picture of every window in one app's taskbar group,
 whatever the app, like the taskbar's own thumbnails. The list at the top left switches
@@ -103,14 +120,16 @@ at all, keeps ordinary columns.
   now, at the same size and place relative to the screen (a maximized
   window is maximized there). Dropping it in another desktop's band moves
   it to that desktop too. A 2-pixel accent bar shows where it will land, and
-  the order goes to the taskbar and is saved at once.
+  the order goes to the taskbar at once (and is saved, with LayoutKeeper
+  on).
 - A window that is on another monitor than in the last saved layout has a
   **Moved** chip in its title line: you moved it since the last save (saves
-  run every 30 seconds), or a restore has not put it back yet.
+  run every 30 seconds), or a restore has not put it back yet. Only with
+  LayoutKeeper on.
 - A monitor that is unplugged but still has saved windows of the app keeps
   its column, marked **(disconnected)**, with those windows faded; they are
   on another monitor until it is back. Drag one to another column to give it
-  a new place.
+  a new place. Only with LayoutKeeper on.
 - When the main taskbar lists every window, the primary monitor's column
   also shows a dashed **stand-in** for each window on another monitor, at
   its taskbar number, so the column reads in taskbar order. A stand-in can
@@ -166,7 +185,7 @@ its height; beyond that the mouse wheel scrolls it. In both views:
   leaves the picture. **Preview window on hover** turns this off.
 - **Click** a picture to switch to that window; the strip closes.
 - **Drag** a picture to a new place. Every change goes to the taskbar at once
-  and is saved. Dropping it in another desktop's row moves the window to
+  and, with LayoutKeeper on, is saved. Dropping it in another desktop's row moves the window to
   that desktop (show the other desktops first, or hold the picture over the
   link).
 - **Right-click** for **Close window**, **Taskbar place** (see below) and
@@ -190,8 +209,8 @@ its height; beyond that the mouse wheel scrolls it. In both views:
 A drag in the By monitor view can move a window to another monitor. These
 three ways change only the window's number, in both views. The window stays
 on its monitor and on its desktop, and no other desktop's order changes. Each
-one is the same change a drag makes: it shows at once, is saved at once and
-is put on the taskbar for the desktop you are on. In By monitor the card
+one is the same change a drag makes: it shows at once, is saved at once
+(with LayoutKeeper on) and is put on the taskbar for the desktop you are on. In By monitor the card
 stays in its column and the column follows the numbers, so a window made
 number 2 on the right monitor is still in the right column, now shown as 2.
 
@@ -220,7 +239,8 @@ The taskbar only shows the current desktop's buttons, and Windows cannot
 rebuild a button without bringing its window to the current desktop. So a
 new order for windows on other desktops is saved at once but reaches their
 taskbar at the next restore; the strip says so while other desktops are
-shown.
+shown. Without LayoutKeeper there is no restore, so such an order stays in
+WindowDeck only.
 
 ## WindowDeck instead of Windows' taskbar preview
 
@@ -263,8 +283,8 @@ With it on:
 - **Apps with one window** keep Windows' own preview. "One window" counts
   the windows that taskbar would list: an app with two windows on the main
   monitor and one on the right monitor keeps Windows' own preview on the
-  right monitor's taskbar in mode 1 or 2. So do apps
-  LayoutKeeper does not watch (see **Programs** and **Never touch** on
+  right monitor's taskbar in mode 1 or 2. While LayoutKeeper is on, so do
+  apps it does not watch (see **Programs** and **Never touch** on
   LayoutKeeper's page).
 - **Move the mouse up** into the strip: it stays open. It closes half a
   second after the mouse has left both the button and the strip. Moving to

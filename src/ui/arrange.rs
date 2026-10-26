@@ -571,8 +571,15 @@ fn row_widths(row: &Row, widths: &[f32]) -> Vec<f32> {
 /// `min_width` and at most `limit.x`, with longer rows wrapping onto more
 /// lines; as tall as that makes it, at most `limit.y`, beyond which the
 /// rows scroll. `link` makes room for the line that opens the other
-/// desktops.
-pub fn panel_size(rows: &[Row], widths: &[f32], link: bool, min_width: f32, limit: Vec2) -> Vec2 {
+/// desktops, `note` for the note on their order under the rows.
+pub fn panel_size(
+    rows: &[Row],
+    widths: &[f32],
+    link: bool,
+    note: bool,
+    min_width: f32,
+    limit: Vec2,
+) -> Vec2 {
     let widest = rows
         .iter()
         .map(|row| line_width(&row_widths(row, widths)))
@@ -604,7 +611,7 @@ pub fn panel_size(rows: &[Row], widths: &[f32], link: bool, min_width: f32, limi
         })
         .sum();
     let count = rows.len().max(1) as f32;
-    let footer = if rows.len() > 1 { FOOTER } else { 0.0 };
+    let footer = if note && rows.len() > 1 { FOOTER } else { 0.0 };
     let link = if link { others::LINK_HEIGHT } else { 0.0 };
     let height = 2.0 * PADDING + lines + (count - 1.0) * ROW_GAP + link + footer + SLACK;
     vec2(width, height.min(limit.y))
@@ -908,7 +915,8 @@ impl Shared {
                 );
                 let widths = self.widths(group, card_width);
                 let min_width = 2.0 * PADDING + TOOLBAR_CONTROLS + SLACK;
-                let mut size = panel_size(&rows, &widths, count > 0, min_width, limit);
+                let note = snapshot.keeps_order;
+                let mut size = panel_size(&rows, &widths, count > 0, note, min_width, limit);
                 size.y = (size.y + SWITCHER).min(limit.y);
                 size
             }
@@ -1785,6 +1793,7 @@ fn flat(
     let rows = shown_rows(group, desktops, shared.others.shown(others_count), &visible);
     let ctx = ui.ctx().clone();
     let can_rename = shared.snapshot.as_ref().is_some_and(|s| s.can_rename);
+    let note = shared.snapshot.as_ref().is_some_and(|s| s.keeps_order);
     let pointer = ctx.pointer_latest_pos();
     let mut frame = Frame::default();
 
@@ -1856,7 +1865,7 @@ fn flat(
     let mut row_rects: Vec<Rect> = Vec::new();
     let mut card_rects: Vec<Vec<Rect>> = Vec::new();
     let mut hits: Vec<(isize, Rect)> = Vec::new();
-    let footer = if rows.len() > 1 { FOOTER } else { 0.0 };
+    let footer = if note && rows.len() > 1 { FOOTER } else { 0.0 };
     let rows_area = Rect::from_min_max(content.min, pos2(content.max.x, content.max.y - footer));
     frame.area = rows_area;
 
@@ -3229,7 +3238,14 @@ mod tests {
             desktop: String::new(),
             members: (0..n).collect(),
         };
-        let size = panel_size(&[row(3), row(1)], &SAME, false, 0.0, vec2(5000.0, 5000.0));
+        let size = panel_size(
+            &[row(3), row(1)],
+            &SAME,
+            false,
+            true,
+            0.0,
+            vec2(5000.0, 5000.0),
+        );
         assert_eq!(
             size.x,
             2.0 * PADDING + 3.0 * CARD.x + 2.0 * CARD_GAP + SLACK
@@ -3248,7 +3264,7 @@ mod tests {
             members: (0..n).collect(),
         };
         let limit = vec2(2.0 * PADDING + 5.0 * CARD.x + 4.0 * CARD_GAP + 10.0, 5000.0);
-        let size = panel_size(&[row(12)], &SAME, false, 0.0, limit);
+        let size = panel_size(&[row(12)], &SAME, false, true, 0.0, limit);
         assert_eq!(
             size.x,
             2.0 * PADDING + 5.0 * CARD.x + 4.0 * CARD_GAP + SLACK
@@ -3258,7 +3274,7 @@ mod tests {
             size.y,
             2.0 * PADDING + HEADER + HEADER_GAP + 3.0 * CARD.y + 2.0 * CARD_GAP + SLACK
         );
-        let short = panel_size(&[row(12)], &SAME, false, 0.0, vec2(limit.x, 200.0));
+        let short = panel_size(&[row(12)], &SAME, false, true, 0.0, vec2(limit.x, 200.0));
         assert_eq!(short.y, 200.0);
     }
 
@@ -3331,11 +3347,11 @@ mod tests {
         ];
         // A wide, a narrow and a 16:9 window, then a very wide one alone.
         let widths = [200.0, 60.0, CARD.x, 300.0];
-        let size = panel_size(&rows, &widths, false, 0.0, vec2(5000.0, 5000.0));
+        let size = panel_size(&rows, &widths, false, true, 0.0, vec2(5000.0, 5000.0));
         assert_eq!(size.x, 2.0 * PADDING + 412.0 + 2.0 * CARD_GAP + SLACK);
         // Squeezed to 300 points of cards, the first row needs two lines.
         let limit = vec2(2.0 * PADDING + 300.0, 5000.0);
-        let size = panel_size(&rows, &widths, false, 0.0, limit);
+        let size = panel_size(&rows, &widths, false, true, 0.0, limit);
         assert_eq!(size.x, limit.x);
         assert_eq!(
             size.y,
@@ -3348,7 +3364,14 @@ mod tests {
                 + SLACK
         );
         // Never narrower than the toolbar needs.
-        let size = panel_size(&rows[1..], &widths, false, 700.0, vec2(5000.0, 5000.0));
+        let size = panel_size(
+            &rows[1..],
+            &widths,
+            false,
+            true,
+            700.0,
+            vec2(5000.0, 5000.0),
+        );
         assert_eq!(size.x, 700.0);
     }
 
@@ -3395,12 +3418,14 @@ mod tests {
             &shown_rows(&group, &desktops, false, &[true; 3]),
             &SAME,
             true,
+            true,
             0.0,
             limit,
         );
         let open = panel_size(
             &shown_rows(&group, &desktops, true, &[true; 3]),
             &SAME,
+            true,
             true,
             0.0,
             limit,
@@ -3411,10 +3436,23 @@ mod tests {
             &shown_rows(&group, &desktops, false, &[true; 3]),
             &SAME,
             false,
+            true,
             0.0,
             limit,
         );
         assert!((shut.y - alone.y - others::LINK_HEIGHT).abs() < 0.01);
+        // Without a plugin that saves the order there is no note to make
+        // room for, and the rows alone set the height.
+        let quiet = panel_size(
+            &shown_rows(&group, &desktops, true, &[true; 3]),
+            &SAME,
+            true,
+            false,
+            0.0,
+            limit,
+        );
+        assert!((open.y - quiet.y - FOOTER).abs() < 0.01);
+        assert!(shut.y < quiet.y);
     }
 
     fn two_rows() -> Vec<Row> {

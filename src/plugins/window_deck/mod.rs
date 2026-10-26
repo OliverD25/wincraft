@@ -1,21 +1,24 @@
 //! WindowDeck: all windows of an app in a row above the taskbar, to pick,
-//! move and close them from the keyboard. The host draws the strip and
-//! LayoutKeeper gives it the windows; WindowDeck decides when it opens
-//! (Win+Alt+A, a rest on a taskbar button) and how it looks.
+//! move and close them from the keyboard. The host draws the strip;
+//! WindowDeck decides when it opens (Win+Alt+A, a rest on a taskbar button)
+//! and how it looks. While LayoutKeeper is on, LayoutKeeper gives the strip
+//! its windows in their saved order; otherwise WindowDeck lists the open
+//! windows itself (`own_windows`).
 
 pub mod hover_preview;
+mod own_windows;
 mod win_digit;
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
-use windows_sys::Win32::UI::WindowsAndMessaging::WM_TIMER;
+use windows_sys::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer, WM_TIMER};
 
 use crate::core::config::PluginConfig;
 use crate::core::traits::{
     FieldKind, HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata, SettingField,
-    StripLook, TrayAction, TrayToggle, WinCraftPlugin,
+    StripLook, TrayAction, TrayToggle, WinCraftPlugin, WindowGroups,
 };
-use crate::core::ui_bridge::{ActionKind, ArrangeView};
+use crate::core::ui_bridge::{ActionKind, ArrangeAction, ArrangeView};
 use crate::core::{host, instance, window_census};
 
 pub const ID: &str = "window_deck";
@@ -26,6 +29,12 @@ const ACTION_OPEN: u32 = 1;
 /// A tray toggle; tray ids share their space with the action above.
 const TRAY_HOVER_STRIP: u32 = 2;
 const COMMAND_HOVER_STRIP: u32 = 1;
+
+/// A one-shot timer that sends the strip fresh data after a change Windows
+/// makes a moment late; "WD" like the hover timer, so it is clear of any
+/// other plugin's.
+const REFRESH_TIMER_ID: usize = 0x5744_0003;
+const REFRESH_DELAY_MS: u32 = 300;
 
 const HOVER_STRIP_KEY: &str = "taskbar_hover_strip";
 const HOVER_DELAY_KEY: &str = "hover_delay_seconds";
@@ -52,8 +61,11 @@ pub struct WindowDeck {
     /// The switch is on but Windows refused the keyboard hook.
     hook_refused: bool,
     /// A test instance (WINCRAFT_INSTANCE) never hides Windows' preview
-    /// unless it was started with `--allow-hide-popup`.
+    /// unless it was started with `--allow-hide-popup`, and never changes a
+    /// real window.
     read_only: bool,
+    /// The windows for the strip when LayoutKeeper does not give them.
+    own: own_windows::OwnWindows,
 }
 
 impl Default for WindowDeck {
@@ -68,6 +80,7 @@ impl Default for WindowDeck {
             win_number: false,
             hook_refused: false,
             read_only: instance::is_test(),
+            own: own_windows::OwnWindows::new(instance::is_test()),
         }
     }
 }
@@ -124,6 +137,17 @@ impl WindowDeck {
             log::info!("Win+number: opens WindowDeck for that taskbar button");
         }
         host::plugin_changed();
+    }
+
+    /// The strip gets fresh data a moment from now, once Windows has made
+    /// the change; at once when there is no host window to time it.
+    fn refresh_soon(&mut self) {
+        match self.host_hwnd {
+            Some(hwnd) => unsafe {
+                SetTimer(hwnd, REFRESH_TIMER_ID, REFRESH_DELAY_MS, None);
+            },
+            None => host::refresh_arrange(),
+        }
     }
 
     /// Starts or stops the hover strip to match the settings, at once.
@@ -394,14 +418,40 @@ impl WinCraftPlugin for WindowDeck {
         })
     }
 
+    /// Asked only while no plugin that keeps a window order is on: the host
+    /// asks LayoutKeeper first.
+    fn window_groups(&mut self) -> Option<WindowGroups> {
+        Some(self.own.window_groups())
+    }
+
+    fn on_arrange_action(&mut self, action: &ArrangeAction) {
+        if self.own.act(action) == own_windows::After::Refresh {
+            self.refresh_soon();
+        }
+    }
+
     fn on_windows_message(&mut self, msg: u32, wparam: WPARAM, lparam: LPARAM) {
         let _ = lparam;
-        if msg == WM_TIMER && wparam == hover_preview::TIMER_ID {
-            self.hover_tick();
+        if msg != WM_TIMER {
+            return;
+        }
+        match wparam {
+            hover_preview::TIMER_ID => self.hover_tick(),
+            REFRESH_TIMER_ID => {
+                if let Some(hwnd) = self.host_hwnd {
+                    unsafe { KillTimer(hwnd, REFRESH_TIMER_ID) };
+                }
+                host::refresh_arrange();
+            }
+            _ => {}
         }
     }
 
     fn teardown(&mut self) {
+        if let Some(hwnd) = self.host_hwnd {
+            unsafe { KillTimer(hwnd, REFRESH_TIMER_ID) };
+        }
+        self.own.clear();
         run_hover(self.hover.stop());
         win_digit::stop();
         self.hook_refused = false;

@@ -182,8 +182,8 @@ them.
 Shows all windows of an app in a row above the taskbar, with a live picture
 of each, laid out by monitor like your desk; a link or `D` shows the other
 desktops. Pick, move and close them from the keyboard, or drag them into
-order, to another desktop or to another monitor. It shows the windows
-LayoutKeeper sees, so it needs LayoutKeeper on. Until WinCraft 0.20.25 it
+order, to another desktop or to another monitor. With LayoutKeeper on, the
+order you set is saved with the layout. Until WinCraft 0.20.25 it
 was LayoutKeeper's "Arrange strip"; the first start after the update moves
 its settings and hotkey over with the same values.
 [Full README](src/plugins/window_deck/README.md)

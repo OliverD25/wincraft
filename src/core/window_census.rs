@@ -2,13 +2,15 @@
 //! order (LayoutKeeper) last saw them: each window's taskbar group and
 //! rectangle. WindowDeck's hover strip counts an app's windows from it
 //! without calling into that plugin. The plugin publishes a fresh list
-//! whenever it looks at the windows, and clears it when it is switched off,
-//! so with no such plugin every app counts no windows and the hover strip
-//! never opens. Host thread only.
+//! whenever it looks at the windows, and clears it when it is switched off.
+//! With no such plugin the windows open now are counted instead, every app's
+//! but WinCraft's and Windows' helpers. Host thread only.
 
 use std::cell::RefCell;
 
+use crate::core::live_windows;
 use crate::core::monitors::{self, Rect};
+use crate::core::virtual_desktops::Reader;
 use crate::core::{taskbar, taskbar_scope};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -19,15 +21,42 @@ pub struct CensusWindow {
 }
 
 thread_local! {
-    static CENSUS: RefCell<Vec<CensusWindow>> = const { RefCell::new(Vec::new()) };
+    /// None while no plugin keeps a window order.
+    static CENSUS: RefCell<Option<Vec<CensusWindow>>> = const { RefCell::new(None) };
 }
 
 pub fn publish(windows: Vec<CensusWindow>) {
-    CENSUS.with(|cell| *cell.borrow_mut() = windows);
+    CENSUS.with(|cell| *cell.borrow_mut() = Some(windows));
 }
 
+/// The plugin that published is off; from now on the open windows count.
 pub fn clear() {
-    publish(Vec::new());
+    CENSUS.with(|cell| *cell.borrow_mut() = None);
+}
+
+/// The published list, or the windows open now when nobody publishes.
+fn windows() -> Vec<CensusWindow> {
+    CENSUS
+        .with(|cell| cell.borrow().clone())
+        .unwrap_or_else(open_now)
+}
+
+fn open_now() -> Vec<CensusWindow> {
+    let reader = Reader::new().ok();
+    of_live(&live_windows::on_desktops(
+        &live_windows::is_app,
+        reader.as_ref(),
+    ))
+}
+
+/// The census of windows listed by `live_windows`.
+pub fn of_live(live: &[live_windows::LiveWindow]) -> Vec<CensusWindow> {
+    live.iter()
+        .map(|window| CensusWindow {
+            group: window.group.clone(),
+            rect: window.identity.rect,
+        })
+        .collect()
 }
 
 /// The windows of the app with taskbar ID `app`, on every desktop.
@@ -43,24 +72,22 @@ pub fn count_of(windows: &[CensusWindow], app: &str) -> usize {
 /// `taskbar_scope`); the main one lists them all, and so does a taskbar
 /// whose monitor cannot be found.
 pub fn on_taskbar(app: &str, button: Rect) -> usize {
-    CENSUS.with(|cell| {
-        let windows = cell.borrow();
-        let screens = monitors::screens();
-        let Some(hovered) = monitors::screen_at(button, &screens) else {
-            return count_of(&windows, app);
-        };
-        let own_only = taskbar_scope::MultiMonitor::read().shows_only_own(screens[hovered].primary);
-        if !own_only {
-            return count_of(&windows, app);
-        }
-        let primary = screens.iter().position(|s| s.primary).unwrap_or(0);
-        let on: Vec<usize> = windows
-            .iter()
-            .filter(|window| taskbar::same_app(app, &window.group))
-            .map(|window| monitors::screen_at(window.rect, &screens).unwrap_or(primary))
-            .collect();
-        taskbar_scope::count_shown(&on, hovered, true)
-    })
+    let windows = windows();
+    let screens = monitors::screens();
+    let Some(hovered) = monitors::screen_at(button, &screens) else {
+        return count_of(&windows, app);
+    };
+    let own_only = taskbar_scope::MultiMonitor::read().shows_only_own(screens[hovered].primary);
+    if !own_only {
+        return count_of(&windows, app);
+    }
+    let primary = screens.iter().position(|s| s.primary).unwrap_or(0);
+    let on: Vec<usize> = windows
+        .iter()
+        .filter(|window| taskbar::same_app(app, &window.group))
+        .map(|window| monitors::screen_at(window.rect, &screens).unwrap_or(primary))
+        .collect();
+    taskbar_scope::count_shown(&on, hovered, true)
 }
 
 #[cfg(test)]
@@ -96,15 +123,21 @@ mod tests {
     }
 
     #[test]
-    fn with_nothing_published_no_app_has_windows() {
-        clear();
-        assert_eq!(
-            on_taskbar("Chrome.UserData.Profile3", [0, 1040, 48, 1088]),
-            0
+    fn a_published_list_is_used_until_it_is_cleared() {
+        let app = "Chrome.UserData.Profile3.CensusTest";
+        publish(vec![window(app), window(app)]);
+        assert_eq!(windows().len(), 2);
+        assert_eq!(on_taskbar(app, [0, 1040, 48, 1088]), 2);
+        publish(Vec::new());
+        assert!(
+            windows().is_empty(),
+            "an empty list is a list, not 'nobody'"
         );
-        publish(vec![window("Chrome.UserData.Profile3")]);
-        assert_eq!(CENSUS.with(|cell| cell.borrow().len()), 1);
+        assert_eq!(on_taskbar(app, [0, 1040, 48, 1088]), 0);
         clear();
-        assert_eq!(CENSUS.with(|cell| cell.borrow().len()), 0);
+        assert!(CENSUS.with(|cell| cell.borrow().is_none()));
+        // Nobody publishes: the open windows count, and no real app has
+        // this made-up ID.
+        assert_eq!(on_taskbar(app, [0, 1040, 48, 1088]), 0);
     }
 }

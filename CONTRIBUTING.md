@@ -169,7 +169,7 @@ The About page lists the kinds the build you are running can draw.
 | `status` | When building your page. One line under your description; call `host::plugin_changed()` when it changes. |
 | `page_action` | When building your page. One of your hotkey actions, or failing that one of your palette commands, shown as a button under the status line. |
 | `palette_subtitle(kind, id)` | Each time the palette's list is rebuilt. A second line under one of your palette entries, such as the state the command would change; `kind` says whether `id` is a hotkey, tray or palette id, because those numbers can overlap. Return `None` for no subtitle, and call `host::plugin_changed()` when the answer changes. |
-| `window_groups` | When the Arrange strip (WindowDeck) opens (`host::open_arrange()`) and after every change made in it. Only for plugins that keep a window order. |
+| `window_groups` | When the Arrange strip (WindowDeck) opens (`host::open_arrange()`) and after every change made in it. A plugin that keeps a window order (LayoutKeeper) is asked first; while none is on, the plugin that decides when the strip opens (WindowDeck) lists the open windows itself. |
 | `strip_look` | When the strip opens and after every change made in it: whether a rest on a card previews the window, and the view. Only for the plugin that decides when the strip opens (WindowDeck); while no such plugin is on, the strip never opens. The strip saves the view the user picks as that plugin's `arrange_view` setting. |
 | `split_from` / `take_over(old, new)` | Once, at the first start of a plugin that was split out of another one (it has no settings file yet): `take_over` moves its settings and hotkeys out of the other plugin's stored config and decides whether it starts on. WindowDeck uses it for what it took from LayoutKeeper. |
 | `on_arrange_action(action)` | When the user does something in the Arrange strip: activates a window, drags windows into a new order inside a taskbar group, moves a window to another desktop, or closes it. Rename and Clear name on a card go to WindowNamer instead, whichever plugin draws the strip. |
@@ -429,6 +429,11 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   virtual desktop a window is on), `clipboard`, `monitors` (left, centre,
   right), `wide` / `from_wide_ptr` for UTF-16 strings,
   `window_identity` (finding a window again by its program and title),
+  `live_windows` (the app windows open now, with their taskbar group),
+  `app_names` (what to call an app's group), `monitor_list` (the monitors
+  connected now, for the strip), `taskbar_order` (a group's thumbnail order
+  and the calls that set it), `strip_groups` (the strip's data from windows
+  in order), `window_actions` (switch to, close or move one window),
   `chord` (waiting for the key after a hotkey) and `canvas` (drawing an
   on-screen panel for `core::layered`).
 - **Clean up in `teardown`.** A plugin can be switched off and on again from

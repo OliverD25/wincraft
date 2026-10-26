@@ -987,6 +987,7 @@ mod tests {
         let snapshot = ArrangeSnapshot {
             plugin: "layout_keeper".to_string(),
             look_plugin: "window_deck".to_string(),
+            keeps_order: true,
             groups: vec![group.clone()],
             desktops,
             focus: 0,
@@ -1029,6 +1030,7 @@ mod tests {
         let snapshot = ArrangeSnapshot {
             plugin: "layout_keeper".to_string(),
             look_plugin: "window_deck".to_string(),
+            keeps_order: true,
             groups: vec![group.clone()],
             desktops,
             focus: 0,

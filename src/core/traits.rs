@@ -320,8 +320,10 @@ pub trait WinCraftPlugin {
         None
     }
 
-    /// Groups for the Arrange strip, for a plugin that keeps a window order.
-    /// The host asks when the strip opens and after every change;
+    /// Groups for the Arrange strip, for a plugin that keeps a window order,
+    /// or that lists the windows itself while none is on. The host asks a
+    /// plugin that keeps an order first (it is not the one that answers
+    /// `strip_look`), when the strip opens and after every change;
     /// `host::open_arrange()` opens it from a plugin callback.
     fn window_groups(&mut self) -> Option<WindowGroups> {
         None

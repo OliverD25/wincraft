@@ -60,15 +60,9 @@ pub struct SavedWindow {
     pub seen: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SavedMonitor {
-    /// The GDI device name, such as "\\.\DISPLAY1".
-    pub device: String,
-    /// The name from the monitor itself, such as "DELL U2720Q"; can be empty.
-    pub name: String,
-    /// Place from the left, 0 first.
-    pub position: usize,
-}
+/// The monitor a window was on, saved with the same three names the
+/// monitors connected now have.
+pub use crate::core::monitor_list::MonitorId as SavedMonitor;
 
 impl SavedWindow {
     /// The label a person recognises: the name when there is one.

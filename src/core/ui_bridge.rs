@@ -215,6 +215,10 @@ pub struct ArrangeSnapshot {
     /// The plugin that decides when the strip opens and keeps its look
     /// (WindowDeck); a new view is saved in its settings.
     pub look_plugin: String,
+    /// The windows come from a plugin that saves their order (LayoutKeeper),
+    /// so a new order for other desktops reaches their taskbar at the next
+    /// restore. Without one the strip does not say so.
+    pub keeps_order: bool,
     /// The taskbar button the mouse rests on, when a hover opened the strip
     /// (left, top, right, bottom in physical pixels). The strip then sits
     /// above it and leaves the keyboard with the window in front.

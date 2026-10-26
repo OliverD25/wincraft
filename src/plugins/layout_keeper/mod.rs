@@ -3,12 +3,10 @@ mod guard;
 mod monitors;
 // The look of the panel is shared with the host's update notice.
 pub(crate) mod notice;
-mod order;
 mod restore;
 mod state;
 pub mod thumbnail_probe;
 mod verify;
-mod windows;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -18,26 +16,29 @@ use windows_sys::Win32::System::SystemInformation::GetTickCount64;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, GetForegroundWindow, IsHungAppWindow, IsIconic, KillTimer, PostMessageW,
-    SendMessageTimeoutW, SetTimer, SetWindowPos, ShowWindow, ENDSESSION_CLOSEAPP, HWND_TOP,
-    SMTO_ABORTIFHUNG, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE, SW_SHOWNORMAL, WM_CLOSE,
-    WM_ENDSESSION, WM_NULL, WM_QUERYENDSESSION, WM_TIMER,
+    FindWindowW, GetForegroundWindow, IsHungAppWindow, KillTimer, SendMessageTimeoutW, SetTimer,
+    SetWindowPos, ENDSESSION_CLOSEAPP, HWND_TOP, SMTO_ABORTIFHUNG, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOSIZE, SW_SHOWNORMAL, WM_ENDSESSION, WM_NULL, WM_QUERYENDSESSION, WM_TIMER,
 };
 
+use crate::core::app_names::{self, app_label, friendly_key, with_start_menu_name};
+use crate::core::live_windows::{self as windows, handles_in};
+use crate::core::strip_groups;
+use crate::core::taskbar_order as order;
 use crate::core::traits::{
     FieldKind, HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata, SettingField,
     TrayAction, WinCraftPlugin, WindowGroups,
 };
 use crate::core::ui_bridge::{
-    ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeWindow, LayoutAction,
-    LayoutApp, LayoutEntry, LayoutRef, LayoutSnapshot,
+    ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, LayoutAction, LayoutApp, LayoutEntry,
+    LayoutRef, LayoutSnapshot,
 };
 use crate::core::virtual_desktops as desktops;
+use crate::core::window_actions;
 use crate::core::window_identity as identity;
 use crate::core::{appid, clock, host, instance, session, wide, window_census, window_names};
-use crate::search::providers::apps;
 use desktops::{Desktop, DesktopId};
-use identity::{browser_name, program_name, Rect};
+use identity::{browser_name, Rect};
 use order::{Handle, OrderModel};
 use restore::Restore;
 use state::{ProgramState, Programs, SavedMonitor, SavedWindow};
@@ -63,24 +64,6 @@ const COMMAND_OPEN_STATE: u32 = 1;
 /// Every app; the old default was "chrome.exe".
 const DEFAULT_PROGRAMS: &str = "*";
 const OLD_DEFAULT_PROGRAMS: &str = "chrome.exe";
-/// WinCraft's own windows are never arranged: the strip would arrange itself.
-const OWN_EXE: &str = "wincraft.exe";
-/// Windows' own helper processes. They can own visible windows with titles
-/// (rundll32 hosts the Sound control panel, the shell hosts draw Start,
-/// search, the touch keyboard and the lock screen), but they are not apps a
-/// person arranges, and a restore must never move them. Always skipped,
-/// whatever the settings say. ApplicationFrameHost is not here: it owns the
-/// windows of Settings and other Store apps.
-const SYSTEM_HELPERS: &[&str] = &[
-    "rundll32.exe",
-    "dllhost.exe",
-    "ShellExperienceHost.exe",
-    "StartMenuExperienceHost.exe",
-    "SearchHost.exe",
-    "TextInputHost.exe",
-    "LockApp.exe",
-    "ShellHost.exe",
-];
 const DEFAULT_SNAPSHOT_SECONDS: u64 = 30;
 const DEFAULT_SETTLE_SECONDS: u64 = 3;
 const DEFAULT_RESTORE_MINUTES: u64 = 30;
@@ -126,15 +109,7 @@ struct Check {
     moved_again: Option<Vec<usize>>,
 }
 
-/// The undocumented move chain is built on first use and kept for the
-/// session, or given up on for the session after one failure.
-#[derive(Default)]
-enum Mover {
-    #[default]
-    Untried,
-    Ready(desktops::Mover),
-    Disabled(String),
-}
+use desktops::LazyMover as Mover;
 
 pub struct LayoutKeeper {
     host_hwnd: Option<HWND>,
@@ -306,16 +281,7 @@ impl LayoutKeeper {
 
     /// The watched programs' app windows, top of the z-order first.
     fn live_windows(&self) -> Vec<windows::LiveWindow> {
-        let registry = desktops::list();
-        // Without the desktop reader a cloaked window cannot be placed, and
-        // it is kept as it was before the reader existed.
-        let on_known_desktop = |hwnd: HWND| match &self.reader {
-            Some(reader) => reader
-                .read(hwnd)
-                .is_some_and(|id| known_desktop(id, &registry)),
-            None => true,
-        };
-        windows::enumerate(&|exe| self.watch.covers(exe), &on_known_desktop)
+        windows::on_desktops(&|exe| self.watch.covers(exe), self.reader.as_ref())
     }
 
     /// Looks at the windows and brings every group's order model up to date.
@@ -356,34 +322,12 @@ impl LayoutKeeper {
         if self.labels.contains_key(&window.group) && !self.unresolved.contains(&window.group) {
             return;
         }
-        let has_id = window.group != window.exe_path.to_lowercase();
-        let name = window.app_name.clone().or_else(|| {
-            has_id
-                .then(|| appid::registered_name(&window.group))
-                .flatten()
-        });
-        let exe = &window.identity.exe;
-        let browser = browser_name(exe);
-        let (name, resolved) = if browser.is_some() {
-            (name, true)
-        } else {
-            with_start_menu_name(name, &window.group)
-        };
+        let (label, resolved) = app_names::window_label(window);
         if resolved {
             self.unresolved.remove(&window.group);
         } else {
             self.unresolved.insert(window.group.clone());
         }
-        let label = match browser {
-            Some(browser) => {
-                appid::group_label(browser, name.as_deref(), &window.group, &window.exe_path)
-            }
-            None => app_label(
-                name.as_deref(),
-                windows::file_description(&window.exe_path).as_deref(),
-                exe,
-            ),
-        };
         log::debug!("new taskbar group {} labelled \"{label}\"", window.group);
         self.labels.insert(window.group.clone(), label);
     }
@@ -771,16 +715,6 @@ impl LayoutKeeper {
             }
             return;
         }
-        if self.taskbar.is_none() {
-            match order::Taskbar::new() {
-                Ok(taskbar) => self.taskbar = Some(taskbar),
-                Err(err) => {
-                    log::error!("{err}; the taskbar order cannot be changed");
-                    return;
-                }
-            }
-        }
-        let Some(taskbar) = &self.taskbar else { return };
         if log::log_enabled!(log::Level::Debug) {
             let labels: Vec<&str> = self
                 .groups
@@ -798,19 +732,9 @@ impl LayoutKeeper {
                 labels.join(" | ")
             );
         }
-        let (took, refused) = taskbar.apply(&send);
-        for (call, hr) in &refused {
-            let (what, hwnd) = match call {
-                order::TabCall::Delete(hwnd) => ("remove", *hwnd),
-                order::TabCall::Add(hwnd) => ("add", *hwnd),
-                order::TabCall::Activate(hwnd) => ("highlight", *hwnd),
-            };
-            log::warn!(
-                "the taskbar refused to {what} the button of \"{}\" ({}), so it may keep its old place",
-                window_names::display_title(hwnd as HWND),
-                crate::core::com::hex(*hr)
-            );
-        }
+        let Some(took) = order::apply_logged(&mut self.taskbar, &send) else {
+            return;
+        };
         log::info!(
             "applied the order of {} {label} windows in {} ms ({} on other desktops left alone)",
             send.len(),
@@ -1152,19 +1076,7 @@ impl LayoutKeeper {
 
     /// Builds the desktop mover on first use; true when it is usable.
     fn ensure_mover(&mut self, registry: &[Desktop]) -> bool {
-        if matches!(self.mover, Mover::Untried) {
-            self.mover = match desktops::Mover::new(registry) {
-                Ok(mover) => {
-                    log::info!("desktop moves are available");
-                    Mover::Ready(mover)
-                }
-                Err(err) => {
-                    log::warn!("desktop moves are disabled for this session: {err}");
-                    Mover::Disabled(err)
-                }
-            };
-        }
-        matches!(self.mover, Mover::Ready(_))
+        self.mover.ensure(registry)
     }
 
     fn move_to_desktop(
@@ -1177,23 +1089,10 @@ impl LayoutKeeper {
         if self.refuses("desktop move") {
             return;
         }
-        if target == DesktopId::ALL {
-            return;
-        }
-        let Some(name) = desktops::name_of(registry, target) else {
-            log::info!("\"{label}\" was on desktop {target}, which no longer exists");
-            return;
-        };
-        if self.reader.as_ref().and_then(|reader| reader.read(hwnd)) == Some(DesktopId::ALL) {
-            return;
-        }
         let Mover::Ready(mover) = &self.mover else {
             return;
         };
-        match mover.move_to(hwnd, target) {
-            Ok(()) => log::info!("moved \"{label}\" to {name}"),
-            Err(err) => log::warn!("could not move \"{label}\" to {name}: {err}"),
-        }
+        window_actions::move_to_desktop(mover, self.reader.as_ref(), hwnd, target, registry, label);
     }
 
     /// Puts a restored window back on the monitor it was saved on.
@@ -1214,7 +1113,7 @@ impl LayoutKeeper {
                 let (Some(now), false) = (step.now, self.refuses("monitor move")) else {
                     return;
                 };
-                let device = &monitors[target].saved().device;
+                let device = &monitors[target].id().device;
                 match monitors::move_window(step.hwnd, &monitors[now], &monitors[target], monitors)
                 {
                     Ok(()) => log::info!("put \"{label}\" back on monitor {device}"),
@@ -1229,28 +1128,12 @@ impl LayoutKeeper {
     /// Moves a window to the monitor with that device name, from the one it
     /// is on now; nothing when it is there already.
     fn move_to_monitor(&mut self, hwnd: HWND, device: &str) {
-        let monitors = monitors::list();
-        let Some(to) = monitors.iter().position(|m| m.saved().device == device) else {
-            log::info!("monitor {device} is not connected; the window stays where it is");
-            return;
-        };
         let rect = self
             .refresh()
             .iter()
             .find(|window| window.hwnd == hwnd)
             .map(|window| window.identity.rect);
-        let Some(from) = rect.and_then(|rect| monitors::index_of(rect, &monitors)) else {
-            log::info!("the window to move to {device} is no longer open");
-            return;
-        };
-        if from == to {
-            return;
-        }
-        let label = window_names::display_title(hwnd);
-        match monitors::move_window(hwnd, &monitors[from], &monitors[to], &monitors) {
-            Ok(()) => log::info!("moved \"{label}\" to monitor {device}"),
-            Err(err) => log::warn!("could not move \"{label}\" to monitor {device}: {err}"),
-        }
+        window_actions::move_to_monitor(hwnd, device, rect);
     }
 
     /// Puts every window of a group still in this restore on its saved
@@ -1331,7 +1214,7 @@ impl LayoutKeeper {
             match monitors::move_window(hwnd, &monitors[from], &monitors[to], monitors) {
                 Ok(()) => log::debug!(
                     "put \"{label}\" on monitor {} as it opened",
-                    monitors[to].saved().device
+                    monitors[to].id().device
                 ),
                 Err(err) => {
                     log::warn!("could not put \"{label}\" on its monitor as it opened: {err}")
@@ -1379,7 +1262,7 @@ impl LayoutKeeper {
                 Some(verify::Seen {
                     desktop: self.reader.as_ref().and_then(|r| r.read(window.hwnd)),
                     monitor: monitors::index_of(window.identity.rect, monitors)
-                        .map(|index| monitors[index].saved().device.clone()),
+                        .map(|index| monitors[index].id().device.clone()),
                 })
             })
             .collect()
@@ -1683,47 +1566,6 @@ impl LayoutKeeper {
                 SW_SHOWNORMAL,
             )
         };
-    }
-}
-
-/// A readable name for a group key when nothing better is known: the program
-/// file of a path key, else the last word of an app ID. Never the key whole.
-fn friendly_key(key: &str) -> String {
-    if key.contains('\\') {
-        return program_name(&windows::file_name(key));
-    }
-    key.rsplit(['.', '!', '_'])
-        .find(|part| !part.is_empty())
-        .unwrap_or(key)
-        .to_string()
-}
-
-/// The name an app gets when it gives none of its own: the name of its Start
-/// menu entry or app list entry, found by app ID or program file in the apps
-/// index the palette keeps. Without a match the label stays what the
-/// program file says ("Windows Terminal Host"). The flag says whether the
-/// answer is final: it is not while the index is still being built.
-fn with_start_menu_name(name: Option<String>, group: &str) -> (Option<String>, bool) {
-    match apps::published() {
-        Some(index) => start_menu_name(name, group, Some(&|key: &str| apps::name_in(&index, key))),
-        None => start_menu_name(name, group, None),
-    }
-}
-
-type NameLookup<'a> = dyn Fn(&str) -> Option<String> + 'a;
-
-/// `lookup` is None while the index is not built yet.
-fn start_menu_name(
-    name: Option<String>,
-    group: &str,
-    lookup: Option<&NameLookup<'_>>,
-) -> (Option<String>, bool) {
-    if name.is_some() {
-        return (name, true);
-    }
-    match lookup {
-        Some(lookup) => (lookup(group), true),
-        None => (None, false),
     }
 }
 
@@ -2283,7 +2125,7 @@ fn check_targets(plan: &GroupPlan, monitors: &[monitors::Monitor]) -> Vec<verify
     check_targets_with(plan, &|index| {
         monitors
             .get(index)
-            .map(|monitor| monitor.saved().device.clone())
+            .map(|monitor| monitor.id().device.clone())
     })
 }
 
@@ -2363,13 +2205,6 @@ fn saved_models(saved: Option<&Programs>) -> BTreeMap<String, OrderModel> {
         }
     }
     groups
-}
-
-fn handles_in(live: &[windows::LiveWindow], key: &str) -> Vec<(Handle, identity::WindowIdentity)> {
-    live.iter()
-        .filter(|window| window.group == key)
-        .map(|window| (window.hwnd as Handle, window.identity.clone()))
-        .collect()
 }
 
 /// Puts a window on top of the z-order without activating it.
@@ -2452,20 +2287,10 @@ impl Watch {
 
     fn covers(&self, exe: &str) -> bool {
         let exe = exe.to_lowercase();
-        !exe.is_empty()
-            && exe != OWN_EXE
-            && !is_system_helper(&exe)
+        windows::is_app(&exe)
             && !self.excluded.contains(&exe)
             && (self.all || self.programs.contains(&exe))
     }
-}
-
-/// Matches the file name, in any case, whether given alone or as a path.
-fn is_system_helper(exe: &str) -> bool {
-    let name = exe.rsplit(['\\', '/']).next().unwrap_or(exe);
-    SYSTEM_HELPERS
-        .iter()
-        .any(|helper| helper.eq_ignore_ascii_case(name))
 }
 
 /// "any app", "any app except telegram.exe", "chrome.exe, msedge.exe".
@@ -2504,17 +2329,6 @@ fn migrate_default(settings: &mut serde_json::Value, key: &str, old: u64, new: u
     true
 }
 
-/// What the strip calls any other app's group: the name the app gives its
-/// windows or its Start menu entry, else the description in its program
-/// file, else its file name.
-fn app_label(name: Option<&str>, description: Option<&str>, exe: &str) -> String {
-    name.or(description)
-        .map(str::trim)
-        .filter(|label| !label.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| program_name(exe))
-}
-
 fn parse_programs(text: &str) -> Vec<String> {
     let mut programs: Vec<String> = Vec::new();
     for name in text.split(',').map(|name| name.trim().to_lowercase()) {
@@ -2528,12 +2342,6 @@ fn parse_programs(text: &str) -> Vec<String> {
 fn number(settings: &serde_json::Value, key: &str, min: u64, max: u64) -> Option<u64> {
     let value = settings.get(key)?.as_f64()?;
     Some((value.round().max(0.0) as u64).clamp(min, max))
-}
-
-/// A desktop in Task View, or "every desktop" for a window shown on all of
-/// them, which counts as on this one too.
-fn known_desktop(id: DesktopId, registry: &[Desktop]) -> bool {
-    id == DesktopId::ALL || registry.iter().any(|desktop| desktop.id == id)
 }
 
 /// How many windows the taskbar button's app has, on every desktop.
@@ -2823,79 +2631,36 @@ impl WinCraftPlugin for LayoutKeeper {
                 saved_monitor.insert(hwnd, place);
             }
         }
-        let mut groups: Vec<ArrangeGroup> = self
+        let reader = self.reader.as_ref();
+        let desktop_of = |hwnd: Handle| strip_groups::desktop_of(reader, hwnd);
+        let place = strip_groups::place_on(&monitors);
+        let saved = |hwnd: Handle| saved_monitor.get(&hwnd).copied();
+        let groups: Vec<ArrangeGroup> = self
             .groups
             .iter()
             .filter_map(|(key, model)| {
-                let windows: Vec<ArrangeWindow> = model
-                    .windows()
-                    .map(|(hwnd, identity)| {
-                        let desktop = self
-                            .reader
-                            .as_ref()
-                            .and_then(|reader| reader.read(hwnd as HWND))
-                            .filter(|id| *id != DesktopId::ALL)
-                            .map(|id| id.to_string())
-                            .unwrap_or_default();
-                        let name = window_names::custom(hwnd);
-                        ArrangeWindow {
-                            hwnd,
-                            renamed: name.is_some(),
-                            label: name.unwrap_or_else(|| identity.label().to_string()),
-                            desktop,
-                            monitor: monitors::strip_label(identity.rect, &monitors),
-                            on_monitor: monitors::index_of(identity.rect, &monitors),
-                            saved_monitor: saved_monitor.get(&hwnd).copied(),
-                            same_title: false,
-                            attention: false,
-                        }
-                    })
-                    .collect();
-                let mut windows = windows;
-                let titles: Vec<&str> = windows.iter().map(|w| w.label.as_str()).collect();
-                let same = identity::same_titles(&titles);
-                for (window, same) in windows.iter_mut().zip(same) {
-                    window.same_title = same;
-                }
-                (!windows.is_empty()).then(|| ArrangeGroup {
-                    key: key.clone(),
-                    label: self.label_of(key),
-                    windows,
-                })
+                strip_groups::group(
+                    key,
+                    self.label_of(key),
+                    model.windows(),
+                    &desktop_of,
+                    &place,
+                    &saved,
+                )
             })
             .collect();
-
-        // The switcher lists the apps with the most windows first.
-        groups.sort_by(|a, b| {
-            b.windows
-                .len()
-                .cmp(&a.windows.len())
-                .then_with(|| a.label.to_lowercase().cmp(&b.label.to_lowercase()))
-        });
 
         // The strip opens on the front window's taskbar group when it is
         // watched, else on the busiest group.
         let front = unsafe { GetForegroundWindow() };
         let (_, front_key) = windows::describe(front);
-        let focus = groups
-            .iter()
-            .position(|group| group.key == front_key)
-            .unwrap_or(0);
-
-        Some(WindowGroups {
+        Some(strip_groups::window_groups(
             groups,
-            desktops: registry
-                .iter()
-                .map(|desktop| ArrangeDesktop {
-                    id: desktop.id.to_string(),
-                    name: desktop.name.clone(),
-                    current: Some(desktop.id) == current,
-                })
-                .collect(),
-            focus,
-            watched: vec![self.watch.to_string()],
-            monitors: monitors::for_strip(&monitors, &disconnected),
-        })
+            &front_key,
+            strip_groups::desktops(&registry, current),
+            self.watch.to_string(),
+            monitors::for_strip(&monitors, &disconnected),
+        ))
     }
 
     fn on_arrange_action(&mut self, action: &ArrangeAction) {
@@ -2912,13 +2677,7 @@ impl WinCraftPlugin for LayoutKeeper {
             return;
         }
         match action {
-            ArrangeAction::Activate(hwnd) => {
-                let hwnd = *hwnd as HWND;
-                if unsafe { IsIconic(hwnd) } != 0 {
-                    unsafe { ShowWindow(hwnd, SW_RESTORE) };
-                }
-                host::bring_to_front(hwnd);
-            }
+            ArrangeAction::Activate(hwnd) => window_actions::activate(*hwnd as HWND),
             ArrangeAction::Reorder { group, order } => {
                 self.refresh();
                 let Some(model) = self.groups.get_mut(group) else {
@@ -2934,10 +2693,7 @@ impl WinCraftPlugin for LayoutKeeper {
                 };
                 let registry = desktops::list();
                 if !self.ensure_mover(&registry) {
-                    let reason = match &self.mover {
-                        Mover::Disabled(reason) => reason.clone(),
-                        _ => "not available".to_string(),
-                    };
+                    let reason = self.mover.why_not();
                     host::notify(
                         "LayoutKeeper",
                         &format!("Windows cannot be moved to another desktop: {reason}"),
@@ -2965,7 +2721,7 @@ impl WinCraftPlugin for LayoutKeeper {
                 self.arrange_stale = true;
             }
             ArrangeAction::Close(hwnd) => {
-                unsafe { PostMessageW(*hwnd as HWND, WM_CLOSE, 0, 0) };
+                window_actions::close(*hwnd as HWND);
                 self.arrange_stale = true;
             }
             ArrangeAction::Rename { .. } | ArrangeAction::AskName(_) => {}
@@ -3247,6 +3003,8 @@ fn census(groups: &BTreeMap<String, OrderModel>) -> Vec<window_census::CensusWin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::live_windows::{is_system_helper, known_desktop, SYSTEM_HELPERS};
+    use crate::core::window_identity::program_name;
 
     #[test]
     fn every_app_is_watched_except_the_excluded_ones_and_wincraft() {
@@ -4058,64 +3816,6 @@ mod tests {
         let settings = serde_json::json!({ "off": false });
         assert!(!flag(&settings, "off"));
         assert!(flag(&settings, "missing"));
-    }
-
-    #[test]
-    fn an_app_that_gives_no_name_gets_its_start_menu_name() {
-        let lookup = |key: &str| match key {
-            "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App" => Some("Terminal".to_string()),
-            "Com.Codewulf.WulfScreen" => Some("WulfScreen".to_string()),
-            _ => None,
-        };
-        let (name, done) = start_menu_name(
-            None,
-            "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App",
-            Some(&lookup),
-        );
-        assert!(done);
-        // The Start menu name beats the program file's description.
-        assert_eq!(
-            app_label(
-                name.as_deref(),
-                Some("Windows Terminal Host"),
-                "openconsole.exe"
-            ),
-            "Terminal"
-        );
-        let (name, _) = start_menu_name(None, "Com.Codewulf.WulfScreen", Some(&lookup));
-        assert_eq!(
-            app_label(name.as_deref(), Some("Com.Codewulf.WulfScreen"), "wulf.exe"),
-            "WulfScreen"
-        );
-    }
-
-    #[test]
-    fn a_name_the_app_gave_itself_is_kept() {
-        let lookup = |_: &str| Some("From the index".to_string());
-        let (name, done) = start_menu_name(Some("Mine".to_string()), "any", Some(&lookup));
-        assert_eq!((name.as_deref(), done), (Some("Mine"), true));
-        // Not even asked while the index is missing.
-        assert_eq!(
-            start_menu_name(Some("Mine".to_string()), "any", None),
-            (Some("Mine".to_string()), true)
-        );
-    }
-
-    #[test]
-    fn with_no_match_the_old_label_stays_and_a_missing_index_is_not_final() {
-        let none = |_: &str| None;
-        let (name, done) = start_menu_name(None, "Some.App", Some(&none));
-        assert_eq!(
-            (name.clone(), done),
-            (None, true),
-            "an answer: there is none"
-        );
-        assert_eq!(
-            app_label(name.as_deref(), Some("Windows Terminal Host"), "x.exe"),
-            "Windows Terminal Host"
-        );
-        // The index is still being built: the label is made again later.
-        assert_eq!(start_menu_name(None, "Some.App", None), (None, false));
     }
 
     #[test]

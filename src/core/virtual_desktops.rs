@@ -277,6 +277,43 @@ mod undocumented {
     }
 }
 
+/// The move chain, built on first use and kept for the session, or given
+/// up on for the session after one failure.
+#[derive(Default)]
+pub enum LazyMover {
+    #[default]
+    Untried,
+    Ready(Mover),
+    Disabled(String),
+}
+
+impl LazyMover {
+    /// Builds the chain on first use; true when it is usable.
+    pub fn ensure(&mut self, registry: &[Desktop]) -> bool {
+        if matches!(self, LazyMover::Untried) {
+            *self = match Mover::new(registry) {
+                Ok(mover) => {
+                    log::info!("desktop moves are available");
+                    LazyMover::Ready(mover)
+                }
+                Err(err) => {
+                    log::warn!("desktop moves are disabled for this session: {err}");
+                    LazyMover::Disabled(err)
+                }
+            };
+        }
+        matches!(self, LazyMover::Ready(_))
+    }
+
+    /// Why moves cannot be made, for a message.
+    pub fn why_not(&self) -> String {
+        match self {
+            LazyMover::Disabled(reason) => reason.clone(),
+            _ => "not available".to_string(),
+        }
+    }
+}
+
 /// Moves other processes' windows between desktops through the shell's
 /// internal interfaces, which the documented interface refuses to do.
 pub struct Mover {

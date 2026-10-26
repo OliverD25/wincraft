@@ -33,7 +33,7 @@ use crate::core::attention::Attention;
 use crate::core::config::{Config, PluginConfig, UpdateConfig, DEFAULT_PALETTE_HOTKEY};
 use crate::core::hotkeys::Shortcut;
 use crate::core::shortcuts::{self, FirstPress};
-use crate::core::traits::{HostContext, Hotkey, PluginWindow, WinCraftPlugin};
+use crate::core::traits::{HostContext, Hotkey, PluginWindow, WinCraftPlugin, WindowGroups};
 use crate::core::tray::{show_menu, MenuItem, Tray, WM_TRAY_CALLBACK};
 use crate::core::ui_bridge::{
     self, ActionKind, ArrangeAction, ArrangeGroup, ArrangeSnapshot, CommandId, FieldInfo,
@@ -1400,8 +1400,8 @@ impl Host {
         infos
     }
 
-    /// Asks the first enabled plugin that keeps a window order for its groups
-    /// and sends them to the Arrange window.
+    /// Asks an enabled plugin that keeps a window order for its groups, or
+    /// else the strip's own plugin, and sends them to the Arrange window.
     fn send_arrange(&mut self, open: bool) {
         self.send_arrange_for(open, false);
     }
@@ -1434,21 +1434,8 @@ impl Host {
             (None, true) => taskbar::app_under_cursor(),
             (None, false) => None,
         };
-        let found = self.plugins.slots.iter_mut().find_map(|slot| {
-            if !slot.enabled {
-                return None;
-            }
-            let groups = slot.plugin.window_groups()?;
-            Some((slot.plugin.metadata().id, groups))
-        });
-        let Some((id, mut groups)) = found else {
-            log::info!("no enabled plugin keeps a window order");
-            if open && !need_app {
-                notify(
-                    "WindowDeck",
-                    "WindowDeck shows the windows LayoutKeeper sees. Switch LayoutKeeper on in Plugins.",
-                );
-            }
+        let Some((id, mut groups)) = self.plugins.window_groups(look_plugin) else {
+            log::info!("no enabled plugin gives the strip its windows");
             return false;
         };
         let under_cursor = hovered.as_deref().and_then(|app| {
@@ -1506,6 +1493,7 @@ impl Host {
             monitors: groups.monitors,
             view: look.view,
             look_plugin: look_plugin.to_string(),
+            keeps_order: id != look_plugin,
             anchor: anchor.map(|(_, rect)| rect),
         };
         self.to_ui.send(if open {
@@ -2704,6 +2692,22 @@ impl PluginSet {
         }
     }
 
+    /// The strip's windows: from an enabled plugin that keeps a window order
+    /// (LayoutKeeper), else from the plugin that draws the strip
+    /// (`look_plugin`, WindowDeck), which lists the open windows itself.
+    fn window_groups(&mut self, look_plugin: &str) -> Option<(&'static str, WindowGroups)> {
+        let mut ask = |own: bool| {
+            self.slots.iter_mut().find_map(|slot| {
+                let id = slot.plugin.metadata().id;
+                if !slot.enabled || (id == look_plugin) != own {
+                    return None;
+                }
+                Some((id, slot.plugin.window_groups()?))
+            })
+        };
+        ask(false).or_else(|| ask(true))
+    }
+
     fn index_of(&self, id: &str) -> Option<usize> {
         self.slots
             .iter()
@@ -3818,6 +3822,10 @@ mod tests {
                 watched: vec!["*".to_string()],
                 monitors: Vec::new(),
             })
+        }
+
+        fn on_arrange_action(&mut self, _action: &ArrangeAction) {
+            self.note(format!("arrange {}", self.id));
         }
 
         fn strip_look(&self) -> Option<StripLook> {
@@ -5160,6 +5168,60 @@ mod tests {
         });
         assert!(!host.send_arrange_for(true, false), "the deck is off");
         assert!(shown(&ui).is_empty());
+    }
+
+    #[test]
+    fn the_keeper_gives_the_strip_its_windows_and_the_deck_lists_them_without_it() {
+        let data = Scratch::new("strip-source");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        // The deck comes first, so the keeper does not win by its place.
+        let mut deck = fake("fake_deck", "Deck", "Win+Alt+F2", &log);
+        deck.look = true;
+        deck.groups = true;
+        let mut keeper = fake("fake_keeper", "Keeper", "Win+Alt+F1", &log);
+        keeper.groups = true;
+        let (mut host, ui) = test_host(vec![deck, keeper], &keyboard, &data);
+        let sent_by = |ui: &Receiver<UiCommand>| {
+            ui.try_iter()
+                .filter_map(|command| match command {
+                    UiCommand::ShowArrange(snapshot) => {
+                        Some((snapshot.plugin, snapshot.keeps_order))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert!(host.send_arrange_for(true, false));
+        assert_eq!(
+            sent_by(&ui),
+            [("fake_keeper".to_string(), true)],
+            "a saved order: the note on other desktops shows"
+        );
+
+        host.handle_request(HostRequest::SetPluginEnabled {
+            id: "fake_keeper".to_string(),
+            enabled: false,
+        });
+        assert!(host.send_arrange_for(true, false), "the deck lists them");
+        assert_eq!(sent_by(&ui), [("fake_deck".to_string(), false)]);
+        // The strip's requests go to the plugin that listed the windows.
+        host.arrange_action("fake_deck", &ArrangeAction::Close(0x7fff_fff0));
+        assert!(log.borrow().iter().any(|line| line == "arrange fake_deck"));
+    }
+
+    #[test]
+    fn with_no_plugin_to_list_windows_the_strip_stays_shut_without_a_balloon() {
+        let data = Scratch::new("strip-none");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let mut deck = fake("fake_deck", "Deck", "Win+Alt+F2", &log);
+        deck.look = true;
+        let (mut host, ui) = test_host(vec![deck], &keyboard, &data);
+        let _ = PluginRequests::take();
+        assert!(!host.send_arrange_for(true, false));
+        assert!(ui
+            .try_iter()
+            .all(|command| !matches!(command, UiCommand::ShowArrange(_))));
+        assert!(PluginRequests::take().notices.is_empty());
     }
 
     #[test]
