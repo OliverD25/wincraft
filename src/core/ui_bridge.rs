@@ -19,6 +19,8 @@ pub const WM_APP_UI: u32 = WM_APP + 20;
 pub enum Page {
     #[default]
     General,
+    /// The theme tiles and the light or dark mode.
+    Themes,
     Plugins,
     /// Every command's shortcut.
     Shortcuts,

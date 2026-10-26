@@ -35,7 +35,7 @@ screenshots.
   then `S`). See [Keyboard shortcuts](#keyboard-shortcuts).
 - **Themes** — Classic (the default), Fluent, Terminal, Paper and High
   contrast, each in dark and light. Fluent's glass is solid for now.
-  Settings → General → Appearance shows a tile with a small picture of each
+  Settings → Themes shows a tile with a small picture of each
   one. Point at a tile and every WinCraft window shows that
   theme; move away and it goes back; click to keep it. Mode (System, Dark or
   Light) is a separate choice. While Windows high contrast is on, WinCraft
