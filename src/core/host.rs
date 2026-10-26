@@ -1155,7 +1155,8 @@ impl Host {
             if ok {
                 log::info!("registered {keys} for a shortcut");
             } else {
-                log::warn!("could not register {keys} for a shortcut; another app holds it");
+                let taken = self.plugins.taken_message(press.hotkey);
+                log::warn!("could not register {keys} for a shortcut: {taken}");
             }
             self.shortcut_keys.push((id, press, ok));
         }
@@ -1958,10 +1959,36 @@ impl PluginSet {
         if ok {
             log::info!("registered {keys} for host.palette");
         } else {
-            log::warn!("could not register {keys} for host.palette; another app holds it");
-            self.warnings.push(format!("{keys} is used by another app"));
+            let taken = self.taken_message(hotkey);
+            log::warn!("could not register {keys} for host.palette: {taken}");
+            self.warnings.push(taken);
         }
         self.palette_hotkey = Some((hotkey, ok));
+    }
+
+    /// Who holds keys that could not be registered: a WinCraft command,
+    /// whose name the user can look for in Settings, or another app.
+    fn holder(&self, hotkey: Hotkey) -> Option<String> {
+        if self
+            .palette_hotkey
+            .is_some_and(|(held, ok)| ok && hotkeys::same(held, hotkey))
+        {
+            return Some("Open the palette".to_string());
+        }
+        self.slots.iter().find_map(|slot| {
+            slot.registered
+                .iter()
+                .find(|entry| entry.active && entry.ok && hotkeys::same(entry.hotkey, hotkey))
+                .map(|entry| format!("{} ({})", entry.label, slot.plugin.metadata().name))
+        })
+    }
+
+    fn taken_message(&self, hotkey: Hotkey) -> String {
+        let keys = hotkeys::format(hotkey);
+        match self.holder(hotkey) {
+            Some(holder) => format!("{keys} is used by {holder} in WinCraft"),
+            None => format!("{keys} is used by another app"),
+        }
     }
 
     /// Frees the palette hotkey and registers `binding` instead. Returns
@@ -2108,11 +2135,9 @@ impl PluginSet {
             if ok {
                 log::info!("registered {keys} for {}.{name}", meta.id);
             } else {
-                log::warn!(
-                    "could not register {keys} for {}.{name}; another app holds it",
-                    meta.id
-                );
-                self.warnings.push(format!("{keys} is used by another app"));
+                let taken = self.taken_message(hotkey);
+                log::warn!("could not register {keys} for {}.{name}: {taken}", meta.id);
+                self.warnings.push(taken);
             }
             self.slots[index].registered.push(RegisteredHotkey {
                 action_id,
@@ -3787,7 +3812,10 @@ mod tests {
         set.enable(1);
         assert!(set.slots[0].registered[0].ok);
         assert!(!set.slots[1].registered[0].ok);
-        assert_eq!(set.warnings, ["Win+Alt+F1 is used by another app"]);
+        assert_eq!(
+            set.warnings,
+            ["Win+Alt+F1 is used by Go (Fake A) in WinCraft"]
+        );
         // Once the first lets go, the second gets them on its next start.
         set.disable(0);
         set.set_hotkey("fake_b", "go", "Win+Alt+F1");
@@ -3807,7 +3835,10 @@ mod tests {
         assert_eq!(set.palette_hotkey, Some((keys("Win+Alt+F1"), true)));
         set.enable(0);
         assert!(!set.slots[0].registered[0].ok, "the palette was first");
-        assert_eq!(set.warnings, ["Win+Alt+F1 is used by another app"]);
+        assert_eq!(
+            set.warnings,
+            ["Win+Alt+F1 is used by Open the palette in WinCraft"]
+        );
 
         assert_eq!(
             set.rebind_palette("Win+Alt+F9"),
