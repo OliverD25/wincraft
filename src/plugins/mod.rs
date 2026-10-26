@@ -3,6 +3,7 @@ pub mod layout_keeper;
 pub mod quick_jump;
 pub mod screen_dimmer;
 pub mod shortcut_detector;
+pub mod window_deck;
 pub mod window_namer;
 
 use crate::core::traits::WinCraftPlugin;
@@ -13,6 +14,7 @@ pub fn load_active_plugins() -> Vec<Box<dyn WinCraftPlugin>> {
         Box::new(screen_dimmer::ScreenDimmer::new()),
         Box::new(shortcut_detector::ShortcutDetector::new()),
         Box::new(layout_keeper::LayoutKeeper::new()),
+        Box::new(window_deck::WindowDeck::new()),
         Box::new(language_indicator::LanguageIndicator::new()),
         Box::new(window_namer::WindowNamer::new()),
         Box::new(quick_jump::QuickJump::new()),

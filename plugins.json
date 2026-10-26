@@ -29,6 +29,15 @@
       "category": "Windows"
     },
     {
+      "id": "window_deck",
+      "name": "WindowDeck",
+      "version": "1.0.0",
+      "author": "community",
+      "description": "Shows all windows of an app in a row above the taskbar, to pick, move and close them from the keyboard.",
+      "readme": "src/plugins/window_deck/README.md",
+      "category": "Windows"
+    },
+    {
       "id": "language_indicator",
       "name": "LanguageIndicator",
       "version": "1.0.0",

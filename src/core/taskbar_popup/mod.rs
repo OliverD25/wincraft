@@ -1,5 +1,6 @@
 //! Finding, reading and hiding Explorer's taskbar hover popup. Shared by
-//! the hover strip and by the hide-popup test (`--test-hide-popup`).
+//! WindowDeck's hover strip and by LayoutKeeper's hide-popup test
+//! (`--test-hide-popup`).
 //!
 //! Only plain hides are used, never a move off-screen: Explorer shows a
 //! hidden popup again on the next hover by itself, so a WinCraft that
@@ -16,8 +17,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE,
 };
 
-use super::keys::{KeyState, POPUP_CLASS};
+pub mod keys;
+
 use crate::core::wide;
+use keys::{KeyState, POPUP_CLASS};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Method {

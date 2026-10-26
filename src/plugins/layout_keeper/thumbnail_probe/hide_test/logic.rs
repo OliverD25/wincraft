@@ -5,10 +5,10 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use super::super::geometry::Rect;
-pub use crate::plugins::layout_keeper::hover_preview::keys::{
+pub use crate::core::taskbar_popup::keys::{
     decide, Decision, Inputs, Reason, POPUP_CLASS, POPUP_TITLE,
 };
-pub use crate::plugins::layout_keeper::hover_preview::popup::Method;
+pub use crate::core::taskbar_popup::Method;
 
 pub const DEFAULT_SECONDS: u64 = 60;
 pub const MIN_SECONDS: u64 = 5;

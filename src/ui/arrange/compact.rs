@@ -986,6 +986,7 @@ mod tests {
         let group = group(&["d0", "d2"]);
         let snapshot = ArrangeSnapshot {
             plugin: "layout_keeper".to_string(),
+            look_plugin: "window_deck".to_string(),
             groups: vec![group.clone()],
             desktops,
             focus: 0,
@@ -1027,6 +1028,7 @@ mod tests {
         let group = group(&["d0", "d2", "d2", "d1"]);
         let snapshot = ArrangeSnapshot {
             plugin: "layout_keeper".to_string(),
+            look_plugin: "window_deck".to_string(),
             groups: vec![group.clone()],
             desktops,
             focus: 0,

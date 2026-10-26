@@ -210,8 +210,11 @@ pub struct ArrangeSnapshot {
     /// WindowNamer is on, so the card menu offers Rename.
     pub can_rename: bool,
     pub monitors: Vec<ArrangeMonitor>,
-    /// The view the user picked last, kept in the plugin's settings.
+    /// The view the user picked last, kept in `look_plugin`'s settings.
     pub view: ArrangeView,
+    /// The plugin that decides when the strip opens and keeps its look
+    /// (WindowDeck); a new view is saved in its settings.
+    pub look_plugin: String,
     /// The taskbar button the mouse rests on, when a hover opened the strip
     /// (left, top, right, bottom in physical pixels). The strip then sits
     /// above it and leaves the keyboard with the window in front.

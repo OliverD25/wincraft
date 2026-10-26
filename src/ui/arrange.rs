@@ -1488,7 +1488,7 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
             snapshot.view = chosen;
         }
         shared.to_host.send(HostRequest::SetSetting {
-            plugin: snapshot.plugin.clone(),
+            plugin: snapshot.look_plugin.clone(),
             key: "arrange_view".to_string(),
             value: serde_json::Value::String(chosen.setting().to_string()),
         });

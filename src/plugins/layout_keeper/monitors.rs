@@ -83,10 +83,6 @@ impl Monitor {
     pub fn saved(&self) -> &SavedMonitor {
         &self.saved
     }
-
-    pub fn is_primary(&self) -> bool {
-        self.primary
-    }
 }
 
 /// Every monitor as the saved layout names it, in the order of `list`.

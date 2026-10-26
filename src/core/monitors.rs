@@ -6,8 +6,8 @@ use windows_sys::Win32::Devices::Display::{
 };
 use windows_sys::Win32::Foundation::{GetLastError, ERROR_SUCCESS, HWND, LPARAM, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
-    EnumDisplayMonitors, GetMonitorInfoW, MonitorFromWindow, HDC, HMONITOR, MONITORINFO,
-    MONITOR_DEFAULTTONEAREST,
+    EnumDisplayMonitors, GetMonitorInfoW, MonitorFromRect, MonitorFromWindow, HDC, HMONITOR,
+    MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetWindowPlacement, GetWindowRect, IsIconic, IsZoomed, PostMessageW, SetWindowPlacement,
@@ -242,6 +242,18 @@ unsafe extern "system" fn collect(
 /// The place in `screens` of the monitor a window is mostly on.
 pub fn screen_of(hwnd: HWND, screens: &[Screen]) -> Option<usize> {
     let handle = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
+    screens.iter().position(|screen| screen.handle == handle)
+}
+
+/// The place in `screens` of the monitor a rectangle is mostly on.
+pub fn screen_at(rect: Rect, screens: &[Screen]) -> Option<usize> {
+    let rect = RECT {
+        left: rect[0],
+        top: rect[1],
+        right: rect[2],
+        bottom: rect[3],
+    };
+    let handle = unsafe { MonitorFromRect(&rect, MONITOR_DEFAULTTONEAREST) };
     screens.iter().position(|screen| screen.handle == handle)
 }
 

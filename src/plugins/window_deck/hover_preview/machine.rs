@@ -3,7 +3,7 @@
 //! when to close it, and when Windows' own popup may be hidden. Nothing
 //! here calls Windows, so all of it is tested on made-up looks.
 
-use super::keys::{decide, Decision, KeyState, KeyWatch};
+use crate::core::taskbar_popup::keys::{decide, Decision, KeyState, KeyWatch};
 
 /// Left, top, right, bottom in physical screen pixels.
 pub type Rect = [i32; 4];

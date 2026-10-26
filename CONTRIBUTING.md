@@ -169,7 +169,9 @@ The About page lists the kinds the build you are running can draw.
 | `status` | When building your page. One line under your description; call `host::plugin_changed()` when it changes. |
 | `page_action` | When building your page. One of your hotkey actions, or failing that one of your palette commands, shown as a button under the status line. |
 | `palette_subtitle(kind, id)` | Each time the palette's list is rebuilt. A second line under one of your palette entries, such as the state the command would change; `kind` says whether `id` is a hotkey, tray or palette id, because those numbers can overlap. Return `None` for no subtitle, and call `host::plugin_changed()` when the answer changes. |
-| `window_groups` | When the Arrange strip opens (`host::open_arrange()`) and after every change made in it. Only for plugins that keep a window order. |
+| `window_groups` | When the Arrange strip (WindowDeck) opens (`host::open_arrange()`) and after every change made in it. Only for plugins that keep a window order. |
+| `strip_look` | When the strip opens and after every change made in it: whether a rest on a card previews the window, and the view. Only for the plugin that decides when the strip opens (WindowDeck); while no such plugin is on, the strip never opens. The strip saves the view the user picks as that plugin's `arrange_view` setting. |
+| `split_from` / `take_over(old, new)` | Once, at the first start of a plugin that was split out of another one (it has no settings file yet): `take_over` moves its settings and hotkeys out of the other plugin's stored config and decides whether it starts on. WindowDeck uses it for what it took from LayoutKeeper. |
 | `on_arrange_action(action)` | When the user does something in the Arrange strip: activates a window, drags windows into a new order inside a taskbar group, moves a window to another desktop, or closes it. Rename and Clear name on a card go to WindowNamer instead, whichever plugin draws the strip. |
 | `layout_snapshot` | While the Layout page is open, every two seconds: the plugin's saved windows, grouped by app. Only for plugins that keep a saved layout. |
 | `on_layout_action(action)` | When the user does something on the Layout page: picks another desktop for a saved window, forgets a closed one, or asks to restore or save now. |
@@ -192,7 +194,7 @@ that flips a setting.
 
 `host::open_arrange_at(app, button)` opens the Arrange strip on an app,
 centred above its taskbar button, without taking the keyboard from the
-window in front; `host::close_arrange()` closes the strip. LayoutKeeper's
+window in front; `host::close_arrange()` closes the strip. WindowDeck's
 hover strip uses them.
 
 `host::set_tray_tip(Some(text))` sets the tray icon's tooltip (Windows keeps
@@ -470,7 +472,7 @@ it is a separate instance:
   plugin starts enabled with its defaults, and LayoutKeeper would then watch
   and restore your real windows.
 - **A test instance is read-only towards real windows.** Its LayoutKeeper
-  watches, saves into the scratch folder and shows the strip, but never
+  watches, saves into the scratch folder and WindowDeck shows the strip, but never
   restores, reorders taskbar buttons, moves, raises, switches to or closes a
   real window; each such step is logged as "read-only test instance: ...
   skipped".
@@ -481,14 +483,14 @@ it is a separate instance:
   |---|---|
   | `--open-palette=<query>` | The palette with the query typed in, prefix and all: `/`, `=2+2*3`, `<chrome`, `?`. Nothing runs. |
   | `--open-settings=<page>` | `general`, `plugins`, `hotkeys` (or `shortcuts`), `layout`, `store`, `about`, or a plugin's page: `plugin:layout_keeper`. |
-  | `--open-arrange=<group>` | The Arrange strip on a group, by its place (`0` is the first) or its key. |
+  | `--open-arrange=<group>` | WindowDeck on a group, by its place (`0` is the first) or its key. |
   | `--peek-card=<n>` | The strip with the hover peek on card `n` (from 0), or `chip` for the first card of a window that is not on the primary monitor. |
   | `--attention=<hwnd>` | Marks that window as wanting attention at start, as if it had flashed its taskbar button, so its card in the strip is orange. The window itself is not touched. |
   | `--theme=light` or `dark` | That theme for this run. |
   | `--ask-name=<hwnd>` | The palette's rename box for that window (WindowNamer). Nothing is renamed without Enter. |
   | `--show-tip=<id>` | Lets that in-app tip show. A test instance shows no tip otherwise, so no other scene carries one. `bookmark-ctrl-b` is the hint over a folder or file row (pair it with a query that selects one, such as `--open-palette=/C:\Windows\`); `bookmark-saved` opens the palette on the confirmation that follows saving a bookmark, with no Enter needed. |
   | `--show-restore-panel` | LayoutKeeper's please-wait panel with sample progress, and nothing else. A flag without a value. |
-  | `--allow-hide-popup` | Lets LayoutKeeper's hover strip hide Windows' taskbar preview. Without it a test instance opens the strip on hover but never hides the preview, and logs "hiding Windows' taskbar preview skipped". Use it only for a test you watch: it acts on your real taskbar. A flag without a value. |
+  | `--allow-hide-popup` | Lets WindowDeck's hover strip hide Windows' taskbar preview. Without it a test instance opens the strip on hover but never hides the preview, and logs "hiding Windows' taskbar preview skipped". Use it only for a test you watch: it acts on your real taskbar. A flag without a value. |
   | `--ddc-test=<what>` | ScreenDimmer's DDC/CI check on real monitors, printed step by step, then exit; no tray icon, no plugins. `list` only reads each monitor's power mode and brightness. `left`, `centre` or `right` turns that monitor off the way Auto does, keeps it so for 10 s and brings it back; `wake-left` and so on only wakes it. Run it only with the person at the PC: it really turns a screen off. |
   | `--update-now` | Checks for an update at once and installs what it finds, as if Update now were clicked. With `WINCRAFT_RELEASES_URL` pointing at a fake releases API on this PC and `WINCRAFT_INSTALL_DIR` (or a scratch `LOCALAPPDATA`) giving the test instance an install folder of its own, the whole update and its rollback run without the internet. A flag without a value. |
   | `--rename-window=<hwnd>:<name>` | Renames that window through WindowNamer at start, for a live test on a window the test owns. Never point it at a window you did not create. |

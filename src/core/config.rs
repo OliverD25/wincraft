@@ -551,6 +551,11 @@ impl PluginConfig {
         save_readable(&plugin_in(data, id), &text)
     }
 
+    /// Whether the plugin has a settings file yet.
+    pub fn exists_in(data: &Path, id: &str) -> bool {
+        plugin_in(data, id).exists()
+    }
+
     pub fn reset_in(data: &Path, id: &str) -> Result<(), String> {
         let path = plugin_in(data, id);
         match fs::remove_file(&path) {

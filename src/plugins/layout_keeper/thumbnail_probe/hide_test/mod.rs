@@ -23,10 +23,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowTextW;
 
 use super::geometry::Rect;
 use super::{report, scan};
-use crate::core::{clock, config, taskbar};
-use crate::plugins::layout_keeper::hover_preview::popup::{
-    self, digit_down, find_popups, hide, is_shown, key_down,
+use crate::core::taskbar_popup::{
+    self as popup, digit_down, find_popups, hide, is_shown, key_down,
 };
+use crate::core::{clock, config, taskbar};
 use logic::{
     decide, took_effect, watch_ms, Decision, Hover, Method, Picker, Reason, Totals, EFFECT_MS,
     POPUP_CLASS, POPUP_TITLE, RESHOW_MS,

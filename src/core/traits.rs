@@ -1,5 +1,6 @@
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 
+use crate::core::config::PluginConfig;
 use crate::core::ui_bridge::HostChannel;
 use crate::core::ui_bridge::{
     ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeMonitor, ArrangeView,
@@ -125,9 +126,15 @@ pub struct WindowGroups {
     /// The group to show first, usually the front window's program.
     pub focus: usize,
     pub watched: Vec<String>,
+    pub monitors: Vec<ArrangeMonitor>,
+}
+
+/// How the Arrange strip looks, from the plugin that decides when it opens.
+pub struct StripLook {
     /// Whether resting the mouse on a card shows that window on its monitor.
     pub preview: bool,
-    pub monitors: Vec<ArrangeMonitor>,
+    /// The view the user picked last. The strip saves a new pick as this
+    /// plugin's `arrange_view` setting.
     pub view: ArrangeView,
 }
 
@@ -191,6 +198,20 @@ pub trait WinCraftPlugin {
         settings: &mut serde_json::Value,
     ) {
         let _ = (hotkeys, settings);
+    }
+
+    /// The plugin this one was split out of, if any. The first time this
+    /// plugin starts, when it has no settings file yet, `take_over` gets
+    /// that plugin's stored settings and hotkeys.
+    fn split_from(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// Moves what this plugin now owns out of `old`, the stored config of
+    /// the `split_from` plugin, into `new`, and decides whether `new` starts
+    /// on. Runs once, before `migrate_hotkeys`; the host saves both files.
+    fn take_over(&self, old: &mut PluginConfig, new: &mut PluginConfig) {
+        let _ = (old, new);
     }
 
     fn init(&mut self, ctx: &HostContext) -> Result<(), String>;
@@ -301,6 +322,12 @@ pub trait WinCraftPlugin {
     /// The host asks when the strip opens and after every change;
     /// `host::open_arrange()` opens it from a plugin callback.
     fn window_groups(&mut self) -> Option<WindowGroups> {
+        None
+    }
+
+    /// How the strip looks, for the plugin that decides when it opens. The
+    /// strip opens only while a plugin that answers this is on.
+    fn strip_look(&self) -> Option<StripLook> {
         None
     }
 

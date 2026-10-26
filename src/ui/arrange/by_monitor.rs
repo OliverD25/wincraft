@@ -3291,6 +3291,7 @@ mod tests {
         };
         let snapshot = ArrangeSnapshot {
             plugin: "layout_keeper".to_string(),
+            look_plugin: "window_deck".to_string(),
             groups: vec![group.clone()],
             desktops: vec![ArrangeDesktop {
                 id: "d1".to_string(),
@@ -3743,6 +3744,7 @@ mod tests {
         };
         let snapshot = ArrangeSnapshot {
             plugin: "layout_keeper".to_string(),
+            look_plugin: "window_deck".to_string(),
             groups: vec![group.clone()],
             desktops: vec![ArrangeDesktop {
                 id: "d1".to_string(),

@@ -6,8 +6,9 @@ hotkeys, a command palette and a settings window. Features are written as
 **plugins** that plug into one Rust trait, so adding a feature never means
 touching the Win32 plumbing or writing any UI code.
 
-WinCraft ships six plugins: **ScreenDimmer**, **ShortcutDetector**,
-**LayoutKeeper**, **LanguageIndicator**, **WindowNamer** and **QuickJump**,
+WinCraft ships seven plugins: **ScreenDimmer**, **ShortcutDetector**,
+**LayoutKeeper**, **WindowDeck**, **LanguageIndicator**, **WindowNamer** and
+**QuickJump**,
 and a palette
 that also finds apps, open windows, files and folders on every disk (through
 Everything), your own bookmarks, sums, web searches and terminal commands.
@@ -163,27 +164,44 @@ are marked, because a restore cannot tell them apart.
 | `Win+Alt+J` | Save the layout now |
 | `Win+Alt+[` | Move the front window one place left in its taskbar group |
 | `Win+Alt+]` | Move the front window one place right in its taskbar group |
-| `Win+Alt+A` | Show a number over each taskbar button for 3 seconds. Press a number to open the Arrange strip for that button, or press `Win+Alt+A` again for the app in front. The strip shows live pictures of an app's windows on this desktop, laid out by monitor like your desk; a link or `D` shows the other desktops. Drag them into order, to another desktop or to another monitor |
 
 Moving windows between desktops uses undocumented Windows interfaces, ported
 from [MScholtes' VirtualDesktop](https://github.com/MScholtes/VirtualDesktop)
 (MIT). They change between Windows builds; if they do not answer as expected,
 LayoutKeeper turns desktop moves off for the session and says so on its page.
 
-**The strip instead of Windows' taskbar preview** (off until you switch it
-on in LayoutKeeper's settings, the tray menu or the palette): resting the
-mouse on the taskbar button of an app with 2 or more windows opens the
-Arrange strip above that button instead of Windows' own preview, after 0.4 s
-(the **Hover delay** setting, 0.2 to 1.5 s). Apps with one window keep
-Windows' preview. Win+number and Alt+Tab work exactly as before. Switching it
-off gives Windows' preview back at once.
-
-To reorder with the mouse, use the Arrange strip. Dragging inside the
+To reorder with the mouse, use WindowDeck. Dragging inside the
 taskbar's thumbnail flyout is not possible from outside Explorer on Windows 11
 24H2, because the flyout exposes no accessible thumbnail items (probed on
 2026-09-25). The Windhawk mod "Taskbar Thumbnail Reorder" still works for hand
 reorders, but WinCraft cannot see its changes, and the next restore replaces
 them.
+
+### WindowDeck
+
+Shows all windows of an app in a row above the taskbar, with a live picture
+of each, laid out by monitor like your desk; a link or `D` shows the other
+desktops. Pick, move and close them from the keyboard, or drag them into
+order, to another desktop or to another monitor. It shows the windows
+LayoutKeeper sees, so it needs LayoutKeeper on. Until WinCraft 0.20.25 it
+was LayoutKeeper's "Arrange strip"; the first start after the update moves
+its settings and hotkey over with the same values.
+[Full README](src/plugins/window_deck/README.md)
+
+| Hotkey | What it does |
+|---|---|
+| `Win+Alt+A` | Wait 3 seconds for a taskbar number and open WindowDeck for that button; press `Win+Alt+A` again for the app in front. If no number comes within 0.7 s, a number shows over each taskbar button |
+
+Inside WindowDeck, a number opens the window whose card shows it (0 is
+10), and Ctrl and a number open WindowDeck for that taskbar button.
+
+**WindowDeck instead of Windows' taskbar preview** (off until you switch it
+on in WindowDeck's settings, the tray menu or the palette): resting the
+mouse on the taskbar button of an app with 2 or more windows opens
+WindowDeck above that button instead of Windows' own preview, after 0.15 s
+(the **Hover delay** setting, 0.05 to 1.5 s). Apps with one window keep
+Windows' preview. Win+number and Alt+Tab work exactly as before. Switching it
+off gives Windows' preview back at once.
 
 ### LanguageIndicator
 
@@ -201,7 +219,7 @@ Gives any window a name of your own: three Chrome windows called "Mail",
 Alt+Tab and the title bar show the name, and it stays when the app changes
 its title. Names are saved and put back on the same window after WinCraft or
 the app restarts. Rename from the hotkey, or with **Rename…** on a card in
-the Arrange strip; the palette command **Clear all names** takes every name
+WindowDeck; the palette command **Clear all names** takes every name
 away. LayoutKeeper keeps working with the app's own title, so a rename never
 makes it lose a window. [Full README](src/plugins/window_namer/README.md)
 
@@ -340,12 +358,12 @@ file row Ctrl+B bookmarks it, and Ctrl+Delete removes a bookmark. On a
 command, Ctrl+K changes its shortcut.
 
 On a window row Enter switches to it, Shift+→ moves it to the next monitor,
-Ctrl+Enter opens it in the Arrange strip and Ctrl+W asks it to close, the way
+Ctrl+Enter opens it in WindowDeck and Ctrl+W asks it to close, the way
 its own close button does. The inspector shows its program and process id,
 its monitor and virtual desktop, how much memory its program uses, and a
 **Show on all desktops** switch. Ctrl+Space, Shift+click or Ctrl+A mark
 windows; the inspector then lists the marked ones and its actions apply to
-all of them: arrange in the strip, move to the next monitor, minimise
+all of them: arrange in WindowDeck, move to the next monitor, minimise
 (Ctrl+M), close. Esc clears the marks before it closes the palette. Nothing
 happens to a window until you press one of these keys.
 
@@ -593,7 +611,7 @@ WinCraft keeps running, shows a tray notification and marks the hotkey
 | Option | What it does |
 |---|---|
 | `--open-palette` | Opens the command palette at startup. |
-| `--open-arrange` | Opens LayoutKeeper's Arrange strip at startup. |
+| `--open-arrange` | Opens WindowDeck at startup. |
 | `--open-settings` | Opens the settings window at startup. |
 | `--open-detector` | Opens the ShortcutDetector window at startup. |
 | `--quit` | Asks the running WinCraft to shut down cleanly, as the tray's Quit does, and waits up to 10 s. Exit code 0: it closed; 1: none was running; 2: still running. |

@@ -1,5 +1,5 @@
-//! The Arrange strip in place of Windows' taskbar hover preview, for apps
-//! with two or more windows. Off by default.
+//! WindowDeck in place of Windows' taskbar hover preview, for apps with
+//! two or more windows. Off by default.
 //!
 //! How the mouse is watched, cheaply:
 //! - While the mouse is away from the taskbar, a 100 ms timer reads the
@@ -15,9 +15,7 @@
 //! move, so the popup comes back on the next hover if WinCraft stops. The
 //! key rules in `keys::decide` keep Win+number and Alt+Tab untouched.
 
-pub mod keys;
 mod machine;
-pub mod popup;
 
 use std::cell::Cell;
 use std::sync::mpsc::TryRecvError;
@@ -31,16 +29,16 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     EVENT_OBJECT_UNCLOAKED, OBJID_WINDOW, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
 };
 
+use crate::core::taskbar_popup::keys::POPUP_CLASS;
+use crate::core::taskbar_popup::{self as popup, Method};
 use crate::core::windows_list::class_name;
 use crate::core::{taskbar, ui_bridge, wide};
-use keys::POPUP_CLASS;
 use machine::{contains, Answer, Button, Gate, Look, Machine, Point, Rect};
 pub use machine::{delay_ms, Command, DEFAULT_DELAY_MS, OLD_DEFAULT_DELAY_SECONDS};
-use popup::Method;
 
-/// The host window is shared; "LK" and 2 keep it clear of LayoutKeeper's
-/// other timers.
-pub const TIMER_ID: usize = 0x4C4B_0002;
+/// The host window is shared; "WD" and 2 keep it clear of every other
+/// plugin's timers.
+pub const TIMER_ID: usize = 0x5744_0002;
 const IDLE_MS: u32 = 100;
 const FAST_MS: u32 = 15;
 /// How often the taskbars' rectangles are read again, for a taskbar that

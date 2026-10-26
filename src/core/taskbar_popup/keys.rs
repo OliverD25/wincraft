@@ -1,5 +1,5 @@
 //! When the taskbar's hover popup may be hidden: the key rules that keep
-//! Win+number and Alt+Tab working. Shared by the hover strip and by the
+//! Win+number and Alt+Tab working. Shared by WindowDeck's hover strip and by the
 //! hide-popup test (`--test-hide-popup`), which proved them. Nothing here
 //! calls Windows.
 

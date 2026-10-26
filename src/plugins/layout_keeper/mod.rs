@@ -1,6 +1,5 @@
 mod explorer;
 mod guard;
-pub mod hover_preview;
 mod monitors;
 // The look of the panel is shared with the host's update notice.
 pub(crate) mod notice;
@@ -27,17 +26,15 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::core::traits::{
     FieldKind, HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata, SettingField,
-    TrayAction, TrayToggle, WinCraftPlugin, WindowGroups,
+    TrayAction, WinCraftPlugin, WindowGroups,
 };
 use crate::core::ui_bridge::{
-    ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeView, ArrangeWindow,
-    LayoutAction, LayoutApp, LayoutEntry, LayoutRef, LayoutSnapshot,
+    ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeWindow, LayoutAction,
+    LayoutApp, LayoutEntry, LayoutRef, LayoutSnapshot,
 };
 use crate::core::virtual_desktops as desktops;
 use crate::core::window_identity as identity;
-use crate::core::{
-    appid, clock, host, instance, session, taskbar, taskbar_scope, wide, window_names,
-};
+use crate::core::{appid, clock, host, instance, session, wide, window_census, window_names};
 use crate::search::providers::apps;
 use desktops::{Desktop, DesktopId};
 use identity::{browser_name, program_name, Rect};
@@ -58,19 +55,10 @@ const ACTION_RESTORE: u32 = 1;
 const ACTION_SAVE_NOW: u32 = 2;
 const ACTION_MOVE_LEFT: u32 = 3;
 const ACTION_MOVE_RIGHT: u32 = 4;
-const ACTION_ARRANGE: u32 = 5;
-
-/// A tray toggle; tray ids share their space with the actions above.
-const TRAY_HOVER_STRIP: u32 = 6;
 
 const VK_OPEN_BRACKET: u32 = 0xDB;
 const VK_CLOSE_BRACKET: u32 = 0xDD;
 const COMMAND_OPEN_STATE: u32 = 1;
-const COMMAND_HOVER_STRIP: u32 = 2;
-
-const HOVER_STRIP_KEY: &str = "taskbar_hover_strip";
-const HOVER_DELAY_KEY: &str = "hover_delay_seconds";
-const HOVER_STRIP_LABEL: &str = "Arrange strip on taskbar hover";
 
 /// Every app; the old default was "chrome.exe".
 const DEFAULT_PROGRAMS: &str = "*";
@@ -159,13 +147,6 @@ pub struct LayoutKeeper {
     /// Windows the user put on a monitor in the strip since the last save,
     /// which therefore no longer belong on an unplugged one.
     released: BTreeSet<Handle>,
-    preview_on_hover: bool,
-    /// The strip's view, as the user last picked it there.
-    arrange_view: ArrangeView,
-    /// "Show the Arrange strip instead of Windows' taskbar preview".
-    hover_strip: bool,
-    hover_delay_ms: u64,
-    hover: hover_preview::HoverPreview,
     ticks: u64,
     started_once: bool,
     reader: Option<desktops::Reader>,
@@ -241,11 +222,6 @@ impl Default for LayoutKeeper {
             front_order: true,
             restore_monitors: true,
             released: BTreeSet::new(),
-            preview_on_hover: true,
-            arrange_view: ArrangeView::Auto,
-            hover_strip: false,
-            hover_delay_ms: hover_preview::DEFAULT_DELAY_MS,
-            hover: hover_preview::HoverPreview::default(),
             ticks: 0,
             started_once: false,
             reader: None,
@@ -317,15 +293,6 @@ impl LayoutKeeper {
         self.restore_on_start = flag(settings, "restore_on_start");
         self.front_order = flag(settings, "restore_front_order");
         self.restore_monitors = flag(settings, "restore_monitors");
-        self.preview_on_hover = flag(settings, "preview_on_hover");
-        self.arrange_view = ArrangeView::from_setting(&text("arrange_view", "auto"));
-        self.hover_strip = settings
-            .get(HOVER_STRIP_KEY)
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false);
-        self.hover_delay_ms =
-            hover_preview::delay_ms(settings.get(HOVER_DELAY_KEY).and_then(|v| v.as_f64()));
-        self.apply_hover();
         self.show_progress = flag(settings, "show_restore_progress");
         if !self.show_progress {
             self.hide_notice();
@@ -335,34 +302,6 @@ impl LayoutKeeper {
         self.restore.give_up_seconds = number(settings, "restore_window_minutes", 1, 120)
             .unwrap_or(DEFAULT_RESTORE_MINUTES)
             * 60;
-    }
-
-    /// Starts or stops the hover strip to match the settings, at once.
-    fn apply_hover(&mut self) {
-        let commands = self
-            .hover
-            .set(self.host_hwnd, self.hover_strip, self.hover_delay_ms);
-        run_hover(commands);
-    }
-
-    fn hover_tick(&mut self) {
-        let groups = &self.groups;
-        let commands = self
-            .hover
-            .tick(&|app, button| windows_on_taskbar(groups, app, button));
-        run_hover(commands);
-    }
-
-    /// The tray toggle and the palette command: flips the switch now and
-    /// saves it, as the switch on the settings page would.
-    fn toggle_hover(&mut self) {
-        self.hover_strip = !self.hover_strip;
-        self.apply_hover();
-        host::save_setting(
-            "layout_keeper",
-            HOVER_STRIP_KEY,
-            serde_json::Value::Bool(self.hover_strip),
-        );
     }
 
     /// The watched programs' app windows, top of the z-order first.
@@ -409,6 +348,7 @@ impl LayoutKeeper {
                 .refresh(&mine, self.ticks, self.snapshot_seconds);
         }
         self.groups.retain(|_, group| !group.is_empty());
+        publish_census(&self.groups);
     }
 
     /// Gives a group its name the first time one of its windows is seen.
@@ -2564,18 +2504,6 @@ fn migrate_default(settings: &mut serde_json::Value, key: &str, old: u64, new: u
     true
 }
 
-fn migrate_hover_delay(settings: &mut serde_json::Value) -> bool {
-    let stored = settings
-        .get(HOVER_DELAY_KEY)
-        .and_then(|value| value.as_f64());
-    if stored != Some(hover_preview::OLD_DEFAULT_DELAY_SECONDS) {
-        return false;
-    }
-    settings[HOVER_DELAY_KEY] =
-        serde_json::Value::from(hover_preview::DEFAULT_DELAY_MS as f64 / 1000.0);
-    true
-}
-
 /// What the strip calls any other app's group: the name the app gives its
 /// windows or its Start menu entry, else the description in its program
 /// file, else its file name.
@@ -2609,57 +2537,6 @@ fn known_desktop(id: DesktopId, registry: &[Desktop]) -> bool {
 }
 
 /// How many windows the taskbar button's app has, on every desktop.
-fn windows_of(groups: &BTreeMap<String, OrderModel>, app: &str) -> usize {
-    groups
-        .iter()
-        .filter(|(key, _)| taskbar::same_app(app, key))
-        .map(|(_, model)| model.windows().count())
-        .sum()
-}
-
-/// How many windows the taskbar button at `button` lists for the app. A
-/// secondary taskbar may list only the windows on its own monitor (see
-/// `taskbar_scope`); the main one lists them all, and so does a taskbar
-/// whose monitor cannot be found.
-fn windows_on_taskbar(groups: &BTreeMap<String, OrderModel>, app: &str, button: Rect) -> usize {
-    let monitors = monitors::list();
-    let Some(hovered) = monitors::index_of(button, &monitors) else {
-        return windows_of(groups, app);
-    };
-    let own_only =
-        taskbar_scope::MultiMonitor::read().shows_only_own(monitors[hovered].is_primary());
-    if !own_only {
-        return windows_of(groups, app);
-    }
-    let primary = monitors.iter().position(|m| m.is_primary()).unwrap_or(0);
-    let on: Vec<usize> = groups
-        .iter()
-        .filter(|(key, _)| taskbar::same_app(app, key))
-        .flat_map(|(_, model)| model.windows())
-        .map(|(_, identity)| monitors::index_of(identity.rect, &monitors).unwrap_or(primary))
-        .collect();
-    taskbar_scope::count_shown(&on, hovered, true)
-}
-
-/// The palette entry's second line: what the switch is now.
-fn hover_subtitle(on: bool) -> &'static str {
-    if on {
-        "Now on: apps with 2 or more windows show the Arrange strip"
-    } else {
-        "Now off: Windows' own preview shows"
-    }
-}
-
-fn run_hover(commands: Vec<hover_preview::Command>) {
-    for command in commands {
-        match command {
-            hover_preview::Command::Open { app, button } => host::open_arrange_at(app, button),
-            hover_preview::Command::Close => host::close_arrange(),
-            hover_preview::Command::Lookup(_) => {}
-        }
-    }
-}
-
 fn flag(settings: &serde_json::Value, key: &str) -> bool {
     settings
         .get(key)
@@ -2699,10 +2576,6 @@ impl WinCraftPlugin for LayoutKeeper {
             "restore_front_order": true,
             "restore_monitors": true,
             "show_restore_progress": true,
-            "preview_on_hover": true,
-            "arrange_view": ArrangeView::Auto.setting(),
-            HOVER_STRIP_KEY: false,
-            HOVER_DELAY_KEY: hover_preview::DEFAULT_DELAY_MS as f64 / 1000.0,
         })
     }
 
@@ -2771,28 +2644,6 @@ impl WinCraftPlugin for LayoutKeeper {
                 help: "While windows are being put back, show a small please-wait panel at the bottom right and the progress in the tray icon's tooltip.",
                 kind: FieldKind::Toggle,
             },
-            SettingField {
-                key: "preview_on_hover",
-                label: "Preview window on hover",
-                help: "Resting the mouse on a picture in the Arrange strip shows that window on its monitor.",
-                kind: FieldKind::Toggle,
-            },
-            SettingField {
-                key: HOVER_STRIP_KEY,
-                label: "Show the Arrange strip instead of Windows' taskbar preview",
-                help: "Resting the mouse on the taskbar button of an app with 2 or more windows opens the Arrange strip above it, where you can drag the windows into order. Apps with one window keep Windows' own preview. Win+number and Alt+Tab work as before.",
-                kind: FieldKind::Toggle,
-            },
-            SettingField {
-                key: HOVER_DELAY_KEY,
-                label: "Hover delay (seconds)",
-                help: "How long the mouse rests on a taskbar button before the Arrange strip opens.",
-                kind: FieldKind::Slider {
-                    min: 0.05,
-                    max: 1.5,
-                    step: 0.05,
-                },
-            },
         ]
     }
 
@@ -2819,13 +2670,6 @@ impl WinCraftPlugin for LayoutKeeper {
                 "restore_window_minutes was the old default {OLD_DEFAULT_RESTORE_MINUTES}; now {DEFAULT_RESTORE_MINUTES}"
             );
         }
-        if migrate_hover_delay(settings) {
-            log::info!(
-                "hover_delay_seconds was the old default {}; now {}",
-                hover_preview::OLD_DEFAULT_DELAY_SECONDS,
-                hover_preview::DEFAULT_DELAY_MS as f64 / 1000.0
-            );
-        }
     }
 
     fn on_settings_changed(&mut self, settings: &serde_json::Value) -> bool {
@@ -2834,7 +2678,6 @@ impl WinCraftPlugin for LayoutKeeper {
     }
 
     fn init(&mut self, ctx: &HostContext) -> Result<(), String> {
-        self.hover.may_hide = !self.read_only || host::allow_hide_popup();
         self.apply_settings(ctx.settings);
         self.ticks = 0;
         self.reader = match desktops::Reader::new() {
@@ -2868,12 +2711,12 @@ impl WinCraftPlugin for LayoutKeeper {
         }
         self.writer = state::Writer::new(self.state_path.clone(), file.map(|file| file.programs));
         self.groups = saved_models(self.writer.last());
+        publish_census(&self.groups);
         if unsafe { SetTimer(ctx.hwnd, TIMER_ID, TICK_MS, None) } == 0 {
             return Err("could not start its timer".to_string());
         }
         self.host_hwnd = Some(ctx.hwnd);
         log::info!("watching {}", self.watch);
-        self.apply_hover();
 
         // Switching the plugin off and on again is not a reboot.
         if !self.started_once && self.restore_on_start && start_follows_sign_in() {
@@ -2912,12 +2755,6 @@ impl WinCraftPlugin for LayoutKeeper {
                 label: "Move window right in taskbar",
                 default: win_alt(VK_CLOSE_BRACKET),
             },
-            HotkeyAction {
-                id: ACTION_ARRANGE,
-                name: "arrange",
-                label: "Arrange windows",
-                default: win_alt(u32::from(b'A')),
-            },
         ]
     }
 
@@ -2927,49 +2764,24 @@ impl WinCraftPlugin for LayoutKeeper {
             ACTION_SAVE_NOW => self.save_now(),
             ACTION_MOVE_LEFT => self.shift_front(-1),
             ACTION_MOVE_RIGHT => self.shift_front(1),
-            ACTION_ARRANGE => host::arrange_hotkey(),
             _ => {}
         }
     }
 
     fn tray_actions(&self) -> Vec<TrayAction> {
-        vec![
-            TrayAction {
-                id: ACTION_RESTORE,
-                label: "Restore layout",
-            },
-            TrayAction {
-                id: ACTION_ARRANGE,
-                label: "Arrange windows",
-            },
-        ]
-    }
-
-    fn on_tray_action(&mut self, action_id: u32) {
-        match action_id {
-            ACTION_RESTORE => self.start_restore(false),
-            ACTION_ARRANGE => host::open_arrange(),
-            TRAY_HOVER_STRIP => self.toggle_hover(),
-            _ => {}
-        }
-    }
-
-    fn tray_toggles(&self) -> Vec<TrayToggle> {
-        vec![TrayToggle {
-            id: TRAY_HOVER_STRIP,
-            label: HOVER_STRIP_LABEL,
-            on: self.hover_strip,
+        vec![TrayAction {
+            id: ACTION_RESTORE,
+            label: "Restore layout",
         }]
     }
 
-    fn page_action(&self) -> Option<u32> {
-        Some(ACTION_ARRANGE)
+    fn on_tray_action(&mut self, action_id: u32) {
+        if action_id == ACTION_RESTORE {
+            self.start_restore(false);
+        }
     }
 
     fn palette_subtitle(&self, kind: ActionKind, action_id: u32) -> Option<String> {
-        if kind == ActionKind::Palette && action_id == COMMAND_HOVER_STRIP {
-            return Some(hover_subtitle(self.hover_strip).to_string());
-        }
         let restore =
             matches!(kind, ActionKind::Hotkey | ActionKind::Tray) && action_id == ACTION_RESTORE;
         if !restore {
@@ -3082,9 +2894,7 @@ impl WinCraftPlugin for LayoutKeeper {
                 .collect(),
             focus,
             watched: vec![self.watch.to_string()],
-            preview: self.preview_on_hover,
             monitors: monitors::for_strip(&monitors, &disconnected),
-            view: self.arrange_view,
         })
     }
 
@@ -3325,25 +3135,16 @@ impl WinCraftPlugin for LayoutKeeper {
     }
 
     fn palette_commands(&self) -> Vec<PaletteCommand> {
-        vec![
-            PaletteCommand {
-                id: COMMAND_OPEN_STATE,
-                label: "Open state file",
-                hint: "",
-            },
-            PaletteCommand {
-                id: COMMAND_HOVER_STRIP,
-                label: "Switch the Arrange strip on taskbar hover on or off",
-                hint: "",
-            },
-        ]
+        vec![PaletteCommand {
+            id: COMMAND_OPEN_STATE,
+            label: "Open state file",
+            hint: "",
+        }]
     }
 
     fn on_palette_command(&mut self, id: u32) {
-        match id {
-            COMMAND_OPEN_STATE => self.open_state_file(),
-            COMMAND_HOVER_STRIP => self.toggle_hover(),
-            _ => {}
+        if id == COMMAND_OPEN_STATE {
+            self.open_state_file();
         }
     }
 
@@ -3363,13 +3164,6 @@ impl WinCraftPlugin for LayoutKeeper {
                 "Read-only test instance: {} changes to real windows skipped",
                 self.refused
             ));
-        }
-        if self.hover.is_on() {
-            parts.push(if self.hover.may_hide {
-                "Arrange strip on taskbar hover: on".to_string()
-            } else {
-                "Arrange strip on taskbar hover: on, but Windows' preview is left alone in this test instance".to_string()
-            });
         }
         if self.restore.waiting_count() > 0 {
             parts.push(format!(
@@ -3398,7 +3192,6 @@ impl WinCraftPlugin for LayoutKeeper {
         match msg {
             WM_TIMER if wparam == TIMER_ID => self.tick(),
             WM_TIMER if wparam == FADE_TIMER_ID => self.fade_step(),
-            WM_TIMER if wparam == hover_preview::TIMER_ID => self.hover_tick(),
             WM_QUERYENDSESSION | WM_ENDSESSION if closes_app => self.save("shutdown"),
             WM_QUERYENDSESSION => self.save_at_end("shutdown"),
             WM_ENDSESSION if wparam != 0 => self.save_at_end("shutdown"),
@@ -3407,7 +3200,6 @@ impl WinCraftPlugin for LayoutKeeper {
     }
 
     fn teardown(&mut self) {
-        run_hover(self.hover.stop());
         if let Some(hwnd) = self.host_hwnd.take() {
             unsafe { KillTimer(hwnd, TIMER_ID) };
             self.save_at_end("teardown");
@@ -3428,8 +3220,28 @@ impl WinCraftPlugin for LayoutKeeper {
         self.mover = Mover::Untried;
         self.guard = guard::Guard::default();
         self.groups.clear();
+        window_census::clear();
         self.labels.clear();
     }
+}
+
+/// What the hover strip counts an app's windows from (`core::window_census`).
+fn publish_census(groups: &BTreeMap<String, OrderModel>) {
+    window_census::publish(census(groups));
+}
+
+fn census(groups: &BTreeMap<String, OrderModel>) -> Vec<window_census::CensusWindow> {
+    groups
+        .iter()
+        .flat_map(|(key, model)| {
+            model
+                .windows()
+                .map(move |(_, identity)| window_census::CensusWindow {
+                    group: key.clone(),
+                    rect: identity.rect,
+                })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -3745,86 +3557,32 @@ mod tests {
     }
 
     #[test]
-    fn monitors_are_restored_and_the_strip_view_is_automatic_by_default() {
+    fn monitors_are_restored_by_default() {
         let mut keeper = LayoutKeeper {
             restore_monitors: false,
             ..LayoutKeeper::default()
         };
         keeper.apply_settings(&LayoutKeeper::default().default_settings());
         assert!(keeper.restore_monitors);
-        assert_eq!(keeper.arrange_view, ArrangeView::Auto);
-        keeper.apply_settings(&serde_json::json!({
-            "restore_monitors": false,
-            "arrange_view": "flat",
-        }));
+        keeper.apply_settings(&serde_json::json!({ "restore_monitors": false }));
         assert!(!keeper.restore_monitors);
-        assert_eq!(keeper.arrange_view, ArrangeView::Flat);
     }
 
     #[test]
-    fn a_saved_old_default_hover_delay_becomes_the_new_default() {
-        let mut old = serde_json::json!({ HOVER_DELAY_KEY: 0.4 });
-        assert!(migrate_hover_delay(&mut old));
-        assert_eq!(old[HOVER_DELAY_KEY], 0.15);
-        let mut chosen = serde_json::json!({ HOVER_DELAY_KEY: 0.8 });
-        assert!(!migrate_hover_delay(&mut chosen));
-        assert_eq!(chosen[HOVER_DELAY_KEY], 0.8);
-    }
-
-    #[test]
-    fn the_hover_strip_is_off_by_default_and_switches_at_once() {
-        let mut keeper = read_only();
-        keeper.apply_settings(&LayoutKeeper::default().default_settings());
-        assert!(!keeper.hover_strip);
-        assert!(!keeper.hover.is_on());
-        assert_eq!(keeper.hover_delay_ms, 150);
-
-        keeper.apply_settings(&serde_json::json!({
-            HOVER_STRIP_KEY: true,
-            HOVER_DELAY_KEY: 0.8,
-        }));
-        assert!(keeper.hover.is_on(), "on without a restart");
-        assert_eq!(keeper.hover_delay_ms, 800);
-        assert!(keeper.tray_toggles()[0].on);
-
-        keeper.apply_settings(&serde_json::json!({ HOVER_STRIP_KEY: false }));
-        assert!(!keeper.hover.is_on(), "off at once");
-        assert!(!keeper.tray_toggles()[0].on);
-    }
-
-    #[test]
-    fn the_tray_and_the_palette_flip_the_hover_strip() {
-        let mut keeper = read_only();
-        keeper.on_tray_action(TRAY_HOVER_STRIP);
-        assert!(keeper.hover_strip);
-        assert!(keeper.hover.is_on());
-        assert_eq!(
-            keeper.palette_subtitle(ActionKind::Palette, COMMAND_HOVER_STRIP),
-            Some(hover_subtitle(true).to_string())
-        );
-        keeper.on_palette_command(COMMAND_HOVER_STRIP);
-        assert!(!keeper.hover_strip);
-        assert!(!keeper.hover.is_on());
-        assert_eq!(
-            keeper.palette_subtitle(ActionKind::Palette, COMMAND_HOVER_STRIP),
-            Some(hover_subtitle(false).to_string())
-        );
-        let toggles = keeper.tray_toggles();
-        assert_eq!(toggles.len(), 1);
-        assert_eq!(toggles[0].label, HOVER_STRIP_LABEL);
-        assert!(toggles[0].id < 100, "tray ids stay below 100");
-    }
-
-    #[test]
-    fn a_test_instance_says_it_leaves_windows_preview_alone() {
-        let mut keeper = read_only();
-        keeper.apply_settings(&serde_json::json!({ HOVER_STRIP_KEY: true }));
-        let status = keeper.status().unwrap_or_default();
-        assert!(
-            status.contains("Windows' preview is left alone in this test instance"),
-            "{status}"
-        );
-        assert!(!keeper.hover.may_hide);
+    fn the_strip_settings_and_hotkey_are_windowdecks_now() {
+        let keeper = LayoutKeeper::default();
+        let settings = keeper.default_settings();
+        for key in [
+            "taskbar_hover_strip",
+            "hover_delay_seconds",
+            "preview_on_hover",
+            "arrange_view",
+        ] {
+            assert!(settings.get(key).is_none(), "{key}");
+        }
+        assert!(keeper.hotkey_actions().iter().all(|a| a.name != "arrange"));
+        assert!(keeper.tray_toggles().is_empty());
+        assert!(keeper.page_action().is_none());
     }
 
     #[test]
@@ -3850,10 +3608,13 @@ mod tests {
             "Telegram.TelegramDesktop".to_string(),
             OrderModel::from_matched(vec![(identity("chat"), Some(3))]),
         );
-        assert_eq!(windows_of(&groups, "Chrome.UserData.Profile3"), 2);
-        assert_eq!(windows_of(&groups, "Appid: chrome.userdata.profile3"), 2);
-        assert_eq!(windows_of(&groups, "Telegram.TelegramDesktop"), 1);
-        assert_eq!(windows_of(&groups, "md.obsidian"), 0);
+        let census = census(&groups);
+        assert_eq!(census.len(), 3, "closed windows are not counted");
+        let count = |app| window_census::count_of(&census, app);
+        assert_eq!(count("Chrome.UserData.Profile3"), 2);
+        assert_eq!(count("Appid: chrome.userdata.profile3"), 2);
+        assert_eq!(count("Telegram.TelegramDesktop"), 1);
+        assert_eq!(count("md.obsidian"), 0);
     }
 
     #[test]
@@ -3876,9 +3637,13 @@ mod tests {
                     .collect(),
             ),
         );
-        assert_eq!(windows_of(&groups, "Claude_pzs8sxrjxfjjc!Claude"), 10);
+        let census = census(&groups);
         assert_eq!(
-            windows_of(&groups, "Appid: Claude_pzs8sxrjxfjjc!Claude"),
+            window_census::count_of(&census, "Claude_pzs8sxrjxfjjc!Claude"),
+            10
+        );
+        assert_eq!(
+            window_census::count_of(&census, "Appid: Claude_pzs8sxrjxfjjc!Claude"),
             10
         );
 

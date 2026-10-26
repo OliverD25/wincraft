@@ -1400,6 +1400,19 @@ impl Host {
         } else {
             None
         };
+        let look = self.plugins.slots.iter().find_map(|slot| {
+            if !slot.enabled {
+                return None;
+            }
+            let look = slot.plugin.strip_look()?;
+            Some((slot.plugin.metadata().id, look))
+        });
+        let Some((look_plugin, look)) = look else {
+            if open {
+                log::info!("WindowDeck is off, so the strip does not open");
+            }
+            return false;
+        };
         // Read before the plugin builds its groups, so the mouse is still
         // where it was when the hotkey came.
         let hovered = match (&anchor, open) {
@@ -1416,6 +1429,12 @@ impl Host {
         });
         let Some((id, mut groups)) = found else {
             log::info!("no enabled plugin keeps a window order");
+            if open {
+                notify(
+                    "WindowDeck",
+                    "WindowDeck shows the windows LayoutKeeper sees. Switch LayoutKeeper on in Plugins.",
+                );
+            }
             return false;
         };
         let under_cursor = hovered.as_deref().and_then(|app| {
@@ -1468,10 +1487,11 @@ impl Host {
             desktops: groups.desktops,
             focus,
             watched: groups.watched,
-            preview: groups.preview,
+            preview: look.preview,
             can_rename: self.plugins.is_on(NAMER_ID),
             monitors: groups.monitors,
-            view: groups.view,
+            view: look.view,
+            look_plugin: look_plugin.to_string(),
             anchor: anchor.map(|(_, rect)| rect),
         };
         self.to_ui.send(if open {
@@ -2007,6 +2027,28 @@ impl PluginSet {
         let settings = slot.plugin.default_settings();
 
         let mut plugin = PluginConfig::load_in(&self.data, meta.id);
+        if let Some(from) = slot.plugin.split_from() {
+            let first_start = !PluginConfig::exists_in(&self.data, meta.id);
+            if first_start && PluginConfig::exists_in(&self.data, from) {
+                let mut old = self
+                    .configs
+                    .get(from)
+                    .cloned()
+                    .unwrap_or_else(|| PluginConfig::load_in(&self.data, from));
+                slot.plugin.take_over(&mut old, &mut plugin);
+                log::info!(
+                    "{}: took over its settings from {from}; it starts {}",
+                    meta.id,
+                    if plugin.enabled { "on" } else { "off" }
+                );
+                if let Err(err) = old.save_in(&self.data, from) {
+                    log::error!("{err}");
+                }
+                if self.configs.contains_key(from) {
+                    self.configs.insert(from.to_string(), old);
+                }
+            }
+        }
         plugin.merge_defaults(&defaults, &settings);
         slot.plugin
             .migrate_hotkeys(&mut plugin.hotkeys, &mut plugin.settings);
@@ -2775,7 +2817,7 @@ pub fn save_setting(plugin: &str, key: &str, value: Value) {
     plugin_changed();
 }
 
-/// True in a test instance started with `--allow-hide-popup`: LayoutKeeper's
+/// True in a test instance started with `--allow-hide-popup`: WindowDeck's
 /// hover strip may hide Windows' taskbar preview, which a test instance
 /// otherwise never touches.
 pub fn allow_hide_popup() -> bool {
@@ -3501,8 +3543,10 @@ mod tests {
 
     use std::rc::Rc;
 
-    use crate::core::traits::{HotkeyAction, PaletteCommand, TrayAction, TrayToggle};
-    use crate::core::ui_bridge::LayoutAction;
+    use crate::core::traits::{
+        HotkeyAction, PaletteCommand, StripLook, TrayAction, TrayToggle, WindowGroups,
+    };
+    use crate::core::ui_bridge::{ArrangeView, LayoutAction};
 
     #[test]
     fn the_strip_hears_of_windows_that_come_go_or_take_the_front() {
@@ -3571,6 +3615,10 @@ mod tests {
         actions: Vec<(u32, &'static str, &'static str, &'static str)>,
         fails_with: Option<&'static str>,
         takes_settings_live: bool,
+        /// Keeps a window order for the strip, as LayoutKeeper does.
+        groups: bool,
+        /// Decides when the strip opens, as WindowDeck does.
+        look: bool,
         diary: Diary,
     }
 
@@ -3586,6 +3634,8 @@ mod tests {
             actions: vec![(1, "go", "Go", default)],
             fails_with: None,
             takes_settings_live: true,
+            groups: false,
+            look: false,
             diary: Rc::clone(diary),
         }
     }
@@ -3681,6 +3731,23 @@ mod tests {
             self.note(format!("layout {}", self.id));
         }
 
+        fn window_groups(&mut self) -> Option<WindowGroups> {
+            self.groups.then(|| WindowGroups {
+                groups: Vec::new(),
+                desktops: Vec::new(),
+                focus: 0,
+                watched: vec!["*".to_string()],
+                monitors: Vec::new(),
+            })
+        }
+
+        fn strip_look(&self) -> Option<StripLook> {
+            self.look.then_some(StripLook {
+                preview: false,
+                view: ArrangeView::Flat,
+            })
+        }
+
         fn teardown(&mut self) {
             self.note(format!("teardown {}", self.id));
         }
@@ -3718,6 +3785,14 @@ mod tests {
             .into_iter()
             .map(|plugin| Box::new(plugin) as Box<dyn WinCraftPlugin>)
             .collect();
+        boxed_set(plugins, keyboard, data)
+    }
+
+    fn boxed_set(
+        plugins: Vec<Box<dyn WinCraftPlugin>>,
+        keyboard: &FakeKeys,
+        data: &Scratch,
+    ) -> PluginSet {
         let mut set = PluginSet::new(
             std::ptr::null_mut(),
             plugins,
@@ -4967,6 +5042,131 @@ mod tests {
         assert_eq!(host.balloon_click, BalloonClick::Detector);
         assert!(host.plugins.warnings.is_empty(), "the balloon was shown");
         assert!(!host.plugins.slots[0].enabled);
+    }
+
+    #[test]
+    fn the_strip_opens_only_while_the_plugin_that_decides_its_look_is_on() {
+        let data = Scratch::new("strip-look");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let mut keeper = fake("fake_keeper", "Keeper", "Win+Alt+F1", &log);
+        keeper.groups = true;
+        let mut deck = fake("fake_deck", "Deck", "Win+Alt+F2", &log);
+        deck.look = true;
+        let (mut host, ui) = test_host(vec![keeper, deck], &keyboard, &data);
+        let shown = |ui: &Receiver<UiCommand>| {
+            ui.try_iter()
+                .filter_map(|command| match command {
+                    UiCommand::ShowArrange(snapshot) => Some(snapshot),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert!(host.send_arrange_for(true, false));
+        let sent = shown(&ui);
+        assert_eq!(sent.len(), 1);
+        assert_eq!(
+            sent[0].plugin, "fake_keeper",
+            "the windows come from the keeper"
+        );
+        assert_eq!(
+            sent[0].look_plugin, "fake_deck",
+            "a new view is saved there"
+        );
+        assert!(!sent[0].preview);
+        assert_eq!(sent[0].view, ArrangeView::Flat);
+
+        host.handle_request(HostRequest::SetPluginEnabled {
+            id: "fake_deck".to_string(),
+            enabled: false,
+        });
+        assert!(!host.send_arrange_for(true, false), "the deck is off");
+        assert!(shown(&ui).is_empty());
+    }
+
+    #[test]
+    fn windowdeck_takes_the_strip_settings_over_from_layoutkeeper_once() {
+        let data = Scratch::new("take-over");
+        let keeper = PluginConfig {
+            enabled: true,
+            hotkeys: [
+                ("arrange".to_string(), "Win+Alt+K, A".to_string()),
+                ("go".to_string(), "Win+Alt+F1".to_string()),
+            ]
+            .into_iter()
+            .collect(),
+            settings: serde_json::json!({
+                "level": 2,
+                "taskbar_hover_strip": true,
+                "hover_delay_seconds": 0.4,
+                "arrange_view": "flat",
+            }),
+        };
+        keeper.save_in(&data.0, "layout_keeper").unwrap();
+        let log = diary();
+        let keyboard = FakeKeys::default();
+        let plugins = || -> Vec<Box<dyn WinCraftPlugin>> {
+            vec![
+                Box::new(fake("layout_keeper", "LayoutKeeper", "Win+Alt+F1", &log)),
+                Box::new(crate::plugins::window_deck::WindowDeck::new()),
+            ]
+        };
+        let set = boxed_set(plugins(), &keyboard, &data);
+        let deck = data.saved("window_deck");
+        assert!(deck.enabled);
+        assert_eq!(deck.hotkeys["arrange"], "Win+Alt+K, A", "the chord stays");
+        assert_eq!(deck.settings["taskbar_hover_strip"], true);
+        assert_eq!(deck.settings["arrange_view"], "flat");
+        assert_eq!(
+            deck.settings["hover_delay_seconds"], 0.15,
+            "its own migration runs after the take-over"
+        );
+        assert_eq!(
+            deck.settings["preview_on_hover"], true,
+            "a default filled in"
+        );
+        let left = data.saved("layout_keeper");
+        assert!(left.settings.get("taskbar_hover_strip").is_none());
+        assert!(left.settings.get("arrange_view").is_none());
+        assert!(!left.hotkeys.contains_key("arrange"));
+        assert_eq!(left.settings["level"], 2);
+        assert_eq!(
+            set.config("layout_keeper").map(|c| c.hotkeys.len()),
+            Some(1)
+        );
+        drop(set);
+
+        // A later start finds WindowDeck's own file and takes nothing again.
+        let mut changed = data.saved("window_deck");
+        changed.settings["arrange_view"] = serde_json::json!("by_monitor");
+        changed.save_in(&data.0, "window_deck").unwrap();
+        let _again = boxed_set(plugins(), &keyboard, &data);
+        assert_eq!(
+            data.saved("window_deck").settings["arrange_view"],
+            "by_monitor"
+        );
+    }
+
+    #[test]
+    fn windowdeck_off_registers_no_hotkey() {
+        let data = Scratch::new("deck-off");
+        PluginConfig {
+            enabled: false,
+            ..PluginConfig::default()
+        }
+        .save_in(&data.0, "window_deck")
+        .unwrap();
+        let keyboard = FakeKeys::default();
+        let mut set = boxed_set(
+            vec![Box::new(crate::plugins::window_deck::WindowDeck::new())],
+            &keyboard,
+            &data,
+        );
+        assert!(set.wanted().is_empty());
+        assert!(keyboard.held().is_empty());
+        set.enable(0);
+        assert_eq!(keyboard.held(), ["Win+Alt+A"]);
+        set.disable(0);
+        assert!(keyboard.held().is_empty(), "off frees Win+Alt+A");
     }
 
     #[test]

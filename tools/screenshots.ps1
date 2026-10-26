@@ -301,7 +301,10 @@ function Write-BookmarkSeed([bool]$present) {
 }
 function Write-KeeperSettings([string]$view) {
     [IO.File]::WriteAllText((Join-Path $plugins 'layout_keeper.json'),
-        ('{"enabled": true, "settings": {"restore_on_start": false, "snapshot_interval_seconds": 600, "arrange_view": "' + $view + '"}}'), $utf8)
+        '{"enabled": true, "settings": {"restore_on_start": false, "snapshot_interval_seconds": 600}}', $utf8)
+    # The strip's view is WindowDeck's setting.
+    [IO.File]::WriteAllText((Join-Path $plugins 'window_deck.json'),
+        ('{"enabled": true, "settings": {"arrange_view": "' + $view + '"}}'), $utf8)
 }
 Write-KeeperSettings 'auto'
 # On for the rename scenes. Its hotkey moves to a combination nobody presses;
