@@ -167,18 +167,22 @@ pub fn columns(
         .collect()
 }
 
-/// The column that takes the space the others leave: the one with the most
-/// windows, the primary monitor's when several tie, else the leftmost.
+/// The column that takes the space the others leave when the columns do not
+/// all fit on one line: the one with the widest content, the primary
+/// monitor's when several tie, else the leftmost. Ghosts are part of the
+/// content, so a column of one card and two ghosts can beat one of two cards.
 fn winner(cols: &[Col]) -> Option<usize> {
-    let most = cols
+    let widest = cols
         .iter()
         .filter(|col| !col.rail)
-        .map(|col| col.count)
-        .max()?;
+        .map(|col| col.need)
+        .fold(None, |best: Option<f32>, need| {
+            Some(best.map_or(need, |best| best.max(need)))
+        })?;
     let tied = || {
         cols.iter()
             .enumerate()
-            .filter(|(_, col)| !col.rail && col.count == most)
+            .filter(|(_, col)| !col.rail && col.need >= widest)
     };
     tied()
         .find(|(_, col)| col.primary)
@@ -186,12 +190,22 @@ fn winner(cols: &[Col]) -> Option<usize> {
         .map(|(index, _)| index)
 }
 
+/// The column that takes the spare width when every column fits on one line:
+/// the last one with windows, else the last one that is not a rail.
+fn last_filled(cols: &[Col]) -> Option<usize> {
+    let last = |filled: bool| {
+        cols.iter()
+            .rposition(|col| !col.rail && (!filled || col.count > 0))
+    };
+    last(true).or_else(|| last(false))
+}
+
 /// A rail `open` of the way (0 to 1) from folded to unfolded.
 fn rail_width(open: f32) -> f32 {
     RAIL + (RAIL_OPEN - RAIL) * open
 }
 
-/// The width of a column that is not the winner: what one line of its cards
+/// The width of a column that is not the winner, when not all fit: what one line of its cards
 /// needs, at most its monitor's share of `available` (its part of the
 /// width of all the row's monitors), and at least MIN_TRACK.
 fn capped(col: &Col, cols: &[Col], available: f32) -> f32 {
@@ -205,9 +219,12 @@ fn capped(col: &Col, cols: &[Col], available: f32) -> f32 {
 }
 
 /// Each column's width out of `available`. A rail is as wide as its `open`
-/// says. Any other column is `capped`. The winner takes what is left, also
-/// at least MIN_TRACK: when even that does not fit, the columns add up to
-/// more than `available` and the row scrolls sideways.
+/// says. When every other column fits on one line (its `need`) beside the
+/// rails, each gets exactly that and the last column with windows takes the
+/// spare width. Otherwise the widest one (see `winner`) takes what the
+/// others leave, also at least MIN_TRACK, and the others are `capped`: when
+/// even that does not fit, the columns add up to more than `available` and
+/// the row scrolls sideways.
 pub fn tracks(cols: &[Col], open: &[f32], available: f32) -> Vec<f32> {
     let mut widths: Vec<f32> = cols
         .iter()
@@ -216,10 +233,22 @@ pub fn tracks(cols: &[Col], open: &[f32], available: f32) -> Vec<f32> {
             if col.rail {
                 rail_width(open.get(index).copied().unwrap_or(0.0))
             } else {
-                capped(col, cols, available)
+                col.need
             }
         })
         .collect();
+    let all: f32 = widths.iter().sum();
+    if all <= available {
+        if let Some(last) = last_filled(cols) {
+            widths[last] += available - all;
+        }
+        return widths;
+    }
+    for (index, col) in cols.iter().enumerate() {
+        if !col.rail {
+            widths[index] = capped(col, cols, available);
+        }
+    }
     if let Some(winner) = winner(cols) {
         let others: f32 = widths
             .iter()
@@ -541,28 +570,16 @@ pub fn visible(mut bands: Vec<Band>, shown: bool) -> Vec<Band> {
     bands
 }
 
-/// The width at which every column holds its windows on one line, rails
-/// folded, or at least MIN_PANEL.
+/// The width at which every column holds its windows and ghosts on one line,
+/// rails folded, or at least MIN_PANEL.
 pub fn natural_width(cols: &[Vec<Col>]) -> f32 {
     cols.iter()
         .map(|row| {
-            let winner = winner(row);
-            let fit = |available: f32| -> f32 {
-                row.iter()
-                    .enumerate()
-                    .map(|(index, col)| {
-                        if col.rail {
-                            RAIL
-                        } else if Some(index) == winner {
-                            col.need.max(MIN_TRACK)
-                        } else {
-                            capped(col, row, available)
-                        }
-                    })
-                    .sum()
-            };
-            let available = fit(fit(f32::INFINITY));
-            available + COLUMN_GAP * row.len().saturating_sub(1) as f32 + 2.0 * SIDE
+            let columns: f32 = row
+                .iter()
+                .map(|col| if col.rail { RAIL } else { col.need })
+                .sum();
+            columns + COLUMN_GAP * row.len().saturating_sub(1) as f32 + 2.0 * SIDE
         })
         .fold(MIN_PANEL, f32::max)
 }
@@ -2613,23 +2630,58 @@ mod tests {
     }
 
     #[test]
-    fn a_column_takes_what_one_line_of_its_cards_needs() {
-        // The busiest column takes what is left of 1400.
+    fn columns_that_all_fit_get_their_content_and_the_last_one_the_spare() {
+        // 300 + 700 + 260 fit in 1400: the spare 140 goes to the last column.
         let widths = tracks(&[col(300.0, 1), col(700.0, 5), col(260.0, 2)], &[], 1400.0);
-        assert_eq!(widths, [300.0, 840.0, 260.0]);
+        assert_eq!(widths, [300.0, 700.0, 400.0]);
         assert!(close(widths.iter().sum(), 1400.0));
+        // An empty last column does not take it; the last one with windows does.
+        let widths = tracks(&[col(300.0, 1), col(200.0, 2), col(200.0, 0)], &[], 900.0);
+        assert_eq!(widths, [300.0, 400.0, 200.0]);
+        // A column's content may be under MIN_TRACK when everything fits.
+        assert_eq!(
+            tracks(&[col(150.0, 1), col(300.0, 1)], &[], 450.0),
+            [150.0, 300.0]
+        );
     }
 
     #[test]
-    fn a_column_is_held_between_200_and_its_monitors_share_of_the_band() {
-        // Three monitors of the same width: each share is 500 of 1500. 120
-        // is too little; 900 is more than its share. The winner is the
-        // third column, which gets what they leave.
-        let widths = tracks(&[col(120.0, 1), col(900.0, 2), col(250.0, 3)], &[], 1500.0);
-        assert_eq!(widths, [MIN_TRACK, 500.0, 800.0]);
-        // Monitors 1920, 3840 and 2560 wide share 1664 as 384, 768 and
-        // 512: the wide monitor's column may take more than the others.
-        let mut cols = [col(700.0, 1), col(900.0, 2), col(250.0, 3)];
+    fn a_column_with_ghosts_gets_its_whole_line_beside_a_busier_column() {
+        // Left empty, centre one card and two ghosts, right two cards: the
+        // centre gets exactly its content and the right one the rest.
+        let card = card_width(None);
+        let centre = INSET + card + 2.0 * (CARD_GAP + GHOST_WIDTH);
+        let right = INSET + 2.0 * card + CARD_GAP;
+        let cols = [
+            Col {
+                rail: true,
+                ..col(INSET + card, 0)
+            },
+            col(centre, 1),
+            col(right, 2),
+        ];
+        let available = 1100.0;
+        let widths = tracks(&cols, &[], available);
+        assert_eq!(widths[0], RAIL);
+        assert!(close(widths[1], centre));
+        assert!(close(widths[2], available - RAIL - centre));
+        assert!(widths[2] >= right);
+        assert_eq!(
+            cell_lines(&[card, GHOST_WIDTH, GHOST_WIDTH], widths[1]).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn when_the_columns_do_not_fit_the_widest_content_takes_the_rest() {
+        // Equal monitors share 1000 as 333.3 each. The first column has two
+        // cards (fewer windows, wider content) and wins over the second.
+        let widths = tracks(&[col(500.0, 2), col(400.0, 3), col(250.0, 1)], &[], 1000.0);
+        assert!(close(widths[1], 1000.0 / 3.0));
+        assert!(close(widths[2], 250.0));
+        assert!(close(widths[0], 1000.0 - widths[1] - widths[2]));
+        // Monitors 1920, 3840 and 2560 wide share 1664 as 384, 768 and 512.
+        let mut cols = [col(700.0, 1), col(900.0, 2), col(900.0, 3)];
         for (col, screen) in cols.iter_mut().zip([1920.0, 3840.0, 2560.0]) {
             col.screen = screen;
         }
@@ -2638,7 +2690,7 @@ mod tests {
         assert!(close(widths[1], 768.0));
         assert!(close(widths[2], 512.0));
         // A share under 200 still leaves the column 200.
-        let mut narrow = [col(400.0, 1), col(300.0, 3)];
+        let mut narrow = [col(400.0, 1), col(800.0, 3)];
         narrow[0].screen = 100.0;
         assert_eq!(tracks(&narrow, &[], 1000.0)[0], MIN_TRACK);
         // Too narrow for both: each keeps 200 and the row scrolls.
@@ -2649,15 +2701,23 @@ mod tests {
     }
 
     #[test]
-    fn a_tie_for_the_most_windows_goes_to_the_primary_monitor() {
-        let mut cols = [col(300.0, 2), col(300.0, 2), col(300.0, 1)];
+    fn the_widest_content_wins_not_the_most_windows() {
+        // One card and two ghosts (600) beat two cards (450).
+        let widths = tracks(&[col(450.0, 2), col(600.0, 1)], &[], 1000.0);
+        assert_eq!(widths, [450.0, 550.0]);
+    }
+
+    #[test]
+    fn a_tie_for_the_widest_content_goes_to_the_primary_monitor() {
+        // 3 x 400 do not fit in 1000.
+        let mut cols = [col(400.0, 2), col(400.0, 2), col(400.0, 1)];
         // No primary among the tied: the leftmost takes the rest.
-        assert_eq!(tracks(&cols, &[], 1000.0), [400.0, 300.0, 300.0]);
+        assert_eq!(winner(&cols), Some(0));
         cols[1].primary = true;
-        assert_eq!(tracks(&cols, &[], 1000.0), [300.0, 400.0, 300.0]);
-        // A primary monitor with fewer windows does not win.
-        cols[2].count = 3;
-        assert_eq!(tracks(&cols, &[], 1000.0), [300.0, 300.0, 400.0]);
+        assert_eq!(winner(&cols), Some(1));
+        // A primary monitor with narrower content does not win.
+        cols[2].need = 450.0;
+        assert_eq!(winner(&cols), Some(2));
     }
 
     #[test]
@@ -2958,16 +3018,18 @@ mod tests {
         );
         let cols = columns(&one_each, &rows, &monitors, &SAME);
         assert_eq!(card_size().x, SAME[0]);
-        // The left and right columns need one card (192) and are held at
-        // 200; the primary one, the busiest, needs two cards.
-        let needed = MIN_TRACK + (INSET + 2.0 * SAME[0] + CARD_GAP) + MIN_TRACK;
+        // Each column needs its cards on one line: one card (192) on the
+        // left and right, two cards in the primary one.
+        let needed = (INSET + SAME[0]) + (INSET + 2.0 * SAME[0] + CARD_GAP) + (INSET + SAME[0]);
         let width = natural_width(&cols);
         assert!(close(width, needed + 2.0 * COLUMN_GAP + 2.0 * SIDE));
         let size = panel_size(&one_each, &cols, &SAME, false, vec2(5000.0, 5000.0));
         assert!(close(size.x, width + SLACK));
         let tracks = row_tracks(&cols[0], &[], size.x);
-        assert_eq!(tracks[0], MIN_TRACK);
-        assert_eq!(tracks[2], MIN_TRACK);
+        assert!(close(tracks[0], INSET + SAME[0]));
+        assert!(close(tracks[1], INSET + 2.0 * SAME[0] + CARD_GAP));
+        // The spare width (SLACK) goes to the last column.
+        assert!(close(tracks[2], INSET + SAME[0] + SLACK));
         // Two cards fit side by side in the middle column, not three.
         assert_eq!(cell_lines(&SAME[..3], tracks[1]), [0..2, 2..3]);
 
