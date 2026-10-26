@@ -4,6 +4,7 @@ pub mod bookmarks;
 mod calc;
 pub mod commands;
 mod danger;
+mod deep;
 mod drives;
 mod everything_ipc;
 mod explorer;

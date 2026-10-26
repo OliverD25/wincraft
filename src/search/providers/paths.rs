@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use windows_sys::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_SYSTEM};
 
+use super::deep::Deep;
 use super::drives::Drives;
 
 use crate::search::{
@@ -49,12 +50,26 @@ struct Entry {
     size: u64,
 }
 
-/// Browses drives and folders, one folder level per keystroke.
+/// One match in the list: in the folder itself (`depth` 1) or below it.
+struct Row {
+    score: i32,
+    depth: usize,
+    /// The folders between the browsed one and the name, with a closing
+    /// backslash, or empty.
+    parent: String,
+    name: String,
+    is_dir: bool,
+    size: u64,
+}
+
+/// Browses drives and folders. The folder's own items are listed at once;
+/// typing also finds matches in the folders below it, as they are read.
 #[derive(Default)]
 pub struct Paths {
     /// The last folder read, so typing a filter does not read it again.
     listed: Option<(String, Vec<Entry>)>,
     drives: Drives,
+    deep: Deep,
 }
 
 impl SearchProvider for Paths {
@@ -87,10 +102,11 @@ impl SearchProvider for Paths {
 
     fn opened(&mut self) {
         self.listed = None;
+        self.deep.reset();
     }
 
     fn waiting(&self) -> bool {
-        self.drives.waiting()
+        self.drives.waiting() || self.deep.waiting()
     }
 
     /// The folder last listed, so `>` can run a command in it. A typed path
@@ -103,7 +119,9 @@ impl SearchProvider for Paths {
     }
 
     fn has_news(&mut self) -> bool {
-        self.drives.take_news()
+        let drives = self.drives.take_news();
+        let deep = self.deep.take_news();
+        drives || deep
     }
 
     fn query(&mut self, query: &Query, _context: &Context) -> Vec<ResultItem> {
@@ -141,38 +159,69 @@ impl Paths {
                 ..Default::default()
             });
         }
-        let mut scored: Vec<(i32, &Entry)> = entries
+        let mut rows: Vec<Row> = entries
             .iter()
             .filter_map(|entry| {
-                if filter.is_empty() {
-                    return Some((0, entry));
-                }
-                fuzzy::score(filter, &entry.name).map(|score| (score, entry))
+                let score = if filter.is_empty() {
+                    0
+                } else {
+                    fuzzy::score(filter, &entry.name)?
+                };
+                Some(Row {
+                    score,
+                    depth: 1,
+                    parent: String::new(),
+                    name: entry.name.clone(),
+                    is_dir: entry.is_dir,
+                    size: entry.size,
+                })
             })
             .collect();
-        scored.sort_by_key(|entry| std::cmp::Reverse(entry.0));
-        items.extend(scored.into_iter().take(limit).map(|(score, entry)| {
-            let path = format!("{dir}{}", entry.name);
+        if !filter.is_empty() {
+            for found in self.deep.find(&dir, filter) {
+                let Some(score) = fuzzy::score(filter, found.name()) else {
+                    continue;
+                };
+                rows.push(Row {
+                    // Nearer matches rank a little higher than deeper ones.
+                    score: (score - 2 * (found.depth as i32 - 1)).max(1),
+                    depth: found.depth,
+                    parent: found.parent().to_string(),
+                    name: found.name().to_string(),
+                    is_dir: found.is_dir,
+                    size: found.size,
+                });
+            }
+        }
+        rows.sort_by_key(|row| (std::cmp::Reverse(row.score), row.depth));
+        items.extend(rows.into_iter().take(limit).map(|row| {
+            let place = format!("{dir}{}", row.parent);
+            let path = format!("{place}{}", row.name);
+            let kind = if row.is_dir {
+                "Folder".to_string()
+            } else {
+                size_text(row.size)
+            };
             ResultItem {
                 group: group.clone(),
-                title: entry.name.clone(),
-                subtitle: if entry.is_dir {
-                    "Folder".to_string()
+                title: row.name.clone(),
+                subtitle: if row.parent.is_empty() {
+                    kind
                 } else {
-                    size_text(entry.size)
+                    format!("{kind} \u{b7} in {}", row.parent.trim_end_matches('\\'))
                 },
                 icon: IconRef::Path(PathBuf::from(&path)),
-                score,
+                score: row.score,
                 usage_key: Some(usage::path_key(&path)),
                 enter: open(&path),
                 shift_enter: reveal(&path),
                 tab: Some(Completion {
-                    label: if entry.is_dir {
+                    label: if row.is_dir {
                         "Open folder".to_string()
                     } else {
                         "Complete".to_string()
                     },
-                    text: completion(&dir, &entry.name, entry.is_dir),
+                    text: completion(&place, &row.name, row.is_dir),
                 }),
                 bookmark: bookmark(&path),
                 ..Default::default()
@@ -375,6 +424,36 @@ mod tests {
         let filtered = paths.list_folder(dir.clone(), "alp", 50);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].title, "alpha.txt");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn typing_after_tab_finds_matches_in_the_subfolders_too() {
+        let base = std::env::temp_dir().join(format!("wincraft-paths-deep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("one").join("two")).unwrap();
+        std::fs::write(base.join("one").join("two").join("budget.txt"), b"x").unwrap();
+        std::fs::write(base.join("budget-old.txt"), b"x").unwrap();
+        let dir = format!("{}\\", base.display());
+
+        let mut paths = Paths::default();
+        let mut titles = Vec::new();
+        for _ in 0..200 {
+            let listed = paths.list_folder(dir.clone(), "budget", 50);
+            titles = listed.iter().map(|item| item.title.clone()).collect();
+            if !paths.waiting() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(titles, ["budget-old.txt", "budget.txt"]);
+        let listed = paths.list_folder(dir.clone(), "budget", 50);
+        assert_eq!(listed[1].subtitle, "1 bytes \u{b7} in one\\two");
+        assert_eq!(
+            listed[1].tab.as_ref().map(|tab| tab.text.clone()),
+            Some(format!(r"{dir}one\two\budget.txt"))
+        );
+        assert!(paths.has_news());
         let _ = std::fs::remove_dir_all(&base);
     }
 
