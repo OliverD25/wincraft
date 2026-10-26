@@ -21,7 +21,6 @@ pub const OTHER: &str = "Other";
 pub struct Card {
     pub id: String,
     pub name: String,
-    pub version: String,
     pub author: String,
     pub description: String,
     pub category: String,
@@ -41,7 +40,6 @@ impl Card {
         Self {
             id: plugin.id.clone(),
             name: plugin.name.clone(),
-            version: plugin.version.clone(),
             author: plugin.author.clone(),
             description: plugin.description.clone(),
             category: category_name(&plugin.category),
@@ -61,7 +59,6 @@ impl Card {
         Self {
             id: entry.id.clone(),
             name: entry.name.clone(),
-            version: entry.version.clone(),
             author: entry.author.clone(),
             description: entry.description.clone(),
             category: category_name(category),
@@ -543,7 +540,6 @@ mod tests {
         Card {
             id: id.to_string(),
             name: name.to_string(),
-            version: "1.0.0".to_string(),
             author: "community".to_string(),
             description: description.to_string(),
             category: category.to_string(),

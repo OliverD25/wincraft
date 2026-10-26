@@ -228,8 +228,6 @@ pub struct Tokens {
     pub info: Color32,
     pub focus_ring: Color32,
     pub palette_shadow: Color32,
-    /// The icon on a tile.
-    pub tile_fg: Color32,
     /// Corner radius of windows and panels.
     pub radius_window: u8,
     /// Corner radius of rows, buttons, boxes and chips.
@@ -304,7 +302,6 @@ struct Palette {
     accent: Color32,
     selection: Color32,
     success: Color32,
-    tile_fg: Color32,
 }
 
 impl Tokens {
@@ -334,7 +331,6 @@ impl Tokens {
             info: hex(0x8fb0d0),
             focus_ring: accent,
             palette_shadow: Color32::from_rgba_unmultiplied(0, 0, 0, 115),
-            tile_fg: accent,
             radius_window: 8,
             radius_row: 4,
             radius_tile: 6,
@@ -379,7 +375,6 @@ impl Tokens {
             info: hex(0x4a6a8a),
             focus_ring: accent,
             palette_shadow: Color32::from_rgba_unmultiplied(45, 43, 43, 56),
-            tile_fg: accent,
             ..Self::dark()
         }
     }
@@ -417,7 +412,6 @@ impl Tokens {
             hover_bg: with_alpha(colours.text, 0.05),
             success: colours.success,
             focus_ring: colours.accent,
-            tile_fg: colours.tile_fg,
             ..Self::classic(dark)
         }
     }
@@ -467,7 +461,6 @@ impl Tokens {
             accent,
             selection: with_alpha(accent, 0.14),
             success,
-            tile_fg: Color32::WHITE,
         };
         let (shadow, highlight) = if dark {
             (
@@ -511,7 +504,6 @@ impl Tokens {
                 accent: hex(0xf0a640),
                 selection: with_alpha(hex(0xf0a640), 0.12),
                 success: hex(0x7fc77a),
-                tile_fg: hex(0xf0a640),
             }
         } else {
             Palette {
@@ -526,7 +518,6 @@ impl Tokens {
                 accent: hex(0xa86a12),
                 selection: with_alpha(hex(0xa86a12), 0.10),
                 success: hex(0x2f7a3a),
-                tile_fg: hex(0xa86a12),
             }
         };
         let painted = Self::painted(ThemeName::Terminal, dark, colours);
@@ -562,7 +553,6 @@ impl Tokens {
                 accent: hex(0xd0a060),
                 selection: with_alpha(hex(0xd0a060), 0.10),
                 success: hex(0x9cbf86),
-                tile_fg: hex(0xd0a060),
             }
         } else {
             // The Classical design system's own values: --color-bg,
@@ -580,7 +570,6 @@ impl Tokens {
                 accent: hex(0xb68235),
                 selection: hex(0xfff3e4),
                 success: hex(0x3f7a4a),
-                tile_fg: hex(0xb68235),
             }
         };
         Self {
@@ -611,7 +600,6 @@ impl Tokens {
                     accent: hex(0xffff00),
                     selection: Color32::TRANSPARENT,
                     success: hex(0x3ff23f),
-                    tile_fg: hex(0xffff00),
                 },
                 hex(0xffb000),
                 hex(0xff6b6b),
@@ -631,7 +619,6 @@ impl Tokens {
                     accent: hex(0x5a00b0),
                     selection: Color32::TRANSPARENT,
                     success: hex(0x006b00),
-                    tile_fg: hex(0x5a00b0),
                 },
                 hex(0x8a4000),
                 hex(0xb00000),
@@ -1213,7 +1200,6 @@ mod tests {
             assert!(tokens.shadows);
             assert_eq!(tokens.fonts, FontSet::System);
             assert_eq!(tokens.rim, tokens.border);
-            assert_eq!(tokens.tile_fg, tokens.accent);
             assert_eq!(tokens.focus_ring, tokens.accent);
         };
 
@@ -1303,7 +1289,6 @@ mod tests {
                     tokens.danger,
                     tokens.info,
                     tokens.focus_ring,
-                    tokens.tile_fg,
                 ] {
                     assert_eq!(colour.a(), 255, "{what}: solid colours are solid");
                 }
@@ -1373,7 +1358,6 @@ mod tests {
             assert_eq!(fluent.pill_height, Some(16.0));
             assert_eq!(fluent.pill_radius, 2);
             assert_eq!(fluent.search_line, 2.0);
-            assert_eq!(fluent.tile_fg, Color32::WHITE);
             assert!(fluent.icon_tiles && fluent.shadows);
             assert_eq!(fluent.text_disabled, hex(0x8a8585));
             assert_eq!(fluent.elevated_bg.a(), 255, "the glass is solid");
