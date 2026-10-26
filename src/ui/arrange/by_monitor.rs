@@ -2299,6 +2299,37 @@ fn footer(ui: &Ui, panel: Rect, note: bool, others_key: bool) {
     );
 }
 
+/// The keys that move a window or change its number, for the compact popup,
+/// which picks and opens windows itself and leaves these to the rules here.
+pub(super) fn move_keys(
+    ctx: &egui::Context,
+    shared: &mut Shared,
+    group: &ArrangeGroup,
+    snapshot: &ArrangeSnapshot,
+    frame: &mut Frame,
+) {
+    let visible = visible_flags(group, &snapshot.monitors, shared.only_monitor);
+    let shown = shared
+        .others
+        .shown(others::count(group, &snapshot.desktops, &visible));
+    let widths = shared.widths(group, card_width);
+    let scope = Scope {
+        only: shared.only_monitor,
+        taskbars: shared.taskbars,
+    };
+    let model = Model::new(group, snapshot, &widths, shown, scope);
+    shared.cursor_ghost = false;
+    keyboard(
+        ctx,
+        shared,
+        group,
+        &snapshot.desktops,
+        &model,
+        &snapshot.monitors,
+        frame,
+    );
+}
+
 /// The arrow keys `step` answers, the most modifiers first: a pattern with
 /// fewer modifiers also matches when more are held. Plain arrows only pick;
 /// moving a window needs Ctrl.
