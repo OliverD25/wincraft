@@ -190,6 +190,27 @@ pub fn fit(source: Vec2, area: Vec2) -> Vec2 {
     source * scale
 }
 
+/// Where a picture of `source` goes in `area` so that it keeps off `clear`,
+/// the badges painted over it: DWM draws its picture above everything egui
+/// paints and cannot clip it round a corner. The picture is fitted and
+/// centred in `area` as usual; when that meets `clear`, it is fitted instead
+/// into the part of `area` below `clear` or left of it, whichever keeps it
+/// larger, so the shrink is as small as it can be.
+pub fn fit_clear(area: Rect, source: Vec2, clear: Rect) -> Rect {
+    let placed = |part: Rect| Rect::from_center_size(part.center(), fit(source, part.size()));
+    let whole = placed(area);
+    if !whole.intersects(clear) {
+        return whole;
+    }
+    let below = Rect::from_min_max(pos2(area.min.x, clear.bottom().max(area.min.y)), area.max);
+    let beside = Rect::from_min_max(area.min, pos2(clear.left().min(area.max.x), area.max.y));
+    [below, beside]
+        .into_iter()
+        .filter(|part| part.is_positive())
+        .map(placed)
+        .max_by(|a, b| a.area().total_cmp(&b.area()))
+        .unwrap_or(whole)
+}
 /// A picture of `source` drawn at `dest` but only visible inside `clip`: DWM
 /// cannot clip, so the destination shrinks to the visible part and the
 /// source is cropped by the same fraction. None when nothing is visible.
@@ -264,5 +285,25 @@ mod tests {
     fn logical_rects_become_physical_pixels() {
         let r = Rect::from_min_max(pos2(10.0, 20.0), pos2(110.0, 80.5));
         assert_eq!(physical(r, 1.5), [15, 30, 165, 121]);
+    }
+
+    #[test]
+    fn a_picture_keeps_off_the_badges_by_the_smallest_shrink() {
+        let area = Rect::from_min_size(pos2(0.0, 0.0), vec2(200.0, 96.0));
+        let wide = vec2(200.0, 96.0);
+        let badges = Rect::from_min_size(pos2(120.0, 6.0), vec2(74.0, 18.0));
+        assert_eq!(fit_clear(area, wide, Rect::NOTHING), area);
+        let moved = fit_clear(area, wide, badges);
+        assert!(!moved.intersect(badges).is_positive());
+        assert!(area.contains_rect(moved));
+        assert!(moved.area() > 0.0);
+        // Tall and narrow: it already stays left of the badges.
+        let far = Rect::from_min_size(pos2(130.0, 6.0), vec2(64.0, 18.0));
+        let tall = fit_clear(area, vec2(50.0, 100.0), far);
+        assert_eq!(tall, fit_clear(area, vec2(50.0, 100.0), Rect::NOTHING));
+        // Badges across the whole width leave only the part below them.
+        let across = Rect::from_min_size(pos2(6.0, 6.0), vec2(188.0, 18.0));
+        let below = fit_clear(area, wide, across);
+        assert!(below.top() >= across.bottom());
     }
 }

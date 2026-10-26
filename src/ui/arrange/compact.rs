@@ -566,6 +566,7 @@ fn card(
             dest: picture,
             clip: ui.clip_rect(),
             opacity: (255.0 * opacity).round() as u8,
+            clear: Rect::NOTHING,
             ghost: false,
         });
     } else {
