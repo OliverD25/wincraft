@@ -381,6 +381,9 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
                     }
                 }
                 if requests.arrange {
+                    if requests.anchor.is_some() {
+                        open_timing::mark(OpenStep::Host);
+                    }
                     host.arrange_anchor = requests.anchor;
                     host.send_arrange(true);
                 } else if requests.stale {

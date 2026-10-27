@@ -57,6 +57,10 @@ impl Arrange {
         let Ok(mut shared) = self.shared.lock() else {
             return;
         };
+        if open_timing::is_active() {
+            let existed = settings::find_window(TITLE, self.palette_hwnd) != 0;
+            open_timing::set_new_window(!existed);
+        }
         // A strip already on screen takes the new data where it is.
         if shared.window == 0 && !shared.reveal.pending() {
             shared.reveal = reveal::Reveal::waiting(Instant::now());
@@ -236,6 +240,7 @@ impl Arrange {
             shared.reveal = reveal::Reveal::waiting(now);
         }
         if found != 0 && shared.reveal.found(now) {
+            open_timing::mark(OpenStep::WindowMade);
             if let Some(rect) = shared.wanted_rect() {
                 keep_placed(found as HWND, rect);
             }
@@ -304,6 +309,9 @@ impl Arrange {
             let Ok(mut shared) = shared.lock() else {
                 return;
             };
+            if shared.asked_at.is_some() {
+                open_timing::mark(OpenStep::FirstFrame);
+            }
             if shared.window == 0 {
                 shared.window = settings::find_window(TITLE, palette_hwnd);
                 if shared.window != 0 {
@@ -328,10 +336,12 @@ impl Arrange {
                 ui.ctx().request_repaint();
             } else if shared.window != 0 {
                 if let Some(asked) = shared.asked_at.take() {
-                    log::info!(
-                        "arrange strip on screen {} ms after the host asked for it",
-                        asked.elapsed().as_millis()
-                    );
+                    if !open_timing::finish() {
+                        log::info!(
+                            "arrange strip on screen {} ms after the host asked for it",
+                            asked.elapsed().as_millis()
+                        );
+                    }
                 }
                 // A cloaked window is not brought to the front.
                 if std::mem::take(&mut shared.focus_wanted) {

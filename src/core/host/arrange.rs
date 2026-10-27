@@ -104,6 +104,7 @@ impl Host {
             UiCommand::ArrangeUpdate(snapshot)
         });
         if open {
+            open_timing::mark(OpenStep::Request);
             if let Some(card) = self.peek_card.take() {
                 self.to_ui.send(UiCommand::PeekCard(card));
             }
@@ -115,6 +116,7 @@ impl Host {
     /// Win+Alt+A: the strip for that taskbar button.
     pub(super) fn arrange_digit(&mut self, digit: u8) {
         let started = std::time::Instant::now();
+        open_timing::begin(&format!("Win+Alt+A, {digit}"), false);
         let now = self.clock.elapsed().as_millis() as u64;
         // The badges show the buttons read when the wait started, and the
         // digits must count those; a second digit counts the same list.
@@ -153,6 +155,7 @@ impl Host {
             Vec::new()
         });
         self.buttons_at = Some(std::time::Instant::now());
+        open_timing::mark(OpenStep::TaskbarRead);
     }
 
     /// The Arrange strip's hotkey. The first press waits 3 s for a digit,
@@ -324,6 +327,7 @@ impl Host {
             self.to_ui.send(UiCommand::ArrangeSelectNext);
             return WinDigit::NextCard;
         }
+        open_timing::begin(&format!("Win+{digit}"), true);
         let fresh = self
             .buttons_at
             .is_some_and(|at| at.elapsed() < BUTTONS_FRESH);
@@ -332,6 +336,7 @@ impl Host {
         }
         let number = if digit == 0 { 10 } else { usize::from(digit) };
         let Some((button, place)) = taskbar_number::button_number(&self.buttons, number) else {
+            open_timing::cancel();
             log::info!("Win+{digit}: taskbar button {number} does not exist; Windows has it");
             return WinDigit::GiveBack;
         };
@@ -339,6 +344,7 @@ impl Host {
         self.arrange_anchor = Some((app.clone(), rect));
         if !self.send_arrange_for(true, true) {
             self.arrange_anchor = None;
+            open_timing::cancel();
             log::info!("Win+{digit}: {app} has no windows the strip shows; Windows has it");
             return WinDigit::GiveBack;
         }

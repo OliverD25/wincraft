@@ -13,6 +13,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetWindowRect, IsWindowVisible, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE,
 };
 
+use crate::core::open_timing::{self, OpenStep};
 use crate::core::taskbar_scope::MultiMonitor;
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{

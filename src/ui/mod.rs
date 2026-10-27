@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
+use crate::core::open_timing::{self, OpenStep};
 use crate::core::theme;
 use crate::core::traits::{PluginWindow, WindowFrame};
 use crate::core::ui_bridge::{
@@ -222,6 +223,7 @@ impl App {
                     log::info!("settings shown");
                 }
                 UiCommand::ShowArrange(snapshot) => {
+                    open_timing::mark(OpenStep::UiGot);
                     self.arrange.open(snapshot);
                     self.arrange_open = true;
                     ctx.request_repaint();

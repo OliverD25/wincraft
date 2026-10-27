@@ -43,6 +43,7 @@ pub fn open_arrange() {
 /// `button` (left, top, right, bottom in physical pixels), without taking
 /// the keyboard from the window in front. Safe to call from any callback.
 pub fn open_arrange_at(app: String, button: [i32; 4]) {
+    open_timing::begin("hover", false);
     ARRANGE_ANCHOR.with(|cell| *cell.borrow_mut() = Some((app, button)));
     open_arrange();
 }

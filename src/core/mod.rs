@@ -22,6 +22,7 @@ pub mod logging;
 pub mod mask_key;
 pub mod monitor_list;
 pub mod monitors;
+pub mod open_timing;
 pub mod package;
 pub mod quit;
 pub mod release_notes;

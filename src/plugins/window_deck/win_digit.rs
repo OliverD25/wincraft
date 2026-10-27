@@ -28,7 +28,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::core::ll_hook::HookThread;
-use crate::core::{chord, host, mask_key, taskbar_number};
+use crate::core::{chord, host, mask_key, open_timing, taskbar_number};
 
 /// What the hook does with one key event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -172,6 +172,7 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         Step::Hide => 1,
         Step::Take { digit, again } => {
             // After the borrow: the mask comes back through this hook.
+            open_timing::key_seen();
             mask_key::send("WindowDeck");
             host::post_taskbar_button(digit, again);
             1

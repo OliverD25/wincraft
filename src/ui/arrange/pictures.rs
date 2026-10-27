@@ -20,9 +20,13 @@ fn registered(
     thumbs
         .entry(hwnd)
         .or_insert_with(|| {
-            (!destination.is_null())
+            let thumb = (!destination.is_null())
                 .then(|| Thumbnail::register(destination, hwnd as HWND))
-                .flatten()
+                .flatten();
+            if thumb.is_some() {
+                open_timing::mark_latest(OpenStep::Pictures);
+            }
+            thumb
         })
         .as_mut()
 }

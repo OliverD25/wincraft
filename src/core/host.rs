@@ -32,6 +32,7 @@ use serde_json::Value;
 use crate::core::attention::Attention;
 use crate::core::config::{Config, PluginConfig, UpdateConfig, DEFAULT_PALETTE_HOTKEY};
 use crate::core::hotkeys::Shortcut;
+use crate::core::open_timing::{self, OpenStep};
 use crate::core::shortcuts::{self, FirstPress};
 use crate::core::traits::{HostContext, Hotkey, PluginWindow, WinCraftPlugin, WindowGroups};
 use crate::core::tray::{show_menu, MenuItem, Tray, WM_TRAY_CALLBACK};
