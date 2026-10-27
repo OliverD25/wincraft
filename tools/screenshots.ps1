@@ -37,6 +37,9 @@ param(
     [string]$UsageFile,
     # Run only the scenes with these names.
     [string[]]$Only = @(),
+    # The theme the test instances start in (classic, fluent, terminal,
+    # paper, high-contrast), always in dark mode.
+    [string]$Theme = 'classic',
     # Test switch: behave as if the user touched the PC after scene N.
     [int]$SimulateInputAfterScene = 0
 )
@@ -316,7 +319,7 @@ $plugins = Join-Path $appdata 'WinCraft\plugins'
 New-Item -ItemType Directory -Force -Path $plugins | Out-Null
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 [IO.File]::WriteAllText((Join-Path $appdata 'WinCraft\config.json'),
-    '{"start_with_windows": false, "theme": "dark", "palette_hotkey": "Win+Ctrl+Alt+Shift+F23"}', $utf8)
+    ('{"start_with_windows": false, "theme": "' + $Theme + '", "mode": "dark", "palette_hotkey": "Win+Ctrl+Alt+Shift+F23"}'), $utf8)
 foreach ($id in 'language_indicator', 'screen_dimmer', 'shortcut_detector') {
     [IO.File]::WriteAllText((Join-Path $plugins "$id.json"), '{"enabled": false}', $utf8)
 }
