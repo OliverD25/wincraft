@@ -76,7 +76,11 @@ pub fn set_corners(window: isize, round: bool) -> i32 {
     if window == 0 {
         return 0;
     }
-    let corners = if round { DWMWCP_ROUND } else { DWMWCP_DONOTROUND };
+    let corners = if round {
+        DWMWCP_ROUND
+    } else {
+        DWMWCP_DONOTROUND
+    };
     unsafe {
         DwmSetWindowAttribute(
             window as HWND,
