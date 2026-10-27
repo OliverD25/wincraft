@@ -1,28 +1,57 @@
 ---
-name: design-handouts
-description: Fetch WinCraft design handouts from the user's Claude Design project "Wincraft Windows Utilities Design" read-only into _dev_docs/claude-design/. Use when the user says "fetch the design", "take the handout from Claude Design", "the design agent made something new", or names the Arrange strip / WinCraft UI design.
+name: design-source
+description: Where WinCraft's design lives and how it reaches the code. The Claude Design project "Wincraft Windows Utilities Design" is the source of truth for how WinCraft looks; copies sit in design/claude-design/. Use before building or changing any screen, theme, layout or wording on screen, when the user mentions the design, Claude Design or a handout, or runs /design-pull.
 ---
 
-# WinCraft design handouts from Claude Design
+# WinCraft design source
 
-Generic rules and the tool live in the global `claude-design-connect` skill.
-This file holds WinCraft's own facts and decisions.
+The workflow (pull, compare, apply, check, the quick check before UI work, the
+code-changes log) is in the global `design-pull` skill. Tool and login facts
+are in `claude-design-connect`. This file holds only WinCraft's facts and the
+user's decisions.
 
-- **Project:** "Wincraft Windows Utilities Design", a design project (not a
-  design system), id `2799b359-d98e-4741-afbe-67e08618bcf1`, owned by the user.
-- **Trigger:** fetch only on the user's word, never on a schedule.
-- **What counts as a handout:** folders named `design_handoff_*` (a `README.md`
-  spec plus one `.dc.html` visual reference). The README is the spec; the page
-  is a visual reference, never code to port.
-- **Where files go:** `_dev_docs/claude-design/<path as in the project>`.
-  `_dev_docs/` is git-ignored (WinCraft has no `_io` folder; this is its
-  exchange folder). Never copy handout files or their private paths into the
-  repository; the substance goes into a plan in `~/.claude/plans/` and a desk card.
-- **Record:** every fetch gets a dated entry in `_dev_docs/claude-design/FETCHED.md`.
-- **Skip:** `_ds/` bundles, `support.js`, `uploads/` images, unless a task needs them.
-- **Truncated file (> 256 KiB):** ask the user for the page's share link.
+- **Source of truth:** Claude Design project "Wincraft Windows Utilities
+  Design", id `2799b359-d98e-4741-afbe-67e08618bcf1`,
+  https://claude.ai/design/p/2799b359-d98e-4741-afbe-67e08618bcf1. Type:
+  design project. Design system it uses: "classical" (the `_ds/` bundle).
+- **Copies:** `design/claude-design/`, committed (user's decision,
+  2026-10-27; until then they sat git-ignored in `_dev_docs/claude-design/`).
+  Record in `design/claude-design/FETCHED.md`. UI changes made in code go into
+  `design/claude-design/CODE-CHANGES.md`. The repo is public: never put a
+  private path, a name or an e-mail address into a copy or a prompt file.
+- **Handouts:** folders named `design_handoff_*` hold a `README.md` spec plus
+  one `.dc.html` page. The README is the spec; a page is a visual reference,
+  never code to port.
+- **Skip when pulling:** `_ds/` bundles, `support.js`, `image-slot.js`,
+  `.thumbnail`, `uploads/`, and the option pages whose choice is made
+  (`* Options.dc.html`), unless a task needs them.
+- **Product notes:** colours come from theme tokens only (`src/core/theme.rs`),
+  for all five themes, light and dark; design pages show fixed hex values of
+  the Classic dark theme. No text under 12 px (Principle 6). A plugin's window
+  talks to the host only through the plugin interface (Principle 3).
+- **Prompt files** for the design session (`prompt-*.md`) sit next to the
+  copies.
 
-## User decisions that override the design
+## Page-to-code map
+
+| Design page | Built in |
+| --- | --- |
+| `Arrange Strip.dc.html`, `design_handoff_arrange_strip/README.md` | `src/ui/arrange.rs`, `src/ui/arrange/`, `src/plugins/window_deck/` |
+| `Arrange Strip Compact Options.dc.html` (8a chosen) | `src/ui/arrange/compact.rs` |
+| `About Updates.dc.html` | `src/ui/settings/about.rs`, `src/ui/widgets/row.rs` |
+| `Hotkey Editor Options.dc.html` (1c), `design_handoff_hotkey_editor/README.md` | `src/ui/widgets/hotkey_dialog.rs`, `src/ui/widgets/hotkey_capture.rs` |
+| `Keyboard Shortcuts.dc.html` | `src/ui/settings/shortcuts.rs`, `src/ui/settings/hotkey_status.rs` |
+| `Palette Main View*.dc.html`, `Palette Suggestions.dc.html`, `Match Highlight Options.dc.html` | `src/ui/palette/`, `src/search/` |
+| `Plugins Grid v2.dc.html` (1a), `design_handoff_plugins_grid/README.md` | `src/ui/settings/plugins.rs`, `src/ui/settings/store.rs`, `src/ui/settings/catalog.rs`, `src/ui/widgets/tile.rs` |
+| `QuickJump.dc.html` | `src/plugins/quick_jump/` |
+| `Shortcut Detector.dc.html` | `src/plugins/shortcut_detector/window.rs` (Win32 controls today; being rebuilt in egui) |
+| `WinCraft Themes.dc.html` | `src/core/theme.rs`, `src/ui/settings/themes.rs`, `src/ui/widgets/theme_tile.rs` |
+| `WinCraft Handout.dc.html`, `design_handoff_wincraft_ui/README.md` | `src/core/theme.rs`, `src/ui/widgets/` |
+
+Copies in the repo so far: `design_handoff_arrange_strip/`, `Shortcut
+Detector.dc.html`. The other pages are copied at their next pull.
+
+## Your decisions that override the design
 
 The design session is the source of truth for the look, but the user has
 overruled some rules in chat. Every plan made from a design page must check
@@ -44,7 +73,7 @@ rule, and send the user a prompt so the design page is fixed too.
 | WindowDeck keys | (not designed) | Ctrl+W closes the selected window, Ctrl+N opens a new window of the app, F2 renames the selected window on its card (Enter saves, Esc or a click elsewhere cancels; saved as WindowNamer's name). Hover counts only after the mouse moves; hover and keys share one selection. | 2026-10-27 |
 | Artboard desks | Windows drawn on a coloured desk with padding | The desk is background only: no outer frame, margin or extra glass around any window. | 2026-10-26 |
 
-## Handouts so far
+## Pulls so far
 
 | Handout | Arrived | Became |
 |---|---|---|
@@ -60,3 +89,4 @@ rule, and send the user a prompt so the design page is fixed too.
 | Palette Main View.dc.html + v2 (palette with inspector, 8 additions) | 2026-10-26, via DesignSync (pages, no README) | plan `wincraft-palette-v2.md` |
 | Plugins Grid v2.dc.html (option 1a, horizontal compact cards) | 2026-10-26, via DesignSync (page, no README) | plan `wincraft-plugins-grid-1a.md` |
 | design_handoff_hotkey_editor (option 1c, one hotkey editor dialog) | 2026-10-26, via DesignSync (README) | plan `wincraft-hotkey-editor.md` |
+| Shortcut Detector.dc.html (window redesign in the WinCraft look; first pull with copies in git) | 2026-10-27, via DesignSync (page, no README) | plan `wincraft-shortcut-detector.md` |

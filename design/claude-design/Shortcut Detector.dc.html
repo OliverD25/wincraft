@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/styles.css">
+  <script src="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/_ds_bundle.js"></script>
+  <style>
+    body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:'Segoe UI Variable Text','Segoe UI',Selawik,'Noto Sans',sans-serif}
+    a{color:var(--color-accent)} a:hover{color:var(--color-accent-700)}
+    input::placeholder{color:#7d7979}
+  </style>
+</helmet>
+
+<section style="padding:48px;display:flex;flex-direction:column;gap:24px">
+  <header style="display:flex;flex-direction:column;gap:6px;max-width:880px">
+    <div style="font-size:12px;font-weight:600;color:var(--color-accent)">Shortcut detector</div>
+    <h1 style="margin:0;font-family:inherit;font-size:28px;font-weight:600;line-height:1.15">Which shortcuts are taken</h1>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">Same content as the current window, in WindowDeck's dark theme. "Check a shortcut" now uses key capture, so the answer shows in the same field. Status is a short tag (Windows, App, WinCraft, Free), and the Windows meaning gets its own column without brackets. Search and the modifier filter work in this mock.</p>
+  </header>
+
+  <div style="width:1040px;max-width:100%;background:#1c1a19;color:#f3f2f2;border:1px solid #444141;border-radius:8px;overflow:hidden;font-size:14px;display:flex;flex-direction:column;box-shadow:0 12px 32px rgba(0,0,0,0.25)">
+    <div style="height:40px;display:flex;align-items:center;gap:10px;padding-left:14px">
+      <span style="width:18px;height:18px;border:1px solid #e1ad66;border-radius:4px;color:#e1ad66;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">W</span>
+      <span style="font-size:12px;color:#bab6b6;white-space:nowrap">WinCraft · Shortcut detector</span>
+      <span style="margin-left:auto;display:flex">
+        <span style="width:46px;height:40px;display:flex;align-items:center;justify-content:center;color:#bab6b6"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor"></path></svg></span>
+        <span style="width:46px;height:40px;display:flex;align-items:center;justify-content:center;color:#bab6b6"><svg width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor"></rect></svg></span>
+        <span style="width:46px;height:40px;display:flex;align-items:center;justify-content:center;color:#bab6b6"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor"></path></svg></span>
+      </span>
+    </div>
+
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:8px 20px 16px">
+      <label style="height:32px;flex:1 1 220px;max-width:280px;display:flex;align-items:center;gap:8px;padding:0 10px;border:1px solid #444141;border-radius:4px;background:#262322">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7d7979" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+        <input value="{{ query }}" onChange="{{ onQuery }}" placeholder="Search shortcuts or meaning" style="flex:1;min-width:0;background:transparent;border:0;outline:none;color:#f3f2f2;font:inherit;font-size:13px">
+      </label>
+      <div style="display:flex;height:32px;border:1px solid #444141;border-radius:4px;overflow:hidden">
+        <sc-for list="{{ mods }}" as="m" hint-placeholder-count="5">
+          <span onClick="{{ m.pick }}" style="padding:0 12px;display:inline-flex;align-items:center;font-size:13px;cursor:pointer;color:{{ m.color }};box-shadow:{{ m.ring }};border-left:{{ m.sep }}">{{ m.label }}</span>
+        </sc-for>
+      </div>
+      <span onClick="{{ toggleFree }}" style="display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#bab6b6;cursor:pointer">
+        <span style="width:36px;height:18px;box-sizing:border-box;border:1px solid {{ freeTrack }};border-radius:9px;position:relative"><span style="position:absolute;top:3px;left:{{ freeKnob }};width:10px;height:10px;border-radius:5px;background:{{ freeTrack }}"></span></span>
+        Show free
+      </span>
+      <span style="margin-left:auto;display:flex;gap:8px">
+        <span style="flex:none;white-space:nowrap;height:32px;padding:0 12px;display:inline-flex;align-items:center;gap:8px;border:1px solid #444141;border-radius:4px;font-size:13px;cursor:pointer" style-hover="background:#2d2b2b">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"></path><path d="M21 3v5h-5"></path></svg>Refresh<span style="font-size:11px;color:#7d7979">F5</span>
+        </span>
+        <span style="flex:none;white-space:nowrap;height:32px;padding:0 12px;display:inline-flex;align-items:center;gap:8px;border:1px solid #444141;border-radius:4px;font-size:13px;cursor:pointer" style-hover="background:#2d2b2b">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>Copy list
+        </span>
+      </span>
+    </div>
+
+    <div style="margin:0 20px 16px;display:flex;align-items:center;gap:14px;padding:10px 14px;border:1px solid #444141;border-radius:6px">
+      <span style="flex:none;font-size:13px;color:#bab6b6;white-space:nowrap">Check a shortcut</span>
+      <span style="flex:none;height:32px;min-width:200px;padding:0 10px;display:flex;align-items:center;gap:6px;border:1px solid #444141;border-radius:4px;background:rgba(243,242,242,0.05)">
+        <span style="height:22px;padding:0 7px;display:inline-flex;align-items:center;border:1px solid #444141;border-bottom-width:2px;border-radius:4px;background:#2d2b2b;font-size:12px">Ctrl</span>
+        <span style="height:22px;padding:0 7px;display:inline-flex;align-items:center;border:1px solid #444141;border-bottom-width:2px;border-radius:4px;background:#2d2b2b;font-size:12px">Shift</span>
+        <span style="height:22px;padding:0 7px;display:inline-flex;align-items:center;border:1px solid #444141;border-bottom-width:2px;border-radius:4px;background:#2d2b2b;font-size:12px">K</span>
+      </span>
+      <span style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;font-size:13px;color:#8fbf7f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="flex:none;width:6px;height:6px;border-radius:3px;background:#8fbf7f"></span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">Free · no app or Windows shortcut uses it</span></span>
+      <span style="flex:none;font-size:12px;color:#7d7979;white-space:nowrap">Click, then press keys</span>
+    </div>
+
+    <div style="height:452px;overflow-y:auto;border-top:1px solid #444141">
+      <div style="position:sticky;top:0;z-index:1;background:#1c1a19;display:grid;grid-template-columns:200px 110px minmax(0,1fr) 110px;gap:0 16px;padding:0 20px;height:32px;align-items:center;border-bottom:1px solid #444141;font-size:12px;color:#7d7979">
+        <span>Shortcut</span><span>Status</span><span>Meaning</span><span>Source</span>
+      </div>
+      <sc-for list="{{ rows }}" as="r" hint-placeholder-count="12">
+        <div style="display:grid;grid-template-columns:200px 110px minmax(0,1fr) 110px;gap:0 16px;padding:0 20px;height:38px;align-items:center;border-bottom:1px solid rgba(68,65,65,0.5)" style-hover="background:#262322">
+          <span style="display:flex;align-items:center;gap:4px;min-width:0">
+            <sc-for list="{{ r.keys }}" as="k" hint-placeholder-count="2">
+              <span style="height:22px;padding:0 7px;display:inline-flex;align-items:center;border:1px solid #444141;border-bottom-width:2px;border-radius:4px;background:#2d2b2b;font-size:12px;white-space:nowrap">{{ k }}</span>
+            </sc-for>
+          </span>
+          <span><span style="height:20px;padding:0 8px;display:inline-flex;align-items:center;border:1px solid {{ r.tagColor }};border-radius:10px;color:{{ r.tagColor }};font-size:12px;white-space:nowrap">{{ r.status }}</span></span>
+          <span style="font-size:13px;color:#bab6b6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.meaning }}</span>
+          <span style="font:12px Consolas,'Cascadia Mono',monospace;color:#7d7979">{{ r.source }}</span>
+        </div>
+      </sc-for>
+      <sc-if value="{{ empty }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:32px 20px;font-size:13px;color:#7d7979">No shortcuts match.</div>
+      </sc-if>
+    </div>
+
+    <div style="border-top:1px solid #444141;padding:10px 20px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;font-size:12px;color:#bab6b6">
+      <span style="font-variant-numeric:tabular-nums">1,575 combinations checked in 57 ms</span>
+      <span style="color:#7d7979">·</span><span>214 taken by apps</span>
+      <span style="color:#7d7979">·</span><span>3 Windows</span>
+      <span style="color:#7d7979">·</span><span>15 WinCraft</span>
+      <span style="margin-left:auto;color:#7d7979">Apps that use keyboard hooks (AutoHotkey, PowerToys) cannot be detected.</span>
+    </div>
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { query: '', mod: 'All', free: false };
+  renderVals() {
+    const C = { Windows: '#7fa7d9', App: '#e88a4a', WinCraft: '#e1ad66', Free: '#8fbf7f' };
+    const data = [
+      ['Alt+Esc','Windows','Step through the windows in the order they were opened','windows list'],
+      ['Alt+F2','App','','probe'],
+      ['Alt+F4','App','Windows: Close the active window','probe'],
+      ['Alt+G','App','','probe'],
+      ['Alt+PrintScreen','App','','probe'],
+      ['Alt+Space','WinCraft','Open the palette','WinCraft'],
+      ['Alt+Tab','App','Windows: Switch between the open apps','probe'],
+      ['Ctrl+Esc','App','Windows: Open Start','probe'],
+      ['Ctrl+PrintScreen','App','','probe'],
+      ['Ctrl+Alt+Delete','App','Windows: Open the security options screen','probe'],
+      ['Ctrl+Alt+Tab','App','Windows: Show the open apps and keep them shown','probe'],
+      ['Shift+F12','App','','probe'],
+      ['Shift+PrintScreen','App','','probe'],
+      ['Alt+Shift+PrintScreen','App','','probe'],
+      ['Alt+Shift+Tab','App','Windows: Switch between the open apps, backwards','probe'],
+      ['Alt+Shift+Z','App','','probe'],
+      ['Ctrl+Shift+Esc','App','Windows: Open Task Manager','probe'],
+      ['Win+Alt+A','WinCraft','WindowDeck: Open for a taskbar button','WinCraft'],
+      ['Ctrl+Shift+K','Free','','probe'],
+      ['Ctrl+Alt+J','Free','','probe'],
+    ];
+    const q = this.state.query.trim().toLowerCase();
+    const rows = data.filter(([s, st, m]) =>
+      (this.state.free || st !== 'Free') &&
+      (this.state.mod === 'All' || s.split('+').includes(this.state.mod)) &&
+      (!q || (s + ' ' + m).toLowerCase().includes(q))
+    ).map(([s, st, m, src]) => ({ keys: s.split('+'), status: st, tagColor: C[st], meaning: m || '—', source: src }));
+    const mods = ['All','Ctrl','Alt','Shift','Win'].map((l, i) => ({
+      label: l, pick: () => this.setState({ mod: l }),
+      color: this.state.mod === l ? '#e1ad66' : '#bab6b6',
+      ring: this.state.mod === l ? 'inset 0 0 0 1px #e1ad66' : 'none',
+      sep: i ? '1px solid #444141' : '0',
+    }));
+    return {
+      query: this.state.query, onQuery: e => this.setState({ query: e.target.value }),
+      mods, rows, empty: rows.length === 0,
+      toggleFree: () => this.setState(s => ({ free: !s.free })),
+      freeTrack: this.state.free ? '#e1ad66' : '#7d7979', freeKnob: this.state.free ? '21px' : '3px',
+    };
+  }
+}
+</script>
+</body>
+</html>
