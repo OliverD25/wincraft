@@ -1144,6 +1144,7 @@ fn test_host(
         buttons_at: None,
         buttons_cache: taskbar_cache::Cache::default(),
         buttons_coming: None,
+        prepared: prepared::Prepared::default(),
         clock: std::time::Instant::now(),
         wait_hint: None,
         reveal: taskbar_number::Reveal::default(),
@@ -2036,4 +2037,27 @@ fn switching_the_strip_plugin_off_frees_its_kept_window() {
     });
     assert!(PluginRequests::take().free);
     assert!(!host.strip_plugin_on());
+}
+
+#[test]
+fn windows_gathered_when_win_goes_down_serve_the_next_opening() {
+    let data = Scratch::new("strip-prepared");
+    let (log, keyboard) = (diary(), FakeKeys::default());
+    let mut keeper = fake("fake_keeper", "Keeper", "Win+Alt+F1", &log);
+    keeper.groups = true;
+    let mut deck = fake("fake_deck", "Deck", "Win+Alt+F2", &log);
+    deck.look = true;
+    let (mut host, ui) = test_host(vec![keeper, deck], &keyboard, &data);
+    let now = std::time::Instant::now;
+    host.prepare_deck();
+    assert!(host.prepared.is_fresh(now()));
+    assert!(host.send_arrange_for(true, false));
+    assert!(!host.prepared.is_fresh(now()), "taken by the opening");
+    assert!(ui
+        .try_iter()
+        .any(|command| matches!(command, UiCommand::ShowArrange(_))));
+    // A window that comes or goes throws them away.
+    host.prepare_deck();
+    host.buttons_changed();
+    assert!(!host.prepared.is_fresh(now()));
 }

@@ -34,7 +34,9 @@ use crate::core::config::{Config, PluginConfig, UpdateConfig, DEFAULT_PALETTE_HO
 use crate::core::hotkeys::Shortcut;
 use crate::core::open_timing::{self, OpenStep};
 use crate::core::shortcuts::{self, FirstPress};
-use crate::core::traits::{HostContext, Hotkey, PluginWindow, WinCraftPlugin, WindowGroups};
+use crate::core::traits::{
+    HostContext, Hotkey, PluginWindow, StripLook, WinCraftPlugin, WindowGroups,
+};
 use crate::core::tray::{show_menu, MenuItem, Tray, WM_TRAY_CALLBACK};
 use crate::core::ui_bridge::{
     self, ActionKind, ArrangeAction, ArrangeGroup, ArrangeSnapshot, CommandId, FieldInfo,
@@ -56,6 +58,7 @@ mod api;
 mod arrange;
 mod bindings;
 mod plugins;
+mod prepared;
 mod requests;
 mod taskbar_cache;
 mod updates;
@@ -138,6 +141,8 @@ const WM_APP_WIN_DIGIT: u32 = WM_APP + 25;
 const WM_APP_WIN_UP: u32 = WM_APP + 26;
 /// The taskbar's buttons read on a thread of their own are ready.
 const WM_APP_BUTTONS: u32 = WM_APP + 27;
+/// A Windows key went down, from WindowDeck's hook; see `post_win_down`.
+const WM_APP_WIN_DOWN: u32 = WM_APP + 28;
 /// The strip Win and a digit asked for counts as open this long before the
 /// UI thread has its window, so the same digit again picks the next card
 /// instead of opening the strip a second time.
@@ -184,6 +189,8 @@ struct Host {
     buttons_at: Option<std::time::Instant>,
     /// What the cache of `buttons` knows; see `taskbar_cache`.
     buttons_cache: taskbar_cache::Cache,
+    /// WindowDeck's windows, gathered when a Windows key went down.
+    prepared: prepared::Prepared<(&'static str, WindowGroups)>,
     /// The list being read on a thread of its own.
     buttons_coming: Option<std::sync::mpsc::Receiver<Result<Vec<taskbar::Button>, String>>>,
     clock: std::time::Instant,
@@ -410,6 +417,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         buttons_at: None,
         buttons_cache: taskbar_cache::Cache::default(),
         buttons_coming: None,
+        prepared: prepared::Prepared::default(),
         clock: std::time::Instant::now(),
         wait_hint: None,
         reveal: taskbar_number::Reveal::default(),

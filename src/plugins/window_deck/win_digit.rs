@@ -42,6 +42,9 @@ pub enum Step {
     /// Kept, with the mask key after it, and WindowDeck asked for button
     /// `digit`. `again` is the same digit once more while Win stayed down.
     Take { digit: u8, again: bool },
+    /// A Windows key went down (not its key repeat): Windows gets it, and
+    /// the host gathers WindowDeck's windows for a digit that may follow.
+    WinDown,
     /// A Windows key let go: Windows gets it as usual (so a Win pressed
     /// alone still opens Start), and the host hears of it. `alone` is true
     /// when no other key went down while Win was held.
@@ -74,12 +77,13 @@ impl Rule {
         if vk == u32::from(VK_LWIN) || vk == u32::from(VK_RWIN) {
             if down {
                 // A held key repeats its down; only the first one counts.
-                if !self.win {
-                    self.win = true;
-                    self.alone = true;
-                    self.took = false;
+                if self.win {
+                    return Step::Pass;
                 }
-                return Step::Pass;
+                self.win = true;
+                self.alone = true;
+                self.took = false;
+                return Step::WinDown;
             }
             self.last = None;
             let alone = self.win && self.alone;
@@ -220,6 +224,10 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
             host::post_taskbar_button(digit, again);
             1
         }
+        Step::WinDown => {
+            host::post_win_down();
+            unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
+        }
         Step::WinUp { alone } => {
             host::post_win_released(alone);
             unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
@@ -238,7 +246,7 @@ mod tests {
     #[test]
     fn win_and_a_digit_alone_is_kept_with_its_release() {
         let mut rule = Rule::default();
-        assert_eq!(rule.step(WIN, true, MOD_WIN, false), Step::Pass);
+        assert_eq!(rule.step(WIN, true, MOD_WIN, false), Step::WinDown);
         assert_eq!(
             rule.step(THREE, true, MOD_WIN, false),
             Step::Take {
@@ -354,7 +362,7 @@ mod tests {
     fn win_let_go_alone_is_told_apart_from_win_with_a_key() {
         let mut rule = Rule::default();
         // Win alone, with its key repeat: Start is Windows' to open.
-        assert_eq!(rule.step(WIN, true, MOD_WIN, false), Step::Pass);
+        assert_eq!(rule.step(WIN, true, MOD_WIN, false), Step::WinDown);
         assert_eq!(rule.step(WIN, true, MOD_WIN, false), Step::Pass, "repeat");
         assert!(!rule.took());
         assert_eq!(rule.step(WIN, false, 0, false), Step::WinUp { alone: true });

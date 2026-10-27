@@ -78,6 +78,16 @@ pub fn post_taskbar_button(digit: u8, again: bool) {
     }
 }
 
+/// A Windows key went down, from a keyboard hook on a thread of its own:
+/// the host gathers WindowDeck's windows, so a digit that follows opens it
+/// without waiting for them.
+pub fn post_win_down() {
+    let hwnd = HOST_HWND.load(Ordering::Relaxed);
+    if hwnd != 0 {
+        unsafe { PostMessageW(hwnd as HWND, WM_APP_WIN_DOWN, 0, 0) };
+    }
+}
+
 /// A Windows key let go, from a keyboard hook on a thread of its own:
 /// `alone` when no other key went down while it was held. Win pressed and
 /// let go alone closes an open WindowDeck, and Start opens as usual.

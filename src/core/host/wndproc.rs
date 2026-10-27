@@ -443,6 +443,11 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
             open_taskbar_button(wparam as u8, lparam != 0);
             0
         }
+        WM_APP_WIN_DOWN => {
+            // Only to save time later: a busy host skips it.
+            let _ = HOST.with(|cell| run_unless_busy(cell, |host| host.prepare_deck()));
+            0
+        }
         WM_APP_BUTTONS => {
             with_host_or_later(hwnd, msg, wparam, lparam, |host| host.buttons_arrived());
             0

@@ -15,14 +15,7 @@ impl Host {
         } else {
             None
         };
-        let look = self.plugins.slots.iter().find_map(|slot| {
-            if !slot.enabled {
-                return None;
-            }
-            let look = slot.plugin.strip_look()?;
-            Some((slot.plugin.metadata().id, look))
-        });
-        let Some((look_plugin, look)) = look else {
+        let Some((look_plugin, look)) = self.strip_look() else {
             if open {
                 log::info!("WindowDeck is off, so the strip does not open");
             }
@@ -35,7 +28,13 @@ impl Host {
             (None, true) => taskbar::app_under_cursor(),
             (None, false) => None,
         };
-        let Some((id, mut groups)) = self.plugins.window_groups(look_plugin) else {
+        let prepared = if open {
+            self.prepared.take(look_plugin, std::time::Instant::now())
+        } else {
+            None
+        };
+        let Some((id, mut groups)) = prepared.or_else(|| self.plugins.window_groups(look_plugin))
+        else {
             log::info!("no enabled plugin gives the strip its windows");
             return false;
         };
@@ -153,12 +152,36 @@ impl Host {
         );
     }
 
-    /// Whether a running plugin gives the strip its look (WindowDeck).
+    /// The running plugin that gives the strip its look (WindowDeck), and
+    /// that look.
+    fn strip_look(&self) -> Option<(&'static str, StripLook)> {
+        self.plugins.slots.iter().find_map(|slot| {
+            if !slot.enabled {
+                return None;
+            }
+            let look = slot.plugin.strip_look()?;
+            Some((slot.plugin.metadata().id, look))
+        })
+    }
+
     pub(super) fn strip_plugin_on(&self) -> bool {
-        self.plugins
-            .slots
-            .iter()
-            .any(|slot| slot.enabled && slot.plugin.strip_look().is_some())
+        self.strip_look().is_some()
+    }
+
+    /// A Windows key went down with Win+1…9 on: WindowDeck's windows are
+    /// gathered now, while the user still holds Win, so the digit that
+    /// may follow does not wait for them.
+    pub(super) fn prepare_deck(&mut self) {
+        let now = std::time::Instant::now();
+        if self.prepared.is_fresh(now) {
+            return;
+        }
+        let Some((look_plugin, _)) = self.strip_look() else {
+            return;
+        };
+        if let Some(groups) = self.plugins.window_groups(look_plugin) {
+            self.prepared.put(look_plugin, groups, now);
+        }
     }
 
     /// Whether the taskbar's buttons read last still count.
@@ -180,6 +203,7 @@ impl Host {
     /// A window came or went, or Explorer started again: the kept list of
     /// taskbar buttons is read again once things have settled.
     pub(super) fn buttons_changed(&mut self) {
+        self.prepared.forget();
         if self.buttons_cache.changed() && !self.hwnd.is_null() {
             unsafe { SetTimer(self.hwnd, BUTTONS_TIMER, BUTTONS_SETTLE_MS, None) };
         }
