@@ -345,6 +345,9 @@ impl App {
     }
 
     fn set_palette_visible(&self, ctx: &egui::Context, visible: bool) {
+        if visible {
+            crate::core::glass::set_corners(self.palette_window, self.palette.glass());
+        }
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(visible));
         ctx.request_repaint();
     }

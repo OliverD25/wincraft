@@ -67,6 +67,26 @@ pub fn popup_style(style: isize) -> isize {
     (style & !FRAMED) | WS_POPUP as isize
 }
 
+/// Asks Windows to round the palette window's corners (with the glass, where
+/// the window is the panel) or not (without it, where the window is larger
+/// than the panel). Called again each time the palette shows: the host turns
+/// rounding off once when the window is made, and that can land after the
+/// glass turned it on.
+pub fn set_corners(window: isize, round: bool) -> i32 {
+    if window == 0 {
+        return 0;
+    }
+    let corners = if round { DWMWCP_ROUND } else { DWMWCP_DONOTROUND };
+    unsafe {
+        DwmSetWindowAttribute(
+            window as HWND,
+            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+            &corners as *const _ as *const core::ffi::c_void,
+            std::mem::size_of_val(&corners) as u32,
+        )
+    }
+}
+
 /// Puts the glass on the palette window, or takes it off. `saved` keeps
 /// the window's own style while the glass is on, to put it back.
 pub fn set_palette(window: isize, on: bool, saved: &mut Option<isize>) {
@@ -98,12 +118,7 @@ pub fn set_palette(window: isize, on: bool, saved: &mut Option<isize>) {
             0,
             SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
         );
-        corner_hr = DwmSetWindowAttribute(
-            hwnd,
-            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
-            &corners as *const _ as *const core::ffi::c_void,
-            std::mem::size_of_val(&corners) as u32,
-        );
+        corner_hr = set_corners(window, corners == DWMWCP_ROUND);
         backdrop_hr = DwmSetWindowAttribute(
             hwnd,
             DWMWA_SYSTEMBACKDROP_TYPE as u32,
