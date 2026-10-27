@@ -12,7 +12,15 @@ run them, stopping at the first one that fails.
    (skipped with a note when cargo-llvm-cov is not installed)
 6. tools\smoke.ps1, only with -Smoke (it shows tray icons for a moment)
 
--Quick skips steps 4 and 5. One line is printed per step, with its time.
+Three levels:
+-Fast   steps 1 and 2 only, and step 2 runs just the tests of the modules
+        changed since the last commit (all tests when the change is wide or
+        touches main.rs, build.rs or Cargo.toml). A few seconds; use it
+        while working.
+-Quick  steps 1 to 3, every test. The pre-push hook runs this.
+(none)  every step. Run it once, before a release.
+
+One line is printed per step, with its time.
 The exit code is 0 when every step passed and 1 at the first failure.
 
 .EXAMPLE
@@ -20,6 +28,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\check.ps1 -Quick
 #>
 [CmdletBinding()]
 param(
+    [switch]$Fast,
     [switch]$Quick,
     [switch]$Smoke
 )
@@ -78,6 +87,26 @@ function Skip-Step {
     Write-Host ("skip  {0,-12}         {1}" -f $Name, $Why)
 }
 
+# The test filters for -Fast: one module path per changed source file, so
+# src/ui/arrange/by_monitor.rs gives ui::arrange::by_monitor:: and a tests.rs
+# or mod.rs gives its folder's module. An empty list means "run every test".
+function Get-ChangedModules {
+    $files = @(git diff --name-only HEAD 2>$null) + @(git ls-files --others --exclude-standard 2>$null)
+    $files = @($files | Where-Object { $_ } | Sort-Object -Unique)
+    $modules = @()
+    foreach ($file in $files) {
+        if ($file -in @('Cargo.toml', 'Cargo.lock', 'build.rs', 'src/main.rs', 'src/lib.rs')) { return @() }
+        if ($file -notmatch '^src/(.+)\.rs$') { continue }
+        $parts = $Matches[1] -split '/'
+        if ($parts[-1] -in @('mod', 'tests')) { $parts = $parts[0..($parts.Count - 2)] }
+        if ($parts.Count -eq 0) { return @() }
+        $modules += (($parts -join '::') + '::')
+    }
+    $modules = @($modules | Sort-Object -Unique)
+    if ($modules.Count -gt 8) { return @() }
+    return $modules
+}
+
 $floorFile = Join-Path $PSScriptRoot 'coverage-floor.txt'
 $floor = (Get-Content -Path $floorFile -Raw).Trim()
 
@@ -86,6 +115,26 @@ Invoke-Step 'fmt' 'cargo fmt --check'
 # A shell that still has WINCRAFT_INSTANCE set would make some tests see a
 # test instance; the scratch LOCALAPPDATA keeps the tests off the real profile.
 $testEnv = @{ WINCRAFT_INSTANCE = $null; LOCALAPPDATA = $scratch }
+if ($Fast) {
+    $modules = @(Get-ChangedModules)
+    $sources = @(git diff --name-only HEAD 2>$null) + @(git ls-files --others --exclude-standard 2>$null) |
+        Where-Object { $_ -match '^(src/|build\.rs|Cargo\.)' }
+    if (-not $sources) {
+        Skip-Step 'test' 'no source file changed'
+    } elseif ($modules.Count -eq 0) {
+        Invoke-Step 'test' 'cargo test' $testEnv
+    } else {
+        Write-Host ("      tests in: {0}" -f ($modules -join ' '))
+        Invoke-Step 'test' ("cargo test -- " + ($modules -join ' ')) $testEnv
+    }
+    Skip-Step 'clippy' '-Fast'
+    Skip-Step 'release' '-Fast'
+    Skip-Step 'coverage' '-Fast'
+    Write-Host ("total {0:N1}s" -f $total.Elapsed.TotalSeconds)
+    if ($failed) { exit 1 }
+    exit 0
+}
+
 Invoke-Step 'test' 'cargo test' $testEnv
 
 Invoke-Step 'clippy' 'cargo clippy --all-targets -- -D warnings'

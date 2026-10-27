@@ -454,9 +454,15 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   four checks locally before you push. Releases build on `v*` tags.
 - **`tools\check.ps1` runs all of it.** `tools\check.ps1` (or `tools/check.sh`
   from Git Bash or WSL) runs fmt, the tests, clippy, the release build with
-  warnings as errors in `targeterify`, and the line-coverage floor in
+  warnings as errors in `target\verify`, and the line-coverage floor in
   `tools\coverage-floor.txt` (needs `cargo install cargo-llvm-cov`), and stops
-  at the first failure. `-Quick` skips the release build and the coverage run.
+  at the first failure. It has three levels:
+  - `-Fast`: fmt and only the tests of the modules you changed since the
+    last commit (all tests when the change is wide, or touches `main.rs`,
+    `build.rs` or `Cargo.toml`). A few seconds. Use it while you work.
+  - `-Quick`: fmt, every test and clippy. The pre-push hook runs this.
+  - no switch: everything, with the release build and the coverage run.
+    Run it once, before a pull request or a release.
   `-Smoke` also starts every plugin in a test instance (see
   `tools\smoke.ps1`). Raise the floor when coverage grows; never lower it to
   make a change pass.
