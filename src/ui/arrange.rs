@@ -31,6 +31,7 @@ mod compact;
 mod hold;
 mod others;
 mod pointer;
+mod rename;
 mod reveal;
 
 /// Unique, so the strip's window can be found among the UI thread's windows.
@@ -799,6 +800,8 @@ struct Shared {
     pointer: pointer::Pointer,
     /// Ctrl+W closed the last card: the strip goes once its window is gone.
     close_when_empty: bool,
+    /// The title being edited after F2.
+    rename: Option<rename::Rename>,
 }
 
 impl Shared {
@@ -1018,6 +1021,7 @@ impl Arrange {
                 focus_wanted: false,
                 pointer: pointer::Pointer::default(),
                 close_when_empty: false,
+                rename: None,
             })),
             palette_hwnd,
         }
@@ -1051,6 +1055,7 @@ impl Arrange {
         shared.asked_at = Some(Instant::now());
         shared.compact_left = None;
         shared.note = None;
+        shared.rename = None;
         shared.snapshot = Some(snapshot);
         shared.holds.clear();
         shared.closed = false;
@@ -1326,6 +1331,8 @@ impl Arrange {
             if let Some(left) = grace {
                 ui.ctx().request_repaint_after(left);
             }
+            // Esc ends a title edit and nothing more.
+            let escape = escape && shared.rename.is_none();
             if escape || (shared.focused_once && focused == Some(false) && grace.is_none()) {
                 shared.closed = true;
             }
@@ -1685,9 +1692,19 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     }
     let ppp = ctx.pixels_per_point();
     let menu_open = egui::Popup::is_any_open(&ctx);
+    // Esc ends a title edit and nothing more; `show` does not close the
+    // strip for it.
+    if shared.rename.is_some()
+        && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+    {
+        shared.rename = None;
+    }
     let others_count = others::count(&group, &snapshot.desktops, &visible);
+    // While the title box has the keyboard, no strip key acts.
+    let typing = shared.rename.is_some();
     if others_count > 0
         && !menu_open
+        && !typing
         && shared.drag.is_none()
         && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::D))
     {
@@ -1697,7 +1714,7 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     // A plain digit opens the card with that number; Ctrl and a digit jump
     // to that taskbar button's app, the way Win+Alt+A and a digit do.
     let mut digit_card = None;
-    if !menu_open && shared.drag.is_none() {
+    if !menu_open && !typing && shared.drag.is_none() {
         let typed = |modifiers: egui::Modifiers| {
             ctx.input_mut(|i| (0u8..=9).find(|digit| i.consume_key(modifiers, digit_key(*digit))))
         };
@@ -1733,13 +1750,18 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     if frame.activate.is_none() {
         frame.activate = digit_card;
     }
-    if !menu_open && shared.drag.is_none() {
-        let (close_key, new_key) = ctx.input_mut(|i| {
+    finish_rename(shared, &group, &mut frame);
+    if !menu_open && !typing && shared.drag.is_none() {
+        let (close_key, new_key, rename_key) = ctx.input_mut(|i| {
             (
                 i.consume_key(egui::Modifiers::CTRL, egui::Key::W),
                 i.consume_key(egui::Modifiers::CTRL, egui::Key::N),
+                i.consume_key(egui::Modifiers::NONE, egui::Key::F2),
             )
         });
+        if rename_key {
+            start_rename(shared, &group, snapshot.can_rename);
+        }
         if close_key {
             ctrl_w(shared, &mut frame);
         }
@@ -1851,6 +1873,45 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
             action: ArrangeAction::Activate(hwnd),
         });
         shared.closed = true;
+    }
+}
+
+/// F2: the picked card's title becomes a text box, or a line says why not.
+fn start_rename(shared: &mut Shared, group: &ArrangeGroup, can_rename: bool) {
+    let leaving = |hwnd| shared.is_leaving(hwnd);
+    match rename::start(
+        can_rename,
+        shared.cursor,
+        shared.cursor_ghost,
+        group,
+        &leaving,
+    ) {
+        rename::Start::Edit(edit) => {
+            shared.hide_peek();
+            shared.rename = Some(edit);
+        }
+        rename::Start::NeedsNamer => {
+            shared.note = Some((rename::NEEDS_NAMER.to_string(), Instant::now()));
+        }
+        rename::Start::Nothing => {}
+    }
+}
+
+/// Ends a title edit that was saved or cancelled this frame, or whose
+/// window is gone. A save becomes a rename for WindowNamer, sent with the
+/// frame's other actions; the card shows the new name at once.
+fn finish_rename(shared: &mut Shared, group: &ArrangeGroup, frame: &mut Frame) {
+    let Some(edit) = shared.rename.as_mut() else {
+        return;
+    };
+    let hwnd = edit.hwnd;
+    let gone = !group.windows.iter().any(|window| window.hwnd == hwnd);
+    let Some(done) = edit.take_done().or(gone.then_some(rename::Done::Cancel)) else {
+        return;
+    };
+    shared.rename = None;
+    if let rename::Done::Save(text) = done {
+        frame.actions.push(rename::action(hwnd, &text));
     }
 }
 
@@ -2125,6 +2186,10 @@ fn flat(
                                             .is_some_and(|thumb| thumb.source_size().is_some());
                                     let is_cursor = shared.cursor == Some(window.hwnd);
                                     let leaving = shared.is_leaving(window.hwnd);
+                                    let editing = shared
+                                        .rename
+                                        .as_ref()
+                                        .is_some_and(|edit| edit.hwnd == window.hwnd);
                                     let motion = shared.motion(window.hwnd);
                                     let (response, picture, rename, clear) = card(
                                         ui,
@@ -2139,6 +2204,10 @@ fn flat(
                                             leaving,
                                             motion,
                                             awake: shared.pointer.moved(),
+                                            edit: shared
+                                                .rename
+                                                .as_mut()
+                                                .filter(|edit| edit.hwnd == window.hwnd),
                                         },
                                     );
                                     if rename {
@@ -2160,7 +2229,7 @@ fn flat(
                                             ghost: false,
                                         });
                                     }
-                                    if leaving {
+                                    if leaving || editing {
                                         continue;
                                     }
                                     if response.middle_clicked() {
@@ -2257,7 +2326,7 @@ fn flat(
         );
     }
 
-    if !menu_open && !dragging {
+    if !menu_open && !dragging && shared.rename.is_none() {
         let Frame {
             actions, activate, ..
         } = &mut frame;
@@ -2714,6 +2783,7 @@ fn apply_locally(shared: &mut Shared, action: &ArrangeAction) {
         } => {
             if let Some(window) = group.windows.iter_mut().find(|w| w.hwnd == *hwnd) {
                 window.label = name.clone();
+                window.renamed = true;
             }
         }
         ArrangeAction::Rename { name: None, .. }
@@ -2792,7 +2862,7 @@ fn card(
     width: f32,
     window: &ArrangeWindow,
     desktop: &str,
-    info: CardInfo,
+    info: CardInfo<'_>,
 ) -> (Response, Rect, bool, Rect) {
     let CardInfo {
         number,
@@ -2802,6 +2872,7 @@ fn card(
         leaving,
         motion: (scale, fade),
         awake,
+        edit,
     } = info;
     let label = window.label.as_str();
     let monitor = window.monitor.as_deref();
@@ -2851,15 +2922,23 @@ fn card(
     let name_top = area.bottom() + CARD_INSET;
     let chip = number_chip(painter, pos2(area.left(), name_top), NAME_HEIGHT, number);
     let name_left = chip.right() + NUMBER_GAP;
-    let mut job = text::job(label, theme::regular(12.0), tokens.text_primary, None);
-    job.wrap = TextWrapping {
-        max_width: (area.right() - name_left).max(0.0),
-        max_rows: 1,
-        break_anywhere: true,
-        overflow_character: Some('\u{2026}'),
-    };
-    let galley = painter.layout_job(job);
-    painter.galley(pos2(name_left, name_top), galley, tokens.text_primary);
+    if let Some(edit) = edit {
+        let field = Rect::from_min_max(
+            pos2(name_left, name_top),
+            pos2(area.right(), name_top + NAME_HEIGHT),
+        );
+        edit.show(ui, field, 12.0);
+    } else {
+        let mut job = text::job(label, theme::regular(12.0), tokens.text_primary, None);
+        job.wrap = TextWrapping {
+            max_width: (area.right() - name_left).max(0.0),
+            max_rows: 1,
+            break_anywhere: true,
+            overflow_character: Some('\u{2026}'),
+        };
+        let galley = painter.layout_job(job);
+        painter.galley(pos2(name_left, name_top), galley, tokens.text_primary);
+    }
     (
         response.on_hover_cursor(egui::CursorIcon::Grab),
         picture,
@@ -2869,7 +2948,9 @@ fn card(
 }
 
 /// What a card shows besides its window.
-struct CardInfo {
+struct CardInfo<'a> {
+    /// The title is being edited: the box replaces the name.
+    edit: Option<&'a mut rename::Rename>,
     /// The window's place in Windows' taskbar row, from 1.
     number: usize,
     can_rename: bool,

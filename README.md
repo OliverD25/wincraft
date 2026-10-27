@@ -195,7 +195,8 @@ its settings and hotkey over with the same values.
 
 Inside WindowDeck, a number opens the window whose card shows it (0 is
 10), and Ctrl and a number open WindowDeck for that taskbar button. Ctrl+W
-closes the picked window, and Ctrl+N opens a new window of the app.
+closes the picked window, Ctrl+N opens a new window of the app, and F2
+renames the picked window (WindowNamer must be on).
 
 **Open WindowDeck with Win+1…9** (off until you switch it on in
 WindowDeck's settings): Win and a number open WindowDeck for that taskbar

@@ -1899,6 +1899,10 @@ Nothing is downloaded."
                 _ => log::info!("{plugin} is off; the answer to its question was dropped"),
             },
             HostRequest::Arrange { plugin, action } => {
+                if skipped_in_test_instance(&action, instance::is_test()) {
+                    log::info!("read-only test instance: renaming a window skipped");
+                    return;
+                }
                 let owner = if action.is_about_names() {
                     NAMER_ID
                 } else {
@@ -3262,6 +3266,13 @@ fn queue_again(queue: &mut Vec<(u32, WPARAM, LPARAM)>, msg: u32, wparam: WPARAM,
     if queue.len() < RETRY_LIMIT {
         queue.push((msg, wparam, lparam));
     }
+}
+
+/// A test instance only reads the user's real windows, so a rename typed in
+/// the strip changes none of them. `--rename-window` and the palette's box
+/// are the ways to rename a window the test owns.
+fn skipped_in_test_instance(action: &ArrangeAction, test_instance: bool) -> bool {
+    test_instance && matches!(action, ArrangeAction::Rename { .. })
 }
 
 fn message_name(msg: u32, wparam: WPARAM) -> String {
@@ -5016,6 +5027,49 @@ mod tests {
             kind: ActionKind::Hotkey,
             action: 1,
         }));
+    }
+
+    #[test]
+    fn a_rename_from_the_strip_reaches_windownamer_only_while_it_is_on() {
+        let data = Scratch::new("request-rename");
+        let (log, keyboard) = (diary(), FakeKeys::default());
+        let (mut host, _ui) = test_host(
+            vec![
+                fake("fake_a", "Fake A", "Win+Alt+F1", &log),
+                fake("window_namer", "Namer", "Win+Alt+F2", &log),
+            ],
+            &keyboard,
+            &data,
+        );
+        read(&log);
+        let rename = || HostRequest::Arrange {
+            plugin: "fake_a".to_string(),
+            action: ArrangeAction::Rename {
+                hwnd: 5,
+                name: Some("Work".to_string()),
+            },
+        };
+        host.handle_request(rename());
+        assert_eq!(
+            read(&log),
+            ["arrange window_namer"],
+            "not the strip's plugin"
+        );
+        host.plugins.disable(1);
+        read(&log);
+        host.handle_request(rename());
+        assert!(read(&log).is_empty(), "WindowNamer is off");
+    }
+
+    #[test]
+    fn a_test_instance_renames_no_window_from_the_strip() {
+        let rename = ArrangeAction::Rename {
+            hwnd: 5,
+            name: None,
+        };
+        assert!(skipped_in_test_instance(&rename, true));
+        assert!(!skipped_in_test_instance(&rename, false));
+        assert!(!skipped_in_test_instance(&ArrangeAction::Close(5), true));
     }
 
     #[test]

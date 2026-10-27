@@ -226,6 +226,20 @@ These keys work in every view, on a card or a ghost.
 
 A test instance closes and starts nothing.
 
+### Rename
+
+- **F2** renames the picked window, card or ghost, in every view. Its title
+  turns into a text box on the card with the current name selected. Enter
+  saves, and WindowDeck stays open with the new name. Esc cancels the edit
+  and does not close WindowDeck. A click anywhere else also cancels, so a
+  window is only renamed by an Enter you pressed. An empty name takes the
+  custom name away.
+- While the box has the keyboard, no other WindowDeck key acts.
+- The name is the one WindowNamer keeps, so it lasts after a restart. With
+  WindowNamer off, F2 shows a short line and opens no box.
+
+A test instance renames nothing from WindowDeck.
+
 ### Changing a window's number
 
 A drag in the By monitor view can move a window to another monitor. These

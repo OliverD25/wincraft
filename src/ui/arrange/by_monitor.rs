@@ -1279,7 +1279,7 @@ pub fn body(
 
     footer(ui, panel, shown && snapshot.keeps_order, others_count > 0);
 
-    if !menu_open && !dragging {
+    if !menu_open && !dragging && shared.rename.is_none() {
         keyboard(
             &ctx,
             shared,
@@ -1666,6 +1666,17 @@ impl Draw<'_> {
             self.numbers[member],
         );
         let left = number.right() + NUMBER_GAP;
+        // F2: the title is a text box, which owns the mouse on this card.
+        if let Some(edit) = shared
+            .rename
+            .as_mut()
+            .filter(|edit| edit.hwnd == window.hwnd && !edit.ghost)
+        {
+            let field = Rect::from_min_max(pos2(left, title_top), pos2(right, title_top + TITLE));
+            edit.show(ui, field, 13.0);
+            frame.cards.push((window.hwnd, window.monitor.is_some()));
+            return;
+        }
         let mut job = text::job(
             &window.label,
             theme::regular(13.0),
@@ -1827,7 +1838,13 @@ impl Draw<'_> {
         }
 
         let picture_box = Rect::from_min_max(pos2(strip.right(), rect.top()), rect.max).shrink(1.0);
+        let editing = shared
+            .rename
+            .as_ref()
+            .is_some_and(|edit| edit.hwnd == window.hwnd && edit.ghost);
+        // The picture would be drawn over the text box.
         let has_picture = !self.menu_open
+            && !editing
             && ghost_thumbnail(shared, window.hwnd)
                 .is_some_and(|thumb| thumb.source_size().is_some());
         if has_picture {
@@ -1844,6 +1861,16 @@ impl Draw<'_> {
             let mut faded = painter.clone();
             faded.multiply_opacity(GHOST_OPACITY);
             name_card(&faded, picture_box, &window.label, "");
+        }
+
+        // F2: the title is a text box, over the picture's place.
+        if let Some(edit) = shared.rename.as_mut().filter(|_| editing) {
+            let field = Rect::from_center_size(
+                rect.center(),
+                vec2((rect.width() - 8.0).max(0.0), TITLE + 4.0),
+            );
+            edit.show(ui, field, 13.0);
+            return;
         }
 
         let response =
@@ -2233,6 +2260,7 @@ fn footer_hints(others_key: bool) -> Vec<(&'static str, &'static str)> {
         ("Ctrl + 1\u{2013}9", "Taskbar button"),
         ("Ctrl + W", "Close"),
         ("Ctrl + N", "New window"),
+        ("F2", "Rename"),
     ];
     if others_key {
         hints.push(("D", "Other desktops"));
@@ -3686,6 +3714,7 @@ mod tests {
                 "Taskbar button",
                 "Close",
                 "New window",
+                "Rename",
                 "Other desktops"
             ]
         );
@@ -3694,6 +3723,7 @@ mod tests {
         assert_eq!(footer_hints(false)[7].0, "Ctrl + 1\u{2013}9");
         assert_eq!(footer_hints(false)[8].0, "Ctrl + W");
         assert_eq!(footer_hints(false)[9].0, "Ctrl + N");
+        assert_eq!(footer_hints(false)[10], ("F2", "Rename"));
         // Too narrow for all: they go from the end, and Select, Open and
         // Move stay even when they do not fit.
         let widths = [80.0, 60.0, 90.0, 140.0, 140.0];

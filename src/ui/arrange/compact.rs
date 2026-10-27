@@ -430,7 +430,7 @@ pub fn body(
     }
     frame.area = cards_area;
 
-    if !menu_open {
+    if !menu_open && shared.rename.is_none() {
         keys(&ctx, shared, popup, &layout, &order, picker_id, &mut frame);
     }
     (frame, chosen)
@@ -603,6 +603,20 @@ fn card(
         tokens.text_primary
     };
     let left = chip.right() + 6.0;
+    // F2: the title is a text box, which owns the mouse on this card.
+    if let Some(edit) = shared
+        .rename
+        .as_mut()
+        .filter(|edit| edit.hwnd == window.hwnd)
+    {
+        let field = Rect::from_min_max(
+            pos2(left, title_top),
+            pos2(rect.right() - CARD_PAD, title_top + KEYCAP),
+        );
+        edit.show(ui, field, 13.0);
+        frame.cards.push((window.hwnd, window.monitor.is_some()));
+        return;
+    }
     let mut job = text::job(&window.label, theme::regular(13.0), colour, None);
     job.wrap = TextWrapping {
         max_width: (rect.right() - CARD_PAD - left).max(0.0),
