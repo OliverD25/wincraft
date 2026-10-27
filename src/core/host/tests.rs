@@ -1142,6 +1142,8 @@ fn test_host(
         digits: taskbar_number::Digits::default(),
         buttons: Vec::new(),
         buttons_at: None,
+        buttons_cache: taskbar_cache::Cache::default(),
+        buttons_coming: None,
         clock: std::time::Instant::now(),
         wait_hint: None,
         reveal: taskbar_number::Reveal::default(),

@@ -144,19 +144,28 @@ fn button_at(point: POINT) -> Result<Option<Button>, String> {
 /// counts them in. Asked on a thread of its own, like `lookup`, and waited
 /// for at most a second.
 pub fn main_buttons() -> Result<Vec<Button>, String> {
+    main_buttons_later(|| {})
+        .recv_timeout(LIST_TIMEOUT)
+        .map_err(|_| format!("the taskbar gave no list of buttons within {LIST_TIMEOUT:?}"))?
+}
+
+/// `main_buttons` without waiting: the list comes on the receiver, and
+/// `done` runs on the worker thread once it is there.
+pub fn main_buttons_later(
+    done: impl FnOnce() + Send + 'static,
+) -> mpsc::Receiver<Result<Vec<Button>, String>> {
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
         let hr = unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32) };
         if hr < 0 {
             let _ = sender.send(Err(format!("COM did not start ({})", com::hex(hr))));
-            return;
+        } else {
+            let _ = sender.send(list_buttons());
+            unsafe { CoUninitialize() };
         }
-        let _ = sender.send(list_buttons());
-        unsafe { CoUninitialize() };
+        done();
     });
     receiver
-        .recv_timeout(LIST_TIMEOUT)
-        .map_err(|_| format!("the taskbar gave no list of buttons within {LIST_TIMEOUT:?}"))?
 }
 
 fn list_buttons() -> Result<Vec<Button>, String> {

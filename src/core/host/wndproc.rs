@@ -252,6 +252,7 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
     if taskbar_created != 0 && msg == taskbar_created {
         with_host_or_later(hwnd, msg, wparam, lparam, |host| {
             host.tray.add();
+            host.buttons_changed();
             for slot in host.plugins.slots.iter_mut().filter(|slot| slot.enabled) {
                 slot.plugin.on_taskbar_created();
             }
@@ -282,6 +283,10 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
         });
         if (changed || window_list_changed(wparam)) && ui_bridge::arrange_window().is_some() {
             refresh_arrange();
+        }
+        if taskbar_cache::buttons_may_change(wparam) {
+            // A busy host misses nothing: a press checks the list it counts.
+            let _ = HOST.with(|cell| run_unless_busy(cell, |host| host.buttons_changed()));
         }
         return 0;
     }
@@ -436,6 +441,14 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
         }
         WM_APP_WIN_DIGIT => {
             open_taskbar_button(wparam as u8, lparam != 0);
+            0
+        }
+        WM_APP_BUTTONS => {
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| host.buttons_arrived());
+            0
+        }
+        WM_TIMER if wparam == BUTTONS_TIMER => {
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| host.buttons_timer());
             0
         }
         WM_APP_WIN_UP => {

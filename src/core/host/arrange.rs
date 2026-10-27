@@ -163,8 +163,8 @@ impl Host {
 
     /// Whether the taskbar's buttons read last still count.
     pub(super) fn buttons_cached(&self) -> bool {
-        self.buttons_at
-            .is_some_and(|at| at.elapsed() < BUTTONS_FRESH)
+        self.buttons_cache
+            .usable(self.buttons_at, std::time::Instant::now())
     }
 
     pub(super) fn read_buttons(&mut self) {
@@ -173,7 +173,61 @@ impl Host {
             Vec::new()
         });
         self.buttons_at = Some(std::time::Instant::now());
+        self.buttons_cache.read(&self.buttons);
         open_timing::mark(OpenStep::TaskbarRead);
+    }
+
+    /// A window came or went, or Explorer started again: the kept list of
+    /// taskbar buttons is read again once things have settled.
+    pub(super) fn buttons_changed(&mut self) {
+        if self.buttons_cache.changed() && !self.hwnd.is_null() {
+            unsafe { SetTimer(self.hwnd, BUTTONS_TIMER, BUTTONS_SETTLE_MS, None) };
+        }
+    }
+
+    /// The settle timer came round: read the buttons on a thread of their
+    /// own, so the host stays free.
+    pub(super) fn buttons_timer(&mut self) {
+        unsafe { KillTimer(self.hwnd, BUTTONS_TIMER) };
+        if self.strip_plugin_on() {
+            self.read_buttons_later();
+        }
+    }
+
+    fn read_buttons_later(&mut self) {
+        if self.buttons_coming.is_some() || self.hwnd.is_null() {
+            return;
+        }
+        let hwnd = self.hwnd as isize;
+        self.buttons_coming = Some(taskbar::main_buttons_later(move || unsafe {
+            PostMessageW(hwnd as HWND, WM_APP_BUTTONS, 0, 0);
+        }));
+    }
+
+    /// The list read on its own thread is ready. If the last Win+number
+    /// counted a list on which its number named another app, WindowDeck
+    /// opens again on the right one.
+    pub(super) fn buttons_arrived(&mut self) {
+        let Some(coming) = self.buttons_coming.take() else {
+            return;
+        };
+        match coming.try_recv() {
+            Ok(Ok(buttons)) => {
+                self.buttons = buttons;
+                self.buttons_at = Some(std::time::Instant::now());
+                let wrong = self.buttons_cache.read(&self.buttons);
+                if let Some(number) = wrong {
+                    if ui_bridge::arrange_window().is_some() {
+                        log::info!(
+                            "taskbar button {number} had moved since the buttons were read: WindowDeck opens again on the right app"
+                        );
+                        self.open_button(number);
+                    }
+                }
+            }
+            Ok(Err(reason)) => log::info!("the taskbar's buttons could not be read: {reason}"),
+            Err(_) => {}
+        }
     }
 
     /// The Arrange strip's hotkey. The first press waits 3 s for a digit,
@@ -193,7 +247,9 @@ impl Host {
             self.to_ui.send(UiCommand::ArrangeSelectWindow(front));
             return;
         }
-        self.read_buttons();
+        if !self.buttons_cached() {
+            self.read_buttons();
+        }
         self.digits = taskbar_number::Digits::default();
         WAIT_HOTKEY.with(|cell| cell.set(Some(hotkey)));
         let wait = std::time::Duration::from_millis(taskbar_number::WAIT_MS);
@@ -350,7 +406,9 @@ impl Host {
             return WinDigit::NextCard;
         }
         open_timing::begin(&format!("Win+{digit}"), true);
-        if !self.buttons_cached() {
+        self.buttons_cache.press();
+        let cached = self.buttons_cached();
+        if !cached {
             self.read_buttons();
         }
         let number = if digit == 0 { 10 } else { usize::from(digit) };
@@ -388,6 +446,11 @@ impl Host {
         }
         self.to_ui.send(UiCommand::ArrangeSelect(place));
         self.win_digit_opened = Some(std::time::Instant::now());
+        if cached {
+            // Checked against a fresh read, made while the strip opens.
+            self.buttons_cache.counted(number, &app);
+            self.read_buttons_later();
+        }
         WinDigit::Opened
     }
 

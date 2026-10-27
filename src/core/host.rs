@@ -57,6 +57,7 @@ mod arrange;
 mod bindings;
 mod plugins;
 mod requests;
+mod taskbar_cache;
 mod updates;
 mod view;
 mod wndproc;
@@ -122,6 +123,10 @@ const BADGE_TIMER: usize = 0x5743_0005;
 /// Checks every 50 ms whether the app index is ready, so the palette that
 /// reopens after an update is drawn complete.
 const REOPEN_TIMER: usize = 0x5743_0006;
+/// A window came or went: the taskbar's buttons are read again once things
+/// have settled for `BUTTONS_SETTLE_MS`.
+const BUTTONS_TIMER: usize = 0x5743_0007;
+const BUTTONS_SETTLE_MS: u32 = 400;
 const WM_APP_NOTICE_CLICK: u32 = WM_APP + 23;
 /// Win+Alt+A, then a digit: the message the keyboard hook posts for a key it
 /// kept or for the end of the wait.
@@ -131,13 +136,12 @@ const WM_APP_WAIT_KEY: u32 = WM_APP + 24;
 const WM_APP_WIN_DIGIT: u32 = WM_APP + 25;
 /// A Windows key let go, from the same hook; see `post_win_released`.
 const WM_APP_WIN_UP: u32 = WM_APP + 26;
+/// The taskbar's buttons read on a thread of their own are ready.
+const WM_APP_BUTTONS: u32 = WM_APP + 27;
 /// The strip Win and a digit asked for counts as open this long before the
 /// UI thread has its window, so the same digit again picks the next card
 /// instead of opening the strip a second time.
 const STRIP_COMING: std::time::Duration = std::time::Duration::from_secs(1);
-/// The taskbar's buttons read this recently still count for a digit typed
-/// in the strip, which saves reading them again before it can jump.
-const BUTTONS_FRESH: std::time::Duration = std::time::Duration::from_secs(10);
 
 struct RegisteredHotkey {
     action_id: u32,
@@ -178,6 +182,10 @@ struct Host {
     digits: taskbar_number::Digits,
     buttons: Vec<taskbar::Button>,
     buttons_at: Option<std::time::Instant>,
+    /// What the cache of `buttons` knows; see `taskbar_cache`.
+    buttons_cache: taskbar_cache::Cache,
+    /// The list being read on a thread of its own.
+    buttons_coming: Option<std::sync::mpsc::Receiver<Result<Vec<taskbar::Button>, String>>>,
     clock: std::time::Instant,
     /// The number badges and the line while Win+Alt+A waits for a digit.
     wait_hint: Option<ui::taskbar_badges::WaitHint>,
@@ -400,6 +408,8 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         digits: taskbar_number::Digits::default(),
         buttons: Vec::new(),
         buttons_at: None,
+        buttons_cache: taskbar_cache::Cache::default(),
+        buttons_coming: None,
         clock: std::time::Instant::now(),
         wait_hint: None,
         reveal: taskbar_number::Reveal::default(),
