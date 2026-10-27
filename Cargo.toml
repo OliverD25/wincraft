@@ -1,6 +1,6 @@
 [package]
 name = "wincraft"
-version = "0.20.39"
+version = "0.20.40"
 edition = "2021"
 description = "Modular Windows 11 tray utility"
 authors = ["WinCraft contributors"]
