@@ -226,6 +226,40 @@ pub(super) fn clear_system_frame(hwnd: HWND) {
     }
 }
 
+/// The longest the palette that reopens after an update waits for the app
+/// index (about a second at start). After that it opens anyway and fills in
+/// when the index arrives.
+const REOPEN_WAIT_CAP: std::time::Duration = std::time::Duration::from_secs(2);
+const REOPEN_POLL_MS: u32 = 50;
+
+pub(super) fn palette_ready_to_reopen(index_ready: bool, waited: std::time::Duration) -> bool {
+    index_ready || waited >= REOPEN_WAIT_CAP
+}
+
+/// Opens the palette as soon as the app index is ready, or after the cap.
+pub(super) fn reopen_palette_when_ready(hwnd: HWND) {
+    REOPEN_SINCE.with(|since| since.set(Some(std::time::Instant::now())));
+    unsafe { SetTimer(hwnd, REOPEN_TIMER, REOPEN_POLL_MS, None) };
+}
+
+pub(super) fn on_reopen_timer(hwnd: HWND) {
+    let Some(began) = REOPEN_SINCE.with(|since| since.get()) else {
+        unsafe { KillTimer(hwnd, REOPEN_TIMER) };
+        return;
+    };
+    let index_ready = search::providers::apps::published().is_some();
+    if !palette_ready_to_reopen(index_ready, began.elapsed()) {
+        return;
+    }
+    unsafe { KillTimer(hwnd, REOPEN_TIMER) };
+    REOPEN_SINCE.with(|since| since.set(None));
+    log::info!(
+        "palette reopens after the update, {} ms after start (app index ready: {index_ready})",
+        began.elapsed().as_millis()
+    );
+    show_palette();
+}
+
 pub(super) fn show_palette() {
     search::actions::remember_front();
     let palette = with_host(|host| {

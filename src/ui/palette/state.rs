@@ -152,7 +152,19 @@ impl Palette {
     /// "Try instead" ones.
     pub(super) fn refresh(&mut self, snapshot: &UiSnapshot, ctx: &egui::Context) {
         let (news, waiting) = self.router.poll();
-        if news {
+        let index_news = self.router.take_index_news();
+        // The empty view was built before the app index was ready: build it
+        // again and keep the user on the row they are on.
+        let refill = index_news
+            && self.prompt.is_none()
+            && self.prefix.is_none()
+            && self.query.trim().is_empty();
+        let keep = if refill {
+            self.selected_item().map(RowId::of)
+        } else {
+            None
+        };
+        if news || refill {
             self.searched = None;
         }
         if waiting {
@@ -175,6 +187,14 @@ impl Palette {
             if news && at_end && self.results.follows_end {
                 self.selected = self.results.items.len().saturating_sub(1);
                 self.follow_selection = true;
+            }
+            if let Some(keep) = keep {
+                if let Some(at) = self.results.items.iter().position(|item| keep.is(item)) {
+                    if at != self.selected {
+                        self.selected = at;
+                        self.follow_selection = true;
+                    }
+                }
             }
             self.searched = Some(wanted);
         }
@@ -366,5 +386,31 @@ impl Palette {
                 .map(|name| format!("From {name}"))
                 .unwrap_or_default(),
         }
+    }
+}
+
+/// What tells a row from the others when the list is built again.
+struct RowId {
+    provider: String,
+    key: Option<String>,
+    title: String,
+    window: Option<isize>,
+}
+
+impl RowId {
+    fn of(item: &ResultItem) -> Self {
+        Self {
+            provider: item.provider.clone(),
+            key: item.usage_key.clone(),
+            title: item.title.clone(),
+            window: item.window(),
+        }
+    }
+
+    fn is(&self, item: &ResultItem) -> bool {
+        self.provider == item.provider
+            && self.key == item.usage_key
+            && self.title == item.title
+            && self.window == item.window()
     }
 }

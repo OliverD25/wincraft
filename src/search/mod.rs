@@ -385,6 +385,13 @@ pub trait SearchProvider: Send {
         false
     }
 
+    /// What this provider suggests for an empty box was not ready before and
+    /// is now (the app index finished). True once per change; the palette
+    /// then rebuilds an empty view and leaves a typed list alone.
+    fn index_news(&mut self) -> bool {
+        false
+    }
+
     /// Answers one query. It runs on the UI thread on every keystroke, so it
     /// must answer from memory or from one cheap system call.
     fn query(&mut self, query: &Query, context: &Context) -> Vec<ResultItem>;
@@ -764,6 +771,16 @@ impl Router {
             waiting |= slot.provider.waiting();
         }
         (news, waiting)
+    }
+
+    /// Whether a provider finished what the empty view is built from since
+    /// the last call.
+    pub fn take_index_news(&mut self) -> bool {
+        let mut news = false;
+        for slot in &mut self.slots {
+            news |= slot.provider.index_news();
+        }
+        news
     }
 
     pub fn search(&mut self, prefix: Option<&str>, text: &str, context: &Context) -> Results {

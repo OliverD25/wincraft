@@ -1376,3 +1376,106 @@ fn the_glass_panel_takes_windows_own_corner_radius_so_no_glass_shows_at_the_corn
     );
     assert_eq!(with_window_corners(fluent, false).radius_window, 12);
 }
+
+/// A provider that suggests one open row at once and two more when its
+/// "index" is ready, like the apps provider.
+struct Late {
+    ready: Arc<std::sync::atomic::AtomicBool>,
+    told: bool,
+}
+
+impl crate::search::SearchProvider for Late {
+    fn id(&self) -> &'static str {
+        "late"
+    }
+    fn name(&self) -> &'static str {
+        "Late"
+    }
+    fn description(&self) -> &'static str {
+        "test rows"
+    }
+    fn blended(&self) -> bool {
+        true
+    }
+    fn suggestions(&mut self, _context: &Context) -> Vec<ResultItem> {
+        let count = if self.ready.load(std::sync::atomic::Ordering::SeqCst) {
+            3
+        } else {
+            1
+        };
+        (0..count)
+            .map(|n| ResultItem {
+                title: format!("row {n}"),
+                open: true,
+                ..Default::default()
+            })
+            .collect()
+    }
+    fn index_news(&mut self) -> bool {
+        let ready = self.ready.load(std::sync::atomic::Ordering::SeqCst);
+        ready && !std::mem::replace(&mut self.told, true)
+    }
+    fn query(&mut self, _query: &crate::search::Query, _context: &Context) -> Vec<ResultItem> {
+        Vec::new()
+    }
+}
+
+fn late_palette() -> (Palette, Arc<std::sync::atomic::AtomicBool>) {
+    let ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let provider = Late {
+        ready: Arc::clone(&ready),
+        told: false,
+    };
+    let mut palette = Palette::new(Router::new(
+        vec![(None, Box::new(provider))],
+        &Default::default(),
+    ));
+    palette.opened();
+    (palette, ready)
+}
+
+#[test]
+fn an_empty_view_is_built_again_when_the_index_arrives_and_the_row_stays() {
+    let (mut palette, ready) = late_palette();
+    let (ctx, snapshot) = (egui::Context::default(), UiSnapshot::default());
+    palette.refresh(&snapshot, &ctx);
+    assert_eq!(palette.results.items.len(), 1);
+
+    ready.store(true, std::sync::atomic::Ordering::SeqCst);
+    palette.refresh(&snapshot, &ctx);
+    assert_eq!(palette.results.items.len(), 3);
+    assert_eq!(palette.selected_item().unwrap().title, "row 0");
+}
+
+#[test]
+fn a_row_the_user_moved_to_is_followed_when_the_view_is_built_again() {
+    let (mut palette, ready) = late_palette();
+    let (ctx, snapshot) = (egui::Context::default(), UiSnapshot::default());
+    palette.refresh(&snapshot, &ctx);
+    palette.results.items.insert(
+        0,
+        ResultItem {
+            title: "new first".to_string(),
+            open: true,
+            ..Default::default()
+        },
+    );
+    palette.selected = 1;
+    let kept = palette.selected_item().unwrap().title.clone();
+    ready.store(true, std::sync::atomic::Ordering::SeqCst);
+    palette.refresh(&snapshot, &ctx);
+    assert_eq!(palette.selected_item().unwrap().title, kept);
+}
+
+#[test]
+fn a_typed_list_is_left_alone_when_the_index_arrives() {
+    let (mut palette, ready) = late_palette();
+    let (ctx, snapshot) = (egui::Context::default(), UiSnapshot::default());
+    palette.type_in("zzz");
+    palette.refresh(&snapshot, &ctx);
+    let before = palette.results.items.len();
+    ready.store(true, std::sync::atomic::Ordering::SeqCst);
+    palette.refresh(&snapshot, &ctx);
+    assert_eq!(palette.results.items.len(), before);
+    assert_eq!(palette.searched.as_ref().map(|s| s.1.as_str()), Some("zzz"));
+}

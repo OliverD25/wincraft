@@ -121,6 +121,7 @@ pub(super) fn message_name(msg: u32, wparam: WPARAM) -> String {
             NOTICE_TIMER => "WM_TIMER (update notice)".to_string(),
             BADGE_TIMER => "WM_TIMER (taskbar number badges)".to_string(),
             RETRY_TIMER => "WM_TIMER (redelivery)".to_string(),
+            REOPEN_TIMER => "WM_TIMER (palette reopen)".to_string(),
             other => format!("WM_TIMER 0x{other:X}"),
         },
         other => format!("0x{other:04X}"),
@@ -457,6 +458,12 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
         }
         WM_TIMER if wparam == HEALTHY_TIMER => {
             with_host_or_later(hwnd, msg, wparam, lparam, |host| host.report_healthy(false));
+            0
+        }
+        WM_TIMER if wparam == REOPEN_TIMER => {
+            if !host_is_busy() {
+                on_reopen_timer(hwnd);
+            }
             0
         }
         WM_TIMER if wparam == RETRY_TIMER => {

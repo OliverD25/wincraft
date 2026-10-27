@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -115,6 +116,10 @@ pub fn name_in(apps: &[App], key: &str) -> Option<String> {
 /// of the registry.
 pub struct Apps {
     index: Arc<Mutex<Arc<Vec<App>>>>,
+    /// Set once the first index is in `index`.
+    ready: Arc<AtomicBool>,
+    /// Set with `ready`, cleared when the palette has been told.
+    fresh: Arc<AtomicBool>,
 }
 
 impl Apps {
@@ -124,6 +129,9 @@ impl Apps {
     pub fn new() -> Self {
         let index = Arc::new(Mutex::new(Arc::new(Vec::new())));
         let shared = Arc::clone(&index);
+        let ready = Arc::new(AtomicBool::new(false));
+        let fresh = Arc::new(AtomicBool::new(false));
+        let (thread_ready, thread_fresh) = (Arc::clone(&ready), Arc::clone(&fresh));
         let started = std::thread::Builder::new()
             .name("wincraft-apps".to_string())
             .spawn(move || {
@@ -142,11 +150,14 @@ impl Apps {
                         counts.duplicates
                     );
                     let apps = Arc::new(apps);
-                    if let Ok(mut published) = PUBLISHED.lock() {
-                        *published = Some(Arc::clone(&apps));
-                    }
                     if let Ok(mut guard) = shared.lock() {
-                        *guard = apps;
+                        *guard = Arc::clone(&apps);
+                    }
+                    if let Ok(mut published) = PUBLISHED.lock() {
+                        *published = Some(apps);
+                    }
+                    if !thread_ready.swap(true, Ordering::SeqCst) {
+                        thread_fresh.store(true, Ordering::SeqCst);
                     }
                     std::thread::sleep(REINDEX_EVERY);
                 }
@@ -154,7 +165,11 @@ impl Apps {
         if let Err(err) = started {
             log::warn!("could not start the app index thread: {err}");
         }
-        Self { index }
+        Self {
+            index,
+            ready,
+            fresh,
+        }
     }
 }
 
@@ -383,6 +398,14 @@ impl SearchProvider for Apps {
 
     fn scope(&self) -> Option<&'static str> {
         Some("a")
+    }
+
+    fn waiting(&self) -> bool {
+        !self.ready.load(Ordering::SeqCst)
+    }
+
+    fn index_news(&mut self) -> bool {
+        self.fresh.swap(false, Ordering::SeqCst)
     }
 
     /// Every app; the router keeps those picked most.

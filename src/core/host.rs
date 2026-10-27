@@ -119,6 +119,9 @@ const NOTICE_TIMER: usize = 0x5743_0004;
 /// Shows the number badges once Win+Alt+A has waited a moment without a
 /// digit (`taskbar_number::REVEAL_MS`).
 const BADGE_TIMER: usize = 0x5743_0005;
+/// Checks every 50 ms whether the app index is ready, so the palette that
+/// reopens after an update is drawn complete.
+const REOPEN_TIMER: usize = 0x5743_0006;
 const WM_APP_NOTICE_CLICK: u32 = WM_APP + 23;
 /// Win+Alt+A, then a digit: the message the keyboard hook posts for a key it
 /// kept or for the end of the wait.
@@ -285,6 +288,9 @@ pub fn demo_restore_panel() -> bool {
 }
 
 thread_local! {
+    /// When the palette's reopening after an update began to wait for the app
+    /// index (`api::reopen_palette_when_ready`).
+    static REOPEN_SINCE: Cell<Option<std::time::Instant>> = const { Cell::new(None) };
     static HOST: RefCell<Option<Host>> = const { RefCell::new(None) };
     /// Kept outside Host so the WndProc can check it without borrowing. Windows
     /// re-enters a WndProc whenever it likes, and a borrow taken on every single
@@ -444,11 +450,10 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
     if flags.open_detector {
         open_shortcut_detector();
     }
-    if flags.open_palette
-        || flags.scene.palette_query.is_some()
-        || flags.reopen == Some(update::Reopen::Palette)
-    {
+    if flags.open_palette || flags.scene.palette_query.is_some() {
         show_palette();
+    } else if flags.reopen == Some(update::Reopen::Palette) {
+        reopen_palette_when_ready(hwnd);
     }
     if let Some(text) = flags.scene.palette_query.filter(|text| !text.is_empty()) {
         with_host(|host| host.to_ui.send(UiCommand::TypeInPalette(text)));

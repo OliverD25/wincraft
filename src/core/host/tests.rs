@@ -1988,3 +1988,12 @@ fn the_high_bit_reads_the_same_sign_extended_or_not() {
     assert_eq!(plain, extended);
     assert!(plain.contains("ENDSESSION_LOGOFF"));
 }
+
+#[test]
+fn the_palette_after_an_update_waits_for_the_app_index_but_not_longer_than_the_cap() {
+    use std::time::Duration;
+    assert!(!palette_ready_to_reopen(false, Duration::from_millis(0)));
+    assert!(!palette_ready_to_reopen(false, Duration::from_millis(1900)));
+    assert!(palette_ready_to_reopen(false, Duration::from_secs(2)));
+    assert!(palette_ready_to_reopen(true, Duration::from_millis(0)));
+}
