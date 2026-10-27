@@ -392,7 +392,13 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
                 }
                 for (digit, again) in requests.win_digits {
                     if host.win_digit(digit, again) == WinDigit::GiveBack {
-                        mask_key::replay_win_digit(0x30 + u32::from(digit));
+                        if crate::core::instance::is_test() {
+                            log::info!(
+                                "read-only test instance: handing Win+{digit} back to Windows skipped"
+                            );
+                        } else {
+                            mask_key::replay_win_digit(0x30 + u32::from(digit));
+                        }
                     }
                 }
                 host.publish();
