@@ -1075,3 +1075,293 @@ fn the_enter_pill_word_comes_from_the_first_action() {
     let actions = palette.current_actions();
     assert_eq!(actions::enter_verb(&actions[0].label), "Switch");
 }
+
+/// A provider that answers every query with the rows it was given.
+struct Rows(Vec<ResultItem>);
+
+impl crate::search::SearchProvider for Rows {
+    fn id(&self) -> &'static str {
+        "rows"
+    }
+    fn name(&self) -> &'static str {
+        "Rows"
+    }
+    fn description(&self) -> &'static str {
+        "test rows"
+    }
+    fn blended(&self) -> bool {
+        true
+    }
+    fn query(&mut self, _query: &crate::search::Query, _context: &Context) -> Vec<ResultItem> {
+        self.0.clone()
+    }
+}
+
+fn palette_over(rows: Vec<ResultItem>) -> Palette {
+    let mut palette = Palette::new(Router::new(
+        vec![(None, Box::new(Rows(rows)))],
+        &Default::default(),
+    ));
+    palette.opened();
+    palette.type_in("x");
+    let bridge = crate::core::ui_bridge::create();
+    frame(
+        &mut palette,
+        &drawing_context(),
+        &UiSnapshot::default(),
+        &bridge,
+        Vec::new(),
+    );
+    palette
+}
+
+fn titled(title: &str) -> ResultItem {
+    ResultItem {
+        group: "Rows".to_string(),
+        title: title.to_string(),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn tab_on_a_row_with_a_completion_fills_the_box_and_runs_nothing() {
+    let mut row = titled("alpha");
+    row.tab = Some(crate::search::Completion {
+        label: "Complete".to_string(),
+        text: "alpha beta".to_string(),
+    });
+    let mut palette = palette_over(vec![row]);
+    assert_eq!(palette.complete(), None);
+    assert_eq!(palette.query, "alpha beta");
+}
+
+#[test]
+fn tab_on_a_prefix_row_switches_to_that_prefix() {
+    let mut row = titled("alpha");
+    row.enter = Some(Choice {
+        label: "Use".to_string(),
+        action: Action::SetPrefix(">".to_string()),
+    });
+    let mut palette = palette_over(vec![row]);
+    assert_eq!(palette.complete(), Some(Action::SetPrefix(">".to_string())));
+}
+
+#[test]
+fn tab_on_a_row_with_a_tab_action_gives_that_action() {
+    let mut row = titled("alpha");
+    row.tab_action = Some(Choice {
+        label: "Copy".to_string(),
+        action: Action::Copy("alpha".to_string()),
+    });
+    let mut palette = palette_over(vec![row]);
+    assert_eq!(
+        palette.tab_action().map(|choice| choice.label),
+        Some("Copy".to_string())
+    );
+    assert_eq!(palette.complete(), Some(Action::Copy("alpha".to_string())));
+}
+
+#[test]
+fn tab_on_a_row_with_nothing_to_complete_does_nothing() {
+    let mut palette = palette_over(vec![titled("alpha")]);
+    assert_eq!(palette.tab_action(), None);
+    assert_eq!(palette.complete(), None);
+    assert_eq!(palette.query, "x");
+    let mut empty = palette_over(Vec::new());
+    assert_eq!(empty.complete(), None);
+}
+
+#[test]
+fn a_new_command_list_or_cleared_usage_makes_the_next_search_start_again() {
+    let mut palette = palette_over(vec![titled("alpha")]);
+    palette.searched = Some((None, "x".to_string()));
+    palette.tips_synced = true;
+    palette.invalidate();
+    assert!(palette.searched.is_none());
+    assert!(!palette.tips_synced);
+    palette.searched = Some((None, "x".to_string()));
+    palette.clear_usage();
+    assert!(palette.searched.is_none());
+    palette.flush_usage();
+}
+
+#[test]
+fn the_tips_are_taken_from_the_first_snapshot_only() {
+    let mut palette = palette_over(Vec::new());
+    palette.invalidate();
+    let mut first = UiSnapshot::default();
+    first.tips.show = false;
+    palette.sync_tips(&first);
+    assert!(!palette.tips.show);
+    let mut second = UiSnapshot::default();
+    second.tips.show = true;
+    palette.sync_tips(&second);
+    assert!(!palette.tips.show, "ours are sent back whole");
+    palette.invalidate();
+    palette.sync_tips(&second);
+    assert!(palette.tips.show);
+}
+
+/// A provider whose `act` answers with the reply its command names.
+struct Replies;
+
+impl crate::search::SearchProvider for Replies {
+    fn id(&self) -> &'static str {
+        "replies"
+    }
+    fn name(&self) -> &'static str {
+        "Replies"
+    }
+    fn description(&self) -> &'static str {
+        "test replies"
+    }
+    fn default_prefix(&self) -> Option<&'static str> {
+        Some("r")
+    }
+    fn query(&mut self, _query: &crate::search::Query, _context: &Context) -> Vec<ResultItem> {
+        Vec::new()
+    }
+    fn act(&mut self, command: &str, _context: &Context) -> crate::search::Reply {
+        use crate::search::Reply;
+        match command {
+            "clear" => Reply::ClearQuery,
+            "hide" => Reply::Hide,
+            "switch" => Reply::Switch {
+                provider: "replies",
+                text: "after".to_string(),
+            },
+            "ask" => Reply::Ask(crate::search::Ask {
+                provider: "replies",
+                chip: "Name".to_string(),
+                placeholder: "Type a name".to_string(),
+                text: "old".to_string(),
+                action: "Save as".to_string(),
+                subtitle: "".to_string(),
+                payload: "p".to_string(),
+            }),
+            _ => Reply::Stay,
+        }
+    }
+}
+
+fn reply_palette() -> Palette {
+    let mut palette = Palette::new(Router::new(
+        vec![(None, Box::new(Replies))],
+        &Default::default(),
+    ));
+    palette.opened();
+    palette
+}
+
+fn provider_action(command: &str) -> Action {
+    Action::Provider {
+        provider: "replies".to_string(),
+        command: command.to_string(),
+    }
+}
+
+#[test]
+fn a_provider_reply_decides_what_the_palette_does_next() {
+    let bridge = crate::core::ui_bridge::create();
+    let snapshot = UiSnapshot::default();
+    let mut palette = reply_palette();
+    palette.set_query("typed".to_string());
+    let outcome = palette.perform(provider_action("stay"), &snapshot, &bridge.to_host);
+    assert!(matches!(outcome, Outcome::Stay));
+    assert!(palette.searched.is_none());
+    let outcome = palette.perform(provider_action("clear"), &snapshot, &bridge.to_host);
+    assert!(matches!(outcome, Outcome::Stay));
+    assert_eq!(palette.query, "");
+    let outcome = palette.perform(provider_action("hide"), &snapshot, &bridge.to_host);
+    assert!(matches!(outcome, Outcome::Hide));
+    let outcome = palette.perform(provider_action("switch"), &snapshot, &bridge.to_host);
+    assert!(matches!(outcome, Outcome::Stay));
+    assert_eq!(palette.prefix.as_deref(), Some("r"));
+    assert_eq!(palette.query, "after");
+    let outcome = palette.perform(provider_action("ask"), &snapshot, &bridge.to_host);
+    assert!(matches!(outcome, Outcome::Stay));
+    assert!(palette.prompt.is_some());
+    assert!(
+        bridge.host_rx.try_recv().is_err(),
+        "nothing went to the host"
+    );
+}
+
+#[test]
+fn choosing_a_command_or_another_action_goes_to_the_host_and_hides_the_palette() {
+    let bridge = crate::core::ui_bridge::create();
+    let snapshot = UiSnapshot::default();
+    let mut palette = reply_palette();
+    let id =
+        crate::core::ui_bridge::CommandId::Host(crate::core::ui_bridge::HostCommand::OpenSettings);
+    let outcome = palette.perform(Action::Command(id), &snapshot, &bridge.to_host);
+    assert!(matches!(outcome, Outcome::Hide));
+    assert!(matches!(
+        bridge.host_rx.try_recv().ok(),
+        Some(HostRequest::RunCommand(_))
+    ));
+    let outcome = palette.perform(Action::Copy("text".into()), &snapshot, &bridge.to_host);
+    assert!(matches!(outcome, Outcome::Hide));
+    assert!(matches!(
+        bridge.host_rx.try_recv().ok(),
+        Some(HostRequest::RunAction(Action::Copy(_)))
+    ));
+}
+
+#[test]
+fn opening_a_plugin_a_prefix_or_an_unknown_shortcut_stays_in_the_palette_logic() {
+    let bridge = crate::core::ui_bridge::create();
+    let snapshot = UiSnapshot::default();
+    let mut palette = reply_palette();
+    let outcome = palette.perform(
+        Action::OpenPlugin("quick_jump".to_string()),
+        &snapshot,
+        &bridge.to_host,
+    );
+    assert!(matches!(outcome, Outcome::OpenPlugin(id) if id == "quick_jump"));
+    let outcome = palette.perform(
+        Action::SetPrefix("r".to_string()),
+        &snapshot,
+        &bridge.to_host,
+    );
+    assert!(matches!(outcome, Outcome::Stay));
+    assert_eq!(palette.prefix.as_deref(), Some("r"));
+    palette.perform(Action::SetPrefix(String::new()), &snapshot, &bridge.to_host);
+    assert_eq!(palette.prefix, None);
+    let outcome = palette.perform(
+        Action::ChangeShortcut {
+            id: "nobody.home".to_string(),
+            label: "Nobody".to_string(),
+        },
+        &snapshot,
+        &bridge.to_host,
+    );
+    assert!(
+        matches!(outcome, Outcome::OpenShortcut { id, label } if id == "nobody.home" && label == "Nobody")
+    );
+    assert!(palette.hotkey_dialog.is_none());
+}
+
+#[test]
+fn running_a_completion_fills_the_box_and_forgetting_with_no_row_does_nothing() {
+    let bridge = crate::core::ui_bridge::create();
+    let snapshot = UiSnapshot::default();
+    let mut palette = reply_palette();
+    let outcome = palette.run(
+        Run::Complete("hello".to_string()),
+        &snapshot,
+        &bridge.to_host,
+    );
+    assert!(matches!(outcome, Outcome::Stay));
+    assert_eq!(palette.query, "hello");
+    let outcome = palette.run(Run::Forget, &snapshot, &bridge.to_host);
+    assert!(matches!(outcome, Outcome::Stay));
+    let outcome = palette.run(Run::Mark, &snapshot, &bridge.to_host);
+    assert!(matches!(outcome, Outcome::Stay));
+    let outcome = palette.run(
+        Run::Action(Action::SetPrefix("r".to_string())),
+        &snapshot,
+        &bridge.to_host,
+    );
+    assert!(matches!(outcome, Outcome::Stay));
+}

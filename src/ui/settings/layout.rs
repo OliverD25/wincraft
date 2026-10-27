@@ -320,3 +320,67 @@ fn entry_job(entry: &Entry, tokens: &Tokens) -> egui::text::LayoutJob {
     );
     job
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(when: &str, level: &str, text: &str) -> Entry {
+        Entry {
+            when: when.to_string(),
+            level: level.to_string(),
+            text: text.to_string(),
+        }
+    }
+
+    fn view_with_filter(filter: &str) -> LogView {
+        LogView {
+            entries: vec![
+                entry("10-17 14:01:43", "INFO", "saved 12 windows"),
+                entry("10-17 14:02:10", "WARN", "Chrome did not open"),
+                entry("10-18 09:00:00", "INFO", "restore finished"),
+            ],
+            filter: filter.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn an_empty_filter_shows_every_log_entry() {
+        assert_eq!(view_with_filter("").shown().len(), 3);
+        assert_eq!(view_with_filter("   ").shown().len(), 3);
+    }
+
+    #[test]
+    fn the_filter_matches_the_time_the_level_or_the_text_in_any_case() {
+        let by_text = view_with_filter("CHROME");
+        assert_eq!(by_text.shown().len(), 1);
+        assert_eq!(by_text.shown()[0].level, "WARN");
+        assert_eq!(view_with_filter(" warn ").shown().len(), 1);
+        assert_eq!(view_with_filter("10-18").shown().len(), 1);
+        assert_eq!(view_with_filter("info").shown().len(), 2);
+        assert!(view_with_filter("nothing like this").shown().is_empty());
+    }
+
+    #[test]
+    fn the_log_is_read_on_a_thread_and_taken_when_it_has_finished() {
+        let ctx = egui::Context::default();
+        let mut view = LogView::default();
+        let missing = std::env::temp_dir().join("wincraft-no-such-log-file.log");
+        view.update(&ctx, &missing, false);
+        assert!(view.pending.is_some(), "a first read starts at once");
+        view.update(&ctx, &missing, true);
+        let started = Instant::now();
+        while view.loaded.is_none() && started.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(10));
+            view.update(&ctx, &missing, false);
+        }
+        assert!(view.loaded.is_some(), "the finished read was taken");
+        assert!(view.entries.is_empty());
+        assert!(view.pending.is_none());
+        view.update(&ctx, &missing, false);
+        assert!(view.pending.is_none(), "a fresh list is not read again");
+        view.update(&ctx, &missing, true);
+        assert!(view.pending.is_some(), "Refresh reads it again");
+    }
+}

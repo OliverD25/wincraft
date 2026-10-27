@@ -308,4 +308,68 @@ mod tests {
         assert_eq!(row.title, "Commands");
         assert_eq!(row.subtitle, "WinCraft and plugin commands");
     }
+
+    #[test]
+    fn the_provider_describes_itself_and_blends_into_the_main_list() {
+        assert_eq!(Commands.id(), "commands");
+        assert_eq!(Commands.name(), "Commands");
+        assert_eq!(Commands.description(), "WinCraft and plugin commands");
+        assert_eq!(Commands.default_prefix(), Some("!"));
+        assert!(Commands.blended());
+    }
+
+    #[test]
+    fn a_command_with_a_hotkey_offers_to_change_it_and_shows_its_keys() {
+        let mut dim = entry("ScreenDimmer", "Dim all monitors", false);
+        dim.shortcut_id = "screen_dimmer.dim_all".to_string();
+        dim.shortcut = "Win+Alt+D".to_string();
+        dim.subtitle = Some("2 monitors".to_string());
+        dim.hint = "dim".to_string();
+        let commands = [dim, entry("ScreenDimmer", "Wake all monitors", false)];
+        let context = Context {
+            commands: &commands,
+            ..crate::search::test_context()
+        };
+        let rows = Commands.query(&Query::default(), &context);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].keys, "Win+Alt+D");
+        assert_eq!(rows[0].subtitle, "2 monitors");
+        assert_eq!(rows[0].hint, "dim");
+        assert_eq!(rows[0].origin.as_deref(), Some("screen_dimmer"));
+        let change = rows[0].shortcut.as_ref().expect("a change-hotkey choice");
+        assert_eq!(
+            change.action,
+            Action::ChangeShortcut {
+                id: "screen_dimmer.dim_all".to_string(),
+                label: "Dim all monitors".to_string(),
+            }
+        );
+        assert!(rows[1].shortcut.is_none());
+        assert_eq!(
+            rows[0].tab.as_ref().map(|tab| tab.text.as_str()),
+            Some("Dim all monitors")
+        );
+        assert!(rows[0].usage_key.is_some());
+    }
+
+    #[test]
+    fn a_typed_text_keeps_only_the_commands_it_matches() {
+        let commands = [
+            entry("ScreenDimmer", "Dim all monitors", false),
+            entry("LayoutKeeper", "Restore layout", false),
+        ];
+        let context = Context {
+            commands: &commands,
+            ..crate::search::test_context()
+        };
+        let query = Query {
+            text: "restore".to_string(),
+            prefix: None,
+            limit: 8,
+        };
+        let rows = Commands.query(&query, &context);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "Restore layout");
+        assert!(rows[0].score > 0);
+    }
 }

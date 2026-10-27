@@ -339,3 +339,134 @@ fn taskbar_rects() -> Vec<Rect> {
     }
     rects
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc::channel;
+
+    use super::*;
+
+    fn button(app: &str) -> taskbar::Button {
+        taskbar::Button {
+            app: app.to_string(),
+            rect: [10, 1040, 60, 1080],
+        }
+    }
+
+    fn two_windows(_app: &str, _rect: Rect) -> usize {
+        2
+    }
+
+    #[test]
+    fn an_answer_that_is_already_known_is_given_once() {
+        let mut hover = HoverPreview {
+            answer: Some(Answer {
+                at: (5, 6),
+                button: None,
+            }),
+            ..Default::default()
+        };
+        let answer = hover.take_answer(&two_windows).expect("an answer");
+        assert_eq!(answer.at, (5, 6));
+        assert!(hover.take_answer(&two_windows).is_none());
+    }
+
+    #[test]
+    fn with_no_lookup_asked_for_there_is_no_answer() {
+        let mut hover = HoverPreview::default();
+        assert!(hover.take_answer(&two_windows).is_none());
+    }
+
+    #[test]
+    fn a_lookup_still_running_gives_no_answer_yet() {
+        let (_sender, receiver) = channel();
+        let mut hover = HoverPreview {
+            lookup: Some(((1, 2), receiver)),
+            ..Default::default()
+        };
+        assert!(hover.take_answer(&two_windows).is_none());
+        assert!(hover.lookup.is_some(), "it is waited for, not dropped");
+    }
+
+    #[test]
+    fn a_found_button_is_answered_with_the_windows_of_its_app() {
+        let (sender, receiver) = channel();
+        sender.send(Ok(Some(button("chrome.exe")))).unwrap();
+        let mut hover = HoverPreview {
+            lookup: Some(((11, 1050), receiver)),
+            ..Default::default()
+        };
+        let asked = std::cell::RefCell::new(Vec::new());
+        let answer = hover
+            .take_answer(&|app, rect| {
+                asked.borrow_mut().push((app.to_string(), rect));
+                3
+            })
+            .expect("an answer");
+        assert_eq!(answer.at, (11, 1050));
+        let found = answer.button.expect("a button");
+        assert_eq!(found.app, "chrome.exe");
+        assert_eq!(found.windows, 3);
+        assert!(found.eligible());
+        assert_eq!(
+            *asked.borrow(),
+            [("chrome.exe".to_string(), [10, 1040, 60, 1080])]
+        );
+        assert!(hover.lookup.is_none());
+    }
+
+    #[test]
+    fn a_failed_or_lost_lookup_answers_that_there_is_no_button() {
+        let (sender, receiver) = channel();
+        sender
+            .send(Err("UI Automation said no".to_string()))
+            .unwrap();
+        let mut hover = HoverPreview {
+            lookup: Some(((1, 1), receiver)),
+            ..Default::default()
+        };
+        assert_eq!(hover.take_answer(&two_windows).unwrap().button, None);
+
+        let (sender, receiver) = channel::<Result<Option<taskbar::Button>, String>>();
+        drop(sender);
+        hover.lookup = Some(((2, 2), receiver));
+        let answer = hover.take_answer(&two_windows).expect("an answer");
+        assert_eq!(answer.at, (2, 2));
+        assert_eq!(answer.button, None);
+
+        let (sender, receiver) = channel();
+        sender.send(Ok(None)).unwrap();
+        hover.lookup = Some(((3, 3), receiver));
+        assert_eq!(hover.take_answer(&two_windows).unwrap().button, None);
+    }
+
+    #[test]
+    fn a_button_with_one_window_is_answered_but_not_eligible() {
+        let (sender, receiver) = channel();
+        sender.send(Ok(Some(button("notepad.exe")))).unwrap();
+        let mut hover = HoverPreview {
+            lookup: Some(((1, 1), receiver)),
+            ..Default::default()
+        };
+        let answer = hover.take_answer(&|_, _| 1).unwrap();
+        assert!(!answer.button.unwrap().eligible());
+    }
+
+    #[test]
+    fn switching_the_hover_strip_on_and_off_without_a_window_changes_only_the_state() {
+        let mut hover = HoverPreview::default();
+        assert!(!hover.is_on());
+        assert!(hover.set(None, true, 400).is_empty());
+        assert!(hover.is_on());
+        assert!(hover.set(None, true, 400).is_empty(), "already on");
+        assert!(hover.set(None, false, 400).is_empty());
+        assert!(!hover.is_on());
+        hover.set(None, true, 400);
+        assert!(hover.stop().is_empty());
+        assert!(!hover.is_on());
+        assert!(
+            hover.tick(&two_windows).is_empty(),
+            "off: nothing is watched"
+        );
+    }
+}

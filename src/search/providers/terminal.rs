@@ -490,4 +490,158 @@ mod tests {
         terminal.interrupted();
         assert!(!terminal.armed_for("rm -rf build/", false));
     }
+    fn idle(history: &[&str]) -> Terminal {
+        Terminal {
+            history: history.iter().map(|entry| entry.to_string()).collect(),
+            process: None,
+            failure: None,
+            armed: None,
+            dirty: false,
+            showing_output: false,
+        }
+    }
+
+    fn query_of(text: &str) -> Query {
+        Query {
+            text: text.to_string(),
+            prefix: Some(">".to_string()),
+            limit: 500,
+        }
+    }
+
+    #[test]
+    fn an_empty_query_lists_the_history_with_run_and_complete_choices() {
+        let mut terminal = idle(&["ls -la", "git status"]);
+        let rows = terminal.query(&query_of("  "), &crate::search::test_context());
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].group, "History");
+        assert_eq!(rows[0].title, "ls -la");
+        assert_eq!(rows[0].enter.as_ref().unwrap().label, "Run");
+        assert_eq!(rows[0].ctrl_enter.as_ref().unwrap().label, "Terminal");
+        assert_eq!(rows[0].tab.as_ref().unwrap().text, "ls -la");
+        assert!(!terminal.showing_output);
+    }
+
+    #[test]
+    fn a_command_that_could_not_start_is_shown_as_a_warning_in_the_output() {
+        let mut terminal = idle(&["ls"]);
+        terminal.failure = Some(("nope".to_string(), "no such shell".to_string()));
+        let rows = terminal.query(&query_of(""), &crate::search::test_context());
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "Could not start: no such shell");
+        assert_eq!(rows[0].subtitle, "nope");
+        assert_eq!(rows[0].tone, Tone::Warning);
+        assert!(terminal.showing_output);
+        assert!(terminal.follows_end());
+        assert!(!terminal.escape());
+        assert_eq!(terminal.escape_label(), None);
+        assert_eq!(terminal.copy_all(), None);
+    }
+
+    #[test]
+    fn the_provider_describes_itself_for_the_help_list() {
+        let terminal = idle(&[]);
+        let context = crate::search::test_context();
+        assert_eq!(terminal.id(), "terminal");
+        assert_eq!(terminal.name(), "Terminal");
+        assert_eq!(terminal.default_prefix(), Some(">"));
+        assert!(terminal.description().contains("shell"));
+        assert!(terminal.placeholder().contains("Ctrl+Enter"));
+        assert_eq!(terminal.needle("ls -la"), "");
+        assert_eq!(terminal.describe(&context), "Run a command in WSL bash");
+    }
+
+    #[test]
+    fn an_unknown_provider_command_does_nothing() {
+        let mut terminal = idle(&[]);
+        let context = crate::search::test_context();
+        assert_eq!(terminal.act("garbage", &context), Reply::Stay);
+        assert_eq!(terminal.act("other\nls", &context), Reply::Stay);
+        assert!(terminal.process.is_none());
+    }
+
+    #[test]
+    fn a_dangerous_command_for_a_terminal_asks_for_ctrl_enter_again() {
+        let mut terminal = idle(&[]);
+        let context = crate::search::test_context();
+        let reply = terminal.act("terminal\nrm -rf build/", &context);
+        assert_eq!(reply, Reply::Stay);
+        assert!(terminal.waiting());
+        assert!(terminal.has_news());
+        assert!(!terminal.has_news());
+        let rows = terminal.query(&query_of("rm -rf build/"), &context);
+        assert_eq!(rows[0].tone, Tone::Danger);
+        assert!(rows[0].title.contains("Ctrl+Enter again"));
+        assert!(rows[0].enter.is_none());
+        assert_eq!(rows[0].ctrl_enter.as_ref().unwrap().label, "Run anyway");
+        assert_eq!(rows[1].title, "Run in WSL bash: rm -rf build/");
+        terminal.interrupted();
+        assert!(!terminal.waiting());
+        assert!(terminal.has_news());
+    }
+
+    #[test]
+    fn a_dangerous_command_for_the_palette_asks_for_enter_again() {
+        let mut terminal = idle(&[]);
+        let context = crate::search::test_context();
+        terminal.arm("rm -rf build/", false);
+        let rows = terminal.query(&query_of("rm -rf build/"), &context);
+        assert!(rows[0].title.contains("Enter again to run it"));
+        assert!(rows[0].enter.is_some());
+        assert!(rows[0].ctrl_enter.is_none());
+        assert!(terminal.armed_for("rm -rf build/", false));
+        assert!(!terminal.armed_for("rm -rf build/", true));
+        assert!(!terminal.armed_for("ls", false));
+    }
+
+    #[test]
+    fn an_old_confirmation_runs_out_and_the_palette_asks_again() {
+        let mut terminal = idle(&[]);
+        terminal.armed = Some(Armed {
+            command: "rm -rf build/".to_string(),
+            to_terminal: false,
+            at: Instant::now() - CONFIRM_FOR - Duration::from_secs(1),
+        });
+        assert!(!terminal.armed_for("rm -rf build/", false));
+        assert!(terminal.has_news());
+        assert!(terminal.armed.is_none());
+    }
+
+    #[test]
+    fn a_folder_browsed_in_the_palette_is_where_commands_run() {
+        let mut terminal = idle(&[]);
+        let mut context = crate::search::test_context();
+        context.folder = Some("C:/Projects");
+        let rows = terminal.query(&query_of("dir"), &context);
+        assert_eq!(rows[0].subtitle, "in C:/Projects");
+        assert_eq!(
+            working_folder(&Shell::Wsl, &context).as_deref(),
+            Some("C:/Projects")
+        );
+    }
+
+    #[test]
+    fn history_rows_are_filtered_by_what_is_typed_and_limited() {
+        let terminal = idle(&["git status", "git stash", "cargo test", "ls"]);
+        let titles: Vec<String> = terminal
+            .history_rows("git", 10)
+            .map(|row| row.title)
+            .collect();
+        assert!(titles.contains(&"git status".to_string()));
+        assert!(!titles.contains(&"cargo test".to_string()));
+        assert_eq!(terminal.history_rows("", 2).count(), 2);
+    }
+
+    #[test]
+    fn the_action_choice_carries_the_kind_and_the_command() {
+        let choice = action("Run", RUN, "ls");
+        assert_eq!(choice.label, "Run");
+        assert_eq!(
+            choice.action,
+            Action::Provider {
+                provider: "terminal".to_string(),
+                command: "run\nls".to_string()
+            }
+        );
+    }
 }

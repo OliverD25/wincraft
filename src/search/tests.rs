@@ -759,3 +759,30 @@ fn a_window_row_knows_its_window() {
     assert_eq!(window.window(), Some(7));
     assert_eq!(item("Apps", "x", 0).window(), None);
 }
+
+#[test]
+fn picks_are_saved_to_the_usage_file_and_come_back_in_a_new_session() {
+    let dir = std::env::temp_dir().join(format!("wincraft-usage-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("usage.json");
+    let mut router = Router::new(Vec::new(), &BTreeMap::new());
+    router.load_usage(path.clone());
+    assert_eq!(router.usage.len(), 0);
+    router.record_pick("apps:Notepad", None, "note", &settings(true));
+    router.record_pick("apps:Notepad", None, "note", &settings(true));
+    router.save_usage_soon();
+    router.flush_usage();
+    assert!(path.exists(), "the picks were written");
+
+    let mut later = Router::new(Vec::new(), &BTreeMap::new());
+    later.load_usage(path.clone());
+    assert_eq!(later.usage.len(), 1, "one row was picked");
+    assert!(later.usage.typed_len() > 0, "what was typed is remembered");
+    later.clear_usage();
+    assert_eq!(later.usage.len(), 0);
+    let mut again = Router::new(Vec::new(), &BTreeMap::new());
+    again.load_usage(path);
+    assert_eq!(again.usage.len(), 0, "clearing reached the file");
+    let _ = std::fs::remove_dir_all(&dir);
+}

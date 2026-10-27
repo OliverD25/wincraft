@@ -1357,4 +1357,141 @@ mod tests {
         assert_eq!(last, (body.len() as u64, Some(body.len() as u64)));
         let _ = fs::remove_dir_all(&dir);
     }
+
+    fn update_folder(name: &str, files: &[(&str, &str)]) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("wincraft-update-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        for (file, text) in files {
+            fs::write(dir.join(file), text).unwrap();
+        }
+        dir
+    }
+
+    fn text_of(dir: &Path, name: &str) -> Option<String> {
+        fs::read_to_string(dir.join(name)).ok()
+    }
+
+    #[test]
+    fn on_a_real_disk_the_new_exe_takes_the_place_of_the_old_one() {
+        let dir = update_folder(
+            "swap",
+            &[(EXE_NAME, "v1"), (NEW_EXE, "v2"), (OLD_EXE, "v0")],
+        );
+        swap_in(&dir, &mut Disk).unwrap();
+        assert_eq!(text_of(&dir, EXE_NAME).as_deref(), Some("v2"));
+        assert_eq!(text_of(&dir, OLD_EXE).as_deref(), Some("v1"));
+        assert_eq!(text_of(&dir, NEW_EXE), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn on_a_real_disk_a_swap_goes_back_and_the_failed_exe_is_deleted() {
+        let dir = update_folder(
+            "back",
+            &[(EXE_NAME, "v2"), (OLD_EXE, "v1"), (FAILED_EXE, "x")],
+        );
+        swap_back(&dir, &mut Disk).unwrap();
+        assert_eq!(text_of(&dir, EXE_NAME).as_deref(), Some("v1"));
+        assert_eq!(text_of(&dir, OLD_EXE), None);
+        assert_eq!(text_of(&dir, FAILED_EXE), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn going_back_without_the_old_exe_says_there_is_nothing_to_go_back_to() {
+        let dir = update_folder("noback", &[(EXE_NAME, "v2")]);
+        let err = swap_back(&dir, &mut Disk).unwrap_err();
+        assert!(err.contains("nothing to go back to"), "{err}");
+        assert_eq!(text_of(&dir, EXE_NAME).as_deref(), Some("v2"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn on_a_real_disk_the_leftovers_go_and_the_installed_exe_stays() {
+        let dir = update_folder(
+            "left",
+            &[
+                (EXE_NAME, "v2"),
+                (OLD_EXE, "v1"),
+                (NEW_EXE, "n"),
+                (FAILED_EXE, "f"),
+            ],
+        );
+        assert!(remove_leftovers(&dir, &mut Disk).is_empty());
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        assert_eq!(text_of(&dir, EXE_NAME).as_deref(), Some("v2"));
+        assert!(Disk.exists(&dir.join(EXE_NAME)));
+        assert!(!Disk.exists(&dir.join(OLD_EXE)));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_step_that_works_on_the_third_try_is_waited_for() {
+        let mut calls = 0;
+        let result = Disk::patiently(|| {
+            calls += 1;
+            if calls < 3 {
+                Err("busy".to_string())
+            } else {
+                Ok(())
+            }
+        });
+        assert_eq!(result, Ok(()));
+        assert_eq!(calls, 3);
+    }
+
+    #[test]
+    fn with_no_healthy_signal_only_the_old_version_is_started() {
+        let mut launcher = NoSignal;
+        let refused = launcher.start(Path::new("wincraft.exe"), &[UPDATED_FROM.to_string()]);
+        assert!(matches!(refused, Err(err) if err.contains("no healthy signal")));
+        let mut gone = Gone;
+        assert_eq!(gone.wait(Duration::from_secs(1)), Waited::Exited(None));
+        gone.kill();
+    }
+
+    #[test]
+    fn a_path_under_local_app_data_is_shortened() {
+        let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
+        if local.is_empty() {
+            return;
+        }
+        let inside = Path::new(&local).join("Programs").join("WinCraft");
+        let short = short_path(&inside);
+        assert!(short.starts_with("%LOCALAPPDATA%"), "{short}");
+        assert!(short.ends_with("WinCraft"), "{short}");
+        assert_eq!(short_path(Path::new(r"D:\elsewhere")), r"D:\elsewhere");
+    }
+
+    #[test]
+    fn an_update_is_blocked_inside_a_package_and_outside_the_install_folder() {
+        let inside = blocked(Path::new("wincraft.exe"), Some("Claude")).unwrap();
+        assert!(inside.contains("runs inside Claude"), "{inside}");
+        let elsewhere = blocked(Path::new(r"D:\build\wincraft.exe"), None).unwrap();
+        assert!(elsewhere.contains("wincraft.exe --install"), "{elsewhere}");
+        let installed = install::dir().join(EXE_NAME);
+        assert_eq!(blocked(&installed, None), None);
+    }
+
+    #[test]
+    fn only_wincrafts_own_downloads_are_allowed_unless_a_local_fake_is_on() {
+        assert!(allowed_asset(&format!("{DOWNLOADS}v1/wincraft.exe"), false));
+        assert!(!allowed_asset("https://example.com/wincraft.exe", false));
+        assert!(!allowed_asset("http://127.0.0.1:9/wincraft.exe", false));
+        assert!(allowed_asset("http://127.0.0.1:9/wincraft.exe", true));
+        assert!(!allowed_asset("http://evil.test/wincraft.exe", true));
+    }
+
+    #[test]
+    fn the_daily_check_is_due_after_a_day_or_when_the_clock_went_back() {
+        let day = CHECK_EVERY.as_secs();
+        assert!(!check_due(1_000_000, 0, false));
+        assert!(check_due(1_000_000, 0, true), "never checked");
+        assert!(!check_due(1_000_000 + day - 1, 1_000_000, true));
+        assert!(check_due(1_000_000 + day, 1_000_000, true));
+        assert!(check_due(500, 1_000_000, true), "the clock went back");
+        assert!(now_secs() > 1_700_000_000);
+    }
 }

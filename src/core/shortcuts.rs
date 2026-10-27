@@ -864,4 +864,60 @@ mod tests {
         assert!(same_text("", ""));
         assert!(!same_text("Win+Alt+A", ""));
     }
+
+    #[test]
+    fn every_other_check_explains_what_is_wrong_and_what_to_do() {
+        let cases = [
+            (
+                Check::NeedsModifier {
+                    keys: "K".to_string(),
+                },
+                true,
+                "K needs Win, Ctrl or Alt with it.",
+            ),
+            (
+                Check::OnePressOnly,
+                true,
+                "The palette's hotkey is one key press, not a chord.",
+            ),
+            (
+                Check::ChordStart {
+                    keys: "Win+Alt+K".to_string(),
+                    other: "Open".to_string(),
+                },
+                true,
+                "Win+Alt+K is the start of a chord, so it cannot also be a hotkey on its own.",
+            ),
+            (
+                Check::StartTaken {
+                    keys: "Win+Alt+K".to_string(),
+                    other: "Open".to_string(),
+                    group: "Quick jump".to_string(),
+                },
+                true,
+                "Win+Alt+K is already the hotkey of Open in Quick jump.",
+            ),
+            (
+                Check::HeldByApp {
+                    keys: "Win+Alt+K".to_string(),
+                },
+                false,
+                "Another app holds Win+Alt+K, so it may not reach WinCraft.",
+            ),
+        ];
+        for (check, blocks, first_line) in cases {
+            let (first, second) = check.message("x").expect("a message");
+            assert_eq!(first, first_line);
+            assert!(second.ends_with('.'), "{second}");
+            assert_eq!(check.blocks(), blocks, "{check:?}");
+        }
+        let used = Check::UsedBy {
+            keys: "K".to_string(),
+            id: "a".to_string(),
+            label: "A".to_string(),
+            group: "G".to_string(),
+        };
+        assert!(!used.blocks());
+        assert!(!Check::Fine.blocks());
+    }
 }

@@ -742,4 +742,152 @@ mod tests {
         assert_eq!(bytes[..4], [0x4C, 0, 0, 0]);
         let _ = fs::remove_dir_all(&root);
     }
+
+    /// A system whose every step can be made to fail.
+    struct Flaky {
+        shortcut: Result<PathBuf, String>,
+        /// Some(true) is a logon task, Some(false) the Run registry value.
+        task: Result<Option<bool>, String>,
+        start: Result<String, String>,
+    }
+
+    impl System for Flaky {
+        fn package(&self) -> Option<String> {
+            None
+        }
+
+        fn quit_running(&mut self) -> quit::Outcome {
+            quit::Outcome::NotRunning
+        }
+
+        fn shortcut(&mut self, _target: &Path) -> Result<PathBuf, String> {
+            self.shortcut.clone()
+        }
+
+        fn logon_task(&mut self, _exe: &Path) -> Result<Option<Installed>, String> {
+            self.task.clone().map(|kind| {
+                kind.map(|task| {
+                    if task {
+                        Installed::Task
+                    } else {
+                        Installed::RunKey
+                    }
+                })
+            })
+        }
+
+        fn start(&mut self, _exe: &Path, _by_task: bool) -> Result<String, String> {
+            self.start.clone()
+        }
+    }
+
+    fn install_lines(system: &mut Flaky, name: &str) -> (Result<(), Failure>, Vec<String>) {
+        let root = scratch(name);
+        let source = root.join(EXE_NAME);
+        fs::write(&source, b"build").unwrap();
+        let mut lines = Vec::new();
+        let result = install_with(&source, &root.join("Programs"), system, &mut |line| {
+            lines.push(line.to_string())
+        });
+        let _ = fs::remove_dir_all(&root);
+        (result, lines)
+    }
+
+    #[test]
+    fn a_missing_shortcut_or_task_is_a_warning_and_the_install_goes_on() {
+        let mut system = Flaky {
+            shortcut: Err("no folder".to_string()),
+            task: Err("denied".to_string()),
+            start: Ok("started it".to_string()),
+        };
+        let (result, lines) = install_lines(&mut system, "warn");
+        assert_eq!(result, Ok(()));
+        assert!(
+            lines.contains(&"no WinCraft was running".to_string()),
+            "{lines:?}"
+        );
+        assert!(lines.contains(&"warning: no Start menu shortcut: no folder".to_string()));
+        assert!(lines.contains(&"warning: start at sign-in not changed: denied".to_string()));
+        assert!(lines.contains(&"started it".to_string()));
+        assert!(lines
+            .last()
+            .unwrap()
+            .starts_with("done: WinCraft is installed in "));
+    }
+
+    #[test]
+    fn the_install_says_how_start_at_sign_in_was_set_up() {
+        let said = |task| {
+            let mut system = Flaky {
+                shortcut: Ok(PathBuf::from("WinCraft.lnk")),
+                task,
+                start: Ok("started".to_string()),
+            };
+            install_lines(&mut system, "how").1
+        };
+        let task = said(Ok(Some(true)));
+        assert!(
+            task.iter().any(|line| line.starts_with("logon task ")),
+            "{task:?}"
+        );
+        assert!(task.contains(&"Start menu shortcut: WinCraft.lnk".to_string()));
+        let run_key = said(Ok(Some(false)));
+        assert!(run_key
+            .iter()
+            .any(|line| line.contains("Run registry value")));
+        let off = said(Ok(None));
+        assert!(off
+            .iter()
+            .any(|line| line.contains("Start with Windows is off")));
+    }
+
+    #[test]
+    fn a_copy_that_started_wrong_is_reported_as_installed_but_not_started() {
+        let mut system = Flaky {
+            shortcut: Ok(PathBuf::from("WinCraft.lnk")),
+            task: Ok(None),
+            start: Err("no desktop".to_string()),
+        };
+        let (result, _) = install_lines(&mut system, "nostart");
+        assert_eq!(
+            result,
+            Err(Failure::Failed(
+                "installed, but it did not start: no desktop".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn a_source_that_cannot_be_copied_stops_the_install_with_both_paths_named() {
+        let root = scratch("nosource");
+        let source = root.join("missing").join(EXE_NAME);
+        let dir = root.join("Programs");
+        let result = install_with(&source, &dir, &mut Fake::default(), &mut |_| {});
+        let Err(Failure::Failed(text)) = result else {
+            panic!("expected a failure, got {result:?}");
+        };
+        assert!(text.starts_with("cannot copy "), "{text}");
+        assert!(text.contains(STAGED), "{text}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_exit_code_and_the_last_line_follow_the_result() {
+        let mut lines = Vec::new();
+        assert_eq!(
+            finish(Ok(()), &mut |line| lines.push(line.to_string())),
+            DONE
+        );
+        assert!(lines.is_empty());
+        let refused = finish(Err(Failure::Refused("not here".to_string())), &mut |line| {
+            lines.push(line.to_string())
+        });
+        assert_eq!(refused, REFUSED);
+        let failed = finish(Err(Failure::Failed("broke".to_string())), &mut |line| {
+            lines.push(line.to_string())
+        });
+        assert_eq!(failed, FAILED);
+        assert_eq!(lines, ["not here", "--install failed: broke"]);
+        assert!(refusal("Claude").contains("runs inside Claude"));
+    }
 }

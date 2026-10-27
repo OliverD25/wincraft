@@ -662,4 +662,86 @@ mod tests {
             .iter()
             .all(|p| (p.y - 7.5).abs() < 0.01 && (p.x - 7.5).abs() <= 0.5));
     }
+
+    const EVERY_ICON: [Icon; 33] = [
+        Icon::Search,
+        Icon::ChevronDown,
+        Icon::ChevronRight,
+        Icon::ArrowLeft,
+        Icon::ArrowRight,
+        Icon::Refresh,
+        Icon::ExternalLink,
+        Icon::FolderOpen,
+        Icon::Calculator,
+        Icon::Globe,
+        Icon::Terminal,
+        Icon::Monitor,
+        Icon::Lightbulb,
+        Icon::Close,
+        Icon::Check,
+        Icon::Keyboard,
+        Icon::LayoutGrid,
+        Icon::RotateCcw,
+        Icon::TriangleAlert,
+        Icon::Ellipsis,
+        Icon::CircleHelp,
+        Icon::Settings,
+        Icon::Sparkles,
+        Icon::Clock,
+        Icon::Pin,
+        Icon::Info,
+        Icon::Trash,
+        Icon::Loader,
+        Icon::Grip,
+        Icon::Copy,
+        Icon::ArrowRightLeft,
+        Icon::Tag,
+        Icon::Pencil,
+    ];
+
+    #[test]
+    fn every_icon_draws_at_least_one_line_inside_the_24_unit_box() {
+        for icon in EVERY_ICON {
+            let paths = paths(icon);
+            assert!(!paths.is_empty(), "{icon:?} draws nothing");
+            for path in &paths {
+                assert!(!path.points.is_empty(), "{icon:?} has an empty path");
+                for point in &path.points {
+                    assert!((0.0..=24.0).contains(&point.x), "{icon:?} {point:?}");
+                    assert!((0.0..=24.0).contains(&point.y), "{icon:?} {point:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn an_outline_scales_the_24_unit_grid_to_the_wanted_side() {
+        for icon in EVERY_ICON {
+            let small = outline(icon, 12.0);
+            let big = outline(icon, 48.0);
+            assert_eq!(small.len(), big.len(), "{icon:?}");
+            for (a, b) in small.iter().zip(&big) {
+                assert_eq!(a.len(), b.len(), "{icon:?}");
+                for (p, q) in a.iter().zip(b) {
+                    assert!((p.0 * 4.0 - q.0).abs() < 0.001, "{icon:?}");
+                    assert!((p.1 * 4.0 - q.1).abs() < 0.001, "{icon:?}");
+                    assert!((0.0..=12.0).contains(&p.0) && (0.0..=12.0).contains(&p.1));
+                }
+            }
+        }
+        let close = outline(Icon::Close, 24.0);
+        assert_eq!(close.len(), 2, "a cross is two strokes");
+    }
+
+    #[test]
+    fn every_icon_has_a_tile_colour_pair_lighter_on_top_for_the_named_kinds() {
+        for icon in EVERY_ICON {
+            let (top, bottom) = tile_colours(icon);
+            assert_ne!(top, bottom, "{icon:?}");
+        }
+        assert_eq!(tile_colours(Icon::Check), tile_colours(Icon::Refresh));
+        assert_eq!(tile_colours(Icon::Terminal), tile_colours(Icon::Monitor));
+        assert_eq!(tile_colours(Icon::Pin), tile_colours(Icon::Info));
+        assert_eq!(rgb(0x112233), Color32::from_rgb(0x11, 0x22, 0x33));
+    }
 }

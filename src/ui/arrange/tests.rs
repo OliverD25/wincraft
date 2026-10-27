@@ -1064,3 +1064,415 @@ fn the_title_row_keeps_no_room_for_badges() {
     assert!(rects.iter().all(|rect| rect.bottom() <= picture.bottom()));
     assert!(rects.iter().all(|rect| rect.top() >= picture.top()));
 }
+
+fn snapshot_of(group: ArrangeGroup, monitors: Vec<ArrangeMonitor>) -> ArrangeSnapshot {
+    ArrangeSnapshot {
+        plugin: "window_deck".to_string(),
+        groups: vec![group],
+        desktops: Vec::new(),
+        focus: 0,
+        watched: Vec::new(),
+        preview: false,
+        can_rename: false,
+        monitors,
+        view: ArrangeView::ByMonitor,
+        look_plugin: "window_deck".to_string(),
+        hints: true,
+        keeps_order: false,
+        anchor: None,
+    }
+}
+
+fn shared_with(group: ArrangeGroup, monitors: Vec<ArrangeMonitor>) -> Arrange {
+    let bridge = crate::core::ui_bridge::create();
+    let arrange = Arrange::new(bridge.to_host.clone(), 0);
+    {
+        let mut shared = arrange.shared.lock().expect("the strip's state");
+        shared.key = Some(group.key.clone());
+        shared.snapshot = Some(snapshot_of(group, monitors));
+    }
+    arrange
+}
+
+fn windows_of(arrange: &Arrange) -> Vec<(isize, String, bool)> {
+    let shared = arrange.shared.lock().expect("the strip's state");
+    shared
+        .group()
+        .expect("a group")
+        .windows
+        .iter()
+        .map(|w| (w.hwnd, w.desktop.clone(), w.renamed))
+        .collect()
+}
+
+#[test]
+fn a_move_to_another_desktop_shows_at_once() {
+    let arrange = shared_with(group(&["work", "work", "home"]), Vec::new());
+    let mut shared = arrange.shared.lock().expect("the strip's state");
+    apply_locally(
+        &mut shared,
+        &ArrangeAction::MoveToDesktop {
+            hwnd: 1,
+            desktop: "home".to_string(),
+        },
+    );
+    let group = shared.group().expect("a group");
+    assert_eq!(group.windows[1].desktop, "home");
+    assert_eq!(group.windows[0].desktop, "work");
+}
+
+#[test]
+fn a_reorder_shows_at_once_and_windows_not_named_go_last() {
+    let arrange = shared_with(group(&["work", "work", "work", "work"]), Vec::new());
+    let mut shared = arrange.shared.lock().expect("the strip's state");
+    apply_locally(
+        &mut shared,
+        &ArrangeAction::Reorder {
+            group: "chrome.exe".to_string(),
+            order: vec![2, 0],
+        },
+    );
+    let order: Vec<isize> = shared
+        .group()
+        .expect("a group")
+        .windows
+        .iter()
+        .map(|w| w.hwnd)
+        .collect();
+    assert_eq!(order, [2, 0, 1, 3]);
+}
+
+#[test]
+fn a_move_to_a_monitor_shows_at_once_with_no_moved_badge() {
+    let monitors = vec![
+        ArrangeMonitor {
+            device: "left".to_string(),
+            ..screen([0, 0, 100, 100], true)
+        },
+        ArrangeMonitor {
+            device: "right".to_string(),
+            ..screen([100, 0, 200, 100], false)
+        },
+    ];
+    let arrange = shared_with(group(&["work", "work"]), monitors);
+    let mut shared = arrange.shared.lock().expect("the strip's state");
+    apply_locally(
+        &mut shared,
+        &ArrangeAction::MoveToMonitor {
+            hwnd: 0,
+            monitor: "right".to_string(),
+        },
+    );
+    apply_locally(
+        &mut shared,
+        &ArrangeAction::MoveToMonitor {
+            hwnd: 1,
+            monitor: "gone".to_string(),
+        },
+    );
+    let group = shared.group().expect("a group");
+    assert_eq!(group.windows[0].on_monitor, Some(1));
+    assert_eq!(group.windows[0].saved_monitor, Some(1));
+    assert_eq!(group.windows[1].on_monitor, None);
+    assert_eq!(group.windows[1].saved_monitor, None);
+}
+
+#[test]
+fn closing_and_naming_show_at_once() {
+    let arrange = shared_with(group(&["work", "work", "work"]), Vec::new());
+    let mut shared = arrange.shared.lock().expect("the strip's state");
+    apply_locally(&mut shared, &ArrangeAction::Close(1));
+    apply_locally(
+        &mut shared,
+        &ArrangeAction::Rename {
+            hwnd: 2,
+            name: Some("Mail".to_string()),
+        },
+    );
+    apply_locally(
+        &mut shared,
+        &ArrangeAction::Rename {
+            hwnd: 0,
+            name: None,
+        },
+    );
+    apply_locally(&mut shared, &ArrangeAction::AskName(0));
+    apply_locally(&mut shared, &ArrangeAction::Activate(0));
+    let group = shared.group().expect("a group");
+    let seen: Vec<(isize, &str, bool)> = group
+        .windows
+        .iter()
+        .map(|w| (w.hwnd, w.label.as_str(), w.renamed))
+        .collect();
+    assert_eq!(seen, [(0, "w0", false), (2, "Mail", true)]);
+}
+
+#[test]
+fn a_change_with_no_group_on_screen_is_ignored() {
+    let arrange = shared_with(group(&["work"]), Vec::new());
+    let mut shared = arrange.shared.lock().expect("the strip's state");
+    shared.key = None;
+    apply_locally(&mut shared, &ArrangeAction::Close(0));
+    shared.key = Some("other.exe".to_string());
+    apply_locally(&mut shared, &ArrangeAction::Close(0));
+    shared.snapshot = None;
+    apply_locally(&mut shared, &ArrangeAction::Close(0));
+    shared.key = Some("chrome.exe".to_string());
+    shared.snapshot = Some(snapshot_of(group(&["work"]), Vec::new()));
+    assert_eq!(shared.group().expect("a group").windows.len(), 1);
+}
+
+#[test]
+fn the_changes_just_made_are_held_one_hold_per_group() {
+    let arrange = shared_with(group(&["work", "work"]), Vec::new());
+    let mut shared = arrange.shared.lock().expect("the strip's state");
+    hold_changes(&mut shared, &[ArrangeAction::Close(0)]);
+    assert!(shared.holds.is_empty(), "closing is not held");
+    let moves = [ArrangeAction::MoveToDesktop {
+        hwnd: 0,
+        desktop: "home".to_string(),
+    }];
+    hold_changes(&mut shared, &moves);
+    hold_changes(&mut shared, &moves);
+    assert_eq!(shared.holds.len(), 1);
+    shared.key = None;
+    hold_changes(&mut shared, &moves);
+    assert_eq!(shared.holds.len(), 1);
+    shared.snapshot = None;
+    hold_changes(&mut shared, &moves);
+    assert_eq!(shared.holds.len(), 1);
+}
+
+/// Runs `keyboard` for one frame in which `key` is pressed with `modifiers`.
+fn press(
+    arrange: &Arrange,
+    key: egui::Key,
+    modifiers: egui::Modifiers,
+    group: &ArrangeGroup,
+    desktops: &[ArrangeDesktop],
+    rows: &[Row],
+) -> (Vec<ArrangeAction>, Option<isize>) {
+    let ctx = egui::Context::default();
+    crate::ui::theme::install_fonts(&ctx);
+    let input = egui::RawInput {
+        screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0))),
+        events: vec![egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }],
+        ..Default::default()
+    };
+    let mut actions = Vec::new();
+    let mut activate = None;
+    let mut shared = arrange.shared.lock().expect("the strip's state");
+    let mut output = ctx.run_ui(input, |ui| {
+        keyboard(
+            ui.ctx(),
+            &mut shared,
+            group,
+            desktops,
+            rows,
+            &mut actions,
+            &mut activate,
+        );
+    });
+    output.textures_delta.clear();
+    (actions, activate)
+}
+
+fn cursor_of(arrange: &Arrange) -> Option<isize> {
+    arrange.shared.lock().expect("the strip's state").cursor
+}
+
+fn keyboard_fixture(
+    cursor: Option<isize>,
+) -> (Arrange, ArrangeGroup, Vec<ArrangeDesktop>, Vec<Row>) {
+    let group = group(&["work", "work", "work", "read"]);
+    let arrange = shared_with(group.clone(), Vec::new());
+    arrange.shared.lock().expect("the strip's state").cursor = cursor;
+    let desktops = vec![
+        desktop("work", "Work", true),
+        desktop("read", "Reading", false),
+    ];
+    (arrange, group, desktops, two_rows())
+}
+
+#[test]
+fn the_arrow_keys_do_nothing_without_a_cursor() {
+    let (arrange, group, desktops, rows) = keyboard_fixture(None);
+    let (actions, activate) = press(
+        &arrange,
+        egui::Key::Enter,
+        egui::Modifiers::NONE,
+        &group,
+        &desktops,
+        &rows,
+    );
+    assert!(actions.is_empty());
+    assert_eq!(activate, None);
+    assert_eq!(cursor_of(&arrange), None);
+}
+
+#[test]
+fn left_and_right_move_the_cursor_along_the_cards_and_stop_at_the_ends() {
+    let (arrange, group, desktops, rows) = keyboard_fixture(Some(1));
+    let none = egui::Modifiers::NONE;
+    press(
+        &arrange,
+        egui::Key::ArrowRight,
+        none,
+        &group,
+        &desktops,
+        &rows,
+    );
+    assert_eq!(cursor_of(&arrange), Some(2));
+    press(
+        &arrange,
+        egui::Key::ArrowRight,
+        none,
+        &group,
+        &desktops,
+        &rows,
+    );
+    assert_eq!(cursor_of(&arrange), Some(3));
+    press(
+        &arrange,
+        egui::Key::ArrowRight,
+        none,
+        &group,
+        &desktops,
+        &rows,
+    );
+    assert_eq!(cursor_of(&arrange), Some(3), "the last card stays");
+    press(
+        &arrange,
+        egui::Key::ArrowLeft,
+        none,
+        &group,
+        &desktops,
+        &rows,
+    );
+    assert_eq!(cursor_of(&arrange), Some(2));
+    let (arrange, group, desktops, rows) = keyboard_fixture(Some(0));
+    press(
+        &arrange,
+        egui::Key::ArrowLeft,
+        none,
+        &group,
+        &desktops,
+        &rows,
+    );
+    assert_eq!(cursor_of(&arrange), Some(0), "the first card stays");
+}
+
+#[test]
+fn enter_switches_to_the_card_under_the_cursor() {
+    let (arrange, group, desktops, rows) = keyboard_fixture(Some(2));
+    let (actions, activate) = press(
+        &arrange,
+        egui::Key::Enter,
+        egui::Modifiers::NONE,
+        &group,
+        &desktops,
+        &rows,
+    );
+    assert!(actions.is_empty());
+    assert_eq!(activate, Some(2));
+}
+
+#[test]
+fn alt_arrows_give_the_cursor_card_another_number() {
+    let (arrange, group, desktops, rows) = keyboard_fixture(Some(1));
+    let (actions, _) = press(
+        &arrange,
+        egui::Key::ArrowLeft,
+        egui::Modifiers::ALT,
+        &group,
+        &desktops,
+        &rows,
+    );
+    assert_eq!(
+        actions,
+        [ArrangeAction::Reorder {
+            group: "chrome.exe".to_string(),
+            order: vec![1, 0, 2, 3]
+        }]
+    );
+    assert_eq!(cursor_of(&arrange), Some(1), "the cursor stays on the card");
+}
+
+#[test]
+fn ctrl_arrows_move_the_cursor_card_within_its_row() {
+    let (arrange, group, desktops, rows) = keyboard_fixture(Some(0));
+    let (actions, _) = press(
+        &arrange,
+        egui::Key::ArrowRight,
+        egui::Modifiers::CTRL,
+        &group,
+        &desktops,
+        &rows,
+    );
+    assert_eq!(
+        actions,
+        [ArrangeAction::Reorder {
+            group: "chrome.exe".to_string(),
+            order: vec![1, 0, 2, 3]
+        }]
+    );
+    let (arrange, group, desktops, rows) = keyboard_fixture(Some(0));
+    let (actions, _) = press(
+        &arrange,
+        egui::Key::ArrowLeft,
+        egui::Modifiers::CTRL,
+        &group,
+        &desktops,
+        &rows,
+    );
+    assert!(actions.is_empty(), "the first card of a row cannot go left");
+}
+
+#[test]
+fn up_and_down_move_the_cursor_to_the_card_on_the_line_above_or_below() {
+    let (arrange, group, desktops, rows) = keyboard_fixture(Some(1));
+    {
+        let mut shared = arrange.shared.lock().expect("the strip's state");
+        shared.card_hits = vec![
+            (0, Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 80.0))),
+            (1, Rect::from_min_size(pos2(110.0, 0.0), vec2(100.0, 80.0))),
+            (3, Rect::from_min_size(pos2(0.0, 100.0), vec2(100.0, 80.0))),
+        ];
+    }
+    press(
+        &arrange,
+        egui::Key::ArrowDown,
+        egui::Modifiers::NONE,
+        &group,
+        &desktops,
+        &rows,
+    );
+    assert_eq!(cursor_of(&arrange), Some(3));
+    press(
+        &arrange,
+        egui::Key::ArrowUp,
+        egui::Modifiers::NONE,
+        &group,
+        &desktops,
+        &rows,
+    );
+    assert_eq!(cursor_of(&arrange), Some(0));
+}
+
+#[test]
+fn a_window_can_be_found_by_its_handle_after_the_changes() {
+    let arrange = shared_with(group(&["work", "home"]), Vec::new());
+    assert_eq!(
+        windows_of(&arrange),
+        [
+            (0, "work".to_string(), false),
+            (1, "home".to_string(), false)
+        ]
+    );
+}

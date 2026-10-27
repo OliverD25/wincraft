@@ -493,4 +493,13 @@ mod tests {
         assert_eq!(hit.path, "");
         assert_eq!(hit.full_path(), r"only.txt\");
     }
+
+    #[test]
+    fn a_parse_error_says_what_is_wrong_in_plain_words() {
+        assert_eq!(ParseError::Truncated.to_string(), "the answer is cut short");
+        assert_eq!(
+            ParseError::UnsupportedFields(0x10_0000).to_string(),
+            "the answer has fields this code cannot read (0x100000)"
+        );
+    }
 }

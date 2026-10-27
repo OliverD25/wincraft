@@ -20,3 +20,6 @@ pub fn load_active_plugins() -> Vec<Box<dyn WinCraftPlugin>> {
         Box::new(quick_jump::QuickJump::new()),
     ]
 }
+
+#[cfg(test)]
+mod tests;

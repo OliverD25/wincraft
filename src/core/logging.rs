@@ -158,4 +158,69 @@ mod tests {
         );
         let _ = fs::remove_dir_all(&dir);
     }
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("wincraft-log-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        dir
+    }
+
+    #[test]
+    fn opening_a_log_makes_its_folder_and_either_empties_or_adds() {
+        let dir = scratch("open");
+        let path = dir.join("deeper").join("wincraft.log");
+        {
+            let mut file = open(&path, false).expect("a new log");
+            file.write_all(b"one\n").unwrap();
+        }
+        {
+            let mut file = open(&path, true).expect("adding to it");
+            file.write_all(b"two\n").unwrap();
+        }
+        assert_eq!(fs::read_to_string(&path).unwrap(), "one\ntwo\n");
+        drop(open(&path, false).expect("emptied again"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_logger_writes_one_line_per_record_at_or_above_its_level() {
+        use log::Log;
+        let dir = scratch("lines");
+        let path = dir.join("wincraft.log");
+        *FILE.lock().unwrap() = open(&path, false);
+        let logger = FileLogger { level: Level::Info };
+        let record = |level, target: &str, text: &str| {
+            logger.log(
+                &Record::builder()
+                    .level(level)
+                    .target(target)
+                    .args(format_args!("{text}"))
+                    .build(),
+            )
+        };
+        record(Level::Info, "wincraft::core::thing", "hello there");
+        record(Level::Debug, "wincraft::core::thing", "too chatty");
+        record(Level::Warn, "plain", "careful");
+        logger.flush();
+        *FILE.lock().unwrap() = None;
+        record(Level::Error, "wincraft::lost", "nowhere to go");
+        logger.flush();
+        let text = fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2, "{text}");
+        assert!(
+            lines[0].ends_with(" INFO  thing: hello there"),
+            "{}",
+            lines[0]
+        );
+        assert!(lines[1].ends_with(" WARN  plain: careful"), "{}", lines[1]);
+        let stamp = &lines[0][..19];
+        assert_eq!(stamp.as_bytes()[4], b'-');
+        assert_eq!(stamp.as_bytes()[10], b' ');
+        assert_eq!(stamp.as_bytes()[13], b':');
+        assert!(logger.enabled(&Metadata::builder().level(Level::Error).build()));
+        assert!(!logger.enabled(&Metadata::builder().level(Level::Trace).build()));
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

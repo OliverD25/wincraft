@@ -789,4 +789,154 @@ mod tests {
             assert_eq!(Mode::parse(mode.label()), mode);
         }
     }
+
+    /// A machine busy with its first test, with the wake already asked for.
+    fn testing_with_a_wake_asked_for() -> Machine {
+        let mut machine = Machine::new(Saved::default());
+        assert_eq!(machine.off_key(Mode::Auto), Some(Job::Detect));
+        assert_eq!(machine.off_key(Mode::Auto), None, "asked to wake after");
+        machine
+    }
+
+    #[test]
+    fn a_wake_asked_for_during_the_test_wins_when_standby_is_ignored() {
+        let mut machine = testing_with_a_wake_asked_for();
+        assert_eq!(machine.report(Outcome::Detected(Detected::Ignored)), None);
+        assert_eq!(machine.look(), Look::On);
+        assert_eq!(machine.saved.standby, Some(Standby::Ignored));
+        assert!(!machine.busy());
+    }
+
+    #[test]
+    fn a_wake_asked_for_during_the_test_wins_when_there_is_no_ddc() {
+        let mut machine = testing_with_a_wake_asked_for();
+        assert_eq!(machine.report(Outcome::Detected(Detected::NoDdc)), None);
+        assert_eq!(machine.look(), Look::On);
+        assert_eq!(machine.saved.standby, Some(Standby::NoDdc));
+    }
+
+    #[test]
+    fn a_wake_asked_for_during_the_test_follows_a_standby_that_worked() {
+        let mut machine = testing_with_a_wake_asked_for();
+        assert_eq!(
+            machine.report(Outcome::Detected(Detected::Works)),
+            Some(Job::Wake)
+        );
+        assert_eq!(machine.look(), Look::Off);
+        assert_eq!(machine.describe(), "waking");
+    }
+
+    #[test]
+    fn a_wake_asked_for_while_dimming_gives_the_brightness_back() {
+        let saved = Saved {
+            standby: Some(Standby::Ignored),
+            ..Saved::default()
+        };
+        let mut machine = Machine::new(saved);
+        assert_eq!(machine.off_key(Mode::Auto), Some(Job::ReadBrightness));
+        assert_eq!(machine.off_key(Mode::Auto), None);
+        let reading = ddc::Reading {
+            current: 55,
+            max: 100,
+        };
+        assert_eq!(machine.report(Outcome::Brightness(Some(reading))), None);
+        assert_eq!(machine.look(), Look::On);
+        assert_eq!(machine.saved.dimmed_from, None);
+
+        let mut machine = Machine::new(Saved {
+            standby: Some(Standby::Ignored),
+            ..Saved::default()
+        });
+        machine.off_key(Mode::Auto);
+        let job = machine.report(Outcome::Brightness(Some(reading)));
+        assert_eq!(job, Some(Job::SetBrightness(0)));
+        assert_eq!(machine.off_key(Mode::Auto), None);
+        assert_eq!(
+            machine.report(Outcome::BrightnessSet(true)),
+            Some(Job::SetBrightness(55)),
+            "dark for a moment, then back"
+        );
+        assert_eq!(machine.report(Outcome::BrightnessSet(true)), None);
+        assert_eq!(machine.look(), Look::On);
+        assert_eq!(machine.saved.dimmed_from, None);
+    }
+
+    #[test]
+    fn a_dim_that_could_not_be_set_forgets_the_old_brightness_and_covers() {
+        let mut machine = Machine::new(Saved {
+            standby: Some(Standby::Ignored),
+            ..Saved::default()
+        });
+        machine.off_key(Mode::Auto);
+        let reading = ddc::Reading {
+            current: 40,
+            max: 100,
+        };
+        machine.report(Outcome::Brightness(Some(reading)));
+        assert_eq!(machine.saved.dimmed_from, Some(40));
+        assert_eq!(machine.report(Outcome::BrightnessSet(false)), None);
+        assert_eq!(machine.saved.dimmed_from, None);
+        assert_eq!(machine.look(), Look::Covered);
+    }
+
+    #[test]
+    fn a_stopped_test_or_wake_leaves_the_monitor_as_it_is() {
+        let mut machine = Machine::new(Saved::default());
+        machine.off_key(Mode::Auto);
+        assert_eq!(machine.report(Outcome::Detected(Detected::Stopped)), None);
+        assert_eq!(machine.look(), Look::Off);
+        assert!(
+            machine.saved.left_in_standby,
+            "the record stays for the next start"
+        );
+        assert!(!machine.busy());
+
+        let mut machine = Machine::new(Saved {
+            left_in_standby: true,
+            ..Saved::default()
+        });
+        assert_eq!(machine.recover(), Some(Job::Wake));
+        assert_eq!(machine.report(Outcome::Woke(Woke::Stopped)), None);
+        assert_eq!(machine.look(), Look::Off);
+        assert!(machine.saved.left_in_standby);
+    }
+
+    #[test]
+    fn a_wake_finishing_on_a_dimmed_monitor_goes_on_to_restore_its_brightness() {
+        let mut machine = Machine::new(Saved {
+            left_in_standby: true,
+            dimmed_from: Some(30),
+            ..Saved::default()
+        });
+        assert_eq!(machine.recover(), Some(Job::Wake));
+        let job = machine.report(Outcome::Woke(Woke::On(Duration::from_secs(2))));
+        assert_eq!(job, Some(Job::SetBrightness(30)));
+        assert!(!machine.saved.left_in_standby);
+        assert_eq!(machine.report(Outcome::BrightnessSet(false)), None);
+        assert_eq!(machine.saved.dimmed_from, Some(30), "kept to try again");
+        assert_eq!(machine.look(), Look::On);
+    }
+
+    #[test]
+    fn a_report_nobody_asked_for_is_ignored() {
+        let mut machine = Machine::new(Saved::default());
+        assert_eq!(machine.report(Outcome::StandbySent(true)), None);
+        assert!(!machine.busy());
+        machine.off_key(Mode::Auto);
+        assert_eq!(machine.report(Outcome::BrightnessSet(true)), None);
+        assert!(machine.busy(), "still waiting for the test");
+        assert_eq!(machine.describe(), "turning off");
+    }
+
+    #[test]
+    fn no_handle_while_waking_counts_the_monitor_as_on() {
+        let mut machine = Machine::new(Saved {
+            dimmed_from: Some(20),
+            ..Saved::default()
+        });
+        assert_eq!(machine.recover(), Some(Job::SetBrightness(20)));
+        assert_eq!(machine.report(Outcome::NoMonitor), None);
+        assert_eq!(machine.look(), Look::On);
+        assert_eq!(machine.saved.dimmed_from, Some(20), "the record is kept");
+    }
 }
