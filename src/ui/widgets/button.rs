@@ -33,13 +33,19 @@ pub fn width(ui: &Ui, label: &str) -> f32 {
 
 /// The button at the right end of a tile: 26 high, 12.5 px text.
 pub fn small(ui: &mut Ui, label: &str, kind: Kind) -> Response {
-    draw(ui, label, kind, None, SMALL_HEIGHT, 12.5)
+    draw(ui, label, kind, None, None, SMALL_HEIGHT, 12.5)
 }
 
 /// Outlined, never filled: colour lives in the stroke and the label, and the
 /// only fills are the translucent hover and pressed tints.
 pub fn with_icon(ui: &mut Ui, label: &str, kind: Kind, icon: Option<Icon>) -> Response {
-    draw(ui, label, kind, icon, HEIGHT, 14.0)
+    draw(ui, label, kind, icon, None, HEIGHT, 14.0)
+}
+
+/// `with_icon` with the button's shortcut after the label in 12 px
+/// disabled text, such as "Refresh F5".
+pub fn with_hint(ui: &mut Ui, label: &str, kind: Kind, icon: Icon, hint: &str) -> Response {
+    draw(ui, label, kind, Some(icon), Some(hint), HEIGHT, 14.0)
 }
 
 fn draw(
@@ -47,6 +53,7 @@ fn draw(
     label: &str,
     kind: Kind,
     icon: Option<Icon>,
+    hint: Option<&str>,
     height: f32,
     font_size: f32,
 ) -> Response {
@@ -57,7 +64,15 @@ fn draw(
         Color32::PLACEHOLDER,
     );
     let icon_width = if icon.is_some() { ICON + ICON_GAP } else { 0.0 };
-    let size = vec2(PADDING * 2.0 + icon_width + galley.size().x, height);
+    let hint = hint.map(|hint| {
+        ui.painter()
+            .layout_no_wrap(hint.to_string(), theme::regular(12.0), tokens.text_disabled)
+    });
+    let hint_width = hint.as_ref().map_or(0.0, |hint| ICON_GAP + hint.size().x);
+    let size = vec2(
+        PADDING * 2.0 + icon_width + galley.size().x + hint_width,
+        height,
+    );
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
 
     if ui.is_rect_visible(rect) {
@@ -112,7 +127,12 @@ fn draw(
             x += ICON + ICON_GAP;
         }
         let text_pos = egui::pos2(x, rect.center().y - galley.size().y / 2.0);
+        let after = x + galley.size().x + ICON_GAP;
         painter.galley(text_pos, galley, text);
+        if let Some(hint) = hint {
+            let pos = egui::pos2(after, rect.center().y - hint.size().y / 2.0);
+            painter.galley(pos, hint, tokens.text_disabled);
+        }
         focus::ring(ui, &response, f32::from(tokens.radius_row));
     }
 

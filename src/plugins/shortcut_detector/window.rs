@@ -1,1083 +1,979 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
+//! The detector's window, drawn with egui on the UI thread: a toolbar, the
+//! Check a shortcut box, the list of combinations and a bottom line with the
+//! scan's numbers. Keys: Ctrl+F search, ↑↓ select a row, Ctrl+C copy the
+//! rows shown, F5 scan again, Enter or Space on the box to check a shortcut,
+//! Esc close.
 
-use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use egui::text::{LayoutJob, TextWrapping};
+use egui::{
+    pos2, vec2, Align, Align2, Event, Id, Key, Layout, Modifiers, Rect, RichText, Sense,
+    StrokeKind, Ui, UiBuilder,
+};
+use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
-    CreateFontIndirectW, CreateSolidBrush, DeleteObject, FillRect, GetDC, GetMonitorInfoW,
-    GetTextExtentPoint32W, MonitorFromPoint, ReleaseDC, SelectObject, SetBkColor, SetBkMode,
-    SetTextColor, HBRUSH, HFONT, HMONITOR, MONITORINFO, MONITOR_DEFAULTTOPRIMARY, OPAQUE,
+    GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
 };
-use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::UI::Controls::{
-    InitCommonControlsEx, BST_CHECKED, BST_UNCHECKED, ICC_LISTVIEW_CLASSES, ICC_STANDARD_CLASSES,
-    INITCOMMONCONTROLSEX, LVCF_SUBITEM, LVCF_TEXT, LVCF_WIDTH, LVCOLUMNW, LVIF_TEXT, LVITEMW,
-    LVM_DELETEALLITEMS, LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_SETBKCOLOR, LVM_SETCOLUMNWIDTH,
-    LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMW, LVM_SETTEXTBKCOLOR, LVM_SETTEXTCOLOR,
-    LVN_COLUMNCLICK, LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT, LVS_REPORT, LVS_SHOWSELALWAYS,
-    LVS_SINGLESEL, NMHDR, NMLISTVIEW,
-};
-use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, GetDpiForWindow, MDT_EFFECTIVE_DPI};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU,
-    VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
-};
-use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetWindowTextW,
-    LoadCursorW, LoadIconW, MoveWindow, PostMessageW, RegisterClassW, SendMessageW,
-    SetForegroundWindow, SetWindowPos, SetWindowTextW, SetWindowsHookExW, ShowWindow,
-    SystemParametersInfoW, UnhookWindowsHookEx, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX,
-    CBN_SELCHANGE, CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, EN_CHANGE,
-    EN_KILLFOCUS, EN_SETFOCUS, ES_AUTOHSCROLL, HWND_TOP, IDC_ARROW, KBDLLHOOKSTRUCT, MINMAXINFO,
-    NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOZORDER, SW_RESTORE, SW_SHOW,
-    WH_KEYBOARD_LL, WM_APP, WM_CLOSE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT,
-    WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN,
-    WM_NOTIFY, WM_SETFONT, WM_SIZE, WM_SYSKEYDOWN, WNDCLASSW, WS_CHILD, WS_EX_CLIENTEDGE,
-    WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    GetCursorPos, GetWindowRect, SetWindowPos, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER,
 };
 
-use crate::core::traits::Hotkey;
-use crate::core::{clipboard, host, hotkeys, theme, wide};
-use crate::plugins::shortcut_detector::probe::{self, Entry, ScanResult, Status};
+use crate::core::theme::{self, Tokens};
+use crate::core::traits::{Hotkey, PluginWindow, WindowFrame};
+use crate::core::ui_bridge::HostRequest;
+use crate::core::{clipboard, hotkeys};
+use crate::ui::settings;
+use crate::ui::widgets::button::{self, Kind};
+use crate::ui::widgets::icons::Icon;
+use crate::ui::widgets::keycap::{self, Caps};
+use crate::ui::widgets::search_box::search_box;
+use crate::ui::widgets::{choice, focus, hotkey_capture, text, toggle};
 
-const CLASS_NAME: &str = "WinCraftShortcutDetector";
-pub const WM_APP_SCAN: u32 = WM_APP + 11;
+use super::probe::{self, Entry, ScanResult};
+use super::rows::{self, Filter, Sort, Tone, COLUMNS, MODIFIERS, SIDE};
+use super::shared::{Handle, Shared};
 
-const ID_SEARCH: i32 = 101;
-const ID_MODIFIERS: i32 = 102;
-const ID_SHOW_FREE: i32 = 103;
-const ID_REFRESH: i32 = 104;
-const ID_COPY: i32 = 105;
-const ID_CAPTURE: i32 = 106;
-const ID_VERDICT: i32 = 107;
-const ID_LIST: i32 = 108;
-const ID_STATUS: i32 = 109;
-const ID_SEARCH_LABEL: i32 = 110;
-const ID_MODIFIERS_LABEL: i32 = 111;
-const ID_CAPTURE_LABEL: i32 = 112;
+pub const WINDOW_ID: &str = "detector";
+const TITLE: &str = "WinCraft \u{b7} Shortcut detector";
+const SIZE: [f32; 2] = [760.0, 560.0];
+const MIN_SIZE: [f32; 2] = [560.0, 400.0];
 
-const SUBCLASS_FORWARD_F5: usize = 1;
+const ROW: f32 = 38.0;
+const HEADER: f32 = 32.0;
+const CONTROL: f32 = 32.0;
+const SEARCH_HEIGHT: f32 = 36.0;
+const SEARCH_MIN: f32 = 200.0;
+const SEARCH_MAX: f32 = 280.0;
+const GAP: f32 = 12.0;
+const CAPTURE_MIN: f32 = 200.0;
+const CHECK_PAD: egui::Vec2 = egui::Vec2::new(14.0, 10.0);
+const PLACEHOLDER: &str = "Search shortcuts or meaning";
+const CHECK_HINT: &str = "Click, then press keys";
+const CHANGED: &str = " \u{b7} changed since the last scan, press F5";
 
-const WINDOW_WIDTH: i32 = 760;
-const WINDOW_HEIGHT: i32 = 560;
-const MIN_WIDTH: i32 = 560;
-const MIN_HEIGHT: i32 = 400;
+const CAPTURE_POLL: Duration = Duration::from_millis(30);
+const SCAN_POLL: Duration = Duration::from_millis(100);
+const NOTICE_TIME: Duration = Duration::from_secs(3);
 
-/// The handout gives this Win32 window only the window colour, the text
-/// colours and the verdict colours; its controls stay native.
-#[derive(Clone, Copy)]
-struct Colours {
-    background: COLORREF,
-    text: COLORREF,
-    secondary: COLORREF,
-    free: COLORREF,
-    taken: COLORREF,
-    system: COLORREF,
-}
-
-fn colours() -> Colours {
-    let tokens = theme::current_tokens();
-    Colours {
-        background: theme::colorref(tokens.window_bg),
-        text: theme::colorref(tokens.text_primary),
-        secondary: theme::colorref(tokens.text_secondary),
-        free: theme::colorref(tokens.success),
-        taken: theme::colorref(tokens.warning),
-        system: theme::colorref(tokens.info),
-    }
-}
-
-struct Detector {
-    controls: HashMap<i32, HWND>,
-    font: HFONT,
-    colours: Colours,
-    background: HBRUSH,
-    scan: Option<ScanResult>,
-    visible: Vec<usize>,
-    sort_column: i32,
-    sort_ascending: bool,
+/// What the window reads from the plugin each frame.
+struct View {
+    scan: Option<Arc<ScanResult>>,
+    scanning: bool,
     show_free: bool,
-    verdict_colour: COLORREF,
-    hook: isize,
-    capture_modifiers: u32,
 }
 
-thread_local! {
-    static DETECTORS: RefCell<HashMap<isize, Detector>> = RefCell::new(HashMap::new());
-    /// The keyboard hook callback gets no user data, so it needs a way back to
-    /// the window that installed it. Only one capture box can have focus.
-    static CAPTURING: RefCell<isize> = const { RefCell::new(0) };
+#[derive(Clone, PartialEq)]
+struct Shown {
+    scan: usize,
+    query: String,
+    modifier: usize,
+    show_free: bool,
+    sort: Sort,
 }
 
-pub fn open(existing: Option<HWND>) -> Option<HWND> {
-    if let Some(hwnd) = existing {
-        unsafe {
-            ShowWindow(hwnd, SW_RESTORE);
-            SetForegroundWindow(hwnd);
-        }
-        return Some(hwnd);
-    }
-    create()
+#[derive(Default)]
+struct WindowUi {
+    query: String,
+    modifier: usize,
+    sort: Sort,
+    /// A place in the rows shown, not an index into the scan.
+    selected: Option<usize>,
+    follow: bool,
+    offset: f32,
+    capturing: bool,
+    /// The modifiers held while the box listens.
+    live: u32,
+    keys: Option<Hotkey>,
+    verdict: Option<(String, Tone)>,
+    notice: Option<(String, Instant)>,
+    window: isize,
+    focused: bool,
+    placed: bool,
+    closed: bool,
+    rows: Option<(Shown, Vec<usize>)>,
 }
 
-fn create() -> Option<HWND> {
-    ensure_class()?;
-    let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
-    let (x, y, width, height) = starting_rect();
-
-    let hwnd = unsafe {
-        CreateWindowExW(
-            0,
-            wide(CLASS_NAME).as_ptr(),
-            wide("WinCraft \u{2014} Shortcut detector").as_ptr(),
-            WS_OVERLAPPEDWINDOW,
-            x,
-            y,
-            width,
-            height,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            hinstance,
-            std::ptr::null(),
-        )
-    };
-    if hwnd.is_null() {
-        log::error!("could not create the shortcut detector window");
-        return None;
-    }
-
-    build_controls(hwnd);
-    unsafe {
-        ShowWindow(hwnd, SW_SHOW);
-        SetForegroundWindow(hwnd);
-        // The scan must not run here: open() is reached from on_tray_action,
-        // which holds the host's mutable borrow. By the time this message comes
-        // back through the loop that borrow is gone.
-        PostMessageW(hwnd, WM_APP_SCAN, 0, 0);
-    }
-    Some(hwnd)
+/// What a frame of the window asks for.
+#[derive(Debug, PartialEq)]
+enum Outcome {
+    Scan,
+    Copy(String),
+    ShowFree(bool),
+    StartCapture,
+    StopCapture,
+    Close,
 }
 
-fn ensure_class() -> Option<()> {
-    thread_local! {
-        static REGISTERED: RefCell<bool> = const { RefCell::new(false) };
-    }
-    let already = REGISTERED.with(|cell| *cell.borrow());
-    if already {
-        return Some(());
-    }
-
-    let mut controls: INITCOMMONCONTROLSEX = unsafe { std::mem::zeroed() };
-    controls.dwSize = std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32;
-    controls.dwICC = ICC_LISTVIEW_CLASSES | ICC_STANDARD_CLASSES;
-    unsafe { InitCommonControlsEx(&controls) };
-
-    let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
-    let name = wide(CLASS_NAME);
-    let mut class: WNDCLASSW = unsafe { std::mem::zeroed() };
-    class.lpfnWndProc = Some(window_proc);
-    class.hInstance = hinstance;
-    class.lpszClassName = name.as_ptr();
-    class.hCursor = unsafe { LoadCursorW(std::ptr::null_mut(), IDC_ARROW) };
-    // Resource id 1, as MAKEINTRESOURCE spells it: a pointer whose address
-    // is the id. ptr::dangling would give 2, the alignment of u16.
-    class.hIcon = unsafe { LoadIconW(hinstance, std::ptr::without_provenance::<u16>(1)) };
-    if unsafe { RegisterClassW(&class) } == 0 {
-        log::error!("could not register the shortcut detector window class");
-        return None;
-    }
-    REGISTERED.with(|cell| *cell.borrow_mut() = true);
-    Some(())
+pub struct DetectorWindow {
+    shared: Handle,
+    state: Arc<Mutex<WindowUi>>,
 }
 
-fn starting_rect() -> (i32, i32, i32, i32) {
-    let mut point = POINT { x: 0, y: 0 };
-    unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut point) };
-    let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTOPRIMARY) };
-
-    // The window does not exist yet, so its scaling has to come from the monitor
-    // it is about to appear on. Skip this and the window comes out a third too
-    // small on a 150 % display, with every control spilling over its neighbour.
-    let dpi = monitor_dpi(monitor);
-    let width = WINDOW_WIDTH * dpi / 96;
-    let height = WINDOW_HEIGHT * dpi / 96;
-
-    let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
-    info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-    if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
-        return (100, 100, width, height);
-    }
-    let work = info.rcWork;
-    let x = work.left + ((work.right - work.left) - width) / 2;
-    let y = work.top + ((work.bottom - work.top) - height) / 2;
-    (x.max(work.left), y.max(work.top), width, height)
-}
-
-fn monitor_dpi(monitor: HMONITOR) -> i32 {
-    let mut x: u32 = 96;
-    let mut y: u32 = 96;
-    if unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut x, &mut y) } != 0 {
-        return 96;
-    }
-    (x as i32).max(96)
-}
-
-fn build_controls(hwnd: HWND) {
-    let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
-    let mut controls: HashMap<i32, HWND> = HashMap::new();
-
-    let mut add = |id: i32, class: &str, text: &str, style: u32, ex_style: u32| {
-        let child = unsafe {
-            CreateWindowExW(
-                ex_style,
-                wide(class).as_ptr(),
-                wide(text).as_ptr(),
-                WS_CHILD | WS_VISIBLE | style,
-                0,
-                0,
-                0,
-                0,
-                hwnd,
-                id as isize as *mut core::ffi::c_void,
-                hinstance,
-                std::ptr::null(),
-            )
-        };
-        controls.insert(id, child);
-    };
-
-    add(ID_SEARCH_LABEL, "STATIC", "Search:", 0, 0);
-    add(
-        ID_SEARCH,
-        "EDIT",
-        "",
-        WS_TABSTOP | ES_AUTOHSCROLL as u32,
-        WS_EX_CLIENTEDGE,
-    );
-    add(ID_MODIFIERS_LABEL, "STATIC", "Modifiers:", 0, 0);
-    add(
-        ID_MODIFIERS,
-        "COMBOBOX",
-        "",
-        WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST as u32,
-        0,
-    );
-    add(
-        ID_SHOW_FREE,
-        "BUTTON",
-        "Show free",
-        WS_TABSTOP | BS_AUTOCHECKBOX as u32,
-        0,
-    );
-    add(ID_REFRESH, "BUTTON", "Refresh (F5)", WS_TABSTOP, 0);
-    add(ID_COPY, "BUTTON", "Copy", WS_TABSTOP, 0);
-    add(ID_CAPTURE_LABEL, "STATIC", "Check a shortcut:", 0, 0);
-    add(
-        ID_CAPTURE,
-        "EDIT",
-        "",
-        WS_TABSTOP | ES_AUTOHSCROLL as u32,
-        WS_EX_CLIENTEDGE,
-    );
-    add(ID_VERDICT, "STATIC", "", 0, 0);
-    add(
-        ID_LIST,
-        "SysListView32",
-        "",
-        WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS,
-        0,
-    );
-    add(ID_STATUS, "STATIC", "Scanning\u{2026}", 0, 0);
-
-    let font = message_font(hwnd);
-    for child in controls.values() {
-        unsafe { SendMessageW(*child, WM_SETFONT, font as WPARAM, 1) };
-    }
-
-    let list = controls[&ID_LIST];
-    let palette = colours();
-    unsafe {
-        SendMessageW(
-            list,
-            LVM_SETEXTENDEDLISTVIEWSTYLE,
-            0,
-            (LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER) as LPARAM,
-        );
-        SendMessageW(list, LVM_SETBKCOLOR, 0, palette.background as LPARAM);
-        SendMessageW(list, LVM_SETTEXTBKCOLOR, 0, palette.background as LPARAM);
-        SendMessageW(list, LVM_SETTEXTCOLOR, 0, palette.text as LPARAM);
-    }
-    for (index, title) in ["Shortcut", "Status", "Owner / meaning", "Source"]
-        .into_iter()
-        .enumerate()
-    {
-        let mut text = wide(title);
-        let mut column: LVCOLUMNW = unsafe { std::mem::zeroed() };
-        column.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
-        column.cx = scaled(hwnd, 120);
-        column.pszText = text.as_mut_ptr();
-        column.iSubItem = index as i32;
-        unsafe {
-            SendMessageW(
-                list,
-                LVM_INSERTCOLUMNW,
-                index,
-                &column as *const _ as LPARAM,
-            )
-        };
-    }
-
-    let combo = controls[&ID_MODIFIERS];
-    unsafe { SendMessageW(combo, CB_ADDSTRING, 0, wide("All").as_ptr() as LPARAM) };
-    for modifiers in probe::modifier_sets() {
-        let label = hotkeys::format_modifiers(modifiers);
-        unsafe { SendMessageW(combo, CB_ADDSTRING, 0, wide(&label).as_ptr() as LPARAM) };
-    }
-    unsafe { SendMessageW(combo, CB_SETCURSEL, 0, 0) };
-
-    for id in [ID_SEARCH, ID_CAPTURE, ID_LIST] {
-        unsafe { SetWindowSubclass(controls[&id], Some(forward_f5), SUBCLASS_FORWARD_F5, 0) };
-    }
-
-    DETECTORS.with(|cell| {
-        cell.borrow_mut().insert(
-            hwnd as isize,
-            Detector {
-                controls,
-                font,
-                colours: palette,
-                background: unsafe { CreateSolidBrush(palette.background) },
-                scan: None,
-                visible: Vec::new(),
-                sort_column: 0,
-                sort_ascending: true,
-                show_free: false,
-                verdict_colour: palette.text,
-                hook: 0,
-                capture_modifiers: 0,
-            },
-        )
-    });
-    layout(hwnd);
-}
-
-/// Segoe UI at the design's 14 px body size, starting from the system message
-/// font so its character set and quality settings carry over.
-fn message_font(hwnd: HWND) -> HFONT {
-    let mut metrics: NONCLIENTMETRICSW = unsafe { std::mem::zeroed() };
-    metrics.cbSize = std::mem::size_of::<NONCLIENTMETRICSW>() as u32;
-    let ok = unsafe {
-        SystemParametersInfoW(
-            SPI_GETNONCLIENTMETRICS,
-            metrics.cbSize,
-            &mut metrics as *mut _ as *mut core::ffi::c_void,
-            0,
-        )
-    };
-    if ok == 0 {
-        return std::ptr::null_mut();
-    }
-    let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96) as i32;
-    let font = &mut metrics.lfMessageFont;
-    // A negative height is the character height in pixels, without leading.
-    font.lfHeight = -(14 * dpi / 96);
-    let face: Vec<u16> = "Segoe UI".encode_utf16().collect();
-    font.lfFaceName = [0; 32];
-    font.lfFaceName[..face.len()].copy_from_slice(&face);
-    unsafe { CreateFontIndirectW(font) }
-}
-
-/// Label widths are measured, not guessed. The system message font changes with
-/// the user's display scaling and their font settings, and a width that fits
-/// "Modifiers:" on one machine clips it to "Modifie" on the next.
-fn text_width(hwnd: HWND, text: &str) -> i32 {
-    text_size(hwnd, text).cx
-}
-
-fn text_height(hwnd: HWND) -> i32 {
-    text_size(hwnd, "Wg").cy
-}
-
-fn text_size(hwnd: HWND, text: &str) -> SIZE {
-    let font = DETECTORS.with(|cell| {
-        cell.borrow()
-            .get(&(hwnd as isize))
-            .map(|detector| detector.font)
-            .unwrap_or(std::ptr::null_mut())
-    });
-    let mut size = SIZE { cx: 0, cy: 0 };
-    let dc = unsafe { GetDC(hwnd) };
-    if dc.is_null() {
-        return size;
-    }
-    let previous = if font.is_null() {
-        std::ptr::null_mut()
-    } else {
-        unsafe { SelectObject(dc, font as _) }
-    };
-    let encoded = wide(text);
-    unsafe {
-        GetTextExtentPoint32W(dc, encoded.as_ptr(), (encoded.len() - 1) as i32, &mut size);
-        if !previous.is_null() {
-            SelectObject(dc, previous);
-        }
-        ReleaseDC(hwnd, dc);
-    }
-    size
-}
-
-fn scaled(hwnd: HWND, value: i32) -> i32 {
-    let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96) as i32;
-    value * dpi / 96
-}
-
-fn layout(hwnd: HWND) {
-    let controls = DETECTORS.with(|cell| {
-        cell.borrow()
-            .get(&(hwnd as isize))
-            .map(|detector| detector.controls.clone())
-    });
-    let Some(controls) = controls else {
-        return;
-    };
-
-    let mut client: RECT = unsafe { std::mem::zeroed() };
-    unsafe { GetClientRect(hwnd, &mut client) };
-    let width = client.right - client.left;
-    let height = client.bottom - client.top;
-    let pad = scaled(hwnd, 10);
-    let row = scaled(hwnd, 26);
-    let gap = scaled(hwnd, 8);
-
-    let place = |id: i32, x: i32, y: i32, w: i32, h: i32| {
-        if let Some(child) = controls.get(&id) {
-            unsafe { MoveWindow(*child, x, y, w, h, 1) };
-        }
-    };
-
-    let label_top = scaled(hwnd, 4);
-    let small = scaled(hwnd, 4);
-    let tick = scaled(hwnd, 22);
-    let y = pad;
-    let mut x = pad;
-
-    let search_label = text_width(hwnd, "Search:");
-    place(ID_SEARCH_LABEL, x, y + label_top, search_label, row);
-    x += search_label + small;
-    let search_width = scaled(hwnd, 130);
-    place(ID_SEARCH, x, y, search_width, row);
-    x += search_width + gap;
-
-    let modifiers_label = text_width(hwnd, "Modifiers:");
-    place(ID_MODIFIERS_LABEL, x, y + label_top, modifiers_label, row);
-    x += modifiers_label + small;
-    let combo_width = scaled(hwnd, 108);
-    place(ID_MODIFIERS, x, y, combo_width, scaled(hwnd, 260));
-    x += combo_width + gap;
-
-    let copy_width = text_width(hwnd, "Copy") + scaled(hwnd, 20);
-    let refresh_width = text_width(hwnd, "Refresh (F5)") + scaled(hwnd, 20);
-    let copy_x = width - pad - copy_width;
-    let refresh_x = copy_x - small - refresh_width;
-    place(ID_COPY, copy_x, y, copy_width, row);
-    place(ID_REFRESH, refresh_x, y, refresh_width, row);
-
-    let free_width = (tick + text_width(hwnd, "Show free")).min((refresh_x - gap - x).max(0));
-    place(ID_SHOW_FREE, x, y + label_top, free_width, row);
-
-    let second = y + row + gap;
-    let capture_label = text_width(hwnd, "Check a shortcut:");
-    place(
-        ID_CAPTURE_LABEL,
-        pad,
-        second + label_top,
-        capture_label,
-        row,
-    );
-    let capture_x = pad + capture_label + small;
-    let capture_width = scaled(hwnd, 150);
-    place(ID_CAPTURE, capture_x, second, capture_width, row);
-    let verdict_x = capture_x + capture_width + gap;
-    place(
-        ID_VERDICT,
-        verdict_x,
-        second + label_top,
-        (width - pad - verdict_x).max(0),
-        row,
-    );
-
-    // Two lines: the status sentence names the limitation as well as the counts,
-    // and it must not be cut off on a narrow window.
-    let status_height = text_height(hwnd) * 2 + small;
-    let list_top = second + row + gap;
-    let list_width = width - pad * 2;
-    let list_height = (height - list_top - status_height - small).max(0);
-    place(ID_LIST, pad, list_top, list_width, list_height);
-    place(
-        ID_STATUS,
-        pad,
-        list_top + list_height + small,
-        list_width,
-        status_height,
-    );
-
-    if let Some(list) = controls.get(&ID_LIST) {
-        let cell_pad = scaled(hwnd, 16);
-        let shortcut = text_width(hwnd, "Win+Ctrl+Alt+Shift+F12") + cell_pad;
-        let status = text_width(hwnd, "Taken by an app") + cell_pad;
-        let source = text_width(hwnd, "windows list") + cell_pad;
-        let scrollbar = scaled(hwnd, 24);
-        let owner = (list_width - shortcut - status - source - scrollbar).max(scaled(hwnd, 120));
-        for (column, cx) in [shortcut, status, owner, source].into_iter().enumerate() {
-            unsafe { SendMessageW(*list, LVM_SETCOLUMNWIDTH, column, cx as LPARAM) };
+impl DetectorWindow {
+    pub fn new(shared: Handle) -> Self {
+        Self {
+            shared,
+            state: Arc::new(Mutex::new(WindowUi::default())),
         }
     }
 }
 
-fn run_scan(hwnd: HWND) {
-    // Safe here: this runs straight from the message loop, so no host borrow is
-    // on the stack and the read-only accessor cannot panic.
-    let mine = host::registered_hotkeys();
-    let result = probe::scan(hwnd, &mine);
-    let line = result.status_line();
-    log::info!("shortcut scan: {line}");
-
-    DETECTORS.with(|cell| {
-        if let Some(detector) = cell.borrow_mut().get_mut(&(hwnd as isize)) {
-            detector.scan = Some(result);
-        }
-    });
-    set_text(hwnd, ID_STATUS, &line);
-    refill(hwnd);
+fn viewport_id() -> egui::ViewportId {
+    egui::ViewportId::from_hash_of("wincraft-shortcut-detector")
 }
 
-fn refill(hwnd: HWND) {
-    let search = get_text(hwnd, ID_SEARCH).to_lowercase();
-    let modifiers = selected_modifiers(hwnd);
-    let rows = DETECTORS.with(|cell| {
-        let mut borrowed = cell.borrow_mut();
-        let Some(detector) = borrowed.get_mut(&(hwnd as isize)) else {
-            return Vec::new();
-        };
-        let Some(scan) = detector.scan.as_ref() else {
-            return Vec::new();
-        };
+impl PluginWindow for DetectorWindow {
+    fn id(&self) -> &'static str {
+        WINDOW_ID
+    }
 
-        let mut chosen: Vec<usize> = scan
-            .entries
-            .iter()
-            .enumerate()
-            .filter(|(_, entry)| detector.show_free || entry.status != Status::Free)
-            .filter(|(_, entry)| match modifiers {
-                Some(wanted) => entry.hotkey.modifiers & !MOD_NOREPEAT == wanted,
-                None => true,
-            })
-            .filter(|(_, entry)| {
-                search.is_empty()
-                    || hotkeys::format(entry.hotkey)
-                        .to_lowercase()
-                        .contains(&search)
-                    || entry.owner.to_lowercase().contains(&search)
-                    || entry.status.label().to_lowercase().contains(&search)
-            })
-            .map(|(index, _)| index)
-            .collect();
+    /// A second open only brings the window to the front.
+    fn open(&mut self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.focused = false;
+            state.closed = false;
+        }
+    }
 
-        let column = detector.sort_column;
-        let ascending = detector.sort_ascending;
-        chosen.sort_by(|a, b| {
-            let order =
-                sort_key(&scan.entries[*a], column).cmp(&sort_key(&scan.entries[*b], column));
-            if ascending {
-                order
-            } else {
-                order.reverse()
+    fn close(&mut self) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.open = false;
+        }
+        if let Ok(mut state) = self.state.lock() {
+            if state.capturing {
+                hotkey_capture::stop();
             }
-        });
-        detector.visible = chosen.clone();
-
-        chosen
-            .iter()
-            .map(|index| row_text(&scan.entries[*index]))
-            .collect::<Vec<[String; 4]>>()
-    });
-
-    let list = control(hwnd, ID_LIST);
-    if list.is_null() {
-        return;
+            *state = WindowUi::default();
+        }
     }
-    unsafe { SendMessageW(list, LVM_DELETEALLITEMS, 0, 0) };
-    for (row, cells) in rows.iter().enumerate() {
-        for (column, cell) in cells.iter().enumerate() {
-            let mut text = wide(cell);
-            let mut item: LVITEMW = unsafe { std::mem::zeroed() };
-            item.mask = LVIF_TEXT;
-            item.iItem = row as i32;
-            item.iSubItem = column as i32;
-            item.pszText = text.as_mut_ptr();
-            let message = if column == 0 {
-                LVM_INSERTITEMW
-            } else {
-                LVM_SETITEMW
+
+    fn is_open(&self) -> bool {
+        self.shared.lock().is_ok_and(|shared| shared.open)
+    }
+
+    fn show(&mut self, ctx: &egui::Context, frame: &WindowFrame) {
+        let mut builder = egui::ViewportBuilder::default()
+            .with_title(TITLE)
+            .with_inner_size(SIZE)
+            .with_min_inner_size(MIN_SIZE);
+        if let Some(icon) = &frame.icon {
+            builder = builder.with_icon(Arc::clone(icon));
+        }
+        let shared = Arc::clone(&self.shared);
+        let state = Arc::clone(&self.state);
+        let palette = frame.palette_hwnd;
+        let to_host = Arc::clone(&frame.to_host);
+        ctx.show_viewport_deferred(viewport_id(), builder, move |ui, _class| {
+            focus::track(ui.ctx());
+            let (Ok(mut shared), Ok(mut state)) = (shared.lock(), state.lock()) else {
+                return;
             };
-            unsafe { SendMessageW(list, message, 0, &item as *const _ as LPARAM) };
-        }
-    }
-}
-
-fn sort_key(entry: &Entry, column: i32) -> String {
-    match column {
-        1 => entry.status.label().to_string(),
-        2 => entry.owner.clone(),
-        3 => entry.source.to_string(),
-        _ => format!(
-            "{:010} {}",
-            entry.hotkey.modifiers & !MOD_NOREPEAT,
-            hotkeys::format(entry.hotkey)
-        ),
-    }
-}
-
-fn row_text(entry: &Entry) -> [String; 4] {
-    [
-        hotkeys::format(entry.hotkey),
-        entry.status.label().to_string(),
-        entry.owner.clone(),
-        entry.source.to_string(),
-    ]
-}
-
-fn selected_modifiers(hwnd: HWND) -> Option<u32> {
-    let combo = control(hwnd, ID_MODIFIERS);
-    if combo.is_null() {
-        return None;
-    }
-    let index = unsafe { SendMessageW(combo, CB_GETCURSEL, 0, 0) };
-    if index <= 0 {
-        return None;
-    }
-    probe::modifier_sets().get(index as usize - 1).copied()
-}
-
-fn copy_visible(hwnd: HWND) {
-    let text = DETECTORS.with(|cell| {
-        let borrowed = cell.borrow();
-        let Some(detector) = borrowed.get(&(hwnd as isize)) else {
-            return String::new();
-        };
-        let Some(scan) = detector.scan.as_ref() else {
-            return String::new();
-        };
-        let mut out = String::from("Shortcut\tStatus\tOwner\tSource\r\n");
-        for index in &detector.visible {
-            let cells = row_text(&scan.entries[*index]);
-            out.push_str(&cells.join("\t"));
-            out.push_str("\r\n");
-        }
-        out
-    });
-
-    let rows = text.lines().count().saturating_sub(1);
-    if !clipboard::put_text(hwnd, &text) {
-        set_text(hwnd, ID_STATUS, "Could not open the clipboard.");
-        return;
-    }
-    set_text(hwnd, ID_STATUS, &format!("Copied {rows} rows."));
-}
-
-fn control(hwnd: HWND, id: i32) -> HWND {
-    DETECTORS.with(|cell| {
-        cell.borrow()
-            .get(&(hwnd as isize))
-            .and_then(|detector| detector.controls.get(&id).copied())
-            .unwrap_or(std::ptr::null_mut())
-    })
-}
-
-fn set_text(hwnd: HWND, id: i32, text: &str) {
-    let child = control(hwnd, id);
-    if !child.is_null() {
-        unsafe { SetWindowTextW(child, wide(text).as_ptr()) };
-    }
-}
-
-fn get_text(hwnd: HWND, id: i32) -> String {
-    let child = control(hwnd, id);
-    if child.is_null() {
-        return String::new();
-    }
-    let mut buffer = [0u16; 256];
-    let taken = unsafe { GetWindowTextW(child, buffer.as_mut_ptr(), buffer.len() as i32) };
-    String::from_utf16_lossy(&buffer[..taken.max(0) as usize])
-}
-
-fn set_verdict(hwnd: HWND, text: &str, colour: COLORREF) {
-    DETECTORS.with(|cell| {
-        if let Some(detector) = cell.borrow_mut().get_mut(&(hwnd as isize)) {
-            detector.verdict_colour = colour;
-        }
-    });
-    set_text(hwnd, ID_VERDICT, text);
-    let child = control(hwnd, ID_VERDICT);
-    if !child.is_null() {
-        unsafe {
-            windows_sys::Win32::Graphics::Gdi::InvalidateRect(child, std::ptr::null(), 1);
-        }
-    }
-}
-
-fn start_capture(hwnd: HWND) {
-    let already = DETECTORS.with(|cell| {
-        cell.borrow()
-            .get(&(hwnd as isize))
-            .map(|detector| detector.hook != 0)
-            .unwrap_or(true)
-    });
-    if already {
-        return;
-    }
-    let hook = unsafe {
-        SetWindowsHookExW(
-            WH_KEYBOARD_LL,
-            Some(keyboard_hook),
-            GetModuleHandleW(std::ptr::null()),
-            0,
-        )
-    };
-    if hook.is_null() {
-        log::warn!("could not install the keyboard hook for the capture box");
-        return;
-    }
-    CAPTURING.with(|cell| *cell.borrow_mut() = hwnd as isize);
-    DETECTORS.with(|cell| {
-        if let Some(detector) = cell.borrow_mut().get_mut(&(hwnd as isize)) {
-            detector.hook = hook as isize;
-            detector.capture_modifiers = 0;
-        }
-    });
-    set_verdict(hwnd, "Press a combination\u{2026}", colours().text);
-}
-
-fn stop_capture(hwnd: HWND) {
-    let hook = DETECTORS.with(|cell| {
-        cell.borrow_mut()
-            .get_mut(&(hwnd as isize))
-            .map(|detector| {
-                let hook = detector.hook;
-                detector.hook = 0;
-                detector.capture_modifiers = 0;
-                hook
-            })
-            .unwrap_or(0)
-    });
-    if hook != 0 {
-        unsafe { UnhookWindowsHookEx(hook as *mut core::ffi::c_void) };
-    }
-    CAPTURING.with(|cell| {
-        if *cell.borrow() == hwnd as isize {
-            *cell.borrow_mut() = 0;
-        }
-    });
-}
-
-fn modifier_bit(vk: u32) -> Option<u32> {
-    match vk as u16 {
-        v if v == VK_SHIFT || v == VK_LSHIFT || v == VK_RSHIFT => Some(MOD_SHIFT),
-        v if v == VK_MENU || v == VK_LMENU || v == VK_RMENU => Some(MOD_ALT),
-        v if v == VK_LWIN || v == VK_RWIN => Some(MOD_WIN),
-        0x11 | 0xA2 => Some(MOD_CONTROL),
-        v if v == VK_RCONTROL => Some(MOD_CONTROL),
-        _ => None,
-    }
-}
-
-unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if code < 0 {
-        return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
-    }
-    let owner = CAPTURING.with(|cell| *cell.borrow());
-    if owner == 0 {
-        return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
-    }
-    let hwnd = owner as HWND;
-    let event = wparam as u32;
-    let info = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
-    let down = event == WM_KEYDOWN || event == WM_SYSKEYDOWN;
-
-    let handled = if let Some(bit) = modifier_bit(info.vkCode) {
-        DETECTORS.with(|cell| {
-            if let Some(detector) = cell.borrow_mut().get_mut(&owner) {
-                if down {
-                    detector.capture_modifiers |= bit;
-                } else {
-                    detector.capture_modifiers &= !bit;
+            let tokens = Tokens::get(ui.ctx());
+            if state.window == 0 {
+                state.window = settings::find_window(TITLE, palette);
+            }
+            if state.window != 0 {
+                settings::sync_title_bar(state.window, tokens.dark);
+                if !std::mem::replace(&mut state.placed, true) {
+                    centre_on_cursor_monitor(state.window as HWND);
+                }
+                if !std::mem::replace(&mut state.focused, true) {
+                    to_host.send(HostRequest::FocusWindow(state.window));
                 }
             }
+            if state.capturing {
+                listen(ui, &shared, &mut state);
+            }
+            if shared.scanning {
+                ui.ctx().request_repaint_after(SCAN_POLL);
+            }
+            if let Some((_, at)) = &state.notice {
+                match NOTICE_TIME.checked_sub(at.elapsed()) {
+                    Some(left) => ui.ctx().request_repaint_after(left),
+                    None => state.notice = None,
+                }
+            }
+
+            let view = View {
+                scan: shared.scan.clone(),
+                scanning: shared.scanning,
+                show_free: shared.show_free,
+            };
+            let mut outcomes = Vec::new();
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE.fill(tokens.window_bg))
+                .show(ui, |ui| contents(ui, &view, &mut state, &mut outcomes));
+            if ui.ctx().input(|i| i.viewport().close_requested()) {
+                outcomes.push(Outcome::Close);
+            }
+            for outcome in outcomes {
+                act(outcome, &mut shared, &mut state);
+            }
+            if state.closed {
+                if state.capturing {
+                    hotkey_capture::stop();
+                }
+                shared.open = false;
+                *state = WindowUi::default();
+                ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
+            }
         });
-        if down {
-            let modifiers = DETECTORS
-                .with(|cell| cell.borrow().get(&owner).map(|d| d.capture_modifiers))
-                .unwrap_or(0);
-            set_text(
-                hwnd,
-                ID_CAPTURE,
-                &format!("{}\u{2026}", hotkeys::format_modifiers(modifiers)),
-            );
-        }
-        false
-    } else if down {
-        let modifiers = DETECTORS
-            .with(|cell| cell.borrow().get(&owner).map(|d| d.capture_modifiers))
-            .unwrap_or(0);
-        if info.vkCode as u16 == 0x1B && modifiers == 0 {
-            set_text(hwnd, ID_CAPTURE, "");
-            set_verdict(hwnd, "", colours().text);
-        } else {
-            show_verdict(hwnd, modifiers, info.vkCode);
-        }
-        true
-    } else {
-        false
-    };
-
-    if handled {
-        // Swallow it, or testing Win+E in the box would open File Explorer.
-        return 1;
     }
-    unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
 }
 
-fn show_verdict(hwnd: HWND, modifiers: u32, vk: u32) {
-    let hotkey = Hotkey {
-        modifiers: modifiers | MOD_NOREPEAT,
-        vk,
-    };
-    set_text(hwnd, ID_CAPTURE, &hotkeys::format(hotkey));
+fn act(outcome: Outcome, shared: &mut Shared, state: &mut WindowUi) {
+    match outcome {
+        Outcome::Scan => shared.ask_scan(),
+        Outcome::Copy(text) => {
+            let rows = text.lines().count().saturating_sub(1);
+            let line = if clipboard::put_text(state.window as HWND, &text) {
+                format!("Copied {rows} rows.")
+            } else {
+                "Could not open the clipboard.".to_string()
+            };
+            state.notice = Some((line, Instant::now()));
+        }
+        Outcome::ShowFree(on) => shared.show_free = on,
+        Outcome::StartCapture => {
+            hotkey_capture::start();
+            state.capturing = true;
+            state.live = 0;
+            state.keys = None;
+            state.verdict = None;
+        }
+        Outcome::StopCapture => stop_listening(state),
+        Outcome::Close => state.closed = true,
+    }
+}
 
-    let mine = host::registered_hotkeys();
-    let entry = probe::verdict(hwnd, hotkey, &mine);
-    let colour = match entry.status {
-        Status::Free => colours().free,
-        Status::TakenByApp => colours().taken,
-        Status::Windows | Status::WinCraft => colours().system,
-    };
+/// Takes what the keyboard hook caught. The hook hides keys from every
+/// window, so it stops the moment this window is no longer in front.
+fn listen(ui: &Ui, shared: &Shared, state: &mut WindowUi) {
+    ui.ctx().request_repaint_after(CAPTURE_POLL);
+    let in_front = ui.input(|i| i.viewport().focused).unwrap_or(true);
+    if !in_front || hotkey_capture::take_cancelled() {
+        if in_front {
+            state.keys = None;
+            state.verdict = None;
+        }
+        stop_listening(state);
+        return;
+    }
+    state.live = hotkey_capture::live_modifiers();
+    if let Some(hotkey) = hotkey_capture::take_result() {
+        state.keys = Some(hotkey);
+        state.verdict = Some(verdict(hotkey, shared));
+    }
+}
 
-    let mut text = probe::verdict_text(&entry);
-    let at_last_scan = DETECTORS.with(|cell| {
-        cell.borrow()
-            .get(&(hwnd as isize))
-            .and_then(|detector| detector.scan.as_ref())
-            .and_then(|scan| scan.find(hotkey))
-            .map(|found| found.status)
+fn stop_listening(state: &mut WindowUi) {
+    hotkey_capture::stop();
+    state.capturing = false;
+    state.live = 0;
+}
+
+/// Today's answer for one combination, and a note when it is not what the
+/// last scan said.
+fn verdict(hotkey: Hotkey, shared: &Shared) -> (String, Tone) {
+    let entry = probe::verdict(std::ptr::null_mut(), hotkey, &shared.mine);
+    let before = shared
+        .scan
+        .as_ref()
+        .and_then(|scan| scan.find(hotkey))
+        .map(|found| found.status);
+    verdict_line(&entry, before)
+}
+
+fn verdict_line(entry: &Entry, before: Option<probe::Status>) -> (String, Tone) {
+    let mut line = probe::verdict_text(entry);
+    if before.is_some_and(|before| before != entry.status) {
+        line.push_str(CHANGED);
+    }
+    (line, rows::look(entry.status).1)
+}
+
+fn search_id() -> Id {
+    Id::new("wincraft-detector-search")
+}
+
+fn capture_id() -> Id {
+    Id::new("wincraft-detector-capture")
+}
+
+fn contents(ui: &mut Ui, view: &View, state: &mut WindowUi, out: &mut Vec<Outcome>) {
+    let full = ui.max_rect();
+    let visible = shown_rows(view, state);
+    if let Some(selected) = state.selected {
+        if selected >= visible.len() {
+            state.selected = visible.len().checked_sub(1);
+        }
+    }
+    if !state.capturing {
+        keys(ui, view, state, &visible, out);
+    }
+
+    let mut y = full.top() + 8.0;
+    y = toolbar(ui, view, state, full, y, out) + 16.0;
+    y = check_box(ui, state, full, y, out) + 16.0;
+    let footer = footer_height(ui, view, state, full.width() - SIDE * 2.0);
+    let list = Rect::from_min_max(
+        pos2(full.left(), y),
+        pos2(full.right(), full.bottom() - footer),
+    );
+    list_area(ui, view, state, &visible, list);
+    footer_line(
+        ui,
+        view,
+        state,
+        Rect::from_min_max(pos2(full.left(), list.bottom()), full.max),
+    );
+}
+
+/// The rows to show, worked out again only when the scan or a filter
+/// changed: a full scan has over 1,500 of them.
+fn shown_rows(view: &View, state: &mut WindowUi) -> Vec<usize> {
+    let Some(scan) = &view.scan else {
+        return Vec::new();
+    };
+    let wanted = Shown {
+        scan: Arc::as_ptr(scan) as usize,
+        query: state.query.trim().to_lowercase(),
+        modifier: state.modifier,
+        show_free: view.show_free,
+        sort: state.sort,
+    };
+    if let Some((shown, rows)) = &state.rows {
+        if *shown == wanted {
+            return rows.clone();
+        }
+    }
+    let filter = Filter {
+        query: &wanted.query,
+        modifier: rows::modifier_of(wanted.modifier),
+        show_free: wanted.show_free,
+    };
+    let found = rows::visible(&scan.entries, &filter, wanted.sort);
+    state.rows = Some((wanted, found.clone()));
+    found
+}
+
+fn keys(ui: &mut Ui, view: &View, state: &mut WindowUi, visible: &[usize], out: &mut Vec<Outcome>) {
+    let typing = ui.memory(|memory| memory.has_focus(search_id()));
+    let on_box = ui.memory(|memory| memory.has_focus(capture_id()));
+    let (escape, f5, find, down, up, start, copy) = ui.input_mut(|i| {
+        let copy = !typing
+            && (i.events.iter().any(|event| matches!(event, Event::Copy))
+                || i.consume_key(Modifiers::COMMAND, Key::C));
+        (
+            i.consume_key(Modifiers::NONE, Key::Escape),
+            i.consume_key(Modifiers::NONE, Key::F5),
+            i.consume_key(Modifiers::COMMAND, Key::F),
+            i.consume_key(Modifiers::NONE, Key::ArrowDown),
+            i.consume_key(Modifiers::NONE, Key::ArrowUp),
+            on_box
+                && (i.consume_key(Modifiers::NONE, Key::Enter)
+                    || i.consume_key(Modifiers::NONE, Key::Space)),
+            copy,
+        )
     });
-    if at_last_scan.is_some_and(|before| before != entry.status) {
-        text.push_str("  (changed since the last scan \u{2014} press F5)");
+    if escape {
+        out.push(Outcome::Close);
     }
-    set_verdict(hwnd, &text, colour);
+    if f5 {
+        out.push(Outcome::Scan);
+    }
+    if find {
+        ui.memory_mut(|memory| memory.request_focus(search_id()));
+    }
+    if start {
+        out.push(Outcome::StartCapture);
+    }
+    if !visible.is_empty() && (down || up) {
+        let last = visible.len() - 1;
+        state.selected = Some(match (state.selected, down) {
+            (None, _) => 0,
+            (Some(at), true) => (at + 1).min(last),
+            (Some(at), false) => at.saturating_sub(1),
+        });
+        state.follow = true;
+    }
+    if copy {
+        if let Some(scan) = &view.scan {
+            out.push(Outcome::Copy(rows::copy_text(&scan.entries, visible)));
+        }
+    }
 }
 
-unsafe extern "system" fn forward_f5(
-    hwnd: HWND,
-    msg: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-    _id: usize,
-    _data: usize,
-) -> LRESULT {
-    if msg == WM_KEYDOWN && wparam as u16 == 0x74 {
-        let parent = unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetParent(hwnd) };
-        if !parent.is_null() {
-            unsafe { PostMessageW(parent, WM_APP_SCAN, 0, 0) };
-            return 0;
+/// Which toolbar items go on which line: each in order, a new line when the
+/// next no longer fits. The search box counts at its smallest width.
+fn flow(widths: &[f32], available: f32) -> Vec<Vec<usize>> {
+    let mut lines: Vec<Vec<usize>> = Vec::new();
+    let mut used = 0.0;
+    for (index, width) in widths.iter().enumerate() {
+        match lines.last_mut() {
+            Some(line) if used + GAP + width <= available => {
+                line.push(index);
+                used += GAP + width;
+            }
+            _ => {
+                lines.push(vec![index]);
+                used = *width;
+            }
         }
     }
-    unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
+    lines
 }
 
-unsafe extern "system" fn window_proc(
-    hwnd: HWND,
-    msg: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    match msg {
-        WM_APP_SCAN => {
-            run_scan(hwnd);
-            0
-        }
-        WM_SIZE => {
-            layout(hwnd);
-            0
-        }
-        WM_GETMINMAXINFO => {
-            let info = unsafe { &mut *(lparam as *mut MINMAXINFO) };
-            info.ptMinTrackSize.x = scaled(hwnd, MIN_WIDTH);
-            info.ptMinTrackSize.y = scaled(hwnd, MIN_HEIGHT);
-            0
-        }
-        WM_DPICHANGED => {
-            let suggested = unsafe { &*(lparam as *const RECT) };
-            unsafe {
-                SetWindowPos(
-                    hwnd,
-                    HWND_TOP,
-                    suggested.left,
-                    suggested.top,
-                    suggested.right - suggested.left,
-                    suggested.bottom - suggested.top,
-                    SWP_NOZORDER | SWP_NOACTIVATE,
+fn text_width(ui: &Ui, text: &str, size: f32) -> f32 {
+    ui.painter()
+        .layout_no_wrap(
+            text.to_string(),
+            theme::regular(size),
+            egui::Color32::PLACEHOLDER,
+        )
+        .size()
+        .x
+}
+
+fn toolbar(
+    ui: &mut Ui,
+    view: &View,
+    state: &mut WindowUi,
+    full: Rect,
+    top: f32,
+    out: &mut Vec<Outcome>,
+) -> f32 {
+    let tokens = Tokens::get(ui.ctx());
+    let left = full.left() + SIDE;
+    let right = full.right() - SIDE;
+    let available = right - left;
+    // The same sums the shared widgets make: 14 px padding each side of a
+    // segment, a 40 px switch, and 12 px padding, a 13 px icon and 6 px gaps
+    // in a button.
+    let segments: f32 = MODIFIERS
+        .iter()
+        .map(|part| text_width(ui, part, 13.0) + 28.0)
+        .sum();
+    let switch = 40.0 + 8.0 + text_width(ui, "Show free", 13.0);
+    let buttons = text_width(ui, "Refresh", 14.0)
+        + 6.0
+        + text_width(ui, "F5", 12.0)
+        + text_width(ui, "Copy list", 14.0)
+        + 2.0 * (24.0 + 13.0 + 6.0)
+        + 8.0;
+    let widths = [SEARCH_MIN, segments, switch, buttons];
+
+    let mut y = top;
+    for line in flow(&widths, available) {
+        let used: f32 =
+            line.iter().map(|index| widths[*index]).sum::<f32>() + GAP * (line.len() - 1) as f32;
+        let height = if line.contains(&0) {
+            SEARCH_HEIGHT
+        } else {
+            CONTROL
+        };
+        let mut x = left;
+        for index in line {
+            let width = if index == 0 {
+                (SEARCH_MIN + available - used).min(SEARCH_MAX)
+            } else {
+                widths[index]
+            };
+            let (rect, layout) = if index == 3 {
+                (
+                    Rect::from_min_max(pos2(left, y), pos2(right, y + height)),
+                    Layout::right_to_left(Align::Center),
+                )
+            } else {
+                (
+                    Rect::from_min_size(pos2(x, y), vec2(width, height)),
+                    Layout::left_to_right(Align::Center),
                 )
             };
-            let font = message_font(hwnd);
-            DETECTORS.with(|cell| {
-                if let Some(detector) = cell.borrow_mut().get_mut(&(hwnd as isize)) {
-                    let old = detector.font;
-                    detector.font = font;
-                    for child in detector.controls.values() {
-                        unsafe { SendMessageW(*child, WM_SETFONT, font as WPARAM, 1) };
+            x += width + GAP;
+            ui.scope_builder(
+                UiBuilder::new().max_rect(rect).layout(layout),
+                |ui| match index {
+                    0 => {
+                        search_box(ui, search_id(), &mut state.query, PLACEHOLDER, width);
                     }
-                    if !old.is_null() {
-                        unsafe { DeleteObject(old as _) };
+                    1 => {
+                        if let Some(part) = choice::segmented(ui, &MODIFIERS, Some(state.modifier))
+                        {
+                            state.modifier = part;
+                            state.selected = None;
+                        }
                     }
-                }
-            });
-            layout(hwnd);
-            0
-        }
-        WM_KEYDOWN if wparam as u16 == 0x74 => {
-            unsafe { PostMessageW(hwnd, WM_APP_SCAN, 0, 0) };
-            0
-        }
-        WM_ERASEBKGND => {
-            let Some((brush, _)) = paint_state(hwnd) else {
-                return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
-            };
-            let mut client: RECT = unsafe { std::mem::zeroed() };
-            unsafe {
-                GetClientRect(hwnd, &mut client);
-                FillRect(wparam as _, &client, brush);
-            }
-            1
-        }
-        WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORBTN => {
-            let Some((brush, palette)) = paint_state(hwnd) else {
-                return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
-            };
-            let child = lparam as HWND;
-            let text = if child == control(hwnd, ID_VERDICT) {
-                DETECTORS.with(|cell| {
-                    cell.borrow()
-                        .get(&(hwnd as isize))
-                        .map(|detector| detector.verdict_colour)
-                        .unwrap_or(palette.text)
-                })
-            } else if child == control(hwnd, ID_STATUS) {
-                palette.secondary
-            } else {
-                palette.text
-            };
-            unsafe {
-                SetTextColor(wparam as _, text);
-                SetBkColor(wparam as _, palette.background);
-                SetBkMode(wparam as _, OPAQUE as i32);
-            }
-            brush as LRESULT
-        }
-        WM_COMMAND => {
-            let id = (wparam & 0xFFFF) as i32;
-            let notification = ((wparam >> 16) & 0xFFFF) as u32;
-            match (id, notification) {
-                (ID_REFRESH, _) => unsafe {
-                    PostMessageW(hwnd, WM_APP_SCAN, 0, 0);
+                    2 => {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        let mut on = view.show_free;
+                        let switched = toggle::toggle(ui, &mut on).changed();
+                        let label = ui.add(
+                            egui::Label::new(
+                                RichText::new("Show free")
+                                    .font(theme::regular(13.0))
+                                    .color(tokens.text_secondary),
+                            )
+                            .selectable(false)
+                            .sense(Sense::click()),
+                        );
+                        if switched {
+                            out.push(Outcome::ShowFree(on));
+                        } else if label.clicked() {
+                            out.push(Outcome::ShowFree(!view.show_free));
+                        }
+                    }
+                    _ => {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        let copy =
+                            button::with_icon(ui, "Copy list", Kind::Secondary, Some(Icon::Copy));
+                        let refresh =
+                            button::with_hint(ui, "Refresh", Kind::Secondary, Icon::Refresh, "F5");
+                        if refresh.clicked() {
+                            out.push(Outcome::Scan);
+                        }
+                        if copy.clicked() {
+                            if let Some(scan) = &view.scan {
+                                let visible = shown_rows(view, state);
+                                out.push(Outcome::Copy(rows::copy_text(&scan.entries, &visible)));
+                            }
+                        }
+                    }
                 },
-                (ID_COPY, _) => copy_visible(hwnd),
-                (ID_SEARCH, EN_CHANGE) => refill(hwnd),
-                (ID_MODIFIERS, CBN_SELCHANGE) => refill(hwnd),
-                (ID_SHOW_FREE, _) => {
-                    let checkbox = control(hwnd, ID_SHOW_FREE);
-                    let checked = unsafe { SendMessageW(checkbox, BM_GETCHECK, 0, 0) }
-                        == BST_CHECKED as LRESULT;
-                    DETECTORS.with(|cell| {
-                        if let Some(detector) = cell.borrow_mut().get_mut(&(hwnd as isize)) {
-                            detector.show_free = checked;
-                        }
-                    });
-                    refill(hwnd);
-                }
-                (ID_CAPTURE, EN_SETFOCUS) => start_capture(hwnd),
-                (ID_CAPTURE, EN_KILLFOCUS) => stop_capture(hwnd),
-                _ => {}
-            }
-            0
+            );
         }
-        WM_NOTIFY => {
-            let header = unsafe { &*(lparam as *const NMHDR) };
-            if header.idFrom as i32 == ID_LIST && header.code == LVN_COLUMNCLICK {
-                let notice = unsafe { &*(lparam as *const NMLISTVIEW) };
-                DETECTORS.with(|cell| {
-                    if let Some(detector) = cell.borrow_mut().get_mut(&(hwnd as isize)) {
-                        if detector.sort_column == notice.iSubItem {
-                            detector.sort_ascending = !detector.sort_ascending;
-                        } else {
-                            detector.sort_column = notice.iSubItem;
-                            detector.sort_ascending = true;
-                        }
-                    }
-                });
-                refill(hwnd);
-            }
-            0
-        }
-        WM_CLOSE => {
-            unsafe { DestroyWindow(hwnd) };
-            0
-        }
-        WM_DESTROY => {
-            stop_capture(hwnd);
-            DETECTORS.with(|cell| {
-                if let Some(detector) = cell.borrow_mut().remove(&(hwnd as isize)) {
-                    for id in [ID_SEARCH, ID_CAPTURE, ID_LIST] {
-                        if let Some(child) = detector.controls.get(&id) {
-                            unsafe {
-                                RemoveWindowSubclass(*child, Some(forward_f5), SUBCLASS_FORWARD_F5)
-                            };
-                        }
-                    }
-                    if !detector.font.is_null() {
-                        unsafe { DeleteObject(detector.font as _) };
-                    }
-                    if !detector.background.is_null() {
-                        unsafe { DeleteObject(detector.background as _) };
-                    }
-                }
-            });
-            0
-        }
-        _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+        y += height + GAP;
     }
+    y - GAP
 }
 
-fn paint_state(hwnd: HWND) -> Option<(HBRUSH, Colours)> {
-    DETECTORS.with(|cell| {
-        cell.borrow()
-            .get(&(hwnd as isize))
-            .map(|detector| (detector.background, detector.colours))
-    })
+/// The keys the box shows: the modifiers held while it listens, else the
+/// last combination pressed.
+fn box_keys(state: &WindowUi) -> Vec<String> {
+    let text = if state.capturing && state.live != 0 {
+        hotkeys::format_modifiers(state.live)
+    } else if let Some(keys) = state.keys {
+        hotkeys::format(keys)
+    } else {
+        String::new()
+    };
+    keycap::split(&text)
+        .into_iter()
+        .map(str::to_string)
+        .collect()
 }
 
-pub fn set_show_free_default(hwnd: HWND, show_free: bool) {
-    DETECTORS.with(|cell| {
-        if let Some(detector) = cell.borrow_mut().get_mut(&(hwnd as isize)) {
-            detector.show_free = show_free;
+fn check_box(
+    ui: &mut Ui,
+    state: &mut WindowUi,
+    full: Rect,
+    top: f32,
+    out: &mut Vec<Outcome>,
+) -> f32 {
+    let tokens = Tokens::get(ui.ctx());
+    let outer = Rect::from_min_max(
+        pos2(full.left() + SIDE, top),
+        pos2(full.right() - SIDE, top + CONTROL + CHECK_PAD.y * 2.0),
+    );
+    let line = theme::line(ui.ctx(), tokens.border);
+    ui.painter()
+        .rect_stroke(outer, tokens.radius_tile, line, StrokeKind::Inside);
+    let inner = outer.shrink2(CHECK_PAD);
+    let painter = ui.painter().clone();
+
+    let label = painter.layout_no_wrap(
+        "Check a shortcut".to_string(),
+        theme::regular(13.0),
+        tokens.text_secondary,
+    );
+    let label_width = label.size().x;
+    painter.galley(
+        pos2(inner.left(), inner.center().y - label.size().y / 2.0),
+        label,
+        tokens.text_secondary,
+    );
+
+    let steps = vec![box_keys(state)];
+    let caps_width = if steps[0].is_empty() {
+        0.0
+    } else {
+        keycap::caps_width(ui, &steps, Caps::palette())
+    };
+    let box_rect = Rect::from_min_size(
+        pos2(inner.left() + label_width + 14.0, inner.top()),
+        vec2((caps_width + 20.0).max(CAPTURE_MIN), CONTROL),
+    );
+    let response = ui
+        .interact(box_rect, capture_id(), Sense::click())
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    if response.clicked() {
+        response.request_focus();
+        if !state.capturing {
+            out.push(Outcome::StartCapture);
+        }
+    } else if state.capturing && !response.has_focus() {
+        out.push(Outcome::StopCapture);
+    }
+    let border = if state.capturing {
+        tokens.accent
+    } else {
+        tokens.border
+    };
+    painter.rect(
+        box_rect,
+        tokens.radius_row,
+        tokens.hover_bg,
+        theme::line(ui.ctx(), border),
+        StrokeKind::Inside,
+    );
+    if !state.capturing {
+        focus::ring(ui, &response, f32::from(tokens.radius_row));
+    }
+    let keys_rect = box_rect.shrink2(vec2(10.0, 0.0));
+    if steps[0].is_empty() {
+        if state.capturing {
+            painter.text(
+                pos2(keys_rect.left(), keys_rect.center().y),
+                Align2::LEFT_CENTER,
+                "Press keys\u{2026}",
+                theme::regular(13.0),
+                tokens.text_disabled,
+            );
+        }
+    } else {
+        ui.scope_builder(
+            UiBuilder::new()
+                .max_rect(keys_rect)
+                .layout(Layout::left_to_right(Align::Center)),
+            |ui| keycap::caps(ui, &steps, Caps::palette()),
+        );
+    }
+
+    let hint = painter.layout_no_wrap(
+        CHECK_HINT.to_string(),
+        theme::regular(12.0),
+        tokens.text_disabled,
+    );
+    let hint_left = inner.right() - hint.size().x;
+    let result_left = box_rect.right() + 14.0;
+    // The hint gives way first when the window is narrow.
+    let end = if hint_left - 14.0 > result_left + 14.0 + 120.0 {
+        painter.galley(
+            pos2(hint_left, inner.center().y - hint.size().y / 2.0),
+            hint,
+            tokens.text_disabled,
+        );
+        hint_left - 14.0
+    } else {
+        inner.right()
+    };
+    if let Some((line, tone)) = &state.verdict {
+        let colour = tone.colour(&tokens);
+        let room = end - result_left - 14.0;
+        if room > 0.0 {
+            painter.circle_filled(pos2(result_left + 3.0, inner.center().y), 3.0, colour);
+            let galley = painter.layout_job(one_line(line, theme::regular(13.0), colour, room));
+            painter.galley(
+                pos2(result_left + 14.0, inner.center().y - galley.size().y / 2.0),
+                galley,
+                colour,
+            );
+        }
+    }
+    outer.bottom()
+}
+
+/// One line cut with "…" when it is wider than `width`.
+fn one_line(line: &str, font: egui::FontId, colour: egui::Color32, width: f32) -> LayoutJob {
+    let mut job = text::job(line, font, colour, None);
+    job.wrap = TextWrapping {
+        max_width: width.max(1.0),
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('\u{2026}'),
+    };
+    job
+}
+
+fn list_area(ui: &mut Ui, view: &View, state: &mut WindowUi, visible: &[usize], area: Rect) {
+    let tokens = Tokens::get(ui.ctx());
+    let line = theme::line(ui.ctx(), tokens.border);
+    let painter = ui.painter().clone();
+    painter.hline(area.x_range(), area.top(), line);
+    let header = Rect::from_min_size(area.min, vec2(area.width(), HEADER));
+    let columns = rows::columns(area.left(), area.right());
+    for (at, (column, label)) in COLUMNS.iter().enumerate() {
+        let cell = Rect::from_x_y_ranges(columns[at], header.y_range());
+        let response = ui
+            .interact(
+                cell,
+                Id::new(("wincraft-detector-header", at)),
+                Sense::click(),
+            )
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        if response.clicked() {
+            state.sort = state.sort.clicked(*column);
+            state.selected = None;
+        }
+        let sorted = state.sort.column == *column;
+        let shown = match (sorted, state.sort.descending) {
+            (false, _) => label.to_string(),
+            (true, false) => format!("{label} \u{2191}"),
+            (true, true) => format!("{label} \u{2193}"),
+        };
+        let colour = if sorted || response.hovered() {
+            tokens.text_secondary
+        } else {
+            tokens.text_disabled
+        };
+        painter.text(
+            pos2(cell.left(), cell.center().y),
+            Align2::LEFT_CENTER,
+            shown,
+            theme::regular(12.0),
+            colour,
+        );
+        focus::ring(ui, &response, f32::from(tokens.radius_row));
+    }
+    painter.hline(area.x_range(), header.bottom(), line);
+
+    let body = Rect::from_min_max(pos2(area.left(), header.bottom()), area.max);
+    let Some(scan) = &view.scan else {
+        empty_line(&painter, body, "Scanning\u{2026}", &tokens);
+        return;
+    };
+    if visible.is_empty() {
+        empty_line(&painter, body, "No shortcuts match.", &tokens);
+        return;
+    }
+    let mut scroll = egui::ScrollArea::vertical()
+        .id_salt("wincraft-detector-rows")
+        .auto_shrink([false, false]);
+    if std::mem::take(&mut state.follow) {
+        if let Some(selected) = state.selected {
+            let top = selected as f32 * ROW;
+            let bottom = top + ROW;
+            if top < state.offset {
+                scroll = scroll.vertical_scroll_offset(top);
+            } else if bottom > state.offset + body.height() {
+                scroll = scroll.vertical_scroll_offset(bottom - body.height());
+            }
+        }
+    }
+    let selected = state.selected;
+    let mut clicked = None;
+    let mut child = ui.new_child(
+        UiBuilder::new()
+            .max_rect(body)
+            .layout(Layout::top_down(Align::Min)),
+    );
+    let output = scroll.show_rows(&mut child, ROW, visible.len(), |ui, range| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        for place in range {
+            let entry = &scan.entries[visible[place]];
+            if row(ui, entry, selected == Some(place), &columns) {
+                clicked = Some(place);
+            }
         }
     });
-    let checkbox = control(hwnd, ID_SHOW_FREE);
-    if !checkbox.is_null() {
-        let state = if show_free {
-            BST_CHECKED
-        } else {
-            BST_UNCHECKED
-        };
-        unsafe { SendMessageW(checkbox, BM_SETCHECK, state as WPARAM, 0) };
+    state.offset = output.state.offset.y;
+    if clicked.is_some() {
+        state.selected = clicked;
     }
 }
+
+fn empty_line(painter: &egui::Painter, body: Rect, line: &str, tokens: &Tokens) {
+    painter.text(
+        pos2(body.left() + SIDE, body.top() + 32.0),
+        Align2::LEFT_TOP,
+        line,
+        theme::regular(13.0),
+        tokens.text_disabled,
+    );
+}
+
+/// One row; true when it was clicked.
+fn row(ui: &mut Ui, entry: &Entry, selected: bool, columns: &[egui::Rangef; 4]) -> bool {
+    let tokens = Tokens::get(ui.ctx());
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::click());
+    if !ui.is_rect_visible(rect) {
+        return response.clicked();
+    }
+    let painter = ui.painter().clone();
+    if selected {
+        painter.rect_filled(rect, 0, tokens.selection_bg);
+    } else if response.hovered() {
+        painter.rect_filled(rect, 0, tokens.hover_bg);
+    }
+    painter.hline(
+        rect.x_range(),
+        rect.bottom() - 0.5,
+        theme::line(ui.ctx(), tokens.border.gamma_multiply(0.5)),
+    );
+
+    let keys = hotkeys::format(entry.hotkey);
+    let steps = vec![keycap::split(&keys)
+        .into_iter()
+        .map(str::to_string)
+        .collect::<Vec<_>>()];
+    ui.scope_builder(
+        UiBuilder::new()
+            .max_rect(Rect::from_x_y_ranges(columns[0], rect.y_range()))
+            .layout(Layout::left_to_right(Align::Center)),
+        |ui| keycap::caps(ui, &steps, Caps::palette()),
+    );
+
+    let (word, tone) = rows::look(entry.status);
+    let colour = tone.colour(&tokens);
+    let galley = painter.layout_no_wrap(word.to_string(), theme::regular(12.0), colour);
+    let pill = Rect::from_min_size(
+        pos2(columns[1].min, rect.center().y - 10.0),
+        vec2(galley.size().x + 16.0, 20.0),
+    );
+    painter.rect_stroke(pill, 10, theme::line(ui.ctx(), colour), StrokeKind::Inside);
+    painter.galley(pill.center() - galley.size() / 2.0, galley, colour);
+
+    let meaning = painter.layout_job(one_line(
+        rows::meaning(entry),
+        theme::regular(13.0),
+        tokens.text_secondary,
+        columns[2].span(),
+    ));
+    painter.galley(
+        pos2(columns[2].min, rect.center().y - meaning.size().y / 2.0),
+        meaning,
+        tokens.text_secondary,
+    );
+    painter.text(
+        pos2(columns[3].min, rect.center().y),
+        Align2::LEFT_CENTER,
+        entry.source,
+        theme::mono(12.0),
+        tokens.text_disabled,
+    );
+    response.clicked()
+}
+
+/// The bottom line's parts and the note at its right.
+fn footer_parts(view: &View, state: &WindowUi) -> (Vec<String>, String) {
+    let parts = match (&view.scan, view.scanning) {
+        (Some(scan), false) => scan.summary().to_vec(),
+        _ => vec!["Scanning\u{2026}".to_string()],
+    };
+    let note = state
+        .notice
+        .as_ref()
+        .map_or_else(|| probe::HOOK_NOTE.to_string(), |(line, _)| line.clone());
+    (parts, note)
+}
+
+fn footer_jobs(ui: &Ui, view: &View, state: &WindowUi, width: f32) -> (LayoutJob, LayoutJob) {
+    let tokens = Tokens::get(ui.ctx());
+    let (parts, note) = footer_parts(view, state);
+    let font = theme::regular(12.0);
+    let mut summary = LayoutJob::default();
+    for (at, part) in parts.iter().enumerate() {
+        if at > 0 {
+            summary.append(
+                " \u{b7} ",
+                0.0,
+                text::format(font.clone(), tokens.text_disabled, None),
+            );
+        }
+        summary.append(
+            part,
+            0.0,
+            text::format(font.clone(), tokens.text_secondary, None),
+        );
+    }
+    summary.wrap.max_width = width.max(1.0);
+    let mut note = text::job(&note, font, tokens.text_disabled, None);
+    note.wrap.max_width = width.max(1.0);
+    (summary, note)
+}
+
+/// Lays the bottom line out: one line when the numbers and the note fit
+/// side by side, else the note under the numbers. Returns the galleys and
+/// whether they share a line.
+fn footer_galleys(
+    ui: &Ui,
+    view: &View,
+    state: &WindowUi,
+    width: f32,
+) -> (Arc<egui::Galley>, Arc<egui::Galley>, bool) {
+    let (summary, note) = footer_jobs(ui, view, state, width);
+    let summary = ui.painter().layout_job(summary);
+    let note = ui.painter().layout_job(note);
+    let together = summary.rows.len() == 1 && summary.size().x + 16.0 + note.size().x <= width;
+    (summary, note, together)
+}
+
+fn footer_height(ui: &Ui, view: &View, state: &WindowUi, width: f32) -> f32 {
+    let (summary, note, together) = footer_galleys(ui, view, state, width);
+    let text = if together {
+        summary.size().y.max(note.size().y)
+    } else {
+        summary.size().y + 4.0 + note.size().y
+    };
+    text + 20.0
+}
+
+fn footer_line(ui: &Ui, view: &View, state: &WindowUi, area: Rect) {
+    let tokens = Tokens::get(ui.ctx());
+    let painter = ui.painter();
+    painter.hline(
+        area.x_range(),
+        area.top(),
+        theme::line(ui.ctx(), tokens.border),
+    );
+    let inner = area.shrink2(vec2(SIDE, 10.0));
+    let (summary, note, together) = footer_galleys(ui, view, state, inner.width());
+    let summary_height = summary.size().y;
+    painter.galley(inner.min, summary, tokens.text_secondary);
+    let at = if together {
+        pos2(inner.right() - note.size().x, inner.top())
+    } else {
+        pos2(inner.left(), inner.top() + summary_height + 4.0)
+    };
+    painter.galley(at, note, tokens.text_disabled);
+}
+
+/// Puts the window in the middle of the monitor under the cursor, as the
+/// Win32 window did. winit corrects its size when that monitor has another
+/// scale.
+fn centre_on_cursor_monitor(hwnd: HWND) {
+    let mut point = POINT { x: 0, y: 0 };
+    let mut window: RECT = unsafe { std::mem::zeroed() };
+    let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
+    info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+    unsafe {
+        if GetCursorPos(&mut point) == 0 || GetWindowRect(hwnd, &mut window) == 0 {
+            return;
+        }
+        let monitor = MonitorFromPoint(point, MONITOR_DEFAULTTOPRIMARY);
+        if GetMonitorInfoW(monitor, &mut info) == 0 {
+            return;
+        }
+    }
+    let work = info.rcWork;
+    let width = window.right - window.left;
+    let height = window.bottom - window.top;
+    let x = (work.left + (work.right - work.left - width) / 2).max(work.left);
+    let y = (work.top + (work.bottom - work.top - height) / 2).max(work.top);
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            x,
+            y,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        )
+    };
+}
+
+#[cfg(test)]
+mod tests;

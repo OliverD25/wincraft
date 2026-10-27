@@ -1,20 +1,31 @@
 pub mod known;
 pub mod probe;
+mod rows;
+mod shared;
 mod window;
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use serde_json::Value;
-use windows_sys::Win32::Foundation::HWND;
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
-use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyWindow, IsWindow};
-
-use crate::core::shortcuts;
-use crate::core::traits::{
-    FieldKind, HostContext, Hotkey, HotkeyAction, PluginMetadata, SettingField, TrayAction,
-    WinCraftPlugin,
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, HWND_MESSAGE, WNDCLASSW,
 };
 
+use crate::core::traits::{
+    FieldKind, HostContext, Hotkey, HotkeyAction, PluginMetadata, PluginWindow, SettingField,
+    TrayAction, WinCraftPlugin,
+};
+use crate::core::{host, instance, shortcuts, wide};
+
+use shared::{Handle, WM_APP_SCAN};
+
+const ID: &str = "shortcut_detector";
+const CLASS_NAME: &str = "WinCraftShortcutDetector";
 const ACTION_OPEN: u32 = 1;
 const OPEN_ACTION: &str = "open_window";
 /// The default before 0.20.16, which QuickJump took over.
@@ -42,9 +53,14 @@ fn move_old_default(hotkeys: &mut BTreeMap<String, String>, settings: &mut Value
     old
 }
 
+thread_local! {
+    /// What the plugin's window procedure writes a finished scan into.
+    static SCANNER: RefCell<Option<Handle>> = const { RefCell::new(None) };
+}
+
 #[derive(Default)]
 pub struct ShortcutDetector {
-    window: Option<HWND>,
+    shared: Handle,
     show_free_by_default: bool,
 }
 
@@ -53,25 +69,86 @@ impl ShortcutDetector {
         Self::default()
     }
 
-    /// Creates the window and asks it to scan later. It must stay this cheap:
-    /// the host calls it with its own state mutably borrowed, so anything that
-    /// reads the host back - the scan does - has to wait for its own message.
+    /// Shows the window, and asks for a scan when it was closed. It must stay
+    /// this cheap: the host calls it with its own state mutably borrowed, so
+    /// anything that reads the host back - the scan does - has to wait for
+    /// its own message. A second open only brings the window to the front.
     fn open(&mut self) {
-        let existing = self.live_window();
-        match window::open(existing) {
-            Some(hwnd) => {
-                if existing.is_none() {
-                    window::set_show_free_default(hwnd, self.show_free_by_default);
-                }
-                self.window = Some(hwnd);
+        if let Ok(mut shared) = self.shared.lock() {
+            if !shared.open {
+                shared.open = true;
+                shared.show_free = self.show_free_by_default;
+                shared.ask_scan();
             }
-            None => self.window = None,
         }
+        host::show_window(ID, window::WINDOW_ID);
     }
+}
 
-    fn live_window(&self) -> Option<HWND> {
-        self.window.filter(|hwnd| unsafe { IsWindow(*hwnd) } != 0)
+fn run_scan(hwnd: HWND) {
+    let Some(handle) = SCANNER.with(|cell| cell.borrow().clone()) else {
+        return;
+    };
+    // F5 pressed twice quickly posts twice; one scan answers both.
+    if !handle.lock().is_ok_and(|shared| shared.scanning) {
+        return;
     }
+    // Safe here: this runs straight from the message loop, so no host borrow is
+    // on the stack and the read-only accessor cannot panic.
+    let mine = host::registered_hotkeys();
+    let result = probe::scan(hwnd, &mine);
+    log::info!("shortcut scan: {}", result.status_line());
+    if let Ok(mut shared) = handle.lock() {
+        shared.scan = Some(Arc::new(result));
+        shared.mine = mine;
+        shared.scanning = false;
+    };
+}
+
+unsafe extern "system" fn scanner_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    if msg == WM_APP_SCAN {
+        run_scan(hwnd);
+        return 0;
+    }
+    unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+}
+
+/// A message-only window: the probe registers each combination to it, and
+/// the window on the UI thread wakes the plugin through it.
+fn create_window() -> Result<HWND, String> {
+    let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
+    let name = wide(&instance::name(CLASS_NAME));
+    let mut class: WNDCLASSW = unsafe { std::mem::zeroed() };
+    class.lpfnWndProc = Some(scanner_proc);
+    class.hInstance = hinstance;
+    class.lpszClassName = name.as_ptr();
+    // Fails harmlessly with "class already exists" after a restart.
+    unsafe { RegisterClassW(&class) };
+    let hwnd = unsafe {
+        CreateWindowExW(
+            0,
+            name.as_ptr(),
+            wide("ShortcutDetector").as_ptr(),
+            0,
+            0,
+            0,
+            0,
+            0,
+            HWND_MESSAGE,
+            std::ptr::null_mut(),
+            hinstance,
+            std::ptr::null(),
+        )
+    };
+    if hwnd.is_null() {
+        return Err("could not create its window".to_string());
+    }
+    Ok(hwnd)
 }
 
 impl WinCraftPlugin for ShortcutDetector {
@@ -107,8 +184,8 @@ impl WinCraftPlugin for ShortcutDetector {
             .get("show_free_by_default")
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
-        if let Some(hwnd) = self.live_window() {
-            window::set_show_free_default(hwnd, self.show_free_by_default);
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.show_free = self.show_free_by_default;
         }
         true
     }
@@ -119,7 +196,11 @@ impl WinCraftPlugin for ShortcutDetector {
             .get("show_free_by_default")
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
-        self.window = None;
+        let hwnd = create_window()?;
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.plugin_window = hwnd as isize;
+        }
+        SCANNER.with(|cell| *cell.borrow_mut() = Some(self.shared.clone()));
         Ok(())
     }
 
@@ -162,11 +243,18 @@ impl WinCraftPlugin for ShortcutDetector {
         }
     }
 
+    fn windows(&self) -> Vec<Box<dyn PluginWindow>> {
+        vec![Box::new(window::DetectorWindow::new(self.shared.clone()))]
+    }
+
     fn teardown(&mut self) {
-        if let Some(hwnd) = self.live_window() {
-            unsafe { DestroyWindow(hwnd) };
+        SCANNER.with(|cell| *cell.borrow_mut() = None);
+        if let Ok(mut shared) = self.shared.lock() {
+            if shared.plugin_window != 0 {
+                unsafe { DestroyWindow(shared.plugin_window as HWND) };
+            }
+            *shared = shared::Shared::default();
         }
-        self.window = None;
     }
 }
 

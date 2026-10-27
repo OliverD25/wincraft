@@ -236,6 +236,9 @@ $scenes = @(
     @{ Name = 'palette-rename';         Args = @('--ask-name={front}');                    Window = 'palette' },
     # A minimized window of the harness's own, renamed, in the strip.
     # The please-wait panel with sample progress; nothing is restored.
+    # ShortcutDetector's window after its first scan. The scan only asks
+    # Windows for each combination and gives it back at once.
+    @{ Name = 'detector';               Args = @('--open-detector');                       Window = 'detector'; Settle = 1500; Detector = $true },
     @{ Name = 'restore-panel';          Args = @('--show-restore-panel');                  Window = 'panel';    Settle = 800 },
     # The notice shown once after an update; nothing is updated.
     @{ Name = 'update-notice';          Args = @('--show-update-notice');                  Window = 'update-notice'; Settle = 800 },
@@ -523,6 +526,7 @@ function Find-Target([System.Diagnostics.Process]$process, [string]$kind) {
         'settings' { $windows | Where-Object { $_.Title -eq 'WinCraft' -and $_.Class -notlike 'WinCraftHost*' } |
                          Sort-Object { $_.Width * $_.Height } -Descending | Select-Object -First 1 }
         'strip'    { $windows | Where-Object { $_.Title -eq 'WinCraft Arrange' } | Select-Object -First 1 }
+        'detector' { $windows | Where-Object { $_.Title -like 'WinCraft * Shortcut detector' } | Select-Object -First 1 }
         'panel'    { $windows | Where-Object { $_.Class -eq 'WinCraftRestoreNotice' } | Select-Object -First 1 }
         'update-notice' { $windows | Where-Object { $_.Class -eq 'WinCraftUpdateNotice' } | Select-Object -First 1 }
         'peek'     { $windows | Where-Object { $_.Class -eq 'WinCraftPeek' } |
@@ -542,6 +546,8 @@ try {
             if ($scene.Helper -and -not $script:helper) { Start-Helper }
             if ($scene.Seed) { Write-LayoutSeed $scene.Seed }
             Write-BookmarkSeed ([bool]$scene.Bookmarks)
+            $detector = if ($scene.Detector) { '{"enabled": true}' } else { '{"enabled": false}' }
+            [IO.File]::WriteAllText((Join-Path $plugins 'shortcut_detector.json'), $detector, $utf8)
             $view = 'auto'
             if ($scene.View) { $view = $scene.View }
             Write-KeeperSettings $view

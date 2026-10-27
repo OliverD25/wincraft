@@ -108,8 +108,7 @@ fn theme_at(index: u8) -> Option<ThemeName> {
 }
 
 /// The theme and mode the user chose, for code outside the egui thread: the
-/// ShortcutDetector's Win32 window and the notices take their colours from
-/// them.
+/// notices and panels drawn with Win32 take their colours from them.
 pub fn set_current(theme: ThemeName, mode: ThemeChoice) {
     let value = match mode {
         ThemeChoice::System => 0,

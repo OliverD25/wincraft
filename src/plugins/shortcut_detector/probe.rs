@@ -25,7 +25,7 @@ impl Status {
     pub fn label(self) -> &'static str {
         match self {
             Status::Free => "Free",
-            Status::TakenByApp => "Taken by an app",
+            Status::TakenByApp => "App",
             Status::Windows => "Windows",
             Status::WinCraft => "WinCraft",
         }
@@ -58,21 +58,34 @@ impl ScanResult {
         self.entries.iter().find(|entry| entry.hotkey == hotkey)
     }
 
+    /// The parts of the bottom line, which the window joins with dots.
+    pub fn summary(&self) -> [String; 4] {
+        [
+            format!(
+                "{} combinations checked in {} ms",
+                thousands(self.probed),
+                self.elapsed_ms
+            ),
+            format!(
+                "{} taken by apps",
+                thousands(self.count(Status::TakenByApp))
+            ),
+            format!("{} Windows", thousands(self.count(Status::Windows))),
+            format!("{} WinCraft", thousands(self.count(Status::WinCraft))),
+        ]
+    }
+
+    /// The bottom line as one text, for the log.
     pub fn status_line(&self) -> String {
-        format!(
-            "{} combinations probed in {} ms \u{2014} {} taken by apps, {} Windows shortcuts, {} WinCraft. \
-             Apps that use keyboard hooks (AutoHotkey, PowerToys) cannot be detected.",
-            thousands(self.probed),
-            self.elapsed_ms,
-            self.count(Status::TakenByApp),
-            self.count(Status::Windows),
-            self.count(Status::WinCraft),
-        )
+        self.summary().join(" \u{b7} ")
     }
 }
 
 /// The 15 non-empty modifier sets, ordered the way the filter dropdown reads
 /// rather than by bit value.
+pub const HOOK_NOTE: &str =
+    "Apps that use keyboard hooks (AutoHotkey, PowerToys) cannot be detected.";
+
 pub fn modifier_sets() -> Vec<u32> {
     vec![
         MOD_WIN,
@@ -126,7 +139,7 @@ pub fn verdict(probe_hwnd: HWND, hotkey: Hotkey, wincraft: &[(String, String, Ho
         return Entry {
             hotkey,
             status: Status::Windows,
-            owner: format!("Reserved by Windows: {meaning}"),
+            owner: meaning.to_string(),
             source: "windows list",
         };
     }
@@ -139,28 +152,20 @@ pub fn verdict(probe_hwnd: HWND, hotkey: Hotkey, wincraft: &[(String, String, Ho
     classify(hotkey, taken, owner_in(wincraft, hotkey))
 }
 
+/// One line in the "Status · detail" form, as the Check a shortcut box and
+/// `--hotkey-verdict` show it.
 pub fn verdict_text(entry: &Entry) -> String {
-    match entry.status {
-        Status::Free => "Free".to_string(),
-        Status::TakenByApp => {
-            if entry.owner.is_empty() {
-                "Taken by another app".to_string()
-            } else {
-                format!("Taken by another app {}", entry.owner)
-            }
+    let detail = match entry.status {
+        Status::Free => "no app or Windows shortcut uses it".to_string(),
+        Status::TakenByApp if entry.owner.is_empty() => "taken by another app".to_string(),
+        Status::TakenByApp => format!("taken by another app {}", entry.owner),
+        Status::Windows if known::is_reserved(entry.hotkey) => {
+            format!("reserved, no app can have it: {}", entry.owner)
         }
-        Status::Windows => {
-            if entry.owner.starts_with("Reserved") {
-                entry.owner.clone()
-            } else {
-                format!("Windows shortcut: {}", entry.owner)
-            }
-        }
-        Status::WinCraft => format!(
-            "Used by WinCraft: {}",
-            entry.owner.replacen(": ", " \u{2014} ", 1)
-        ),
-    }
+        Status::Windows => entry.owner.clone(),
+        Status::WinCraft => entry.owner.replacen(": ", " \u{2014} ", 1),
+    };
+    format!("{} \u{b7} {detail}", entry.status.label())
 }
 
 /// Pure decision table, kept apart from the Win32 probe so it can be tested.
@@ -170,7 +175,7 @@ pub fn classify(hotkey: Hotkey, probe_failed: bool, wincraft: Option<(&str, &str
             hotkey,
             status: Status::WinCraft,
             owner: format!("{plugin}: {label}"),
-            source: "wincraft",
+            source: "WinCraft",
         };
     }
     let meaning = known::meaning(hotkey);
@@ -267,7 +272,7 @@ mod tests {
         assert_eq!(entry.owner, "ScreenDimmer: Toggle monitor 1");
         assert_eq!(
             verdict_text(&entry),
-            "Used by WinCraft: ScreenDimmer \u{2014} Toggle monitor 1"
+            "WinCraft \u{b7} ScreenDimmer \u{2014} Toggle monitor 1"
         );
     }
 
@@ -284,7 +289,7 @@ mod tests {
         let entry = classify(key("Win+E"), false, None);
         assert_eq!(entry.status, Status::Windows);
         assert_eq!(entry.owner, "Open File Explorer");
-        assert_eq!(verdict_text(&entry), "Windows shortcut: Open File Explorer");
+        assert_eq!(verdict_text(&entry), "Windows \u{b7} Open File Explorer");
     }
 
     #[test]
@@ -292,7 +297,64 @@ mod tests {
         let entry = classify(key("Win+Alt+F7"), false, None);
         assert_eq!(entry.status, Status::Free);
         assert!(entry.owner.is_empty());
-        assert_eq!(verdict_text(&entry), "Free");
+        assert_eq!(
+            verdict_text(&entry),
+            "Free \u{b7} no app or Windows shortcut uses it"
+        );
+    }
+
+    #[test]
+    fn every_verdict_starts_with_its_short_status_word() {
+        let app = classify(key("Win+E"), true, None);
+        assert_eq!(
+            verdict_text(&app),
+            "App \u{b7} taken by another app (Windows: Open File Explorer)"
+        );
+        let unknown_app = classify(key("Ctrl+Alt+F9"), true, None);
+        assert_eq!(
+            verdict_text(&unknown_app),
+            "App \u{b7} taken by another app"
+        );
+        let words: Vec<&str> = [
+            Status::Free,
+            Status::TakenByApp,
+            Status::Windows,
+            Status::WinCraft,
+        ]
+        .iter()
+        .map(|status| status.label())
+        .collect();
+        assert_eq!(words, ["Free", "App", "Windows", "WinCraft"]);
+    }
+
+    #[test]
+    fn a_reserved_key_has_no_prefix_in_its_meaning() {
+        // Win+L is reserved, so the verdict never probes it.
+        let entry = verdict(std::ptr::null_mut(), key("Win+L"), &[]);
+        assert_eq!(entry.status, Status::Windows);
+        assert_eq!(entry.owner, "Lock the PC");
+        assert_eq!(
+            verdict_text(&entry),
+            "Windows \u{b7} reserved, no app can have it: Lock the PC"
+        );
+    }
+
+    #[test]
+    fn the_bottom_line_groups_thousands_and_joins_with_dots() {
+        let entries = vec![
+            classify(key("Win+E"), false, None),
+            classify(key("Ctrl+Alt+F9"), true, None),
+            classify(key("Win+Alt+S"), false, Some(("ShortcutDetector", "Open"))),
+        ];
+        let scan = ScanResult {
+            entries,
+            probed: 1_575,
+            elapsed_ms: 57,
+        };
+        assert_eq!(
+            scan.status_line(),
+            "1,575 combinations checked in 57 ms \u{b7} 1 taken by apps \u{b7} 1 Windows \u{b7} 1 WinCraft"
+        );
     }
 
     #[test]
