@@ -9,3 +9,4 @@ Status is `not yet in design` until a pull shows the design has it; then
 
 | Date | What changed and why | Files | Status |
 | --- | --- | --- | --- |
+| 2026-10-27 | Fluent palette on glass: the window corner radius is 8 px, not the Fluent 12 px. Windows clips a glass window to its own 8 px corners, so a 12 px painted corner left a strip of bare glass at each corner. Without glass (battery saver, transparency off) Fluent keeps 12 px. | `src/ui/palette/panel.rs` | not yet in design |

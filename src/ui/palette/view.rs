@@ -17,7 +17,7 @@ impl Palette {
         self.refresh(snapshot, &ctx);
         self.sync_tips(snapshot);
         self.refresh_details();
-        let tokens = Tokens::get(&ctx);
+        let tokens = with_window_corners(Tokens::get(&ctx), self.glass);
         let mut outcome = Outcome::Stay;
         let mut run: Option<(Run, Via)> = None;
         let mut actions = self.current_actions();

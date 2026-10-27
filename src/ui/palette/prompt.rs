@@ -15,7 +15,7 @@ impl Palette {
             return Outcome::Hide;
         };
         let ctx = ui.ctx().clone();
-        let tokens = Tokens::get(&ctx);
+        let tokens = with_window_corners(Tokens::get(&ctx), self.glass);
         let mut outcome = Outcome::Stay;
         let mut answer = false;
         if interactive {

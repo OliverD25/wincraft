@@ -14,6 +14,18 @@ pub(super) fn search_rule(
     }
 }
 
+/// Windows clips the glass window to its own rounded corners, 8 px at any
+/// theme radius. The panel uses that radius while the glass is on, or a thin
+/// strip of bare glass shows between Windows' curve and the painted one.
+pub(super) const GLASS_CORNER_RADIUS: u8 = 8;
+
+pub(super) fn with_window_corners(mut tokens: Tokens, glass: bool) -> Tokens {
+    if glass {
+        tokens.radius_window = GLASS_CORNER_RADIUS;
+    }
+    tokens
+}
+
 /// The panel with its shadow and border, rising as it fades in. Returns
 /// the panel's rectangle, a painter and the 1 px rule.
 pub(super) fn paint_panel(

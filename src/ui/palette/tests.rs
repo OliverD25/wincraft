@@ -1365,3 +1365,14 @@ fn running_a_completion_fills_the_box_and_forgetting_with_no_row_does_nothing() 
     );
     assert!(matches!(outcome, Outcome::Stay));
 }
+
+#[test]
+fn the_glass_panel_takes_windows_own_corner_radius_so_no_glass_shows_at_the_corners() {
+    let fluent = Tokens::of(crate::core::config::ThemeName::Fluent, true);
+    assert_eq!(fluent.radius_window, 12);
+    assert_eq!(
+        with_window_corners(fluent, true).radius_window,
+        GLASS_CORNER_RADIUS
+    );
+    assert_eq!(with_window_corners(fluent, false).radius_window, 12);
+}
