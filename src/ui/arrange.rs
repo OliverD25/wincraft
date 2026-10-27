@@ -1752,13 +1752,19 @@ fn strip(ui: &mut Ui, shared: &mut Shared) {
     }
     finish_rename(shared, &group, &mut frame);
     if !menu_open && !typing && shared.drag.is_none() {
-        let (close_key, new_key, rename_key) = ctx.input_mut(|i| {
+        let (close_key, new_key, rename_key, hints_key) = ctx.input_mut(|i| {
             (
                 i.consume_key(egui::Modifiers::CTRL, egui::Key::W),
                 i.consume_key(egui::Modifiers::CTRL, egui::Key::N),
                 i.consume_key(egui::Modifiers::NONE, egui::Key::F2),
+                i.consume_key(egui::Modifiers::CTRL, egui::Key::H),
             )
         });
+        // Only the By monitor view has a footer of hints to hide.
+        if hints_key && view == ArrangeView::ByMonitor && !compact {
+            toggle_hints(shared);
+            ctx.request_repaint();
+        }
         if rename_key {
             start_rename(shared, &group, snapshot.can_rename);
         }
@@ -1966,6 +1972,26 @@ fn switch_group(
     ctx.request_repaint();
 }
 
+/// Ctrl+H: hides or shows the key hints now, and asks the plugin that keeps
+/// the look to remember it, so the strip does not wait for the answer.
+fn toggle_hints(shared: &mut Shared) {
+    let Some(snapshot) = shared.snapshot.as_mut() else {
+        return;
+    };
+    snapshot.hints = !snapshot.hints;
+    let request = hints_request(&snapshot.look_plugin, snapshot.hints);
+    shared.to_host.send(request);
+}
+
+/// The request that saves the hints switch in the look plugin's settings.
+fn hints_request(look_plugin: &str, hints: bool) -> HostRequest {
+    HostRequest::SetSetting {
+        plugin: look_plugin.to_string(),
+        key: "show_hints".to_string(),
+        value: serde_json::Value::Bool(hints),
+    }
+}
+
 /// The group list, the view switch and, where there is room, how many
 /// monitors, desktops and windows there are. Returns the group and the view
 /// picked on this frame.
@@ -2017,10 +2043,17 @@ fn toolbar(
     let galley = ui
         .painter()
         .layout_no_wrap(line, theme::regular(13.0), tokens.text_secondary);
-    if right + 24.0 + galley.size().x <= area.right() {
+    // While the footer is hidden, the toolbar ends with the way to bring it
+    // back.
+    let mut end = area.right();
+    if view == ArrangeView::ByMonitor && !snapshot.hints {
+        let used = by_monitor::paint_toolbar_hint(ui.painter(), &tokens, end, area.top() + 16.0);
+        end -= used + 16.0;
+    }
+    if right + 24.0 + galley.size().x <= end {
         ui.painter().galley(
             pos2(
-                area.right() - galley.size().x,
+                end - galley.size().x,
                 area.top() + (32.0 - galley.size().y) / 2.0,
             ),
             galley,
@@ -3316,6 +3349,46 @@ fn name_card(painter: &egui::Painter, area: Rect, label: &str, desktop: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ctrl_h_flips_the_hints_now_and_asks_the_look_plugin_to_save_them() {
+        let bridge = crate::core::ui_bridge::create();
+        let arrange = Arrange::new(bridge.to_host.clone(), 0);
+        let mut shared = arrange.shared.lock().expect("the strip's state");
+        let shared = &mut *shared;
+        toggle_hints(shared);
+        assert!(
+            bridge.host_rx.try_recv().is_err(),
+            "no snapshot, no request"
+        );
+        shared.snapshot = Some(ArrangeSnapshot {
+            plugin: "window_deck".to_string(),
+            groups: Vec::new(),
+            desktops: Vec::new(),
+            focus: 0,
+            watched: Vec::new(),
+            preview: false,
+            can_rename: false,
+            monitors: Vec::new(),
+            view: ArrangeView::ByMonitor,
+            look_plugin: "window_deck".to_string(),
+            hints: true,
+            keeps_order: false,
+            anchor: None,
+        });
+        toggle_hints(shared);
+        assert!(!shared.snapshot.as_ref().is_some_and(|s| s.hints));
+        match bridge.host_rx.try_recv().ok() {
+            Some(HostRequest::SetSetting { plugin, key, value }) => {
+                assert_eq!(plugin, "window_deck");
+                assert_eq!(key, "show_hints");
+                assert_eq!(value, serde_json::Value::Bool(false));
+            }
+            _ => panic!("expected the setting to be saved"),
+        }
+        toggle_hints(shared);
+        assert!(shared.snapshot.as_ref().is_some_and(|s| s.hints));
+    }
 
     /// A card of a 16:9 window.
     const CARD: Vec2 = Vec2::new(152.0, CARD_HEIGHT);

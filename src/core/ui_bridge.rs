@@ -214,6 +214,9 @@ pub struct ArrangeSnapshot {
     /// The plugin that decides when the strip opens and keeps its look
     /// (WindowDeck); a new view is saved in its settings.
     pub look_plugin: String,
+    /// The key hints under the view are on, as kept in `look_plugin`'s
+    /// `show_hints` setting.
+    pub hints: bool,
     /// The windows come from a plugin that saves their order (LayoutKeeper),
     /// so a new order for other desktops reaches their taskbar at the next
     /// restore. Without one the strip does not say so.

@@ -24,6 +24,15 @@ use crate::ui::widgets::text;
 const SIDE: f32 = 20.0;
 const TOOLBAR: f32 = 16.0 + 32.0 + 12.0;
 const FOOTER: f32 = 1.0 + 10.0 + 20.0 + 10.0;
+
+/// The height of the footer: none while the user has hidden the hints.
+fn footer_height(hints: bool) -> f32 {
+    if hints {
+        FOOTER
+    } else {
+        0.0
+    }
+}
 const BAND_TOP: f32 = 12.0;
 const BAND_BOTTOM: f32 = 16.0;
 const BAND_HEADER: f32 = 18.0;
@@ -586,13 +595,14 @@ pub fn natural_width(cols: &[Vec<Col>]) -> f32 {
 
 /// The window size for the view: wide enough for one line of cards per
 /// column, as tall as the bands then are, and at most `limit`, beyond which
-/// it scrolls. `link` makes room for the line that opens the other desktops.
-/// `widths` is each window's card width.
+/// it scrolls. `link` makes room for the line that opens the other desktops,
+/// `hints` for the footer. `widths` is each window's card width.
 pub fn panel_size(
     bands: &[Band],
     cols: &[Vec<Col>],
     widths: &[f32],
     link: bool,
+    hints: bool,
     limit: Vec2,
 ) -> Vec2 {
     let width = (natural_width(cols) + SLACK).min(limit.x);
@@ -602,7 +612,7 @@ pub fn panel_size(
         .map(|band| band_height(band, cols, &tracks, widths))
         .sum();
     let link = if link { others::LINK_HEIGHT } else { 0.0 };
-    let height = TOOLBAR + bands_height + link + FOOTER + SLACK;
+    let height = TOOLBAR + bands_height + link + footer_height(hints) + SLACK;
     vec2(width, height.min(limit.y))
 }
 
@@ -694,7 +704,14 @@ pub fn panel_for(
     scope: Scope,
 ) -> Vec2 {
     let model = Model::new(group, snapshot, widths, shown, scope);
-    panel_size(&model.bands, &model.cols, widths, link, limit)
+    panel_size(
+        &model.bands,
+        &model.cols,
+        widths,
+        link,
+        snapshot.hints,
+        limit,
+    )
 }
 
 pub fn toolbar_rect(panel: Rect) -> Rect {
@@ -1174,7 +1191,7 @@ pub fn body(
 
     let area = Rect::from_min_max(
         pos2(panel.min.x, panel.min.y + TOOLBAR),
-        pos2(panel.max.x, panel.max.y - FOOTER),
+        pos2(panel.max.x, panel.max.y - footer_height(snapshot.hints)),
     );
     frame.area = area;
     let rails: Vec<usize> = model
@@ -1277,7 +1294,9 @@ pub fn body(
         }
     }
 
-    footer(ui, panel, shown && snapshot.keeps_order, others_count > 0);
+    if snapshot.hints {
+        footer(ui, panel, shown && snapshot.keeps_order, others_count > 0);
+    }
 
     if !menu_open && !dragging && shared.rename.is_none() {
         keyboard(
@@ -2246,6 +2265,10 @@ fn insertion_bar(ui: &Ui, others: &[Rect], index: usize, start: egui::Pos2) {
         .vline(x, egui::Rangef::new(top, top + CARD_HEIGHT), stroke);
 }
 
+/// The last footer hint. The toolbar shows the same key while the footer is
+/// hidden, as "Hints".
+pub const HIDE_HINT: (&str, &str) = ("Ctrl + H", "Hide hints");
+
 /// The key hints under the bands, most needed first: when the strip is too
 /// narrow they go from the end. The D hint needs other desktops to show.
 fn footer_hints(others_key: bool) -> Vec<(&'static str, &'static str)> {
@@ -2265,6 +2288,7 @@ fn footer_hints(others_key: bool) -> Vec<(&'static str, &'static str)> {
     if others_key {
         hints.push(("D", "Other desktops"));
     }
+    hints.push(HIDE_HINT);
     hints
 }
 
@@ -2285,6 +2309,67 @@ fn hints_that_fit(widths: &[f32], gap: f32, room: f32, keep: usize) -> usize {
     count.max(keep).min(widths.len())
 }
 
+/// A key and what it does, laid out.
+type Hint = (std::sync::Arc<egui::Galley>, std::sync::Arc<egui::Galley>);
+
+fn hint_galleys(painter: &egui::Painter, key: &str, label: &str, color: Color32) -> Hint {
+    let label = painter.layout_no_wrap(label.to_string(), theme::regular(12.0), color);
+    let font = if key.is_ascii() {
+        theme::regular(12.0)
+    } else {
+        theme::mono(12.0)
+    };
+    (painter.layout_no_wrap(key.to_string(), font, color), label)
+}
+
+/// The key chip (12 px of padding) and the label after it, 6 px apart.
+fn hint_width((key, label): &Hint) -> f32 {
+    key.size().x + 12.0 + 6.0 + label.size().x
+}
+
+/// Draws the hint with its right edge at `right`, centred on `centre`.
+/// Returns its left edge.
+fn paint_hint(
+    painter: &egui::Painter,
+    tokens: &Tokens,
+    (key, label): Hint,
+    right: f32,
+    centre: f32,
+    color: Color32,
+) -> f32 {
+    let mut x = right - label.size().x;
+    painter.galley(pos2(x, centre - label.size().y / 2.0), label, color);
+    x -= 6.0;
+    let chip = Rect::from_min_max(
+        pos2(x - key.size().x - 12.0, centre - key.size().y / 2.0 - 1.0),
+        pos2(x, centre + key.size().y / 2.0 + 1.0),
+    );
+    painter.rect(
+        chip,
+        tokens.radius_row,
+        tokens.panel_bg,
+        theme::line(painter.ctx(), tokens.border),
+        StrokeKind::Inside,
+    );
+    painter.galley(chip.center() - key.size() / 2.0, key, color);
+    chip.left()
+}
+
+/// The small hint that ends the toolbar while the footer is hidden: the key
+/// that brings it back. Returns its width.
+pub fn paint_toolbar_hint(
+    painter: &egui::Painter,
+    tokens: &Tokens,
+    right: f32,
+    centre: f32,
+) -> f32 {
+    let (key, label) = (HIDE_HINT.0, "Hints");
+    let hint = hint_galleys(painter, key, label, tokens.text_disabled);
+    let width = hint_width(&hint);
+    paint_hint(painter, tokens, hint, right, centre, tokens.text_disabled);
+    width
+}
+
 /// The note on order and the key hints under the bands. The note is only
 /// true while other desktops are on screen and a plugin saves the order;
 /// the D hint needs some to show.
@@ -2298,51 +2383,20 @@ fn footer(ui: &Ui, panel: Rect, note: bool, others_key: bool) {
         theme::line(ui.ctx(), tokens.border),
     );
     let centre = area.top() + 1.0 + (FOOTER - 1.0) / 2.0;
-    let hints: Vec<_> = footer_hints(others_key)
+    let mut hints: Vec<Hint> = footer_hints(others_key)
         .into_iter()
-        .map(|(key, label)| {
-            let label = painter.layout_no_wrap(
-                label.to_string(),
-                theme::regular(12.0),
-                tokens.text_secondary,
-            );
-            let font = if key.is_ascii() {
-                theme::regular(12.0)
-            } else {
-                theme::mono(12.0)
-            };
-            let key = painter.layout_no_wrap(key.to_string(), font, tokens.text_secondary);
-            (key, label)
-        })
+        .map(|(key, label)| hint_galleys(painter, key, label, tokens.text_secondary))
         .collect();
-    let widths: Vec<f32> = hints
-        .iter()
-        .map(|(key, label)| key.size().x + 12.0 + 6.0 + label.size().x)
-        .collect();
-    let shown = hints_that_fit(&widths, 16.0, area.width() - 2.0 * SIDE, 3);
+    // The hint that hides the hints always stays: it is the way back.
+    let hide = hints.pop();
+    let reserved = hide.as_ref().map_or(0.0, |hint| hint_width(hint) + 16.0);
+    let widths: Vec<f32> = hints.iter().map(hint_width).collect();
+    let shown = hints_that_fit(&widths, 16.0, area.width() - 2.0 * SIDE - reserved, 3);
+    hints.truncate(shown);
+    hints.extend(hide);
     let mut x = area.right() - SIDE;
-    for (index, (key, label)) in hints.into_iter().take(shown).enumerate().rev() {
-        let label_width = label.size().x;
-        x -= label_width;
-        painter.galley(
-            pos2(x, centre - label.size().y / 2.0),
-            label,
-            tokens.text_secondary,
-        );
-        x -= 6.0;
-        let chip = Rect::from_min_max(
-            pos2(x - key.size().x - 12.0, centre - key.size().y / 2.0 - 1.0),
-            pos2(x, centre + key.size().y / 2.0 + 1.0),
-        );
-        painter.rect(
-            chip,
-            tokens.radius_row,
-            tokens.panel_bg,
-            theme::line(ui.ctx(), tokens.border),
-            StrokeKind::Inside,
-        );
-        painter.galley(chip.center() - key.size() / 2.0, key, tokens.text_secondary);
-        x = chip.left();
+    for (index, hint) in hints.into_iter().enumerate().rev() {
+        x = paint_hint(painter, &tokens, hint, x, centre, tokens.text_secondary);
         if index > 0 {
             x -= 16.0;
         }
@@ -3083,7 +3137,7 @@ mod tests {
         let needed = (INSET + SAME[0]) + (INSET + 2.0 * SAME[0] + CARD_GAP) + (INSET + SAME[0]);
         let width = natural_width(&cols);
         assert!(close(width, needed + 2.0 * COLUMN_GAP + 2.0 * SIDE));
-        let size = panel_size(&one_each, &cols, &SAME, false, vec2(5000.0, 5000.0));
+        let size = panel_size(&one_each, &cols, &SAME, false, true, vec2(5000.0, 5000.0));
         assert!(close(size.x, width + SLACK));
         let tracks = row_tracks(&cols[0], &[], size.x);
         assert!(close(tracks[0], INSET + SAME[0]));
@@ -3094,7 +3148,7 @@ mod tests {
         assert_eq!(cell_lines(&SAME[..3], tracks[1]), [0..2, 2..3]);
 
         // Never wider than the limit, nor taller.
-        let small = panel_size(&one_each, &cols, &SAME, false, vec2(800.0, 300.0));
+        let small = panel_size(&one_each, &cols, &SAME, false, true, vec2(800.0, 300.0));
         assert_eq!(small, vec2(800.0, 300.0));
     }
 
@@ -3188,6 +3242,20 @@ mod tests {
     }
 
     #[test]
+    fn hiding_the_hints_makes_the_panel_exactly_the_footer_shorter() {
+        let monitors = vec![monitor([0, 0, 1920, 1080], 48, true); 3];
+        let rows = vec![vec![0, 1, 2]];
+        let all = three_columns();
+        let cols = columns(&all, &rows, &monitors, &SAME);
+        let limit = vec2(5000.0, 5000.0);
+        let with = panel_size(&all, &cols, &SAME, false, true, limit);
+        let without = panel_size(&all, &cols, &SAME, false, false, limit);
+        assert_eq!(with.x, without.x);
+        assert!(close(with.y - without.y, FOOTER));
+        assert_eq!(footer_height(false), 0.0);
+    }
+
+    #[test]
     fn the_collapsed_panel_is_shorter_and_the_link_adds_a_line() {
         let monitors = vec![monitor([0, 0, 1920, 1080], 48, true); 3];
         let rows = vec![vec![0, 1, 2]];
@@ -3195,9 +3263,9 @@ mod tests {
         let limit = vec2(5000.0, 5000.0);
         let all = three_columns();
         let shown = visible(all.clone(), false);
-        let open = panel_size(&all, &cols_of(&all), &SAME, true, limit);
-        let shut = panel_size(&shown, &cols_of(&shown), &SAME, true, limit);
-        let bare = panel_size(&shown, &cols_of(&shown), &SAME, false, limit);
+        let open = panel_size(&all, &cols_of(&all), &SAME, true, true, limit);
+        let shut = panel_size(&shown, &cols_of(&shown), &SAME, true, true, limit);
+        let bare = panel_size(&shown, &cols_of(&shown), &SAME, false, true, limit);
         assert!(shut.y < open.y);
         assert!(close(shut.y - bare.y, others::LINK_HEIGHT));
     }
@@ -3351,6 +3419,7 @@ mod tests {
         let snapshot = ArrangeSnapshot {
             plugin: "layout_keeper".to_string(),
             look_plugin: "window_deck".to_string(),
+            hints: true,
             keeps_order: true,
             groups: vec![group.clone()],
             desktops: vec![ArrangeDesktop {
@@ -3715,7 +3784,8 @@ mod tests {
                 "Close",
                 "New window",
                 "Rename",
-                "Other desktops"
+                "Other desktops",
+                "Hide hints"
             ]
         );
         assert!(!keys(false).contains(&"Other desktops"));
@@ -3724,6 +3794,12 @@ mod tests {
         assert_eq!(footer_hints(false)[8].0, "Ctrl + W");
         assert_eq!(footer_hints(false)[9].0, "Ctrl + N");
         assert_eq!(footer_hints(false)[10], ("F2", "Rename"));
+        // Ctrl + H comes last, after the optional D hint too.
+        assert_eq!(
+            footer_hints(false).last(),
+            Some(&("Ctrl + H", "Hide hints"))
+        );
+        assert_eq!(footer_hints(true).last(), Some(&HIDE_HINT));
         // Too narrow for all: they go from the end, and Select, Open and
         // Move stay even when they do not fit.
         let widths = [80.0, 60.0, 90.0, 140.0, 140.0];
@@ -3811,6 +3887,7 @@ mod tests {
         let snapshot = ArrangeSnapshot {
             plugin: "layout_keeper".to_string(),
             look_plugin: "window_deck".to_string(),
+            hints: true,
             keeps_order: true,
             groups: vec![group.clone()],
             desktops: vec![ArrangeDesktop {

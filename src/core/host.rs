@@ -1549,6 +1549,7 @@ Nothing is downloaded."
             monitors: groups.monitors,
             view: look.view,
             look_plugin: look_plugin.to_string(),
+            hints: look.hints,
             keeps_order: id != look_plugin,
             anchor: anchor.map(|(_, rect)| rect),
         };
@@ -3930,6 +3931,7 @@ mod tests {
             self.look.then_some(StripLook {
                 preview: false,
                 view: ArrangeView::Flat,
+                hints: true,
             })
         }
 

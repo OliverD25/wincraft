@@ -140,6 +140,8 @@ pub struct StripLook {
     /// The view the user picked last. The strip saves a new pick as this
     /// plugin's `arrange_view` setting.
     pub view: ArrangeView,
+    /// Whether the By monitor view shows its footer of key hints.
+    pub hints: bool,
 }
 
 /// A window a plugin draws itself with egui, such as a list it keeps. It

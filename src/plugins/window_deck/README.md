@@ -226,6 +226,13 @@ These keys work in every view, on a card or a ghost.
 
 A test instance closes and starts nothing.
 
+### Key hints
+
+- **Ctrl+H** hides or shows the key hints at the bottom of the By monitor
+  view. While they are hidden the window is that much shorter, and the
+  toolbar ends with a small "Ctrl + H Hints" to bring them back. WindowDeck
+  remembers the choice; **Show key hints** on the Settings tab does the same.
+
 ### Rename
 
 - **F2** renames the picked window, card or ghost, in every view. Its title

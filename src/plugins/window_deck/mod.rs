@@ -44,6 +44,7 @@ const HOVER_STRIP_KEY: &str = "taskbar_hover_strip";
 const HOVER_DELAY_KEY: &str = "hover_delay_seconds";
 const PREVIEW_KEY: &str = "preview_on_hover";
 const VIEW_KEY: &str = "arrange_view";
+const HINTS_KEY: &str = "show_hints";
 const WIN_NUMBER_KEY: &str = "win_number_opens";
 const HOTKEY_NAME: &str = "arrange";
 const HOVER_STRIP_LABEL: &str = "WindowDeck on taskbar hover";
@@ -56,6 +57,8 @@ pub struct WindowDeck {
     preview_on_hover: bool,
     /// The strip's view, as the user last picked it there.
     view: ArrangeView,
+    /// The By monitor view's footer of key hints is shown.
+    show_hints: bool,
     /// "Show WindowDeck instead of Windows' taskbar preview".
     hover_strip: bool,
     hover_delay_ms: u64,
@@ -80,6 +83,7 @@ impl Default for WindowDeck {
             host_hwnd: None,
             preview_on_hover: true,
             view: ArrangeView::Auto,
+            show_hints: true,
             hover_strip: false,
             hover_delay_ms: hover_preview::DEFAULT_DELAY_MS,
             hover: hover_preview::HoverPreview::default(),
@@ -108,6 +112,10 @@ impl WindowDeck {
                 .and_then(|value| value.as_str())
                 .unwrap_or("auto"),
         );
+        self.show_hints = settings
+            .get(HINTS_KEY)
+            .and_then(|value| value.as_bool())
+            .unwrap_or(true);
         self.hover_strip = settings
             .get(HOVER_STRIP_KEY)
             .and_then(|value| value.as_bool())
@@ -313,6 +321,7 @@ impl WinCraftPlugin for WindowDeck {
         serde_json::json!({
             PREVIEW_KEY: true,
             VIEW_KEY: ArrangeView::Auto.setting(),
+            HINTS_KEY: true,
             HOVER_STRIP_KEY: false,
             HOVER_DELAY_KEY: hover_preview::DEFAULT_DELAY_MS as f64 / 1000.0,
             WIN_NUMBER_KEY: false,
@@ -325,6 +334,12 @@ impl WinCraftPlugin for WindowDeck {
                 key: PREVIEW_KEY,
                 label: "Preview window on hover",
                 help: "Resting the mouse on a picture in WindowDeck shows that window on its monitor.",
+                kind: FieldKind::Toggle,
+            },
+            SettingField {
+                key: HINTS_KEY,
+                label: "Show key hints",
+                help: "Ctrl+H hides or shows them in WindowDeck.",
                 kind: FieldKind::Toggle,
             },
             SettingField {
@@ -472,6 +487,7 @@ impl WinCraftPlugin for WindowDeck {
         Some(StripLook {
             preview: self.preview_on_hover,
             view: self.view,
+            hints: self.show_hints,
         })
     }
 
@@ -665,10 +681,32 @@ mod tests {
         let look = deck.strip_look().expect("WindowDeck decides the look");
         assert!(look.preview);
         assert_eq!(look.view, ArrangeView::Auto);
+        assert!(look.hints);
         deck.apply_settings(&serde_json::json!({ PREVIEW_KEY: false, VIEW_KEY: "flat" }));
         let look = deck.strip_look().expect("a look");
         assert!(!look.preview);
         assert_eq!(look.view, ArrangeView::Flat);
+    }
+
+    #[test]
+    fn the_key_hints_are_on_by_default_and_follow_the_setting() {
+        let mut deck = test_deck();
+        assert_eq!(deck.default_settings()[HINTS_KEY], true);
+        deck.apply_settings(&deck.default_settings());
+        assert!(deck.strip_look().expect("a look").hints);
+        deck.apply_settings(&serde_json::json!({ HINTS_KEY: false }));
+        assert!(!deck.strip_look().expect("a look").hints);
+        // A file without the key keeps them on.
+        deck.apply_settings(&serde_json::json!({}));
+        assert!(deck.strip_look().expect("a look").hints);
+        let field = deck
+            .settings_fields()
+            .into_iter()
+            .find(|field| field.key == HINTS_KEY)
+            .expect("the switch is on the page");
+        assert_eq!(field.label, "Show key hints");
+        assert_eq!(field.help, "Ctrl+H hides or shows them in WindowDeck.");
+        deck.teardown();
     }
 
     #[test]
