@@ -442,6 +442,9 @@ pub enum UiCommand {
     /// Win and the same number again: pick the next card on this desktop.
     ArrangeSelectNext,
     HideArrange,
+    /// No running plugin shows the strip any more: its window, kept hidden
+    /// between openings, is freed.
+    FreeArrange,
     /// The Layout page's data; None when no plugin keeps a layout.
     LayoutUpdate(Option<LayoutSnapshot>),
     /// Opens or closes one of a plugin's own windows.

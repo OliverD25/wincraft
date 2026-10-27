@@ -370,6 +370,9 @@ impl PluginSet {
                 self.keys.unregister(entry.global_id);
             }
         }
+        if self.slots[index].plugin.strip_look().is_some() {
+            ARRANGE_FREE.with(|cell| cell.set(true));
+        }
         self.slots[index].plugin.teardown();
         self.slots[index].enabled = false;
         let id = self.slots[index].plugin.metadata().id.to_string();

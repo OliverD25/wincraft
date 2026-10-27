@@ -128,7 +128,7 @@ struct App {
     pending_position: Option<MonitorRect>,
     settings_open: bool,
     settings: Settings,
-    arrange_open: bool,
+    arrange_life: arrange::Life,
     arrange: Arrange,
     quitting: bool,
     applied_scale: f32,
@@ -178,7 +178,7 @@ impl App {
             palette_visible: false,
             pending_position: None,
             settings_open: false,
-            arrange_open: false,
+            arrange_life: arrange::Life::None,
             arrange: Arrange::new(Arc::clone(&to_host_for_settings), palette_hwnd),
             settings: Settings::new(to_host_for_settings, snapshot_for_settings, palette_hwnd),
             quitting: false,
@@ -226,7 +226,7 @@ impl App {
                 UiCommand::ShowArrange(snapshot) => {
                     open_timing::mark(OpenStep::UiGot);
                     self.arrange.open(snapshot);
-                    self.arrange_open = true;
+                    self.arrange_life.open();
                     ctx.request_repaint();
                     log::info!("arrange windows shown");
                 }
@@ -251,10 +251,18 @@ impl App {
                     ctx.request_repaint_of(arrange::viewport_id());
                 }
                 UiCommand::HideArrange => {
-                    if self.arrange_open {
-                        self.arrange_open = false;
+                    if self.arrange_life.close() {
                         self.arrange.hidden();
                         log::info!("arrange windows hidden");
+                    }
+                }
+                UiCommand::FreeArrange => {
+                    let kept = self.arrange_life.keeps_window();
+                    if self.arrange_life.free() {
+                        self.arrange.hidden();
+                    }
+                    if kept {
+                        log::info!("WindowDeck is off: its hidden window is freed");
                     }
                 }
                 UiCommand::LayoutUpdate(layout) => {
@@ -315,8 +323,9 @@ impl App {
                     self.hide_palette(ctx);
                     theme::preview(ctx, None);
                     self.settings_open = false;
-                    self.arrange_open = false;
-                    self.arrange.hidden();
+                    if self.arrange_life.close() {
+                        self.arrange.hidden();
+                    }
                 }
                 UiCommand::Snapshot(snapshot) => {
                     self.settings.set_snapshot((*snapshot).clone());
@@ -497,13 +506,13 @@ impl eframe::App for App {
                 self.settings.show(&ctx, Some(Arc::clone(&self.icon)));
             }
         }
-        if self.arrange_open {
-            if self.arrange.was_closed() {
-                self.arrange_open = false;
-                self.arrange.hidden();
-            } else {
-                self.arrange.show(&ctx, Some(Arc::clone(&self.icon)));
-            }
+        if self.arrange_life.is_open() && self.arrange.was_closed() {
+            self.arrange_life.close();
+            self.arrange.hidden();
+        }
+        // Shown also while closed, so egui keeps the hidden window.
+        if self.arrange_life.keeps_window() {
+            self.arrange.show(&ctx, Some(Arc::clone(&self.icon)));
         }
 
         if self

@@ -2012,3 +2012,26 @@ fn the_palette_after_an_update_waits_for_the_app_index_but_not_longer_than_the_c
     assert!(palette_ready_to_reopen(false, Duration::from_secs(2)));
     assert!(palette_ready_to_reopen(true, Duration::from_millis(0)));
 }
+
+#[test]
+fn switching_the_strip_plugin_off_frees_its_kept_window() {
+    let data = Scratch::new("strip-free");
+    let (log, keyboard) = (diary(), FakeKeys::default());
+    let mut deck = fake("fake_deck", "Deck", "Win+Alt+F2", &log);
+    deck.look = true;
+    let other = fake("fake_other", "Other", "Win+Alt+F3", &log);
+    let (mut host, _ui) = test_host(vec![deck, other], &keyboard, &data);
+    let _ = PluginRequests::take();
+    host.handle_request(HostRequest::SetPluginEnabled {
+        id: "fake_other".to_string(),
+        enabled: false,
+    });
+    assert!(!PluginRequests::take().free, "a plugin without the strip");
+    assert!(host.strip_plugin_on());
+    host.handle_request(HostRequest::SetPluginEnabled {
+        id: "fake_deck".to_string(),
+        enabled: false,
+    });
+    assert!(PluginRequests::take().free);
+    assert!(!host.strip_plugin_on());
+}

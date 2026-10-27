@@ -10,7 +10,8 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetWindowRect, IsWindowVisible, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE,
+    GetCursorPos, GetWindowRect, IsWindowVisible, SetWindowPos, ShowWindow, HWND_TOPMOST,
+    SWP_NOACTIVATE, SW_HIDE, SW_SHOWNOACTIVATE,
 };
 
 use crate::core::open_timing::{self, OpenStep};
@@ -33,6 +34,7 @@ mod compact;
 mod flat;
 mod hold;
 mod input;
+mod life;
 mod motion;
 mod others;
 mod pictures;
@@ -46,6 +48,7 @@ mod window;
 pub use cards::*;
 use flat::*;
 pub use input::*;
+pub use life::Life;
 pub use motion::*;
 use pictures::*;
 pub use rows::*;
@@ -281,6 +284,8 @@ struct Shared {
     rename: Option<rename::Rename>,
     /// When a Windows key was last seen down while the strip was open.
     win_seen: Option<Instant>,
+    /// Closed, with its window kept hidden for the next opening.
+    parked: bool,
 }
 
 impl Shared {

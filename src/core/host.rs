@@ -317,6 +317,9 @@ thread_local! {
     static ARRANGE_STALE: Cell<bool> = const { Cell::new(false) };
     static ARRANGE_ANCHOR: RefCell<Option<(String, [i32; 4])>> = const { RefCell::new(None) };
     static ARRANGE_CLOSE: Cell<bool> = const { Cell::new(false) };
+    /// A plugin that gives the strip its look was stopped: once no running
+    /// plugin does, the UI frees the strip's kept window.
+    static ARRANGE_FREE: Cell<bool> = const { Cell::new(false) };
     /// Win+number presses a plugin's hook kept: the digit, and whether it
     /// is the same digit again while Win stayed down.
     static WIN_DIGITS: RefCell<Vec<(u8, bool)>> = const { RefCell::new(Vec::new()) };

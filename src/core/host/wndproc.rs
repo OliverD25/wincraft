@@ -138,6 +138,7 @@ pub(super) struct PluginRequests {
     pub(super) arrange_hotkey: bool,
     pub(super) anchor: Option<(String, [i32; 4])>,
     pub(super) close: bool,
+    pub(super) free: bool,
     pub(super) stale: bool,
     pub(super) win_digits: Vec<(u8, bool)>,
     pub(super) prompt: Option<Prompt>,
@@ -154,6 +155,7 @@ impl PluginRequests {
             arrange_hotkey: ARRANGE_HOTKEY.with(|cell| cell.replace(false)),
             anchor: ARRANGE_ANCHOR.with(|cell| cell.borrow_mut().take()),
             close: ARRANGE_CLOSE.with(|cell| cell.replace(false)),
+            free: ARRANGE_FREE.with(|cell| cell.replace(false)),
             stale: ARRANGE_STALE.with(|cell| cell.replace(false)),
             win_digits: WIN_DIGITS.with(|queue| std::mem::take(&mut *queue.borrow_mut())),
             prompt: PROMPT.with(|cell| cell.borrow_mut().take()),
@@ -358,6 +360,9 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
                 }
                 if requests.close {
                     host.to_ui.send(UiCommand::HideArrange);
+                }
+                if requests.free && !host.strip_plugin_on() {
+                    host.to_ui.send(UiCommand::FreeArrange);
                 }
                 for (plugin, window, open) in requests.windows {
                     match window {

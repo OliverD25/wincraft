@@ -153,6 +153,14 @@ impl Host {
         );
     }
 
+    /// Whether a running plugin gives the strip its look (WindowDeck).
+    pub(super) fn strip_plugin_on(&self) -> bool {
+        self.plugins
+            .slots
+            .iter()
+            .any(|slot| slot.enabled && slot.plugin.strip_look().is_some())
+    }
+
     /// Whether the taskbar's buttons read last still count.
     pub(super) fn buttons_cached(&self) -> bool {
         self.buttons_at
@@ -335,12 +343,7 @@ impl Host {
             .win_digit_opened
             .is_some_and(|at| at.elapsed() < STRIP_COMING);
         // Switching WindowDeck off closes it, however recently it opened.
-        let deck_on = self
-            .plugins
-            .slots
-            .iter()
-            .any(|slot| slot.enabled && slot.plugin.strip_look().is_some());
-        let open = deck_on && (coming || ui_bridge::arrange_window().is_some());
+        let open = self.strip_plugin_on() && (coming || ui_bridge::arrange_window().is_some());
         if again && open {
             log::info!("Win+{digit} again: the next card");
             self.to_ui.send(UiCommand::ArrangeSelectNext);

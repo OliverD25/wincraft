@@ -51,6 +51,7 @@ impl Arrange {
                 close_when_empty: false,
                 rename: None,
                 win_seen: None,
+                parked: false,
             })),
             palette_hwnd,
         }
@@ -69,6 +70,7 @@ impl Arrange {
             shared.reveal = reveal::Reveal::waiting(Instant::now());
         }
         shared.pointer.rest(cursor_position());
+        shared.parked = false;
         shared.close_when_empty = false;
         shared.key = snapshot
             .groups
@@ -203,10 +205,19 @@ impl Arrange {
             .unwrap_or(false)
     }
 
-    /// Unregisters every picture and hides the peek; runs on the UI thread,
+    /// Unregisters every picture, hides the peek and hides the strip's
+    /// window, which is kept for the next opening; runs on the UI thread,
     /// which owns them.
     pub fn hidden(&self) {
         if let Ok(mut shared) = self.shared.lock() {
+            // Hidden, so Windows gives the keyboard back to the window the
+            // user was in, as when the window was destroyed.
+            let window = settings::find_window(TITLE, self.palette_hwnd);
+            if window != 0 {
+                unsafe { ShowWindow(window as HWND, SW_HIDE) };
+            }
+            shared.parked = true;
+            shared.asked_at = None;
             shared.closed = false;
             shared.window = 0;
             ui_bridge::set_arrange_window(0);
@@ -252,7 +263,11 @@ impl Arrange {
             dwm_thumbs::round_corners(found as HWND, border);
             dwm_thumbs::cloak(found as HWND, true);
             shared.reveal_window = found;
-            ctx.send_viewport_cmd_to(viewport_id(), egui::ViewportCommand::Visible(true));
+            // Shown here, not through winit, which activates a window it
+            // shows a second time: a hover strip must leave the keyboard
+            // where it is, and the strip asks for it itself when it wants
+            // it. egui keeps the window's own flag at hidden throughout.
+            unsafe { ShowWindow(found as HWND, SW_SHOWNOACTIVATE) };
             ctx.request_repaint_of(viewport_id());
         }
         let cloaked = matches!(shared.reveal, reveal::Reveal::Cloaked { .. });
@@ -280,27 +295,29 @@ impl Arrange {
         }
     }
 
+    /// Draws the open strip, or keeps its hidden window alive between
+    /// openings while WindowDeck is on: the next opening then reuses the
+    /// window and its GL context instead of making new ones.
     pub fn show(&self, ctx: &egui::Context, icon: Option<Arc<egui::IconData>>) {
-        self.reveal_step(ctx);
         let shared = Arc::clone(&self.shared);
         let palette_hwnd = self.palette_hwnd;
-        let (panel, hovered) = self
+        let (panel, parked) = self
             .shared
             .lock()
-            .map(|shared| {
-                (
-                    shared.panel(),
-                    shared.anchor.is_some() && !shared.wants_keyboard,
-                )
-            })
-            .unwrap_or((EMPTY_PANEL, false));
+            .map(|shared| (shared.panel(), shared.parked))
+            .unwrap_or((EMPTY_PANEL, true));
+        if !parked {
+            self.reveal_step(ctx);
+        }
+        // Every value here stays the same from one opening to the next:
+        // egui makes the window again when some of them change.
         let mut builder = egui::ViewportBuilder::default()
             .with_title(TITLE)
             .with_decorations(false)
             .with_window_level(egui::WindowLevel::AlwaysOnTop)
             .with_taskbar(false)
             .with_resizable(false)
-            .with_active(!hovered)
+            .with_active(false)
             // Shown by `reveal_step` once it is in its place.
             .with_visible(false)
             .with_inner_size(panel);
@@ -309,10 +326,13 @@ impl Arrange {
         }
 
         ctx.show_viewport_deferred(viewport_id(), builder, move |ui, _class| {
-            focus::track(ui.ctx());
             let Ok(mut shared) = shared.lock() else {
                 return;
             };
+            if shared.parked {
+                return;
+            }
+            focus::track(ui.ctx());
             if shared.asked_at.is_some() {
                 open_timing::mark(OpenStep::FirstFrame);
             }
