@@ -29,7 +29,7 @@ screenshots.
   Beside the list, an inspector shows what the selected row is and what it
   can do. See
   [Command palette](#command-palette).
-- **Settings window** — General, Plugins, Hotkeys, Layout,
+- **Settings window** — General, Themes, Plugins, Hotkeys, Layout,
   Bookmarks, Plugin Store and About, with a page per plugin: its options, its
   hotkeys, its config file and its README.
 - **Hotkeys** — every command the palette lists can have a
@@ -101,9 +101,10 @@ there is nothing newer, a notification says "WinCraft is up to date"; when
 this copy cannot update itself, it says why.
 
 Update now downloads `wincraft.exe` and `SHA256SUMS.txt` from the release,
-checks the checksum, puts the new exe in place and restarts WinCraft. A bar
-under the release on the About page shows how far it is: step 1 downloads,
-step 2 installs. If the new version does not run for 30 seconds without
+checks the checksum, puts the new exe in place and restarts WinCraft. The
+Updates block at the top of the About page shows how far it is with a bar:
+step 1 downloads, step 2 installs. While it downloads, Cancel stops it,
+deletes the part already downloaded and keeps the version you have. If the new version does not run for 30 seconds without
 crashing, WinCraft ends it,
 puts the old exe back, starts the old version again and says "Update to …
 failed, kept …". Only the installed copy updates itself: a WinCraft run from
@@ -491,6 +492,7 @@ plugins\
   screen_dimmer.json   one file per plugin
   shortcut_detector.json
   layout_keeper.json
+  window_deck.json
   language_indicator.json
   window_namer.json
   quick_jump.json
@@ -678,10 +680,12 @@ on your PC.
 
 ## Code signing policy
 
-Free code signing provided by [SignPath.io](https://about.signpath.io/),
-certificate by [SignPath Foundation](https://signpath.org/). The application
-is pending: until it is accepted, releases are unsigned, and each release's
-`SHA256SUMS.txt` is the way to check a download.
+Releases are not code-signed yet. WinCraft applied to the
+[SignPath Foundation](https://signpath.org/) for free code signing in October
+2026. It was not accepted this time, because the project is still new, and it
+will apply again later. Until a release is signed, each release's
+`SHA256SUMS.txt` is the way to check a download. The rules below are the ones
+signed releases will follow.
 
 - Every release is built from a git tag by GitHub Actions
   ([release workflow](.github/workflows/release.yml)); nobody builds a release
