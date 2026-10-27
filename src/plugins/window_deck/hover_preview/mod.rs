@@ -144,6 +144,8 @@ impl HoverPreview {
             strip,
             strip_focused,
             answer: self.take_answer(windows_of),
+            win_number: super::win_digit::is_running(),
+            win_digit_taken: super::win_digit::took_digit_this_press(),
         };
         let was_open = self
             .machine

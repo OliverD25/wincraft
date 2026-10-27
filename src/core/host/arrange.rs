@@ -98,6 +98,12 @@ impl Host {
             keeps_order: id != look_plugin,
             anchor: anchor.map(|(_, rect)| rect),
         };
+        if open {
+            self.deck_app = snapshot
+                .groups
+                .get(snapshot.focus)
+                .map(|group| group.key.clone());
+        }
         self.to_ui.send(if open {
             UiCommand::ShowArrange(snapshot)
         } else {
@@ -120,9 +126,7 @@ impl Host {
         let now = self.clock.elapsed().as_millis() as u64;
         // The badges show the buttons read when the wait started, and the
         // digits must count those; a second digit counts the same list.
-        let fresh = self
-            .buttons_at
-            .is_some_and(|at| at.elapsed() < BUTTONS_FRESH);
+        let fresh = self.buttons_cached();
         if !(self.wait_hint.is_some()
             || self.reveal.pending()
             || self.digits.may_follow(now)
@@ -147,6 +151,12 @@ impl Host {
             "digit {digit}: the strip for taskbar button {number} was asked for {} ms after the digit came",
             started.elapsed().as_millis()
         );
+    }
+
+    /// Whether the taskbar's buttons read last still count.
+    pub(super) fn buttons_cached(&self) -> bool {
+        self.buttons_at
+            .is_some_and(|at| at.elapsed() < BUTTONS_FRESH)
     }
 
     pub(super) fn read_buttons(&mut self) {
@@ -315,23 +325,29 @@ impl Host {
     }
 
     /// Win and a digit, kept by WindowDeck's hook: the strip for that
-    /// taskbar button with its window picked, or the next card when the
-    /// same digit comes again while Win stayed down. The caller hands a
-    /// `GiveBack` to Windows.
+    /// taskbar button with its window picked. While WindowDeck is open on
+    /// that button's app, the same digit again picks the next card, whether
+    /// Win stayed down (`again`) or was let go in between; another digit
+    /// moves the open WindowDeck to that app where it is. The caller hands
+    /// a `GiveBack` to Windows.
     pub(super) fn win_digit(&mut self, digit: u8, again: bool) -> WinDigit {
         let coming = self
             .win_digit_opened
             .is_some_and(|at| at.elapsed() < STRIP_COMING);
-        if again && (coming || ui_bridge::arrange_window().is_some()) {
+        // Switching WindowDeck off closes it, however recently it opened.
+        let deck_on = self
+            .plugins
+            .slots
+            .iter()
+            .any(|slot| slot.enabled && slot.plugin.strip_look().is_some());
+        let open = deck_on && (coming || ui_bridge::arrange_window().is_some());
+        if again && open {
             log::info!("Win+{digit} again: the next card");
             self.to_ui.send(UiCommand::ArrangeSelectNext);
             return WinDigit::NextCard;
         }
         open_timing::begin(&format!("Win+{digit}"), true);
-        let fresh = self
-            .buttons_at
-            .is_some_and(|at| at.elapsed() < BUTTONS_FRESH);
-        if !fresh {
+        if !self.buttons_cached() {
             self.read_buttons();
         }
         let number = if digit == 0 { 10 } else { usize::from(digit) };
@@ -341,6 +357,16 @@ impl Host {
             return WinDigit::GiveBack;
         };
         let (app, rect) = (button.app.clone(), button.rect);
+        let same_app = self
+            .deck_app
+            .as_deref()
+            .is_some_and(|shown| taskbar::same_app(&app, shown));
+        if open && same_app {
+            open_timing::cancel();
+            log::info!("Win+{digit} with WindowDeck open on {app}: the next card");
+            self.to_ui.send(UiCommand::ArrangeSelectNext);
+            return WinDigit::NextCard;
+        }
         self.arrange_anchor = Some((app.clone(), rect));
         if !self.send_arrange_for(true, true) {
             self.arrange_anchor = None;
@@ -348,10 +374,31 @@ impl Host {
             log::info!("Win+{digit}: {app} has no windows the strip shows; Windows has it");
             return WinDigit::GiveBack;
         }
-        log::info!("Win+{digit}: the strip for taskbar button {number} ({app}), window {place}");
+        if open {
+            log::info!(
+                "Win+{digit}: the open WindowDeck moves to taskbar button {number} ({app}), window {place}"
+            );
+        } else {
+            log::info!(
+                "Win+{digit}: the strip for taskbar button {number} ({app}), window {place}"
+            );
+        }
         self.to_ui.send(UiCommand::ArrangeSelect(place));
         self.win_digit_opened = Some(std::time::Instant::now());
         WinDigit::Opened
+    }
+
+    /// A Windows key let go, seen by WindowDeck's hook. Pressed and let go
+    /// alone, it closes an open WindowDeck; Windows gets the key as usual,
+    /// so Start opens. Nothing closes while Win is down: Win and a digit
+    /// may follow.
+    pub(super) fn win_released(&mut self, alone: bool) {
+        if !alone || ui_bridge::arrange_window().is_none() {
+            return;
+        }
+        log::info!("Win pressed and let go alone: WindowDeck closes, and Start opens");
+        self.win_digit_opened = None;
+        self.to_ui.send(UiCommand::HideArrange);
     }
 
     /// Asks the first enabled plugin that keeps a layout for its saved

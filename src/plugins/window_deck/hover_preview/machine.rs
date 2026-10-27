@@ -76,6 +76,10 @@ pub struct Look {
     /// The strip's window has the keyboard: the user clicked into it.
     pub strip_focused: bool,
     pub answer: Option<Answer>,
+    /// "Open WindowDeck with Win+1…9" is on and its hook runs.
+    pub win_number: bool,
+    /// Win and a digit were taken during the Windows key's last press.
+    pub win_digit_taken: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -143,6 +147,8 @@ pub struct Machine {
     keys: KeyWatch,
     mouse_was_down: bool,
     escape_was_down: bool,
+    /// A Windows key went down while the strip was open with Win+1…9 on.
+    win_held: bool,
 }
 
 impl Default for Machine {
@@ -154,6 +160,7 @@ impl Default for Machine {
             keys: KeyWatch::default(),
             mouse_was_down: false,
             escape_was_down: false,
+            win_held: false,
         }
     }
 }
@@ -224,6 +231,9 @@ impl Machine {
             return Vec::new();
         }
         let mut out = Vec::new();
+        if !self.is_open() {
+            self.win_held = false;
+        }
         let state = std::mem::replace(&mut self.state, State::Idle);
         self.state = match state {
             State::Idle => Self::rest_or_idle(look),
@@ -350,7 +360,7 @@ impl Machine {
     }
 
     fn open(
-        &self,
+        &mut self,
         look: &Look,
         mut open: OpenState,
         pressed: bool,
@@ -377,7 +387,22 @@ impl Machine {
         // Alt+Tab alone. In a strip the user clicked into, Alt+arrows
         // change a window's number, and Alt+Tab still works: it moves the
         // focus away and the strip closes itself.
-        let keyboard = look.keys.win_down || (look.keys.alt_down && !look.strip_focused);
+        //
+        // A Windows key closes it at once, to leave Win+number to Windows;
+        // with Win+1…9 on nothing closes while Win is down. Once it is let
+        // go, a strip that Win and a digit took over stays (the keyboard
+        // has it now, and it closes the way such a strip does); after Win
+        // alone or Win with another key it closes.
+        let mut win = look.keys.win_down && !look.win_number;
+        if look.win_number && look.keys.win_down {
+            self.win_held = true;
+        } else if std::mem::take(&mut self.win_held) {
+            if look.win_digit_taken {
+                return done;
+            }
+            win = true;
+        }
+        let keyboard = win || (look.keys.alt_down && !look.strip_focused);
         // A middle-click on the strip's own button: Windows opens a new
         // window of the app, and the strip stays to show it arrive.
         let new_window = pressed && look.keys.middle_down && on_button;
@@ -934,6 +959,48 @@ mod tests {
         };
         assert_eq!(machine.step(&win), [Command::Close]);
         assert_eq!(machine.gate(Some(STRIP)), None);
+    }
+
+    #[test]
+    fn with_win_number_on_a_windows_key_closes_nothing_while_down() {
+        let win = KeyState {
+            win_down: true,
+            ..KeyState::default()
+        };
+        let held = |t, taken| Look {
+            keys: win,
+            win_number: true,
+            win_digit_taken: taken,
+            ..with_strip(t, IN_STRIP)
+        };
+        let let_go = |t, taken| Look {
+            win_number: true,
+            win_digit_taken: taken,
+            ..with_strip(t, IN_STRIP)
+        };
+        // Win alone: nothing while it is down, the strip closes once it is
+        // let go (and Start opens).
+        let mut machine = on();
+        let now = open_strip(&mut machine);
+        for t in (now + 16..now + 400).step_by(16) {
+            assert!(machine.step(&held(t, false)).is_empty(), "{t}");
+        }
+        assert!(machine.is_open());
+        assert_eq!(machine.step(&let_go(now + 416, false)), [Command::Close]);
+        assert!(!machine.is_open());
+
+        // Win and a digit: the keyboard took the strip over, so it stays
+        // and the hover lets go of it.
+        let mut machine = on();
+        let now = open_strip(&mut machine);
+        assert!(machine.step(&held(now + 16, false)).is_empty());
+        assert!(machine.step(&held(now + 32, true)).is_empty());
+        assert!(machine.step(&let_go(now + 48, true)).is_empty());
+        assert!(!machine.is_open());
+        assert!(
+            machine.step(&let_go(now + 2000, true)).is_empty(),
+            "nothing later either"
+        );
     }
 
     #[test]

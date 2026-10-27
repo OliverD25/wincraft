@@ -427,6 +427,12 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
             open_taskbar_button(wparam as u8, lparam != 0);
             0
         }
+        WM_APP_WIN_UP => {
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| {
+                host.win_released(wparam != 0)
+            });
+            0
+        }
         WM_APP_WAIT_KEY => {
             if host_is_busy() {
                 deliver_later(hwnd, msg, wparam, lparam);

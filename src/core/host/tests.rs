@@ -1152,6 +1152,7 @@ fn test_host(
         shortcut_keys: Vec::new(),
         chord_wait: None,
         win_digit_opened: None,
+        deck_app: None,
     };
     for index in host.plugins.wanted() {
         host.enable_slot(index);
@@ -1743,6 +1744,20 @@ fn win_number_opens_the_strip_for_its_button_or_gives_the_keys_back() {
     // next card, not a second strip.
     assert_eq!(host.win_digit(2, true), WinDigit::NextCard);
     assert!(opened(&ui).is_empty());
+    // Win let go and Win+2 again while the strip is open on Chrome: the
+    // next card too, not a strip built again.
+    assert_eq!(host.win_digit(2, false), WinDigit::NextCard);
+    assert!(opened(&ui).is_empty());
+    // Open on another app: Win+2 moves the open strip to Chrome.
+    host.deck_app = Some("Microsoft.WindowsTerminal".to_string());
+    assert_eq!(host.win_digit(2, false), WinDigit::Opened);
+    assert_eq!(opened(&ui), [0, 1]);
+    assert_eq!(host.deck_app.as_deref(), Some("Chrome.UserData.Profile3"));
+    // Win let go alone with no strip on screen does nothing.
+    host.win_released(true);
+    assert!(ui
+        .try_iter()
+        .all(|command| !matches!(command, UiCommand::HideArrange)));
     // Win+1: a pinned app that is not running goes back to Windows.
     assert_eq!(host.win_digit(1, false), WinDigit::GiveBack);
     assert!(opened(&ui).is_empty());

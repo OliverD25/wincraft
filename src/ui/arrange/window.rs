@@ -1,3 +1,5 @@
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LWIN, VK_RWIN};
+
 use super::*;
 
 impl Arrange {
@@ -48,6 +50,7 @@ impl Arrange {
                 pointer: pointer::Pointer::default(),
                 close_when_empty: false,
                 rename: None,
+                win_seen: None,
             })),
             palette_hwnd,
         }
@@ -222,6 +225,7 @@ impl Arrange {
             shared.sources.clear();
             shared.hide_peek();
             shared.forced_peek = None;
+            shared.win_seen = None;
         }
     }
 
@@ -361,15 +365,23 @@ impl Arrange {
             if focused == Some(false) && shared.anchor.is_some_and(under_cursor) {
                 shared.focused_once = false;
             }
+            let now = Instant::now();
+            if win_key_down() {
+                shared.win_seen = Some(now);
+            }
             let grace = shared
                 .keep_open_until
-                .and_then(|until| until.checked_duration_since(Instant::now()));
+                .and_then(|until| until.checked_duration_since(now))
+                .or_else(|| win_grace_left(shared.win_seen, now));
             if let Some(left) = grace {
                 ui.ctx().request_repaint_after(left);
             }
             // Esc ends a title edit and nothing more.
             let escape = escape && shared.rename.is_none();
-            if escape || (shared.focused_once && focused == Some(false) && grace.is_none()) {
+            if escape {
+                shared.closed = true;
+            } else if shared.focused_once && focused == Some(false) && grace.is_none() {
+                log::info!("WindowDeck closes: it lost the keyboard to another window");
                 shared.closed = true;
             }
             if ui.ctx().input(|i| i.viewport().close_requested()) {
@@ -429,6 +441,19 @@ pub(super) fn note_line(ctx: &egui::Context, panel: Rect, text: &str) {
         galley,
         tokens.text_primary,
     );
+}
+
+/// Whether a Windows key is down now.
+fn win_key_down() -> bool {
+    let down = |vk: u16| (unsafe { GetAsyncKeyState(i32::from(vk)) } as u16 & 0x8000) != 0;
+    down(VK_LWIN) || down(VK_RWIN)
+}
+
+/// How much longer losing the focus may not close the strip, for a Windows
+/// key last seen down at `win_seen`; `None` once `WIN_GRACE` is over.
+pub(super) fn win_grace_left(win_seen: Option<Instant>, now: Instant) -> Option<Duration> {
+    let left = (win_seen? + WIN_GRACE).checked_duration_since(now)?;
+    (!left.is_zero()).then_some(left)
 }
 
 /// Where the mouse is, in screen pixels.

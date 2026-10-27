@@ -15,6 +15,7 @@
 //! work happens on the host thread when the host's message comes round.
 
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
@@ -41,6 +42,10 @@ pub enum Step {
     /// Kept, with the mask key after it, and WindowDeck asked for button
     /// `digit`. `again` is the same digit once more while Win stayed down.
     Take { digit: u8, again: bool },
+    /// A Windows key let go: Windows gets it as usual (so a Win pressed
+    /// alone still opens Start), and the host hears of it. `alone` is true
+    /// when no other key went down while Win was held.
+    WinUp { alone: bool },
 }
 
 /// What the hook remembers between events.
@@ -50,6 +55,12 @@ pub struct Rule {
     held: Vec<u32>,
     /// The digit taken last while Win has been down.
     last: Option<u8>,
+    /// A Windows key is down.
+    win: bool,
+    /// No other key went down since the Windows key did.
+    alone: bool,
+    /// A digit was taken since the Windows key went down.
+    took: bool,
 }
 
 impl Rule {
@@ -61,10 +72,23 @@ impl Rule {
             return Step::Pass;
         }
         if vk == u32::from(VK_LWIN) || vk == u32::from(VK_RWIN) {
-            if !down {
-                self.last = None;
+            if down {
+                // A held key repeats its down; only the first one counts.
+                if !self.win {
+                    self.win = true;
+                    self.alone = true;
+                    self.took = false;
+                }
+                return Step::Pass;
             }
-            return Step::Pass;
+            self.last = None;
+            let alone = self.win && self.alone;
+            self.win = false;
+            self.alone = false;
+            return Step::WinUp { alone };
+        }
+        if down {
+            self.alone = false;
         }
         if chord::is_modifier(vk) {
             return Step::Pass;
@@ -90,8 +114,23 @@ impl Rule {
         self.held.push(vk);
         let again = self.last == Some(digit);
         self.last = Some(digit);
+        self.took = true;
         Step::Take { digit, again }
     }
+
+    /// Whether a digit was taken since the Windows key last went down.
+    pub fn took(&self) -> bool {
+        self.took
+    }
+}
+
+/// `Rule::took` of the hook's rule, for the hover strip on the host thread.
+static TOOK: AtomicBool = AtomicBool::new(false);
+
+/// Whether Win and a digit opened or moved WindowDeck during the Windows
+/// key's last press (the one held now, or the last one let go).
+pub fn took_digit_this_press() -> bool {
+    TOOK.load(Ordering::Relaxed)
 }
 
 /// The hook's thread, while the hook is in.
@@ -161,7 +200,11 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
     let step = if is_down || is_up {
         let ours = mask_key::is_ours(info.dwExtraInfo);
         RULE.with(|cell| match cell.try_borrow_mut() {
-            Ok(mut rule) => rule.step(info.vkCode, is_down, modifiers_now(), ours),
+            Ok(mut rule) => {
+                let step = rule.step(info.vkCode, is_down, modifiers_now(), ours);
+                TOOK.store(rule.took(), Ordering::Relaxed);
+                step
+            }
             Err(_) => Step::Pass,
         })
     } else {
@@ -176,6 +219,10 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
             mask_key::send("WindowDeck");
             host::post_taskbar_button(digit, again);
             1
+        }
+        Step::WinUp { alone } => {
+            host::post_win_released(alone);
+            unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
         }
     }
 }
@@ -209,7 +256,11 @@ mod tests {
             Step::Hide,
             "its release"
         );
-        assert_eq!(rule.step(WIN, false, 0, false), Step::Pass);
+        assert_eq!(
+            rule.step(WIN, false, 0, false),
+            Step::WinUp { alone: false }
+        );
+        rule.step(WIN, true, MOD_WIN, false);
         let zero = rule.step(0x30, true, MOD_WIN, false);
         assert_eq!(
             zero,
@@ -297,6 +348,50 @@ mod tests {
         assert_eq!(rule.step(ONE, false, MOD_WIN, true), Step::Pass);
         assert_eq!(rule.step(mask_key::VK, true, MOD_WIN, false), Step::Pass);
         assert_eq!(rule.step(mask_key::VK, false, MOD_WIN, false), Step::Pass);
+    }
+
+    #[test]
+    fn win_let_go_alone_is_told_apart_from_win_with_a_key() {
+        let mut rule = Rule::default();
+        // Win alone, with its key repeat: Start is Windows' to open.
+        assert_eq!(rule.step(WIN, true, MOD_WIN, false), Step::Pass);
+        assert_eq!(rule.step(WIN, true, MOD_WIN, false), Step::Pass, "repeat");
+        assert!(!rule.took());
+        assert_eq!(rule.step(WIN, false, 0, false), Step::WinUp { alone: true });
+        // Win and a digit.
+        rule.step(WIN, true, MOD_WIN, false);
+        rule.step(THREE, true, MOD_WIN, false);
+        rule.step(THREE, false, MOD_WIN, false);
+        assert!(rule.took());
+        assert_eq!(
+            rule.step(WIN, false, 0, false),
+            Step::WinUp { alone: false }
+        );
+        assert!(rule.took(), "still known after Win was let go");
+        // Win and a key that is not a digit, or a modifier.
+        for key in [0x45, 0xA0] {
+            rule.step(WIN, true, MOD_WIN, false);
+            assert!(!rule.took(), "a new press starts afresh");
+            rule.step(key, true, MOD_WIN, false);
+            rule.step(key, false, MOD_WIN, false);
+            assert_eq!(
+                rule.step(WIN, false, 0, false),
+                Step::WinUp { alone: false },
+                "{key:#x}"
+            );
+        }
+        // The mask key and keys WinCraft sent itself do not count.
+        rule.step(WIN, true, MOD_WIN, false);
+        rule.step(mask_key::VK, true, MOD_WIN, false);
+        rule.step(mask_key::VK, false, MOD_WIN, false);
+        rule.step(ONE, true, MOD_WIN, true);
+        assert_eq!(rule.step(WIN, false, 0, false), Step::WinUp { alone: true });
+        // A Win up with no Win down seen (the hook went in while it was
+        // held) is not "alone".
+        assert_eq!(
+            rule.step(WIN, false, 0, false),
+            Step::WinUp { alone: false }
+        );
     }
 
     #[test]

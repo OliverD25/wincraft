@@ -129,6 +129,8 @@ const WM_APP_WAIT_KEY: u32 = WM_APP + 24;
 /// Win and a digit from a keyboard hook that runs on a thread of its own;
 /// see `post_taskbar_button`.
 const WM_APP_WIN_DIGIT: u32 = WM_APP + 25;
+/// A Windows key let go, from the same hook; see `post_win_released`.
+const WM_APP_WIN_UP: u32 = WM_APP + 26;
 /// The strip Win and a digit asked for counts as open this long before the
 /// UI thread has its window, so the same digit again picks the next card
 /// instead of opening the strip a second time.
@@ -194,6 +196,9 @@ struct Host {
     chord_wait: Option<FirstPress>,
     /// When Win and a digit last opened the strip; see `STRIP_COMING`.
     win_digit_opened: Option<std::time::Instant>,
+    /// The app of the taskbar button the strip last opened above, so Win
+    /// and that button's digit again pick the next card.
+    deck_app: Option<String>,
 }
 
 /// What became of a Win+number that WindowDeck's hook kept.
@@ -402,6 +407,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         shortcut_keys: Vec::new(),
         chord_wait: None,
         win_digit_opened: None,
+        deck_app: None,
     };
     HOST_WINDOW.with(|cell| cell.set(hwnd));
     HOST_HWND.store(hwnd as isize, Ordering::Relaxed);

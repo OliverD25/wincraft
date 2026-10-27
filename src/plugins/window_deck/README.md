@@ -27,8 +27,15 @@ Settings → Plugins → WindowDeck. With it on, Win and a number (1 to 9, and
 0 for button 10) open WindowDeck above that taskbar button with its window
 picked, even for an app with only one window, instead of Windows' own
 switch. Nothing is switched to until you press Enter, click a card or type
-a card's number, and WindowDeck stays open after you let go of Win. Press
-the same number again while you still hold Win to pick the next card.
+a card's number, and WindowDeck stays open after you let go of Win.
+
+While WindowDeck is open:
+
+- The same number again picks the next card, whether you still hold Win
+  or let go of it in between.
+- Win and another number move the open WindowDeck to that app.
+- Win pressed and let go alone closes WindowDeck, and Start opens as usual.
+  Nothing closes while you only hold Win down.
 
 - A pinned app that is not running has no window to show, so Win and its
   number go to Windows, which starts the app as always.
@@ -343,8 +350,9 @@ With it on:
   never hidden while a Windows key or Alt is down, within 1.5 s of
   Win+number, within half a second of letting go of a Windows key or of
   pressing an arrow key, Tab, Enter, Space or Esc, or while a mouse button is
-  down. Pressing a Windows key or Alt also closes the strip, with one
-  exception: after you click inside the strip it has the keyboard, and Alt
+  down. Pressing a Windows key or Alt also closes the strip (with
+  **Open WindowDeck with Win+1…9** on, a Windows key closes it only when
+  you let go of it without a number), with one exception: after you click inside the strip it has the keyboard, and Alt
   no longer closes it, so Alt+← and Alt+→ can change a window's number.
   Windows' own preview is still left alone while Alt is down.
 

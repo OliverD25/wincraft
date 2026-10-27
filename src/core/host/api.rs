@@ -78,6 +78,16 @@ pub fn post_taskbar_button(digit: u8, again: bool) {
     }
 }
 
+/// A Windows key let go, from a keyboard hook on a thread of its own:
+/// `alone` when no other key went down while it was held. Win pressed and
+/// let go alone closes an open WindowDeck, and Start opens as usual.
+pub fn post_win_released(alone: bool) {
+    let hwnd = HOST_HWND.load(Ordering::Relaxed);
+    if hwnd != 0 {
+        unsafe { PostMessageW(hwnd as HWND, WM_APP_WIN_UP, usize::from(alone), 0) };
+    }
+}
+
 /// Closes the Arrange strip if it is open. Safe to call from any callback.
 pub fn close_arrange() {
     ARRANGE_CLOSE.with(|cell| cell.set(true));

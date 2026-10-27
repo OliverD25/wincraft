@@ -1476,3 +1476,21 @@ fn a_window_can_be_found_by_its_handle_after_the_changes() {
         ]
     );
 }
+
+#[test]
+fn losing_the_focus_closes_nothing_while_win_is_down_or_just_let_go() {
+    let now = Instant::now();
+    assert_eq!(window::win_grace_left(None, now), None, "no Win seen");
+    assert_eq!(
+        window::win_grace_left(Some(now), now),
+        Some(WIN_GRACE),
+        "Win down now"
+    );
+    let earlier = now - Duration::from_millis(100);
+    assert_eq!(
+        window::win_grace_left(Some(earlier), now),
+        Some(WIN_GRACE - Duration::from_millis(100))
+    );
+    let long_ago = now - WIN_GRACE - Duration::from_millis(1);
+    assert_eq!(window::win_grace_left(Some(long_ago), now), None);
+}
