@@ -83,6 +83,7 @@ fn run(
             theme::install_fonts(&cc.egui_ctx);
             theme::apply(&cc.egui_ctx, snapshot.theme, snapshot.mode);
             let palette_hwnd = report_palette_window(cc, &to_host);
+            to_ui.attach_window(palette_hwnd);
             Ok(Box::new(App::new(
                 rx,
                 to_host,

@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 use windows_sys::Win32::Foundation::HWND;
-use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APP};
+use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APP, WM_PAINT};
 
 use crate::core::config::{SearchConfig, ThemeChoice, ThemeName};
 use crate::core::tips::TipsConfig;
@@ -704,6 +704,8 @@ pub enum UpdateStatus {
 pub struct UiChannel {
     tx: Sender<UiCommand>,
     ctx: Mutex<Option<egui::Context>>,
+    /// The palette's window: the UI thread's root window.
+    window: AtomicIsize,
 }
 
 impl UiChannel {
@@ -711,12 +713,18 @@ impl UiChannel {
         if self.tx.send(command).is_err() {
             return;
         }
-        // A hidden eframe window only wakes every 100 ms, so without this the
-        // palette would appear a tenth of a second after the hotkey.
         if let Ok(guard) = self.ctx.lock() {
             if let Some(ctx) = guard.as_ref() {
                 ctx.request_repaint();
             }
+        }
+        // eframe paints a hidden window at most every 100 ms however soon
+        // it is asked to, and the palette's window, which reads these
+        // commands, is hidden nearly all the time. A paint message posted
+        // to it reaches eframe as a redraw event, which it paints at once.
+        let window = self.window.load(Ordering::Relaxed);
+        if window != 0 {
+            unsafe { PostMessageW(window as HWND, WM_PAINT, 0, 0) };
         }
     }
 
@@ -724,6 +732,11 @@ impl UiChannel {
         if let Ok(mut guard) = self.ctx.lock() {
             *guard = Some(ctx);
         }
+    }
+
+    /// The palette's window, once the UI thread has it.
+    pub fn attach_window(&self, window: isize) {
+        self.window.store(window, Ordering::Relaxed);
     }
 }
 
@@ -763,6 +776,7 @@ pub fn create() -> Bridge {
         to_ui: Arc::new(UiChannel {
             tx: ui_tx,
             ctx: Mutex::new(None),
+            window: AtomicIsize::new(0),
         }),
         to_host: Arc::new(HostChannel {
             tx: host_tx,
