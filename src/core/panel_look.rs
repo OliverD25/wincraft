@@ -1,4 +1,5 @@
-//! What the strip and the notice share: their panel and the keycap.
+//! What QuickJump's strip and the shared notice (`core::notice`) share:
+//! their panel and the keycap.
 
 use egui::Color32;
 

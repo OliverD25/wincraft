@@ -928,6 +928,7 @@ impl WinCraftPlugin for WindowNamer {
             id: COMMAND_CLEAR_ALL,
             label: "Clear all names",
             hint: "",
+            words: "",
         }]
     }
 

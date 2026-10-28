@@ -542,6 +542,7 @@ impl WinCraftPlugin for LayoutKeeper {
             id: COMMAND_OPEN_STATE,
             label: "Open state file",
             hint: "",
+            words: "",
         }]
     }
 

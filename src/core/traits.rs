@@ -121,6 +121,9 @@ pub struct PaletteCommand {
     pub id: u32,
     pub label: &'static str,
     pub hint: &'static str,
+    /// More words the palette finds the command by, split by spaces, such
+    /// as "night light" for a dark-mode switch. Empty for none.
+    pub words: &'static str,
 }
 
 /// What a plugin that keeps a window order shows in the Arrange strip.

@@ -13,8 +13,8 @@ use crate::search::icons::Pixels;
 use crate::ui::taskbar_badges;
 use crate::ui::widgets::icons::Icon;
 
-use super::look::{self, Cap};
 use super::matching::{SlotView, State};
+use crate::core::panel_look::{self as look, Cap};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {

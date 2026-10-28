@@ -40,7 +40,9 @@ impl SearchProvider for Commands {
                 let score = if query.text.is_empty() {
                     0
                 } else {
-                    fuzzy::score_command(&query.text, &entry.group, &entry.label)?
+                    let label = fuzzy::score_command(&query.text, &entry.group, &entry.label);
+                    let words = fuzzy::score_words(&query.text, &entry.words);
+                    label.max(words)?
                 };
                 let action = match (&entry.plugin, entry.disabled) {
                     (Some(plugin), true) => Action::OpenPlugin(plugin.clone()),
@@ -149,6 +151,7 @@ mod tests {
             group: group.to_string(),
             label: label.to_string(),
             hint: String::new(),
+            words: String::new(),
             disabled,
             plugin: Some("screen_dimmer".to_string()),
             subtitle: None,
@@ -157,6 +160,25 @@ mod tests {
             quiet: false,
             badge: None,
         }
+    }
+
+    #[test]
+    fn a_command_is_found_by_its_extra_words() {
+        let mut dark = entry("QuickActions", "Theme: Toggle Dark Mode", false);
+        dark.words = "night light".to_string();
+        let commands = [dark, entry("ScreenDimmer", "Wake all monitors", false)];
+        let context = Context {
+            commands: &commands,
+            ..crate::search::test_context()
+        };
+        let query = Query {
+            text: "night".to_string(),
+            prefix: None,
+            limit: 8,
+        };
+        let found = Commands.query(&query, &context);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].title, "Theme: Toggle Dark Mode");
     }
 
     #[test]

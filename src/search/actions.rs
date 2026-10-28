@@ -24,6 +24,12 @@ pub fn remember_front() {
     BEFORE_PALETTE.store(unsafe { GetForegroundWindow() } as isize, Ordering::Relaxed);
 }
 
+/// The window that was in front when the palette last opened, for a
+/// command that acts on "the window you were in".
+pub fn front_before_palette() -> HWND {
+    BEFORE_PALETTE.load(Ordering::Relaxed) as HWND
+}
+
 /// Runs a row's action on the host thread. It is the thread the palette's
 /// hotkey was delivered to, which is what lets it launch a program into the
 /// foreground and bring another window forward; COM is also set up there,

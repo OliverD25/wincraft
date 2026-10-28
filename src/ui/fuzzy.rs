@@ -67,6 +67,26 @@ pub fn score_command(query: &str, group: &str, label: &str) -> Option<i32> {
     }
 }
 
+/// Scores the query against a command's extra search words: every word of
+/// the query must start one of them, so "caff" finds "caffeine" but a few
+/// scattered letters find nothing. Ranks a little below a match on the
+/// label of the same length.
+pub fn score_words(query: &str, words: &str) -> Option<i32> {
+    let words: Vec<String> = words.split_whitespace().map(str::to_lowercase).collect();
+    let wanted: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    if wanted.is_empty() || words.is_empty() {
+        return None;
+    }
+    let mut total = 0;
+    for part in &wanted {
+        if !words.iter().any(|word| word.starts_with(part.as_str())) {
+            return None;
+        }
+        total += 10 * part.chars().count() as i32;
+    }
+    Some(total)
+}
+
 /// The character positions in `text` that the query matched, found the same
 /// way `score` finds them, so the palette can underline exactly those.
 pub fn positions(query: &str, text: &str) -> Option<Vec<usize>> {
@@ -130,6 +150,19 @@ fn is_boundary(c: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extra_words_match_by_their_start_only() {
+        let words = "night light theme";
+        assert!(score_words("night", words).is_some());
+        assert!(score_words("NIG", words).is_some());
+        assert!(score_words("the li", words).is_some());
+        assert!(score_words("ight", words).is_none(), "not inside a word");
+        assert!(score_words("nlt", words).is_none(), "not scattered");
+        assert!(score_words("", words).is_none());
+        assert!(score_words("night", "").is_none());
+        assert!(score_words("night", words) > score_words("ni", words));
+    }
 
     #[test]
     fn an_empty_query_matches_everything() {

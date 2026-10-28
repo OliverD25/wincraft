@@ -648,6 +648,8 @@ pub struct PaletteEntry {
     pub group: String,
     pub label: String,
     pub hint: String,
+    /// More words the palette finds it by, split by spaces.
+    pub words: String,
     /// The plugin is off: the entry is shown dimmed and opens the plugin's page.
     pub disabled: bool,
     pub plugin: Option<String>,

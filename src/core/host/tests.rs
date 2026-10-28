@@ -174,6 +174,7 @@ impl WinCraftPlugin for FakePlugin {
             id: 7,
             label: "Tidy up",
             hint: "tidy",
+            words: "",
         }]
     }
 

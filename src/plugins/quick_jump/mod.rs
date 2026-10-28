@@ -11,7 +11,6 @@
 mod keys;
 mod list;
 mod live;
-mod look;
 mod matching;
 mod notice;
 mod picker;
@@ -565,7 +564,7 @@ impl Engine {
 
     fn notify(&mut self, message: Message, undo: Option<(Undo, String)>) {
         self.close_notice();
-        let notice = Notice::show(&message, self.hwnd);
+        let notice = Notice::show(&message, &instance::name(notice::CLASS_NAME), self.hwnd);
         let has_undo = message.undo && undo.is_some();
         self.shown = Some(Shown {
             notice,

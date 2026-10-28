@@ -42,7 +42,7 @@ pub enum Icon {
 
 impl Icon {
     /// The icons a plugin can name for its tile, by their lucide names.
-    pub const NAMED: [(&'static str, Icon); 12] = [
+    pub const NAMED: [(&'static str, Icon); 13] = [
         ("layout-grid", Icon::LayoutGrid),
         ("copy", Icon::Copy),
         ("pin", Icon::Pin),
@@ -55,6 +55,7 @@ impl Icon {
         ("sparkles", Icon::Sparkles),
         ("lightbulb", Icon::Lightbulb),
         ("calculator", Icon::Calculator),
+        ("settings", Icon::Settings),
     ];
 
     /// The icon with this lucide name, in any case; None for a name WinCraft

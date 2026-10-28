@@ -571,6 +571,7 @@ impl PluginSet {
                 group: host_group.clone(),
                 label: label.to_string(),
                 hint: String::new(),
+                words: String::new(),
                 disabled: false,
                 plugin: None,
                 subtitle: (command == HostCommand::UpdateWinCraft)
@@ -598,6 +599,7 @@ impl PluginSet {
                     format!("Turn {} on", meta.name)
                 },
                 hint: String::new(),
+                words: String::new(),
                 disabled: false,
                 plugin: Some(meta.id.to_string()),
                 subtitle: None,
@@ -625,6 +627,7 @@ impl PluginSet {
                     group: group.clone(),
                     label: action.label.to_string(),
                     hint,
+                    words: String::new(),
                     disabled,
                     plugin: plugin.clone(),
                     subtitle: slot.plugin.palette_subtitle(ActionKind::Hotkey, action.id),
@@ -650,6 +653,7 @@ impl PluginSet {
                     group: group.clone(),
                     label: action.label.to_string(),
                     hint: String::new(),
+                    words: String::new(),
                     disabled,
                     plugin: plugin.clone(),
                     subtitle: slot.plugin.palette_subtitle(ActionKind::Tray, action.id),
@@ -669,6 +673,7 @@ impl PluginSet {
                     group: group.clone(),
                     label: command.label.to_string(),
                     hint: command.hint.to_string(),
+                    words: command.words.to_string(),
                     disabled,
                     plugin: plugin.clone(),
                     subtitle: slot

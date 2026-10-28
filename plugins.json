@@ -67,6 +67,16 @@
       "readme": "src/plugins/quick_jump/README.md",
       "category": "Windows",
       "icon": "pin"
+    },
+    {
+      "id": "quick_actions",
+      "name": "QuickActions",
+      "version": "1.0.0",
+      "author": "community",
+      "description": "Windows tools in the palette: window size, dark mode, keep awake and more.",
+      "readme": "src/plugins/quick_actions/README.md",
+      "category": "System",
+      "icon": "settings"
     }
   ]
 }

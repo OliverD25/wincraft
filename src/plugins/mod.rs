@@ -1,5 +1,6 @@
 pub mod language_indicator;
 pub mod layout_keeper;
+pub mod quick_actions;
 pub mod quick_jump;
 pub mod screen_dimmer;
 pub mod shortcut_detector;
@@ -18,6 +19,7 @@ pub fn load_active_plugins() -> Vec<Box<dyn WinCraftPlugin>> {
         Box::new(language_indicator::LanguageIndicator::new()),
         Box::new(window_namer::WindowNamer::new()),
         Box::new(quick_jump::QuickJump::new()),
+        Box::new(quick_actions::QuickActions::new()),
     ]
 }
 

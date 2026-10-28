@@ -148,6 +148,11 @@ impl Layered {
         ok
     }
 
+    /// The window, for a plugin that keeps a value in it.
+    pub fn hwnd(&self) -> HWND {
+        self.hwnd
+    }
+
     /// Shows the window on top of the others without taking the focus.
     pub fn show(&self) {
         unsafe {

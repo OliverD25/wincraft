@@ -274,6 +274,7 @@ impl WinCraftPlugin for LanguageIndicator {
             id: COMMAND_SHOW_CURRENT,
             label: "Show current input language",
             hint: "",
+            words: "",
         }]
     }
 
