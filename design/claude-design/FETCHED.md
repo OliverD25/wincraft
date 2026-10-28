@@ -96,3 +96,8 @@ Read: `design_handoff_arrange_strip/README.md` — Badge layout (chips on the th
 
 ## 2026-10-27 (3)
 - `Shortcut Detector.dc.html` (~11 KB): new page, first fetch. A redesign of the ShortcutDetector window in the WinCraft look (today it is plain Win32 controls). Copied to design/claude-design/ (first pull with copies in git); build plan `wincraft-shortcut-detector.md`. The copies moved here from the git-ignored _dev_docs/claude-design/ the same day; design_handoff_arrange_strip/ is the 2026-10-26 copy and is refreshed at its next pull.
+
+## 2026-10-28
+- `design_handoff_quickactions_toggles/README.md` (2490 bytes): new. Toggle rows in the palette: state tile + title + state line + switch ("Chosen", b + a), the eight toggle commands with icons, tile colours and state wording, the "Show Desktop Icons" rename, and three rules (real state read on each palette open; Always on Top with no window says "No window selected"; unreadable state says "State unknown", no switch).
+- `design_handoff_quickactions_toggles/Toggle States Options.dc.html` (14720 bytes): new, the options page (a, b, c per toggle plus the Chosen block).
+- Left out: `support.js` (renderer), `_ds/` bundles, `uploads/`. Other pages unchanged since their last pull were not fetched (this pull is narrowed to the new handoff).

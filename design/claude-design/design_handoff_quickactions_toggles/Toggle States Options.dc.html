@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="stylesheet" href="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/styles.css">
+  <script src="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/_ds_bundle.js"></script>
+  <style>
+    body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:'Segoe UI Variable Text','Segoe UI',Selawik,'Noto Sans',sans-serif}
+    a{color:var(--color-accent)} a:hover{color:var(--color-accent-700)}
+  </style>
+</helmet>
+
+<section style="padding:48px;display:flex;flex-direction:column;gap:32px">
+  <header style="display:flex;flex-direction:column;gap:6px;max-width:900px">
+    <div style="font-size:12px;font-weight:600;color:var(--color-accent)">Turn 1 · QuickActions toggles in the palette</div>
+    <h1 style="margin:0;font-family:inherit;font-size:28px;font-weight:600;line-height:1.15">Rows that show the toggle's current state</h1>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">Each toggle is shown three ways, using the states read from your PC. The left column is the row as it looks now; the right column is the same row after Enter. You can pick a different option per toggle, for example 6c and 1b.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:8px 28px;margin-top:8px;font-size:13px;color:var(--color-neutral-700)">
+      <span><b style="font-weight:600;color:var(--color-text)">a · Switch.</b> A switch at the right of the row.</span>
+      <span><b style="font-weight:600;color:var(--color-text)">b · State icon.</b> The icon tile changes shape and colour.</span>
+      <span><b style="font-weight:600;color:var(--color-text)">c · Next action.</b> The title says what Enter will do; a pill says the state now.</span>
+    </div>
+  </header>
+
+  <div id="rec" style="width:1080px;display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;align-items:center;gap:12px">
+      <span style="height:24px;padding:0 8px;display:inline-flex;align-items:center;border:1px solid var(--color-accent);border-radius:4px;color:var(--color-accent-700);font-size:12px;font-weight:600">Chosen</span>
+      <span style="font-size:16px;font-weight:600">b + a for every toggle, as on your PC now</span>
+    </div>
+    <p style="margin:0;max-width:900px;font-size:13px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">The icon from b shows the state at a glance; the switch from a confirms it at the edge, where every toggle lines up. The title never changes, so typing "mic" or "dark" always finds the same row. The line under it says the state in words, which covers what c was doing. Desktop icons is renamed to "Show Desktop Icons" so that on means visible, like the others.</p>
+    <div style="background:#262322;border:1px solid #444141;border-radius:12px;padding:8px;display:flex;flex-direction:column;gap:2px;color:#f3f2f2;font-size:14px">
+      <sc-for list="{{ rec }}" as="r" hint-placeholder-count="8">
+        <div style="min-height:48px;display:flex;align-items:center;gap:12px;padding:0 12px;border-radius:6px;min-width:0">
+          <span style="width:28px;height:28px;flex:none;box-sizing:border-box;border-radius:7px;background:{{ r.tileBg }};border:1px solid {{ r.tileBorder }};display:flex;align-items:center;justify-content:center">{{ r.icon }}</span>
+          <div style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1">
+            <span style="font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.title }}</span>
+            <span style="font-size:12px;color:#bab6b6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.sub }}</span>
+          </div>
+          <span style="width:40px;height:20px;flex:none;box-sizing:border-box;border-radius:10px;border:1px solid {{ r.swBorder }};background:{{ r.swBg }};display:flex;align-items:center;justify-content:{{ r.swJustify }};padding:0 3px"><span style="width:12px;height:12px;border-radius:6px;background:{{ r.knob }}"></span></span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:28px">
+    <sc-for list="{{ toggles }}" as="t" hint-placeholder-count="8">
+      <div style="width:1080px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:baseline;gap:12px">
+          <span style="font-size:16px;font-weight:600">{{ t.n }} · {{ t.full }}</span>
+          <span style="font-size:13px;color:var(--color-neutral-600)">{{ t.nowNote }}</span>
+        </div>
+        <div style="background:#262322;border:1px solid #444141;border-radius:12px;padding:12px 16px;display:grid;grid-template-columns:44px minmax(0,1fr) minmax(0,1fr);gap:6px 16px;align-items:center;color:#f3f2f2;font-size:14px">
+          <span></span><span style="font-size:12px;color:#7d7979;padding:0 12px">Now</span><span style="font-size:12px;color:#7d7979;padding:0 12px">After Enter</span>
+          <sc-for list="{{ t.opts }}" as="o" hint-placeholder-count="3">
+            <span id="{{ o.id }}" style="height:24px;min-width:32px;padding:0 6px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid #e1ad66;border-radius:4px;color:#e1ad66;font-size:12px;font-weight:600">{{ o.id }}</span>
+            <sc-for list="{{ o.rows }}" as="r" hint-placeholder-count="2">
+              <div style="min-height:48px;display:flex;align-items:center;gap:12px;padding:0 12px;border-radius:6px;background:rgba(255,255,255,0.04);min-width:0">
+                <span style="width:28px;height:28px;flex:none;box-sizing:border-box;border-radius:7px;background:{{ r.tileBg }};border:1px solid {{ r.tileBorder }};display:flex;align-items:center;justify-content:center">{{ r.icon }}</span>
+                <div style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1">
+                  <span style="font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.title }}</span>
+                  <span style="font-size:12px;color:#bab6b6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.sub }}</span>
+                </div>
+                <sc-if value="{{ r.pill }}" hint-placeholder-val="{{ false }}">
+                  <span style="height:20px;padding:0 8px;flex:none;white-space:nowrap;display:inline-flex;align-items:center;gap:5px;border:1px solid {{ r.pillBorder }};border-radius:10px;font-size:11px;color:{{ r.pillColor }}"><span style="width:6px;height:6px;border-radius:3px;background:{{ r.pillColor }}"></span>{{ r.pill }}</span>
+                </sc-if>
+                <sc-if value="{{ r.sw }}" hint-placeholder-val="{{ false }}">
+                  <span style="width:40px;height:20px;flex:none;box-sizing:border-box;border-radius:10px;border:1px solid {{ r.swBorder }};background:{{ r.swBg }};display:flex;align-items:center;justify-content:{{ r.swJustify }};padding:0 3px"><span style="width:12px;height:12px;border-radius:6px;background:{{ r.knob }}"></span></span>
+                </sc-if>
+              </div>
+            </sc-for>
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const P = {
+      moon: [['path', { d: 'M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z' }]],
+      sun: [['circle', { cx: 12, cy: 12, r: 4 }], ...['M12 2v2', 'M12 20v2', 'm4.93 4.93 1.41 1.41', 'm17.66 17.66 1.41 1.41', 'M2 12h2', 'M20 12h2', 'm6.34 17.66-1.41 1.41', 'm19.07 4.93-1.41 1.41'].map(d => ['path', { d }])],
+      file: [['path', { d: 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z' }], ['path', { d: 'M14 2v4a2 2 0 0 0 2 2h4' }], ['path', { d: 'M8 15h8' }]],
+      fileOff: [['path', { d: 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z' }], ['path', { d: 'M14 2v4a2 2 0 0 0 2 2h4' }]],
+      eye: [['path', { d: 'M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0' }], ['circle', { cx: 12, cy: 12, r: 3 }]],
+      eyeOff: [['path', { d: 'M10.73 5.08a10.74 10.74 0 0 1 11.2 6.57 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-1.44 2.49' }], ['path', { d: 'M14.08 14.16a3 3 0 0 1-4.24-4.24' }], ['path', { d: 'M17.48 17.5a10.75 10.75 0 0 1-15.42-5.15 1 1 0 0 1 0-.7 10.75 10.75 0 0 1 4.45-5.14' }], ['path', { d: 'm2 2 20 20' }]],
+      grid: [['rect', { x: 3, y: 3, width: 7, height: 7, rx: 1 }], ['rect', { x: 14, y: 3, width: 7, height: 7, rx: 1 }], ['rect', { x: 3, y: 14, width: 7, height: 7, rx: 1 }], ['rect', { x: 14, y: 14, width: 7, height: 7, rx: 1 }]],
+      gridOff: [['rect', { x: 3, y: 3, width: 18, height: 18, rx: 2 }], ['path', { d: 'm2 2 20 20' }]],
+      bar: [['rect', { x: 3, y: 3, width: 18, height: 18, rx: 2 }], ['path', { d: 'M3 15h18' }]],
+      barAuto: [['rect', { x: 3, y: 3, width: 18, height: 18, rx: 2 }], ['path', { d: 'M3 15h18', strokeDasharray: '2 3' }], ['path', { d: 'm9 19 3-2 3 2' }]],
+      mic: [['rect', { x: 9, y: 2, width: 6, height: 13, rx: 3 }], ['path', { d: 'M19 10v2a7 7 0 0 1-14 0v-2' }], ['path', { d: 'M12 19v3' }]],
+      micOff: [['path', { d: 'M12 19v3' }], ['path', { d: 'M15 9.34V5a3 3 0 0 0-5.68-1.33' }], ['path', { d: 'M16.95 16.95A7 7 0 0 1 5 12v-2' }], ['path', { d: 'M18.89 13.23A7.12 7.12 0 0 0 19 12v-2' }], ['path', { d: 'm2 2 20 20' }], ['path', { d: 'M9 9v3a3 3 0 0 0 5.12 2.12' }]],
+      coffee: [['path', { d: 'M10 2v2' }], ['path', { d: 'M14 2v2' }], ['path', { d: 'M6 2v2' }], ['path', { d: 'M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1' }]],
+      sleep: [['path', { d: 'M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1' }]],
+      pin: [['path', { d: 'M12 17v5' }], ['path', { d: 'M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z' }]],
+      pinOff: [['path', { d: 'M12 17v5' }], ['path', { d: 'M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89' }], ['path', { d: 'M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11' }], ['path', { d: 'm2 2 20 20' }]],
+    };
+    const ic = (name, color) => React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: color, strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' },
+      ...P[name].map(([tag, a], i) => React.createElement(tag, { key: i, ...a })));
+
+    const T = [
+      { cat: 'Theme', name: 'Toggle Dark Mode', on: true, tile: '#6b55b8', i: ['moon', 'sun'], w: ['Dark', 'Light'], s: ['Dark for apps and Windows', 'Light for apps and Windows'], v: ['Switch to light mode', 'Switch to dark mode'], note: 'On your PC now: dark' },
+      { cat: 'File Explorer', name: 'Toggle File Extensions', on: true, tile: '#b8862e', i: ['file', 'fileOff'], w: ['Shown', 'Hidden'], s: ['Endings like .txt are shown', 'Endings like .txt are hidden'], v: ['Hide file extensions', 'Show file extensions'], note: 'On your PC now: shown' },
+      { cat: 'File Explorer', name: 'Toggle Hidden Files', on: false, tile: '#b8862e', i: ['eye', 'eyeOff'], w: ['Shown', 'Not shown'], s: ['Hidden files are shown', 'Hidden files are not shown'], v: ['Stop showing hidden files', 'Show hidden files'], note: 'On your PC now: not shown' },
+      { cat: 'Desktop', name: 'Toggle Desktop Icons', on: false, tile: '#2f7f8f', i: ['gridOff', 'grid'], w: ['Hidden', 'Shown'], s: ['Desktop icons are hidden', 'Desktop icons are shown'], v: ['Show desktop icons', 'Hide desktop icons'], note: 'On your PC now: icons shown (toggle off)' },
+      { cat: 'Taskbar', name: 'Toggle Auto-Hide', on: false, tile: '#3f6fb8', i: ['barAuto', 'bar'], w: ['Auto-hide', 'Always visible'], s: ['Hides until you point at it', 'Taskbar always stays visible'], v: ['Keep the taskbar visible', 'Auto-hide the taskbar'], note: 'On your PC now: always visible' },
+      { cat: 'Audio', name: 'Toggle Microphone Mute', on: false, tile: '#3f8f5a', onTile: '#b8483a', i: ['micOff', 'mic'], w: ['Muted', 'Live'], s: ['Microphone is muted', 'Microphone is on'], v: ['Unmute microphone', 'Mute microphone'], note: 'On your PC now: microphone on' },
+      { cat: 'Display', name: 'Toggle Keep Awake', on: false, tile: '#a8673a', i: ['coffee', 'sleep'], w: ['Awake', 'Off'], s: ['PC stays awake', 'PC sleeps as usual'], v: ['Let the PC sleep', 'Keep the PC awake'], note: 'On your PC now: off' },
+      { cat: 'Window', name: 'Toggle Always on Top', on: false, tile: '#5a6578', i: ['pin', 'pinOff'], w: ['On top', 'Not on top'], s: ['Claude stays on top', 'Claude is not on top'], v: ['Stop keeping Claude on top', 'Keep Claude on top'], note: 'Per window: shown for Claude, the window you were in' },
+    ];
+    const ACC = '#e1ad66';
+    const toggles = T.map((t, n) => {
+      const full = `${t.cat}: ${t.name}`;
+      const k = on => (on ? 0 : 1);
+      const live = on => (on && t.onTile) ? t.onTile : t.tile;
+      const A = on => ({ tileBg: t.tile, tileBorder: 'transparent', icon: ic(t.i[0], '#fff'), title: full, sub: t.s[k(on)], sw: true,
+        swBorder: on ? ACC : '#bab6b6', swBg: on ? ACC : 'transparent', swJustify: on ? 'flex-end' : 'flex-start', knob: on ? '#1c1a19' : '#bab6b6' });
+      const B = on => ({ tileBg: on ? live(on) : 'rgba(255,255,255,0.06)', tileBorder: on ? 'transparent' : '#5c5858', icon: ic(t.i[k(on)], on ? '#fff' : '#bab6b6'), title: full, sub: t.s[k(on)] });
+      const C = on => ({ tileBg: t.tile, tileBorder: 'transparent', icon: ic(t.i[0], '#fff'), title: t.v[k(on)], sub: full, pill: t.w[k(on)],
+        pillBorder: on ? ACC : '#5c5858', pillColor: on ? ACC : '#bab6b6' });
+      return { n: n + 1, full, nowNote: t.note, opts: [['a', A], ['b', B], ['c', C]].map(([l, f]) => ({ id: `${n + 1}${l}`, rows: [f(t.on), f(!t.on)] })) };
+    });
+    const rec = T.map(t0 => {
+      const t = t0.cat === 'Desktop' ? { ...t0, name: 'Show Desktop Icons', on: true, i: ['grid', 'gridOff'], s: ['Desktop icons are shown', 'Desktop icons are hidden'] } : t0;
+      const on = t.on, k = on ? 0 : 1;
+      return { tileBg: on ? ((t.onTile) || t.tile) : 'rgba(255,255,255,0.06)', tileBorder: on ? 'transparent' : '#5c5858', icon: ic(t.i[k], on ? '#fff' : '#bab6b6'),
+        title: `${t.cat}: ${t.name}`, sub: t.s[k], swBorder: on ? ACC : '#bab6b6', swBg: on ? ACC : 'transparent', swJustify: on ? 'flex-end' : 'flex-start', knob: on ? '#1c1a19' : '#bab6b6' };
+    });
+    return { toggles, rec };
+  }
+}
+</script>
+</body>
+</html>
