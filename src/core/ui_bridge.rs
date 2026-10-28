@@ -53,6 +53,8 @@ pub enum HostCommand {
     DetailedLog,
     /// Asks for a few words and writes them into the detailed log.
     DetailedLogMark,
+    /// Copies the logs and the settings into one folder and opens it.
+    DetailedLogReport,
     /// Deletes the detailed log's files.
     DetailedLogDelete,
     TogglePlugin(usize),

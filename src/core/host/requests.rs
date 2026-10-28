@@ -24,6 +24,7 @@ impl Host {
                 self.publish();
             }
             CommandId::Host(HostCommand::DetailedLogMark) => self.ask_mark(),
+            CommandId::Host(HostCommand::DetailedLogReport) => self.save_detailed_report(),
             CommandId::Host(HostCommand::DetailedLogDelete) => self.delete_detailed_log(),
             CommandId::Host(HostCommand::Exit) => self.shutdown(),
             CommandId::Host(HostCommand::TogglePlugin(index)) => {

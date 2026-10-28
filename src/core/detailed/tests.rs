@@ -255,3 +255,117 @@ fn a_call_line_names_the_call_its_window_and_a_failure() {
         "call: SendInput (mask key) -> 0 FAILED (error 5)"
     );
 }
+
+#[test]
+fn the_summary_script_reads_the_sample_log() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(root.join("tools").join("detailed-log.ps1"))
+        .arg(
+            root.join("tools")
+                .join("samples")
+                .join("detailed-sample.log"),
+        )
+        .output()
+        .expect("powershell runs");
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{text}");
+    for wanted in [
+        "== Session",
+        "header: Windows build 26200",
+        "=== MARK 14:00:10 Win+2 opened Chrome instead of the strip",
+        "Press 1 at 14:00:05.000",
+        "Press 2 at 14:00:08.000",
+        "!! NO HOOK: Windows saw digit 2 down",
+        "1 digit press(es) reached Windows without a WinCraft hook line.",
+        "14:00:08.100  host busy 920 ms in WM_APP_BUTTONS",
+        "14:00:09.100  plugin window_deck: WM_TIMER 31.00 ms SLOW",
+        "not asked by WinCraft",
+        "-- gap 190 ms --",
+    ] {
+        assert!(text.contains(wanted), "{wanted:?} missing from:\n{text}");
+    }
+    assert_eq!(
+        text.matches("!! NO HOOK").count(),
+        1,
+        "digit 3 was taken by the hook, so only digit 2 is flagged"
+    );
+}
+
+#[test]
+fn the_sample_log_has_the_format_the_writer_writes() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let sample = fs::read_to_string(
+        root.join("tools")
+            .join("samples")
+            .join("detailed-sample.log"),
+    )
+    .unwrap();
+    let mut st: SYSTEMTIME = unsafe { std::mem::zeroed() };
+    st.wYear = 2026;
+    st.wMonth = 10;
+    st.wDay = 28;
+    st.wHour = 14;
+    st.wMinute = 0;
+    st.wSecond = 12;
+    st.wMilliseconds = 1;
+    let written = stamp_with(&st, "main", "=== OFF by the user");
+    assert!(sample.lines().any(|line| line == written), "{written}");
+}
+
+#[test]
+fn a_report_copies_the_newest_log_the_normal_logs_and_the_config() {
+    use super::report::{delete_reports, header_of, reports_dir, save, Sources};
+    let dir = scratch("report");
+    let detailed = dir.join("detailed");
+    fs::create_dir_all(&detailed).unwrap();
+    fs::write(detailed.join("detailed-2026-10-27.log"), "old\n").unwrap();
+    fs::write(
+        detailed.join("detailed-2026-10-28.log"),
+        "2026-10-28 10:00:00.000 [main] === ON by the user\n\
+         2026-10-28 10:00:00.100 [h] header: WinCraft 1\n\
+         2026-10-28 10:00:01.000 [main] host: x 1.00 ms\n\
+         2026-10-28 11:00:00.000 [main] === ON at start (left on)\n\
+         2026-10-28 11:00:00.100 [h] header: WinCraft 2\n",
+    )
+    .unwrap();
+    fs::write(dir.join("wincraft.log"), "now\n").unwrap();
+    fs::write(dir.join("config.json"), "{}").unwrap();
+    let sources = Sources {
+        detailed: detailed.clone(),
+        log: dir.join("wincraft.log"),
+        config: dir.join("config.json"),
+    };
+    let folder = save(&sources, "2026-10-28-120000").unwrap();
+    assert_eq!(
+        folder,
+        reports_dir(&detailed).join("report-2026-10-28-120000")
+    );
+    assert!(folder.join("detailed-2026-10-28.log").exists());
+    assert!(
+        !folder.join("detailed-2026-10-27.log").exists(),
+        "the newest only"
+    );
+    assert!(folder.join("wincraft.log").exists());
+    assert!(!folder.join("wincraft.prev.log").exists(), "there was none");
+    assert!(folder.join("config.json").exists());
+    let header = fs::read_to_string(folder.join("header.txt")).unwrap();
+    assert!(
+        header.contains("WinCraft 2") && !header.contains("WinCraft 1"),
+        "{header}"
+    );
+    let listing = fs::read_to_string(folder.join("report.txt")).unwrap();
+    assert!(listing.contains("- config.json"), "{listing}");
+    assert!(listing.contains("window titles"), "{listing}");
+    assert_eq!(
+        header_of(["x".to_string()].into_iter()),
+        "",
+        "no header, nothing"
+    );
+    // A report is not a detailed log file, so it never counts as one.
+    assert_eq!(writer::files_in(&detailed).len(), 2);
+    assert_eq!(delete_reports(&detailed), 1);
+    assert!(!reports_dir(&detailed).exists());
+    let _ = fs::remove_dir_all(&dir);
+}

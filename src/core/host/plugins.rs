@@ -589,6 +589,10 @@ impl PluginSet {
                 "Detailed log: Mark this moment",
             ),
             (
+                HostCommand::DetailedLogReport,
+                "Detailed log: Save a report",
+            ),
+            (
                 HostCommand::DetailedLogDelete,
                 "Detailed log: Delete the files",
             ),

@@ -103,14 +103,42 @@ impl Host {
         }
     }
 
+    /// Saves a report folder and opens it in File Explorer.
+    pub(super) fn save_detailed_report(&mut self) {
+        match detailed::save_report() {
+            Ok(folder) => {
+                log::info!("detailed log: report saved in {}", folder.display());
+                let path = wide(&folder.to_string_lossy());
+                unsafe {
+                    ShellExecuteW(
+                        std::ptr::null_mut(),
+                        wide("open").as_ptr(),
+                        path.as_ptr(),
+                        std::ptr::null(),
+                        std::ptr::null(),
+                        SW_SHOWNORMAL,
+                    )
+                };
+            }
+            Err(err) => {
+                log::warn!("detailed log: the report could not be saved: {err}");
+                self.balloon_click = BalloonClick::Nothing;
+                self.tray.balloon(
+                    NOTICE_TITLE,
+                    "WinCraft could not save the report. The log file says why.",
+                );
+            }
+        }
+    }
+
     /// Deletes the detailed log's files, and says how many went.
     pub(super) fn delete_detailed_log(&mut self) {
         let count = detailed::delete_files();
         log::info!("detailed log: {count} files deleted");
         let text = match count {
             0 => "There were no detailed log files to delete.".to_string(),
-            1 => "WinCraft deleted 1 detailed log file.".to_string(),
-            n => format!("WinCraft deleted {n} detailed log files."),
+            1 => "WinCraft deleted 1 detailed log file or report.".to_string(),
+            n => format!("WinCraft deleted {n} detailed log files and reports."),
         };
         self.balloon_click = BalloonClick::Nothing;
         self.tray.balloon(NOTICE_TITLE, &text);
@@ -127,7 +155,10 @@ pub(super) fn subtitle(command: HostCommand) -> Option<String> {
             "Records everything WinCraft does, to find a bug. Stays on this PC"
         }
         HostCommand::DetailedLogMark => "Writes the time and a few words into the detailed log",
-        HostCommand::DetailedLogDelete => "Deletes every detailed log file on this PC",
+        HostCommand::DetailedLogReport => {
+            "Copies the logs and settings into one folder and opens it, to hand over"
+        }
+        HostCommand::DetailedLogDelete => "Deletes every detailed log file and report on this PC",
         _ => return None,
     };
     Some(text.to_string())

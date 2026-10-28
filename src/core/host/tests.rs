@@ -827,8 +827,8 @@ fn the_palette_lists_each_plugins_commands_dimmed_while_it_is_off() {
     );
     assert_eq!(
         off.iter().filter(|entry| entry.group == "WinCraft").count(),
-        11,
-        "eight commands and the detailed log's three"
+        12,
+        "eight commands and the detailed log's four"
     );
     set.enable(0);
     let on = set.palette_entries(&plugins(&set));
@@ -2442,6 +2442,10 @@ fn the_detailed_log_commands_are_in_the_palette_and_deleting_asks_twice() {
     assert_eq!(
         find(HostCommand::DetailedLogMark).label,
         "Detailed log: Mark this moment"
+    );
+    assert_eq!(
+        find(HostCommand::DetailedLogReport).label,
+        "Detailed log: Save a report"
     );
     let delete = find(HostCommand::DetailedLogDelete);
     assert_eq!(delete.label, "Detailed log: Delete the files");

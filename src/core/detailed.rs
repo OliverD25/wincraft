@@ -21,6 +21,7 @@ use windows_sys::Win32::System::SystemInformation::GetLocalTime;
 use crate::core::{config, instance};
 
 pub mod header;
+pub mod report;
 pub mod watch;
 pub mod writer;
 
@@ -170,10 +171,35 @@ pub fn flush() {
     }
 }
 
-/// Deletes every detailed log file. When the log is on, the file in use is
-/// closed first and a new one starts with the next line. Returns how many
-/// files went.
+/// Copies the newest detailed log, wincraft.log, the log before it,
+/// config.json and the last session header into one dated folder, and
+/// returns that folder.
+pub fn save_report() -> std::io::Result<PathBuf> {
+    flush();
+    let mut st: SYSTEMTIME = unsafe { std::mem::zeroed() };
+    unsafe { GetLocalTime(&mut st) };
+    let stamp = format!(
+        "{:04}-{:02}-{:02}-{:02}{:02}{:02}",
+        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond
+    );
+    report::save(
+        &report::Sources {
+            detailed: folder(),
+            log: config::log_path(),
+            config: config::config_path(),
+        },
+        &stamp,
+    )
+}
+
+/// Deletes every detailed log file and every saved report. When the log
+/// is on, the file in use is closed first and a new one starts with the
+/// next line. Returns how many files and reports went.
 pub fn delete_files() -> usize {
+    delete_logs() + report::delete_reports(&folder())
+}
+
+fn delete_logs() -> usize {
     match WRITER.get() {
         Some(sender) => {
             let (done, wait) = mpsc::channel();
