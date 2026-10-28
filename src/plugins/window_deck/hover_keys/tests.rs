@@ -1,6 +1,7 @@
 //! No test here puts a hook on the real keyboard: the rules are plain data,
 //! and `HoverKeys` is only driven as a read-only test instance.
 
+use super::rule::{deck_key, RELEASE_WAIT_MS};
 use super::*;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, VK_DOWN, VK_ESCAPE, VK_F2, VK_LEFT, VK_RETURN,

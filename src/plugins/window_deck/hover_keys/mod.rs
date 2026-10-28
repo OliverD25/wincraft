@@ -33,7 +33,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use crate::core::ll_hook::HookThread;
 use crate::core::ui_bridge::ArrangeKey;
 use crate::core::{host, mask_key};
-pub use rule::{deck_key, keep_hook, Router, Step, RELEASE_WAIT_MS};
+use rule::{keep_hook, Router, Step};
 
 /// Whether keys go to the strip now; the hook reads it for every key.
 static ROUTING: AtomicBool = AtomicBool::new(false);
@@ -116,6 +116,7 @@ impl HoverKeys {
         }
     }
 
+    #[cfg(test)]
     pub fn is_routing(&self) -> bool {
         self.routing
     }

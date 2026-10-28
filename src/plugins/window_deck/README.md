@@ -345,8 +345,16 @@ With it on:
   right-click work as in the strip you open with `Win+Alt+A`.
 - **Esc**, a click anywhere outside the strip, or a click on the taskbar
   button closes it. Clicking the button then does what it always does.
-- The strip does not take the keyboard from the window you are working in.
-  Click once inside the strip to use its keys (arrows, D, Enter).
+- **Keys follow the mouse.** The strip never takes the keyboard from the
+  window you are working in. But while the mouse is inside the strip (not
+  only on the taskbar button), the strip's keys go to it: a digit, Shift
+  and a digit, Ctrl and a digit, the arrows (also with Ctrl or Ctrl+Shift),
+  Enter, Esc, Ctrl+W, Ctrl+N and D. The strip shows "Keys go to WindowDeck
+  while the mouse is here" at its foot while this is so. Every other key,
+  and typing in general, still goes to your window. F2 makes the strip
+  take the keyboard and opens the rename box, as a click would. A key you
+  pressed before the mouse came in, and the release of a key the strip
+  got, never reach the wrong place.
 - **Win+number and Alt+Tab work exactly as before** (unless you switched
   on **Open WindowDeck with Win+1…9**). Windows' preview is
   never hidden while a Windows key or Alt is down, within 1.5 s of
