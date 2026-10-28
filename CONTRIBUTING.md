@@ -577,6 +577,23 @@ it is a separate instance:
   exits with 0 when WinCraft closed, 1 when none was running and 2 when it was
   still running after 10 seconds. It uses `WINCRAFT_INSTANCE` too.
 
+### One scene, now
+
+`tools\scene-shot.ps1` takes one picture of one scene at once, to look at a UI
+change before a release: a test instance (`WINCRAFT_INSTANCE=sceneshot`, its
+own `LOCALAPPDATA` under `%LOCALAPPDATA%\Temp`, every plugin off unless
+`-Plugins` names it) opens the scene, its largest window is captured from the
+screen, and the instance quits. It uses the newest of `target\debug`,
+`targeterifyelease` and `targetelease`.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\scene-shot.ps1 -Scene '--open-palette=toggle' -Plugins quick_actions -Theme fluent
+```
+
+It does not wait for you to be away: the scene shows for a few seconds and
+may take the keyboard, and the window that was in front gets it back at the
+end. For every scene in both themes, use the script below.
+
 ### Screenshots while you are away
 
 `tools\screenshots.ps1` takes a PNG of every scene (the palette empty and
