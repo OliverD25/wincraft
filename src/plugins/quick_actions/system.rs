@@ -996,3 +996,73 @@ pub mod tests {
         assert_eq!(copy.window(7).map(|w| w.outer), Some([93, 100, 907, 707]));
     }
 }
+
+/// Calls only the read side of `Live` on this PC and prints what came back,
+/// without personal details: kinds and counts, never addresses or names.
+/// Nothing is changed. Run by hand:
+/// `cargo test live_reads -- --ignored --nocapture`.
+#[cfg(test)]
+mod live_reads {
+    use super::*;
+
+    #[test]
+    #[ignore = "reads the real PC; run by hand"]
+    fn live_reads() {
+        let com = unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) };
+        let live = Live::default();
+        match live.microphone() {
+            Ok((muted, name)) => println!(
+                "microphone: muted={muted}, a name was read: {}",
+                !name.is_empty()
+            ),
+            Err(reason) => println!("microphone: error: {reason}"),
+        }
+        let addresses = live.local_addresses();
+        println!("addresses: {}", addresses.len());
+        for address in &addresses {
+            let wsl_name = address.adapter.to_lowercase().contains("wsl");
+            println!(
+                "  kind={:?} name_has_wsl={wsl_name} name_starts_vethernet={}",
+                address.kind,
+                address.adapter.to_lowercase().starts_with("vethernet")
+            );
+        }
+        match live.recycle_bin() {
+            Some((items, bytes)) => println!("recycle bin: {items} items, {bytes} bytes"),
+            None => println!("recycle bin: no answer"),
+        }
+        match live.clipboard_text() {
+            Some(text) => println!("clipboard: text of {} characters", text.chars().count()),
+            None => println!("clipboard: no text"),
+        }
+        let target = live.target_window();
+        println!("target window found: {}", target.is_some());
+        if let Some(state) = target.and_then(|hwnd| live.window(hwnd)) {
+            let size = |r: Rect| (r[2] - r[0], r[3] - r[1]);
+            println!(
+                "  frame={:?} outer={:?} work={:?} maximized={} minimized={} topmost={} title_read={}",
+                size(state.frame),
+                size(state.outer),
+                size(state.work),
+                state.maximized,
+                state.minimized,
+                state.topmost,
+                !state.title.is_empty()
+            );
+        }
+        println!("taskbar state: {:?}", live.taskbar_state());
+        println!("desktop icons shown: {:?}", live.desktop_icons_shown());
+        for (key, name) in [
+            (super::super::toggles::PERSONALIZE, "AppsUseLightTheme"),
+            (super::super::toggles::PERSONALIZE, "SystemUsesLightTheme"),
+            (super::super::toggles::ADVANCED, "Hidden"),
+            (super::super::toggles::ADVANCED, "HideFileExt"),
+        ] {
+            println!("{name}: {:?}", live.read_dword(key, name));
+        }
+        println!("random: {}", live.random().is_ok());
+        if com >= 0 {
+            unsafe { CoUninitialize() };
+        }
+    }
+}
