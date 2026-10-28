@@ -27,8 +27,20 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SWP_NOZORDER, SW_RESTORE, WINDOWPLACEMENT, WM_COMMAND, WM_SETTINGCHANGE, WS_EX_TOPMOST,
 };
 
+use windows_sys::Win32::Security::Cryptography::{
+    BCryptGenRandom, BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+};
+use windows_sys::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+use windows_sys::Win32::UI::Shell::{
+    SHEmptyRecycleBinW, SHQueryRecycleBinW, ShellExecuteW, SHERB_NOCONFIRMATION,
+    SHERB_NOPROGRESSUI, SHERB_NOSOUND, SHQUERYRBINFO,
+};
+use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, SW_SHOWNORMAL};
+
+use super::audio;
+use super::network::{self, Address};
 use crate::core::monitors::{self, Rect};
-use crate::core::{wide, windows_list};
+use crate::core::{clipboard, wide, windows_list};
 
 /// The command Explorer's desktop view takes to show or hide its icons,
 /// the same as "Show desktop icons" in the desktop's menu.
@@ -86,11 +98,36 @@ pub trait System {
 
     /// Keeps the PC and the screen awake while `on`.
     fn keep_awake(&mut self, on: bool) -> Result<(), String>;
+
+    /// The PC's own IPv4 addresses, Wi-Fi first.
+    fn local_addresses(&self) -> Vec<Address>;
+    fn flush_dns(&mut self) -> Result<(), String>;
+    fn clipboard_text(&self) -> Option<String>;
+    /// Replaces everything on the clipboard with this text.
+    fn put_clipboard(&mut self, text: &str) -> Result<(), String>;
+    /// 16 bytes from Windows' random number source.
+    fn random(&self) -> Result<[u8; 16], String>;
+    /// Whether the default microphone is muted, and its name.
+    fn microphone(&self) -> Result<(bool, String), String>;
+    fn set_microphone_muted(&mut self, muted: bool) -> Result<(), String>;
+    /// The Recycle Bin's item count and size in bytes, on every drive.
+    fn recycle_bin(&self) -> Option<(u64, u64)>;
+    /// Empties the Recycle Bin. True when it is done; false when it goes on
+    /// in the background and `WM_APP_BIN_DONE` reports the end.
+    fn empty_recycle_bin(&mut self) -> Result<bool, String>;
+    fn open_environment_variables(&mut self) -> Result<(), String>;
 }
 
-/// The real thing.
+/// Posted to the plugin's window when emptying the Recycle Bin ended:
+/// wParam 1 when it worked.
+pub const WM_APP_BIN_DONE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 50;
+
+/// The real thing. `owner` is the plugin's window: the clipboard names it
+/// as its owner, and the Recycle Bin reports to it.
 #[derive(Default)]
-pub struct Live;
+pub struct Live {
+    pub owner: isize,
+}
 
 impl System for Live {
     fn read_dword(&self, key: &str, name: &str) -> Option<u32> {
@@ -336,6 +373,107 @@ impl System for Live {
             Ok(())
         }
     }
+
+    fn local_addresses(&self) -> Vec<Address> {
+        network::read()
+    }
+
+    fn flush_dns(&mut self) -> Result<(), String> {
+        network::flush_dns()
+    }
+
+    fn clipboard_text(&self) -> Option<String> {
+        clipboard::text(self.owner as HWND)
+    }
+
+    fn put_clipboard(&mut self, text: &str) -> Result<(), String> {
+        if clipboard::put_text(self.owner as HWND, text) {
+            Ok(())
+        } else {
+            Err("another app is using the clipboard".to_string())
+        }
+    }
+
+    fn random(&self) -> Result<[u8; 16], String> {
+        let mut bytes = [0u8; 16];
+        let status = unsafe {
+            BCryptGenRandom(
+                std::ptr::null_mut(),
+                bytes.as_mut_ptr(),
+                16,
+                BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+            )
+        };
+        if status == 0 {
+            Ok(bytes)
+        } else {
+            Err(format!("Windows gave no random numbers ({status:#x})"))
+        }
+    }
+
+    fn microphone(&self) -> Result<(bool, String), String> {
+        audio::state()
+    }
+
+    fn set_microphone_muted(&mut self, muted: bool) -> Result<(), String> {
+        audio::set_muted(muted)?;
+        match audio::state() {
+            Ok((now, _)) if now == muted => Ok(()),
+            _ => Err("the microphone did not take the change".to_string()),
+        }
+    }
+
+    fn recycle_bin(&self) -> Option<(u64, u64)> {
+        let mut info: SHQUERYRBINFO = unsafe { std::mem::zeroed() };
+        info.cbSize = std::mem::size_of::<SHQUERYRBINFO>() as u32;
+        let hr = unsafe { SHQueryRecycleBinW(std::ptr::null(), &mut info) };
+        (hr >= 0).then(|| (info.i64NumItems.max(0) as u64, info.i64Size.max(0) as u64))
+    }
+
+    fn empty_recycle_bin(&mut self) -> Result<bool, String> {
+        let owner = self.owner;
+        // A full bin takes a while; the host thread must not wait for it.
+        std::thread::Builder::new()
+            .name("quick-actions-recycle-bin".to_string())
+            .spawn(move || {
+                let com =
+                    unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) };
+                let flags = SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI | SHERB_NOSOUND;
+                let hr =
+                    unsafe { SHEmptyRecycleBinW(std::ptr::null_mut(), std::ptr::null(), flags) };
+                if com >= 0 {
+                    unsafe { CoUninitialize() };
+                }
+                if hr < 0 {
+                    log::warn!("QuickActions: emptying the Recycle Bin failed ({hr:#x})");
+                }
+                unsafe { PostMessageW(owner as HWND, WM_APP_BIN_DONE, usize::from(hr >= 0), 0) };
+            })
+            .map_err(|err| format!("could not start: {err}"))?;
+        Ok(false)
+    }
+
+    fn open_environment_variables(&mut self) -> Result<(), String> {
+        let result = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                wide("open").as_ptr(),
+                wide("rundll32.exe").as_ptr(),
+                wide("sysdm.cpl,EditEnvironmentVariables").as_ptr(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        // ShellExecute reports success as any value above 32.
+        if result as usize > 32 {
+            Ok(())
+        } else {
+            Err(format!(
+                "Windows could not open it (error {})",
+                result as usize
+            ))
+        }
+    }
 }
 
 fn refused() -> String {
@@ -433,6 +571,7 @@ pub struct ReadOnly<S: System> {
     registry: HashMap<(String, String), u32>,
     taskbar: Option<u32>,
     icons: Option<bool>,
+    microphone: Option<bool>,
 }
 
 impl<S: System> ReadOnly<S> {
@@ -442,6 +581,7 @@ impl<S: System> ReadOnly<S> {
             registry: HashMap::new(),
             taskbar: None,
             icons: None,
+            microphone: None,
         }
     }
 }
@@ -528,6 +668,56 @@ impl<S: System> System for ReadOnly<S> {
         skipped(&format!("keep awake {on}"));
         Ok(())
     }
+
+    fn local_addresses(&self) -> Vec<Address> {
+        self.inner.local_addresses()
+    }
+
+    fn flush_dns(&mut self) -> Result<(), String> {
+        skipped("clearing the DNS cache");
+        Ok(())
+    }
+
+    fn clipboard_text(&self) -> Option<String> {
+        self.inner.clipboard_text()
+    }
+
+    fn put_clipboard(&mut self, text: &str) -> Result<(), String> {
+        skipped(&format!(
+            "putting {} characters on the clipboard",
+            text.chars().count()
+        ));
+        Ok(())
+    }
+
+    fn random(&self) -> Result<[u8; 16], String> {
+        self.inner.random()
+    }
+
+    fn microphone(&self) -> Result<(bool, String), String> {
+        let (muted, name) = self.inner.microphone()?;
+        Ok((self.microphone.unwrap_or(muted), name))
+    }
+
+    fn set_microphone_muted(&mut self, muted: bool) -> Result<(), String> {
+        skipped(&format!("muting the microphone {muted}"));
+        self.microphone = Some(muted);
+        Ok(())
+    }
+
+    fn recycle_bin(&self) -> Option<(u64, u64)> {
+        self.inner.recycle_bin()
+    }
+
+    fn empty_recycle_bin(&mut self) -> Result<bool, String> {
+        skipped("emptying the Recycle Bin");
+        Ok(true)
+    }
+
+    fn open_environment_variables(&mut self) -> Result<(), String> {
+        skipped("opening Environment Variables");
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -548,6 +738,11 @@ pub mod tests {
         /// administrator.
         pub refuse: bool,
         pub awake: bool,
+        pub addresses: Vec<Address>,
+        pub clipboard: Option<String>,
+        /// None: no microphone.
+        pub microphone: Option<bool>,
+        pub bin: Option<(u64, u64)>,
         pub log: Vec<String>,
     }
 
@@ -562,6 +757,10 @@ pub mod tests {
                 target: None,
                 refuse: false,
                 awake: false,
+                addresses: Vec::new(),
+                clipboard: None,
+                microphone: Some(false),
+                bin: Some((0, 0)),
                 log: Vec::new(),
             }
         }
@@ -707,6 +906,56 @@ pub mod tests {
             self.awake = on;
             Ok(())
         }
+
+        fn local_addresses(&self) -> Vec<Address> {
+            self.addresses.clone()
+        }
+
+        fn flush_dns(&mut self) -> Result<(), String> {
+            self.log.push("flush dns".to_string());
+            Ok(())
+        }
+
+        fn clipboard_text(&self) -> Option<String> {
+            self.clipboard.clone()
+        }
+
+        fn put_clipboard(&mut self, text: &str) -> Result<(), String> {
+            self.log.push(format!("clipboard {text}"));
+            self.clipboard = Some(text.to_string());
+            Ok(())
+        }
+
+        fn random(&self) -> Result<[u8; 16], String> {
+            Ok(*b"0123456789abcdef")
+        }
+
+        fn microphone(&self) -> Result<(bool, String), String> {
+            self.microphone
+                .map(|muted| (muted, "Headset".to_string()))
+                .ok_or_else(|| "No microphone is connected".to_string())
+        }
+
+        fn set_microphone_muted(&mut self, muted: bool) -> Result<(), String> {
+            self.log.push(format!("mic muted {muted}"));
+            self.microphone = Some(muted);
+            Ok(())
+        }
+
+        fn recycle_bin(&self) -> Option<(u64, u64)> {
+            self.bin
+        }
+
+        fn empty_recycle_bin(&mut self) -> Result<bool, String> {
+            self.log.push("empty bin".to_string());
+            self.bin = Some((0, 0));
+            Ok(true)
+        }
+
+        fn open_environment_variables(&mut self) -> Result<(), String> {
+            self.log.push("environment variables".to_string());
+            Ok(())
+        }
     }
 
     #[test]
@@ -731,7 +980,18 @@ pub mod tests {
         copy.set_placement(7, &Placement::default())
             .expect("pretend");
         copy.keep_awake(true).expect("pretend");
+        copy.flush_dns().expect("pretend");
+        copy.put_clipboard("x").expect("pretend");
+        copy.set_microphone_muted(true).expect("pretend");
+        assert_eq!(copy.microphone(), Ok((true, "Headset".to_string())));
+        assert_eq!(copy.inner.microphone, Some(false));
+        assert_eq!(copy.empty_recycle_bin(), Ok(true));
+        copy.open_environment_variables().expect("pretend");
         assert!(copy.inner.log.is_empty(), "{:?}", copy.inner.log);
+        assert!(copy.random().is_ok());
+        assert!(copy.local_addresses().is_empty());
+        assert!(copy.clipboard_text().is_none());
+        assert_eq!(copy.recycle_bin(), Some((0, 0)));
         assert_eq!(copy.target_window(), Some(7));
         assert_eq!(copy.window(7).map(|w| w.outer), Some([93, 100, 907, 707]));
     }

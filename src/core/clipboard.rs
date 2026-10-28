@@ -1,9 +1,10 @@
 //! Putting text on the clipboard, for the palette's answers and the
-//! ShortcutDetector's table.
+//! ShortcutDetector's table, and reading the text on it, for QuickActions.
 
 use windows_sys::Win32::Foundation::{GlobalFree, HWND};
 use windows_sys::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+    SetClipboardData,
 };
 use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
 use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
@@ -45,4 +46,26 @@ pub fn put_text(owner: HWND, text: &str) -> bool {
     }
     unsafe { CloseClipboard() };
     placed
+}
+
+/// The text on the clipboard, or None when it holds no text or could not
+/// be opened. Only reads; the clipboard keeps everything it had.
+pub fn text(owner: HWND) -> Option<String> {
+    if unsafe { IsClipboardFormatAvailable(CF_UNICODETEXT as u32) } == 0 {
+        return None;
+    }
+    if unsafe { OpenClipboard(owner) } == 0 {
+        return None;
+    }
+    let handle = unsafe { GetClipboardData(CF_UNICODETEXT as u32) };
+    let mut found = None;
+    if !handle.is_null() {
+        let source = unsafe { GlobalLock(handle) } as *const u16;
+        if !source.is_null() {
+            found = Some(unsafe { crate::core::from_wide_ptr(source) });
+            unsafe { GlobalUnlock(handle) };
+        }
+    }
+    unsafe { CloseClipboard() };
+    found
 }

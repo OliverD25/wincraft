@@ -5,6 +5,7 @@
 use super::geometry::{self, Goal};
 use super::system::{Placement, System};
 use super::toggles::{self, Setting, Values};
+use super::tools::{self, Tool};
 use crate::core::notice::Glyph;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -13,6 +14,7 @@ pub enum Command {
     Window(Goal),
     KeepAwake,
     Toggle(Setting),
+    Tool(Tool),
 }
 
 /// One palette row. The id is what a hotkey bound with Ctrl+K stores, so
@@ -23,17 +25,20 @@ pub struct Entry {
     pub label: &'static str,
     pub words: &'static str,
     pub subtitle: &'static str,
+    /// Not empty: Enter twice within 5 s, and this before the second.
+    pub confirm: &'static str,
 }
 
 pub const KEEP_AWAKE: u32 = 10;
 
-pub const ENTRIES: [Entry; 11] = [
+pub const ENTRIES: [Entry; 18] = [
     Entry {
         id: 1,
         command: Command::Topmost,
         label: "Window: Toggle Always on Top",
         words: "pin float above topmost front stay",
         subtitle: "Keeps the window you were in above all others, or stops it",
+        confirm: "",
     },
     Entry {
         id: 2,
@@ -41,6 +46,7 @@ pub const ENTRIES: [Entry; 11] = [
         label: "Window: Center",
         words: "centre middle move",
         subtitle: "Moves the window you were in to the middle of its screen",
+        confirm: "",
     },
     Entry {
         id: 3,
@@ -48,6 +54,7 @@ pub const ENTRIES: [Entry; 11] = [
         label: "Window: Resize to 1280 \u{d7} 720",
         words: "size 720p hd small record video",
         subtitle: "Makes the window you were in 1280 by 720 pixels, in the middle",
+        confirm: "",
     },
     Entry {
         id: 4,
@@ -55,6 +62,7 @@ pub const ENTRIES: [Entry; 11] = [
         label: "Window: Resize to 1920 \u{d7} 1080",
         words: "size 1080p full hd record video",
         subtitle: "Makes the window you were in 1920 by 1080 pixels, in the middle",
+        confirm: "",
     },
     Entry {
         id: 5,
@@ -62,6 +70,7 @@ pub const ENTRIES: [Entry; 11] = [
         label: "Window: Resize to 80 % of the Monitor",
         words: "size big large screen percent",
         subtitle: "Makes the window you were in 80 % of its screen, in the middle",
+        confirm: "",
     },
     Entry {
         id: KEEP_AWAKE,
@@ -69,6 +78,7 @@ pub const ENTRIES: [Entry; 11] = [
         label: "Display: Toggle Keep Awake",
         words: "caffeine coffee sleep screen awake insomnia presentation",
         subtitle: "Keeps the PC and the screen from sleeping until you run it again",
+        confirm: "",
     },
     Entry {
         id: 20,
@@ -76,6 +86,7 @@ pub const ENTRIES: [Entry; 11] = [
         label: "Theme: Toggle Dark Mode",
         words: "dark night light theme black colour color",
         subtitle: "Switches apps and Windows between dark and light",
+        confirm: "",
     },
     Entry {
         id: 21,
@@ -83,6 +94,7 @@ pub const ENTRIES: [Entry; 11] = [
         label: "Desktop: Toggle Desktop Icons",
         words: "icons desktop clean screen share hide show presentation",
         subtitle: "Hides or shows the icons on the desktop",
+        confirm: "",
     },
     Entry {
         id: 22,
@@ -90,6 +102,7 @@ pub const ENTRIES: [Entry; 11] = [
         label: "Taskbar: Toggle Auto-Hide",
         words: "taskbar autohide hide space room",
         subtitle: "Hides the taskbar until the mouse reaches it, or stops it",
+        confirm: "",
     },
     Entry {
         id: 23,
@@ -97,6 +110,7 @@ pub const ENTRIES: [Entry; 11] = [
         label: "File Explorer: Toggle Hidden Files",
         words: "hidden dotfiles show system explorer folder",
         subtitle: "Shows or hides hidden files in File Explorer",
+        confirm: "",
     },
     Entry {
         id: 24,
@@ -104,6 +118,63 @@ pub const ENTRIES: [Entry; 11] = [
         label: "File Explorer: Toggle File Extensions",
         words: "extension ext type suffix explorer names",
         subtitle: "Shows or hides the end of file names, such as .txt",
+        confirm: "",
+    },
+    Entry {
+        id: 30,
+        command: Command::Tool(Tool::CopyIp),
+        label: "Network: Copy Local IP",
+        words: "ip address lan wifi ethernet wsl network local ipv4",
+        subtitle: "Copies this PC's address on your network, such as 192.168.1.20",
+        confirm: "",
+    },
+    Entry {
+        id: 31,
+        command: Command::Tool(Tool::FlushDns),
+        label: "Network: Flush DNS Cache",
+        words: "dns flush cache clear reset internet network",
+        subtitle: "Makes Windows look up web addresses afresh, as ipconfig /flushdns does",
+        confirm: "",
+    },
+    Entry {
+        id: 32,
+        command: Command::Tool(Tool::PlainText),
+        label: "Clipboard: Convert to Plain Text",
+        words: "clipboard plain text paste formatting strip clean",
+        subtitle: "Keeps only the text on the clipboard, without fonts, colours or links",
+        confirm: "",
+    },
+    Entry {
+        id: 33,
+        command: Command::Tool(Tool::NewUuid),
+        label: "Clipboard: Copy New UUID",
+        words: "uuid guid id random unique generate",
+        subtitle: "Copies a new random UUID, such as for a database key",
+        confirm: "",
+    },
+    Entry {
+        id: 34,
+        command: Command::Tool(Tool::Microphone),
+        label: "Audio: Toggle Microphone Mute",
+        words: "microphone mic mute unmute audio sound call meeting",
+        subtitle: "Mutes the default microphone, or turns it on again",
+        confirm: "",
+    },
+    Entry {
+        id: 35,
+        command: Command::Tool(Tool::EmptyBin),
+        label: "System: Empty Recycle Bin",
+        words: "recycle bin trash empty delete clean space",
+        subtitle: "Deletes everything in the Recycle Bin for good",
+        confirm: "Press Enter again to empty the Recycle Bin. This cannot be undone.",
+    },
+    Entry {
+        id: 36,
+        command: Command::Tool(Tool::EnvVars),
+        label: "Settings: Open Environment Variables",
+        words: "environment variables path env system settings developer",
+        subtitle: "Opens the window where you edit PATH and other variables",
+        confirm: "",
     },
 ];
 
@@ -115,9 +186,17 @@ pub fn entry(id: u32) -> Option<&'static Entry> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Undo {
     Setting(Setting, Values),
-    Placement { hwnd: isize, placement: Placement },
-    Topmost { hwnd: isize, was: bool },
+    Placement {
+        hwnd: isize,
+        placement: Placement,
+    },
+    Topmost {
+        hwnd: isize,
+        was: bool,
+    },
     Awake(bool),
+    /// The microphone was muted before (true) or on.
+    Microphone(bool),
 }
 
 /// What the notice says after an action, and its Undo.
@@ -130,7 +209,7 @@ pub struct Outcome {
 }
 
 impl Outcome {
-    fn new(glyph: Glyph, text: String, detail: Option<String>) -> Self {
+    pub fn new(glyph: Glyph, text: String, detail: Option<String>) -> Self {
         Self {
             glyph,
             text,
@@ -139,13 +218,13 @@ impl Outcome {
         }
     }
 
-    fn undo(mut self, undo: Undo) -> Self {
+    pub fn undo(mut self, undo: Undo) -> Self {
         self.undo = Some(undo);
         self
     }
 }
 
-fn on_off(on: bool) -> &'static str {
+pub fn on_off(on: bool) -> &'static str {
     if on {
         "on"
     } else {
@@ -161,7 +240,7 @@ fn no_window() -> Outcome {
     )
 }
 
-fn failed(what: &str, reason: String) -> Outcome {
+pub fn failed(what: &str, reason: String) -> Outcome {
     log::warn!("QuickActions: {what} did not change: {reason}");
     Outcome::new(
         Glyph::Warning,
@@ -212,14 +291,23 @@ pub fn awake_line(on_for_ms: u64) -> String {
     }
 }
 
-/// Runs the command. `now` is the plugin's clock in milliseconds.
-pub fn run(command: Command, system: &mut dyn System, awake: &mut Awake, now: u64) -> Outcome {
-    match command {
+/// Runs the command. `now` is the plugin's clock in milliseconds, and
+/// `uuid` the UUID the inspector showed, which Copy New UUID copies. None
+/// when there is nothing to say, as after opening a window.
+pub fn run(
+    command: Command,
+    system: &mut dyn System,
+    awake: &mut Awake,
+    uuid: &mut Option<String>,
+    now: u64,
+) -> Option<Outcome> {
+    Some(match command {
         Command::Topmost => topmost(system),
         Command::Window(goal) => window(system, goal),
         Command::KeepAwake => set_awake(system, awake, !awake.is_on(), now),
         Command::Toggle(setting) => toggle(system, setting),
-    }
+        Command::Tool(tool) => return tools::run(tool, system, uuid),
+    })
 }
 
 fn topmost(system: &mut dyn System) -> Outcome {
@@ -352,6 +440,7 @@ pub fn undo(
             }
             result
         }
+        Undo::Microphone(was) => system.set_microphone_muted(was),
     };
     match result {
         Ok(()) => {
@@ -430,7 +519,14 @@ mod tests {
     }
 
     fn run_id(id: u32, fake: &mut Fake, awake: &mut Awake) -> Outcome {
-        run(entry(id).expect("an entry").command, fake, awake, 1000)
+        run(
+            entry(id).expect("an entry").command,
+            fake,
+            awake,
+            &mut None,
+            1000,
+        )
+        .expect("an outcome")
     }
 
     #[test]
@@ -492,11 +588,13 @@ mod tests {
     fn keep_awake_goes_on_and_off_and_keeps_its_start() {
         let mut fake = Fake::default();
         let mut awake = Awake::default();
-        let on = run(Command::KeepAwake, &mut fake, &mut awake, 5000);
+        let on =
+            run(Command::KeepAwake, &mut fake, &mut awake, &mut None, 5000).expect("an outcome");
         assert_eq!(on.text, "Keep awake on");
         assert!(fake.awake);
         assert_eq!(awake.since, Some(5000));
-        let off = run(Command::KeepAwake, &mut fake, &mut awake, 9000);
+        let off =
+            run(Command::KeepAwake, &mut fake, &mut awake, &mut None, 9000).expect("an outcome");
         assert_eq!(off.text, "Keep awake off");
         assert!(!fake.awake);
         assert_eq!(awake.since, None);

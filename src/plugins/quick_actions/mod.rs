@@ -9,9 +9,13 @@
 //! instance only logs what it would change.
 
 mod actions;
+mod audio;
 mod geometry;
+mod inspect;
+mod network;
 mod system;
 mod toggles;
+mod tools;
 
 use std::cell::RefCell;
 use std::time::Instant;
@@ -27,11 +31,11 @@ use crate::core::notice::{self, Clock, Message, Notice};
 use crate::core::traits::{
     HostContext, PaletteCommand, PluginMetadata, TrayToggle, WinCraftPlugin,
 };
-use crate::core::ui_bridge::ActionKind;
+use crate::core::ui_bridge::{ActionKind, CommandDetails};
 use crate::core::{host, instance, wide};
 
 use actions::{Awake, Outcome, Undo, ENTRIES, KEEP_AWAKE};
-use system::{Live, ReadOnly, System};
+use system::{Live, ReadOnly, System, WM_APP_BIN_DONE};
 
 pub const ID: &str = "quick_actions";
 const NAME: &str = "QuickActions";
@@ -71,6 +75,10 @@ struct Engine {
     awake_since: std::rc::Rc<std::cell::Cell<Option<Instant>>>,
     shown: Option<Shown>,
     epoch: Instant,
+    /// The UUID the inspector showed, which Copy New UUID copies.
+    next_uuid: Option<String>,
+    /// What the Recycle Bin held while it empties in the background.
+    emptying: Option<String>,
 }
 
 thread_local! {
@@ -91,6 +99,12 @@ fn with_engine(f: impl FnOnce(&mut Engine)) -> bool {
     })
 }
 
+/// Like `with_engine`, for a call that answers; None when the engine is
+/// off or busy.
+fn ask_engine<R>(f: impl FnOnce(&mut Engine) -> R) -> Option<R> {
+    ENGINE.with(|cell| cell.try_borrow_mut().ok()?.as_mut().map(f))
+}
+
 impl Engine {
     fn now_ms(&self) -> u64 {
         self.epoch.elapsed().as_millis() as u64
@@ -101,8 +115,42 @@ impl Engine {
             return;
         };
         let now = self.now_ms();
-        let outcome = actions::run(entry.command, self.system.as_mut(), &mut self.awake, now);
-        self.after(outcome);
+        let outcome = actions::run(
+            entry.command,
+            self.system.as_mut(),
+            &mut self.awake,
+            &mut self.next_uuid,
+            now,
+        );
+        if entry.command == actions::Command::Tool(tools::Tool::EmptyBin) {
+            if let Some(outcome) = outcome
+                .as_ref()
+                .filter(|o| o.glyph == notice::Glyph::Loader)
+            {
+                self.emptying = outcome.detail.clone();
+            }
+        }
+        match outcome {
+            Some(outcome) => self.after(outcome),
+            None => self.close_notice(),
+        }
+    }
+
+    fn details(&mut self, id: u32) -> Option<CommandDetails> {
+        let entry = actions::entry(id)?;
+        let now = self.now_ms();
+        Some(inspect::details(
+            entry.command,
+            self.system.as_ref(),
+            &self.awake,
+            &mut self.next_uuid,
+            now,
+        ))
+    }
+
+    fn bin_done(&mut self, ok: bool) {
+        let what = self.emptying.take().unwrap_or_default();
+        self.after(tools::bin_finished(ok, &what));
     }
 
     fn undo(&mut self) {
@@ -202,6 +250,7 @@ unsafe extern "system" fn engine_proc(
     let handled = match msg {
         notice::WM_APP_NOTICE_HOVER => Some(with_engine(|engine| engine.notice_hover(wparam != 0))),
         notice::WM_APP_NOTICE_CLICK => Some(with_engine(|engine| engine.notice_click(lparam))),
+        WM_APP_BIN_DONE => Some(with_engine(|engine| engine.bin_done(wparam != 0))),
         WM_TIMER if wparam == TICK_TIMER => {
             with_engine(Engine::tick);
             Some(true)
@@ -276,10 +325,13 @@ impl WinCraftPlugin for QuickActions {
 
     fn init(&mut self, _ctx: &HostContext) -> Result<(), String> {
         let hwnd = create_window()?;
+        let live = Live {
+            owner: hwnd as isize,
+        };
         let system: Box<dyn System> = if instance::is_test() {
-            Box::new(ReadOnly::new(Live))
+            Box::new(ReadOnly::new(live))
         } else {
-            Box::new(Live)
+            Box::new(live)
         };
         self.awake_since.set(None);
         let engine = Engine {
@@ -289,6 +341,8 @@ impl WinCraftPlugin for QuickActions {
             awake_since: self.awake_since.clone(),
             shown: None,
             epoch: Instant::now(),
+            next_uuid: None,
+            emptying: None,
         };
         ENGINE.with(|cell| *cell.borrow_mut() = Some(engine));
         Ok(())
@@ -302,13 +356,20 @@ impl WinCraftPlugin for QuickActions {
                 label: entry.label,
                 hint: "",
                 words: entry.words,
-                confirm: "",
+                confirm: entry.confirm,
             })
             .collect()
     }
 
     fn on_palette_command(&mut self, id: u32) {
         with_engine(|engine| engine.run(id));
+    }
+
+    fn command_details(&mut self, kind: ActionKind, action_id: u32) -> Option<CommandDetails> {
+        if kind != ActionKind::Palette {
+            return None;
+        }
+        ask_engine(|engine| engine.details(action_id)).flatten()
     }
 
     fn palette_subtitle(&self, kind: ActionKind, action_id: u32) -> Option<String> {
