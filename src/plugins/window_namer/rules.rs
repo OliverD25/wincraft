@@ -75,10 +75,6 @@ pub fn load(path: &Path) -> Vec<Rule> {
     }
 }
 
-pub fn save(path: &Path, rules: &[Rule]) -> Result<(), String> {
-    config::write_atomic(path, &to_json(rules))
-}
-
 /// Drops the names unused for `KEEP_SECONDS`; returns how many went.
 pub fn expire(rules: &mut Vec<Rule>, now: u64) -> usize {
     let before = rules.len();
@@ -504,7 +500,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("wincraft-namer-test-{}", std::process::id()));
         let file = dir.join("names.json");
         assert!(load(&file).is_empty());
-        save(&file, &rules).unwrap();
+        config::write_atomic(&file, &to_json(&rules)).unwrap();
         assert_eq!(load(&file), rules);
         fs::write(&file, "{ broken").unwrap();
         assert!(load(&file).is_empty());

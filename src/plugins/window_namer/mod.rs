@@ -27,7 +27,7 @@ use crate::core::traits::{
 };
 use crate::core::ui_bridge::{ArrangeAction, Prompt};
 use crate::core::window_names::{self, Names};
-use crate::core::{appid, host, instance, wide, windows_list};
+use crate::core::{appid, host, instance, wide, windows_list, write_later};
 use guard::{Guard, Verdict};
 use rules::{Reason, Rule, RuleState, TitleStyle, Wanted, Window};
 
@@ -762,9 +762,16 @@ impl WindowNamer {
         self.changed();
     }
 
-    /// Writes the saved names; with "Keep names after restart" off, writes
-    /// none, so names from before cannot come back later.
+    /// Writes the saved names, on a thread of its own so the host does not
+    /// wait for the disk; with "Keep names after restart" off, writes none,
+    /// so names from before cannot come back later.
     fn save_now(&mut self) {
+        self.save(false);
+    }
+
+    /// `at_end`: the plugin stops, and WinCraft may end right after, so the
+    /// names are written before this returns.
+    fn save(&mut self, at_end: bool) {
         self.dirty = false;
         if !self.keep && !self.file.exists() {
             return;
@@ -774,8 +781,13 @@ impl WindowNamer {
         } else {
             Vec::new()
         };
-        if let Err(err) = rules::save(&self.file, &rules) {
-            log::error!("could not save the window names: {err}");
+        let text = rules::to_json(&rules);
+        if at_end {
+            if let Err(err) = write_later::write_now(&self.file, &text) {
+                log::error!("could not save the window names: {err}");
+            }
+        } else {
+            write_later::write_later(self.file.clone(), text, "the window names");
         }
     }
 
@@ -989,7 +1001,7 @@ impl WinCraftPlugin for WindowNamer {
                 plural(restored, "window", "windows")
             );
         }
-        self.save_now();
+        self.save(true);
         self.saved.clear();
         self.groups.clear();
         CHANGED.with(|changed| changed.borrow_mut().clear());
@@ -1139,7 +1151,7 @@ mod tests {
             }
             let rects_ms = ms(at);
             let at = Instant::now();
-            rules::save(&file, &rules).unwrap();
+            crate::core::config::write_atomic(&file, &rules::to_json(&rules)).unwrap();
             let save_ms = ms(at);
             eprintln!(
                 "round {round}: {} app windows: manager {manager_ms:.1} ms, records {records_ms:.1}, groups {groups_ms:.1}, rects {rects_ms:.1}, save {save_ms:.1}",
