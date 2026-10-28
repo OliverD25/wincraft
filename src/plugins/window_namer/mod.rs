@@ -1,8 +1,9 @@
 mod guard;
+mod lookout;
 mod rules;
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -15,9 +16,9 @@ use windows_sys::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent, HWI
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowPlacement, GetWindowRect, GetWindowThreadProcessId, IsIconic,
-    IsWindow, KillTimer, SendMessageTimeoutW, SetTimer, CHILDID_SELF, EVENT_OBJECT_NAMECHANGE,
-    OBJID_WINDOW, SMTO_ABORTIFHUNG, USER_TIMER_MINIMUM, WINDOWPLACEMENT, WINEVENT_OUTOFCONTEXT,
-    WINEVENT_SKIPOWNPROCESS, WM_SETTEXT, WM_TIMER,
+    IsWindow, IsWindowVisible, KillTimer, SendMessageTimeoutW, SetTimer, CHILDID_SELF,
+    EVENT_OBJECT_NAMECHANGE, OBJID_WINDOW, SMTO_ABORTIFHUNG, USER_TIMER_MINIMUM, WINDOWPLACEMENT,
+    WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, WM_SETTEXT, WM_TIMER,
 };
 
 use crate::core::desktop_manager::{self, DesktopManager};
@@ -36,7 +37,8 @@ use rules::{Reason, Rule, RuleState, TitleStyle, Wanted, Window};
 const TICK_TIMER: usize = 0x574E_0001;
 const CHANGE_TIMER: usize = 0x574E_0002;
 const TICK_MS: u32 = 1000;
-/// Saved names wait for their window; they are matched every other tick.
+/// Saved names wait for their window. Every other tick WinCraft looks
+/// whether the windows changed, and matches them only then (see `lookout`).
 const MATCH_EVERY: u64 = 2;
 /// A new app title is saved within this many ticks; a new name at once.
 const SAVE_EVERY: u64 = 30;
@@ -295,6 +297,7 @@ pub struct WindowNamer {
     file: PathBuf,
     dirty: bool,
     ticks: u64,
+    lookout: lookout::Lookout,
     /// A test instance matches saved names by title only, never as an
     /// app's only window, so it cannot name one of the user's own windows.
     titles_only: bool,
@@ -313,6 +316,7 @@ impl Default for WindowNamer {
             file: PathBuf::new(),
             dirty: false,
             ticks: 0,
+            lookout: lookout::Lookout::default(),
             titles_only: false,
         }
     }
@@ -639,12 +643,32 @@ impl WindowNamer {
             self.check_title(hwnd, now);
         }
         let waiting = self.saved.iter().any(|saved| saved.window.is_none());
-        if waiting && self.ticks.is_multiple_of(MATCH_EVERY) {
+        if waiting && self.ticks.is_multiple_of(MATCH_EVERY) && self.windows_changed() {
             self.apply_saved();
         }
         if self.dirty && self.ticks.is_multiple_of(SAVE_EVERY) {
             self.save_now();
         }
+    }
+
+    /// Whether matching the saved names again may find something new: the
+    /// windows changed since the last match, or it has been a while.
+    fn windows_changed(&mut self) -> bool {
+        let waiting: BTreeSet<&str> = self
+            .saved
+            .iter()
+            .filter(|saved| saved.window.is_none())
+            .map(|saved| saved.rule.group.as_str())
+            .collect();
+        let visible: Vec<isize> = windows_list::top_windows()
+            .into_iter()
+            .filter(|hwnd| unsafe { IsWindowVisible(*hwnd) } != 0)
+            .map(|hwnd| hwnd as isize)
+            .collect();
+        let print = lookout::fingerprint(&visible, &self.groups, &waiting, &|hwnd| {
+            windows_list::window_text(hwnd as HWND)
+        });
+        self.lookout.due(print)
     }
 
     /// A closed window loses its name, but the saved name stays for the
@@ -1006,6 +1030,7 @@ impl WinCraftPlugin for WindowNamer {
         self.groups.clear();
         CHANGED.with(|changed| changed.borrow_mut().clear());
         self.ticks = 0;
+        self.lookout = lookout::Lookout::default();
     }
 }
 
@@ -1151,10 +1176,34 @@ mod tests {
             }
             let rects_ms = ms(at);
             let at = Instant::now();
+            let mut namer = WindowNamer::new();
+            for (hwnd, _) in &records {
+                let pid = pid_of(*hwnd);
+                namer
+                    .groups
+                    .insert(*hwnd as isize, (pid, group_of(*hwnd, pid)));
+            }
+            namer.saved = rules
+                .iter()
+                .map(|rule| Saved {
+                    rule: Rule {
+                        group: namer.groups.values().next().unwrap().1.clone(),
+                        ..rule.clone()
+                    },
+                    window: None,
+                    rested: false,
+                })
+                .collect();
+            let fill_ms = ms(at);
+            let at = Instant::now();
+            let changed = namer.windows_changed();
+            let print_ms = ms(at);
+            assert!(changed, "the first look");
+            let at = Instant::now();
             crate::core::config::write_atomic(&file, &rules::to_json(&rules)).unwrap();
             let save_ms = ms(at);
             eprintln!(
-                "round {round}: {} app windows: manager {manager_ms:.1} ms, records {records_ms:.1}, groups {groups_ms:.1}, rects {rects_ms:.1}, save {save_ms:.1}",
+                "round {round}: {} app windows: manager {manager_ms:.1} ms, records {records_ms:.1}, groups {groups_ms:.1}, rects {rects_ms:.1}, save {save_ms:.1}, fingerprint {print_ms:.1} (setup {fill_ms:.1})",
                 records.len()
             );
         }
