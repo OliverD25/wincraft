@@ -151,6 +151,46 @@ pub struct Config {
     /// stays on after a restart and an update, until the user turns it off.
     #[serde(default)]
     pub detailed_log: bool,
+    /// Where the user dragged the palette to, by monitor device name
+    /// (for example `DISPLAY1`). A monitor with no entry opens it centred.
+    #[serde(default)]
+    pub palette_spots: BTreeMap<String, PaletteSpot>,
+}
+
+/// A dragged palette panel's top-left corner, in physical pixels from the top
+/// left of its monitor's work area.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaletteSpot {
+    pub dx: i32,
+    pub dy: i32,
+}
+
+/// A monitor's work area in physical pixels: left, top, right, bottom.
+pub type WorkArea = (i32, i32, i32, i32);
+
+impl PaletteSpot {
+    /// The spot of a panel whose top-left corner is at `(x, y)` on the screen.
+    pub fn from_screen(work: WorkArea, x: i32, y: i32) -> Self {
+        Self {
+            dx: x - work.0,
+            dy: y - work.1,
+        }
+    }
+
+    /// The panel's top-left corner on the screen. The whole `size` panel is
+    /// kept inside the work area, so a monitor that got smaller never hides it.
+    pub fn to_screen(self, work: WorkArea, size: (i32, i32)) -> (i32, i32) {
+        let x = (work.0 + self.dx).min(work.2 - size.0).max(work.0);
+        let y = (work.1 + self.dy).min(work.3 - size.1).max(work.1);
+        (x, y)
+    }
+}
+
+/// The default panel spot: centred, with the top edge 18 % down the work area.
+pub fn centred_spot(work: WorkArea, width: i32) -> (i32, i32) {
+    let x = work.0 + ((work.2 - work.0) - width) / 2;
+    let y = work.1 + ((work.3 - work.1) as f32 * 0.18) as i32;
+    (x, y)
 }
 
 impl Default for Config {
@@ -165,6 +205,7 @@ impl Default for Config {
             tips: TipsConfig::default(),
             shortcuts: BTreeMap::new(),
             detailed_log: false,
+            palette_spots: BTreeMap::new(),
         }
     }
 }
@@ -1119,5 +1160,49 @@ mod tests {
         assert_eq!(plugin.hotkeys["b"], "Win+Alt+B");
         assert_eq!(plugin.settings["x"], 5);
         assert_eq!(plugin.settings["y"], 2);
+    }
+
+    #[test]
+    fn an_old_config_has_no_palette_spots() {
+        let config: Config = serde_json::from_str(r#"{ "theme": "Classic" }"#).unwrap();
+        assert!(config.palette_spots.is_empty());
+    }
+
+    #[test]
+    fn palette_spots_survive_a_round_trip() {
+        let mut config = Config::default();
+        config
+            .palette_spots
+            .insert("DISPLAY2".to_string(), PaletteSpot { dx: 40, dy: -3 });
+        let text = serde_json::to_string(&config).unwrap();
+        let back: Config = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.palette_spots, config.palette_spots);
+    }
+
+    const WORK: WorkArea = (1920, 0, 3840, 1040);
+
+    #[test]
+    fn a_spot_is_kept_relative_to_its_monitor() {
+        let spot = PaletteSpot::from_screen(WORK, 2100, 200);
+        assert_eq!(spot, PaletteSpot { dx: 180, dy: 200 });
+        assert_eq!(spot.to_screen(WORK, (800, 520)), (2100, 200));
+        // The same spot on a monitor that sits somewhere else.
+        assert_eq!(spot.to_screen((0, 0, 1920, 1040), (800, 520)), (180, 200));
+    }
+
+    #[test]
+    fn a_spot_is_clamped_so_the_whole_panel_shows() {
+        let far = PaletteSpot { dx: 5000, dy: 5000 };
+        assert_eq!(far.to_screen(WORK, (800, 520)), (3040, 520));
+        let before = PaletteSpot { dx: -300, dy: -40 };
+        assert_eq!(before.to_screen(WORK, (800, 520)), (1920, 0));
+        // A panel larger than the work area is pinned to its top left.
+        assert_eq!(far.to_screen((0, 0, 600, 400), (800, 520)), (0, 0));
+    }
+
+    #[test]
+    fn the_default_spot_is_centred_and_18_percent_down() {
+        assert_eq!(centred_spot((0, 0, 1920, 1000), 800), (560, 180));
+        assert_eq!(centred_spot(WORK, 800), (2480, 187));
     }
 }
