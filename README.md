@@ -54,6 +54,7 @@ The result is `target\release\wincraft.exe`.
 ## What You Get at a Glance
 
 * **Command Palette (`Win+Alt+P`)** — Opens a search box on the monitor your pointer is on. Type a few letters and press `Enter`. It finds WinCraft's commands, apps (Start menu, Store, and installed), open windows, files and folders across every disk (via *Everything*), and your bookmarks. It calculates sums as you type, and with a quick prefix it browses folders, runs terminal commands, asks an AI website, or searches the web. Beside the list, a live **inspector** shows what the selected row is and every action it can take. See [Command palette](#command-palette-winaltp).
+* **QuickActions** — Windows 11 settings switches and everyday system fixes in the palette: type `dark`, `mic` or `caffeine` and press `Enter`, with a live on/off state and **Undo**. See [QuickActions](#8-quickactions).
 * **Settings Window** — Clean navigation across *General*, *Themes*, *Plugins*, *Hotkeys*, *Layout*, *Bookmarks*, *Plugin Store*, and *About*, plus a dedicated page per plugin with its options, hotkeys, config file, and README.
 * **Single & Chord Hotkeys** — Every command the palette lists can be bound to a single key press or two presses in a row (a chord, such as `Win+Alt+K`, then `S`). See [Hotkeys](#global-hotkeys--chords).
 * **5 Native Themes with Live Hover Preview** — *Classic* (default), *Fluent*, *Terminal*, *Paper*, and *High contrast*, each in Dark, Light, or System mode. In *Fluent*, the palette uses Windows 11 glass (automatically turning solid on battery saver or when transparency effects are off). Point at any tile in **Settings → Themes** and every open WinCraft window previews that theme live; click to keep it. Automatically switches to *High contrast* when Windows high contrast is enabled.
@@ -146,29 +147,14 @@ Shows which input language you switched to right in the center of the screen, ma
 
 ### 8. QuickActions
 
-The Windows 11 switches that Settings hides several clicks deep, one search away in the palette, VS Code style. Type `dark`, `center` or `awake` and press `Enter`. Every action is named *Area: Verb* and is also found by everyday words: `night` finds dark mode, `caffeine` finds keep awake, `pin` finds always on top. Window actions change the window you were in before the palette opened (never WinCraft's own), restore a maximized window first, and use real screen pixels of the visible window, so `1280 × 720` records as `1280 × 720` at any scale. Every change shows a notice from WinCraft with **Undo**, which puts back exactly what was there before; running a switch again also switches it back. The eight switches show their state in the palette, read from Windows each time it opens, and `Enter` flips one with the palette left open. No default hotkeys: select an action in the palette and press `Ctrl+K` to give it one. [Full README](src/plugins/quick_actions/README.md)
+Puts Windows 11 settings switches and everyday system fixes straight into the command palette, so you never have to dig three menus deep into Settings. Open the palette, type a few letters (such as `dark`, `mic` or `caffeine`), and press `Enter`. For switches, the palette stays open so you can flip the next one right away, and every change shows a short notice with **Undo**. [Full README](src/plugins/quick_actions/README.md)
 
-| Palette command | What it does |
-| --- | --- |
-| `Window: Toggle Always on Top` | Keeps the window above all others, or stops it |
-| `Window: Center` | Moves the window to the middle of its screen |
-| `Window: Resize to 1280 × 720` / `1920 × 1080` / `80 % of the Monitor` | Resizes the window and centers it, shrinking to fit the screen if needed |
-| `Display: Toggle Keep Awake` | Keeps the PC and the screen awake until run again (also a tick in the tray menu) |
-| `Theme: Toggle Dark Mode` | Switches apps and Windows between dark and light together |
-| `Desktop: Show Desktop Icons` | Hides or shows the desktop icons, for a clean screen share |
-| `Taskbar: Toggle Auto-Hide` | Hides the taskbar until the mouse reaches it |
-| `File Explorer: Toggle Hidden Files` / `Toggle File Extensions` | Shows or hides hidden files, or the `.txt` end of file names |
-| `Network: Copy Local IP` | Copies the PC's own address (Wi-Fi first, then Ethernet and WSL); no outside service is asked |
-| `Network: Flush DNS Cache` | Clears the web addresses Windows remembers, like `ipconfig /flushdns` |
-| `Clipboard: Convert to Plain Text` / `Copy New UUID` | Strips the formatting from the clipboard, or copies a new random UUID |
-| `Audio: Toggle Microphone Mute` | Mutes or unmutes the default microphone |
-| `System: Empty Recycle Bin` | Empties the Recycle Bin after a second `Enter` within 5 s |
-| `Settings: Open Environment Variables` | Opens the window for editing `PATH` and other variables |
-| `Developer: Kill Process on Port` | Lists the programs listening on TCP ports (type a port number to filter); ends the one you pick after a second `Enter` |
-| `Audio: Switch Output Device` | Lists the sound devices with the current one marked; switches to the one you pick, with **Undo** |
-| `Window: Resize…` | The built-in sizes plus your own from the plugin's page, such as `1600x900, 1366x768` |
-| `System: Eject USB Drive` | Ejects a USB drive or memory card safely, or says it is still in use |
-| `Display: Keep Awake for…` | 30 min, 1 h, 2 h or until off; the tray shows the end time |
+Each switch reads the real state from Windows every time the palette opens and shows it with a coloured tile and a toggle (`"Microphone is muted"`, `"Hidden files are shown"`, `"PC stays awake"`). Actions are named `Area: Verb` (so `window` lists every window action and `explorer` lists File Explorer switches), and everyday words work too (`night` finds dark mode, `caffeine` finds keep awake, `pin` finds always on top). Nothing runs in the background; press `Ctrl+K` on any action in the palette to give it a hotkey or a chord of its own.
+
+| What is inside | Actions |
+| :--- | :--- |
+| **Switches** | Dark Mode · File Extensions · Hidden Files · Desktop Icons · Taskbar Auto-Hide · Microphone Mute · Keep Awake · Always on Top |
+| **One-step commands** | Switch audio output · Free a busy port · Convert the clipboard to plain text · Safely remove a USB drive · Center a window · Flush DNS · Empty the Recycle Bin |
 
 Actions that end in `…`, and Kill Process on Port, Switch Output Device and Eject USB Drive, show a list in the palette: type to filter, `Enter` picks, `Esc` goes back.
 
