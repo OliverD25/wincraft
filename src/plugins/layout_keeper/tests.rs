@@ -2130,3 +2130,84 @@ fn strip_timing_on_the_real_desktop() {
         eprintln!("after, round {round}: worker thread {worker_ms:.1} ms, host {host_ms:.1} ms");
     }
 }
+
+/// Where the 30-second timer save costs its time on this PC. Read only: it
+/// lists the real windows and changes none, and writes only a temp file.
+/// Run by hand with `cargo test layout_save_timing -- --ignored --nocapture`.
+#[test]
+#[ignore = "reads the real PC; run by hand"]
+fn layout_save_timing_on_the_real_desktop() {
+    use std::time::Instant;
+    use windows_sys::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+    unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) };
+    let ms = |at: Instant| at.elapsed().as_secs_f64() * 1000.0;
+    let (mut keeper, path) = keeper_with(Programs::new(), "save-timing");
+    keeper.read_only = true;
+    keeper.reader = desktops::Reader::new().ok();
+    for round in 0..4 {
+        let at = Instant::now();
+        let live = keeper.live_windows();
+        let live_ms = ms(at);
+        let at = Instant::now();
+        let registry = desktops::list();
+        let desk_ms = ms(at);
+        let at = Instant::now();
+        let mons = monitors::list();
+        let connected = monitors::saved_names(&mons);
+        let mons_ms = ms(at);
+        let at = Instant::now();
+        let on_desktop: BTreeMap<Handle, DesktopId> = live
+            .iter()
+            .filter_map(|window| {
+                let desktop = keeper.reader.as_ref()?.read(window.hwnd)?;
+                Some((window.hwnd as Handle, desktop))
+            })
+            .collect();
+        let read_ms = ms(at);
+        let world = World {
+            desktops: &registry,
+            monitors: &connected,
+            desktop_of: &|hwnd| on_desktop.get(&(hwnd as Handle)).copied(),
+            monitor_of: &|rect| monitors::index_of(rect, &mons),
+            today: Some("2026-10-29".to_string()),
+        };
+        let at = Instant::now();
+        for window in &live {
+            keeper.remember_label(window);
+        }
+        let labels_ms = ms(at);
+        let at = Instant::now();
+        publish_census(&keeper.groups);
+        let census_ms = ms(at);
+        eprintln!(
+            "  labels {labels_ms:.1} ms ({} unresolved), census {census_ms:.1}",
+            keeper.unresolved.len()
+        );
+        // A test has no apps index, so labels never become final here; in
+        // WinCraft they do once the palette has built it, and are not asked
+        // again.
+        keeper.unresolved.clear();
+        let at = Instant::now();
+        keeper.track(&live);
+        let track_ms = ms(at);
+        let at = Instant::now();
+        keeper.note_shared_titles(&live);
+        let titles_ms = ms(at);
+        let at = Instant::now();
+        keeper.watch_bursts(&live);
+        let bursts_ms = ms(at);
+        eprintln!("  track {track_ms:.1} ms, shared titles {titles_ms:.1}, bursts {bursts_ms:.1}");
+        let at = Instant::now();
+        let reason = if round == 0 { "manual" } else { "timer" };
+        let (wrote, count) = keeper
+            .write_seen(&live, &world, reason, round == 0)
+            .unwrap();
+        let write_ms = ms(at);
+        eprintln!(
+            "round {round}: {count} windows, wrote {wrote}\n  live_windows {live_ms:.1} ms, \
+             desktops {desk_ms:.1}, monitors {mons_ms:.1}, desktop reads {read_ms:.1}, \
+             build and write {write_ms:.1}"
+        );
+    }
+    clean_up(&path);
+}
