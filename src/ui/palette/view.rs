@@ -26,6 +26,13 @@ impl Palette {
 
         if interactive {
             let pressed = |key| ctx.input(|input| input.key_pressed(key));
+            // Up and Down move through the list. They are taken here, before
+            // the search box is drawn: a one-line box would also get them and
+            // jump its cursor to the start or the end of the text.
+            let take_arrow = |key| {
+                let plain = ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, key));
+                plain || pressed(key)
+            };
             // The confirmation goes at the first key, so typing starts on a
             // clean palette.
             if self.saved.is_some()
@@ -85,10 +92,10 @@ impl Palette {
                 outcome = Outcome::OpenSettings(Page::Plugins);
             }
             if let Some(at) = self.action_cursor {
-                if pressed(egui::Key::ArrowDown) && !listed.is_empty() {
+                if take_arrow(egui::Key::ArrowDown) && !listed.is_empty() {
                     self.action_cursor = Some((at + 1) % listed.len());
                 }
-                if pressed(egui::Key::ArrowUp) && !listed.is_empty() {
+                if take_arrow(egui::Key::ArrowUp) && !listed.is_empty() {
                     self.action_cursor = Some((at + listed.len() - 1) % listed.len());
                 }
                 if key_modifiers(&ctx, egui::Key::ArrowLeft).is_some() {
@@ -102,11 +109,11 @@ impl Palette {
                 }
             } else if !self.results.items.is_empty() {
                 let count = self.results.items.len();
-                if pressed(egui::Key::ArrowDown) {
+                if take_arrow(egui::Key::ArrowDown) {
                     self.selected = (self.selected + 1) % count;
                     self.follow_selection = true;
                 }
-                if pressed(egui::Key::ArrowUp) {
+                if take_arrow(egui::Key::ArrowUp) {
                     self.selected = (self.selected + count - 1) % count;
                     self.follow_selection = true;
                 }
@@ -285,6 +292,19 @@ impl Palette {
             pos2(field_left, search.top()),
             pos2(field_right, search.bottom() - line.width),
         );
+        let typed = if self.query.is_empty() {
+            0.0
+        } else {
+            ui.painter()
+                .layout_no_wrap(
+                    self.query.clone(),
+                    theme::regular(16.0),
+                    tokens.text_primary,
+                )
+                .size()
+                .x
+        };
+        self.search_blank = search_blank(field, typed);
         let hint = egui::RichText::new(placeholder)
             .color(tokens.text_disabled)
             .font(theme::regular(16.0));
@@ -632,4 +652,12 @@ impl Palette {
         }
         outcome
     }
+}
+
+/// The part of the search field right of the typed text, where a press and
+/// hold moves the window. A small gap after the text keeps a click near its
+/// last letter for the cursor.
+pub(super) fn search_blank(field: Rect, typed: f32) -> Rect {
+    let left = (field.left() + typed + 8.0).min(field.right());
+    Rect::from_min_max(pos2(left, field.top()), field.max)
 }

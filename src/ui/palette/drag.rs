@@ -34,24 +34,34 @@ pub struct Pointer {
     pub in_panel: bool,
     /// egui gave the press to a widget: a button, a row or the search box.
     pub taken: bool,
+    /// The press is in the search box's empty part, right of the text (or
+    /// anywhere in it while it is empty). The box takes the press, but a
+    /// drag from there still moves the window.
+    pub in_search_blank: bool,
 }
 
 #[derive(Default)]
 pub struct BlankPress {
     origin: Option<egui::Pos2>,
+    /// The press began in the search box's empty part.
+    from_search: bool,
 }
 
 impl BlankPress {
     pub fn step(&mut self, pointer: Pointer) -> Step {
         if pointer.pressed {
-            self.origin = pointer.pos.filter(|_| pointer.in_panel && !pointer.taken);
+            let blank = !pointer.taken || pointer.in_search_blank;
+            self.origin = pointer.pos.filter(|_| pointer.in_panel && blank);
+            self.from_search = pointer.in_search_blank;
         }
         let Some(origin) = self.origin else {
             return Step::None;
         };
         if pointer.released {
             self.origin = None;
-            return if pointer.double_click {
+            // A double-click in the search box selects a word there; it does
+            // not centre the palette.
+            return if pointer.double_click && !self.from_search {
                 Step::Centre
             } else {
                 Step::None
@@ -95,10 +105,16 @@ impl Palette {
                 pos,
                 in_panel: pos.is_some_and(|pos| self.panel.contains(pos)),
                 taken: false,
+                in_search_blank: pos.is_some_and(|pos| self.search_blank.contains(pos)),
             }
         });
         pointer.taken = ctx.egui_is_using_pointer();
         let step = self.blank.step(pointer);
+        if step == Step::StartDrag {
+            // The search box took the press and would go on selecting text
+            // as the mouse moves; the window moves instead.
+            ctx.stop_dragging();
+        }
         if step != Step::None {
             self.window_step = step;
         }

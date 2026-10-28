@@ -2055,13 +2055,21 @@ fn holding_blank_space_and_moving_starts_a_window_drag() {
     let mut palette = places_palette(&["x"], &new_store());
     let footer = pos2(MARGIN + 450.0, MARGIN + PANEL_HEIGHT - 6.0);
     assert_eq!(press_and_move(&mut palette, footer), WindowStep::StartDrag);
+    // The search box right of the typed text is blank space too.
+    let mut palette = places_palette(&["x"], &new_store());
+    let after_the_text = pos2(MARGIN + 100.0, MARGIN + SEARCH_HEIGHT / 2.0);
+    assert_eq!(
+        press_and_move(&mut palette, after_the_text),
+        WindowStep::StartDrag
+    );
 }
 
 #[test]
-fn a_drag_on_the_search_box_or_a_row_does_not_move_the_window() {
+fn a_drag_on_typed_text_or_a_row_does_not_move_the_window() {
     let mut palette = places_palette(&["x"], &new_store());
-    let search_box = pos2(MARGIN + 100.0, MARGIN + SEARCH_HEIGHT / 2.0);
-    assert_eq!(press_and_move(&mut palette, search_box), WindowStep::None);
+    palette.set_query("wwwwwwwwwwwwwwwwwwwwwwww".to_string());
+    let on_the_text = pos2(MARGIN + 100.0, MARGIN + SEARCH_HEIGHT / 2.0);
+    assert_eq!(press_and_move(&mut palette, on_the_text), WindowStep::None);
     let mut palette = places_palette(&["x"], &new_store());
     let row = pos2(MARGIN + 200.0, MARGIN + SEARCH_HEIGHT + GROUP_HEADER + 12.0);
     assert_eq!(press_and_move(&mut palette, row), WindowStep::None);
@@ -2135,4 +2143,103 @@ fn the_press_state_machine_needs_a_fresh_press_after_a_drag() {
     };
     assert_eq!(press.step(taken), Step::None);
     assert_eq!(press.step(down(at + vec2(30.0, 0.0), false)), Step::None);
+}
+
+#[test]
+fn a_drag_from_the_empty_search_box_moves_the_window_but_a_double_click_does_not_centre() {
+    use drag::{BlankPress, Pointer, Step};
+    let mut press = BlankPress::default();
+    let at = pos2(300.0, 20.0);
+    let search = |pos: egui::Pos2, pressed: bool| Pointer {
+        pressed,
+        down: true,
+        pos: Some(pos),
+        in_panel: true,
+        taken: true,
+        in_search_blank: true,
+        ..Default::default()
+    };
+    assert_eq!(press.step(search(at, true)), Step::None);
+    assert_eq!(
+        press.step(search(at + vec2(9.0, 0.0), false)),
+        Step::StartDrag
+    );
+    // A press on the typed text itself stays the search box's.
+    let on_text = Pointer {
+        in_search_blank: false,
+        ..search(at, true)
+    };
+    assert_eq!(press.step(on_text), Step::None);
+    assert_eq!(press.step(search(at + vec2(30.0, 0.0), false)), Step::None);
+    // A double-click there selects a word; the palette stays where it is.
+    assert_eq!(press.step(search(at, true)), Step::None);
+    let release = Pointer {
+        pressed: false,
+        down: false,
+        released: true,
+        double_click: true,
+        ..search(at, false)
+    };
+    assert_eq!(press.step(release), Step::None);
+}
+
+#[test]
+fn the_search_blank_starts_after_the_text_and_never_leaves_the_field() {
+    let field = Rect::from_min_max(pos2(40.0, 0.0), pos2(500.0, 56.0));
+    assert_eq!(view::search_blank(field, 0.0).left(), 48.0);
+    assert_eq!(view::search_blank(field, 100.0).left(), 148.0);
+    assert_eq!(view::search_blank(field, 900.0).left(), 500.0);
+    assert_eq!(view::search_blank(field, 100.0).max, field.max);
+}
+
+#[test]
+fn up_and_down_move_the_list_and_leave_the_search_cursor_alone() {
+    let bridge = crate::core::ui_bridge::create();
+    let ctx = drawing_context();
+    let snapshot = UiSnapshot::default();
+    let mut palette = places_palette(&["a", "b", "c"], &new_store());
+    palette.type_in("yz");
+    for _ in 0..3 {
+        frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+    }
+    let cursor = |palette: &Palette| {
+        let id = palette.query_id.expect("the search box is drawn");
+        egui::TextEdit::load_state(&ctx, id)
+            .and_then(|state| state.cursor.char_range())
+            .map(|range| range.primary.index)
+    };
+    let before = cursor(&palette);
+    let key = |key| egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: Default::default(),
+    };
+    frame(
+        &mut palette,
+        &ctx,
+        &snapshot,
+        &bridge,
+        vec![key(egui::Key::ArrowDown)],
+    );
+    assert_eq!(palette.selected, 1, "Down moves the list");
+    assert_eq!(
+        cursor(&palette),
+        before,
+        "Down leaves the cursor where it was"
+    );
+    frame(
+        &mut palette,
+        &ctx,
+        &snapshot,
+        &bridge,
+        vec![key(egui::Key::ArrowUp)],
+    );
+    assert_eq!(palette.selected, 0, "Up moves the list");
+    assert_eq!(
+        cursor(&palette),
+        before,
+        "Up leaves the cursor where it was"
+    );
 }

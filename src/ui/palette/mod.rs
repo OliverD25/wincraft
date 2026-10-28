@@ -170,6 +170,8 @@ pub struct Palette {
     hotkey_dialog: Option<Editor>,
     /// Where the panel was drawn last, for the dialog's backdrop.
     panel: Rect,
+    /// The search box's empty part, right of the text: blank space to drag.
+    search_blank: Rect,
     blank: drag::BlankPress,
     window_step: drag::Step,
     /// The "Update ready" row as the snapshot had it when the palette
@@ -259,6 +261,7 @@ impl Palette {
             query_id: None,
             hotkey_dialog: None,
             panel: Rect::NOTHING,
+            search_blank: Rect::NOTHING,
             blank: Default::default(),
             window_step: Default::default(),
             pinned: None,
