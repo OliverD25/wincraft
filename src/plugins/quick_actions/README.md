@@ -20,7 +20,7 @@ dark mode, `caffeine` finds keep awake, `pin` finds always on top.
 | **Window: Resize to 80 % of the Monitor** | Makes the window 80 % of its screen's width and height, in the middle. |
 | **Display: Toggle Keep Awake** | Keeps the PC and the screen from sleeping until you run it again. |
 | **Theme: Toggle Dark Mode** | Switches apps and Windows between dark and light, together. |
-| **Desktop: Toggle Desktop Icons** | Hides the icons on the desktop, for a clean screen to share, or shows them again. Your files stay where they are. |
+| **Desktop: Show Desktop Icons** | Hides the icons on the desktop, for a clean screen to share, or shows them again. Your files stay where they are. Typing `toggle desktop icons` still finds it. |
 | **Taskbar: Toggle Auto-Hide** | Hides the taskbar until the mouse reaches the screen edge, or keeps it on screen. |
 | **File Explorer: Toggle Hidden Files** | Shows or hides hidden files in File Explorer. |
 | **File Explorer: Toggle File Extensions** | Shows or hides the end of file names, such as `.txt`. |
@@ -36,6 +36,24 @@ dark mode, `caffeine` finds keep awake, `pin` finds always on top.
 | **Window: Resize…** | Lists the window sizes, with your own sizes from the plugin's page. |
 | **System: Eject USB Drive** | Lists the USB drives and memory cards; ejects the one you pick so you can unplug it. |
 | **Display: Keep Awake for…** | Keeps the PC awake for 30 minutes, 1 hour, 2 hours, or until you turn it off. |
+
+## Switches in the palette
+
+The eight actions that switch something on and off (always on top, keep
+awake, dark mode, desktop icons, taskbar auto-hide, hidden files, file
+extensions and the microphone) show their state in the palette. A small
+tile shows the state with its icon, a line under the name says it in
+words, such as "Hidden files are not shown", and a switch at the right
+shows on or off. WinCraft reads the state from Windows each time the
+palette opens.
+
+**Enter** flips the switch and the palette stays open, so you see the new
+state at once. The notice with **Undo** still appears. A hotkey on one of
+these actions runs it without the palette.
+
+Always on top is about the window you were in. With no such window the
+line says "No window selected" and there is no switch. When Windows does
+not say how a setting is, the line says "State unknown".
 
 ## Actions with a list
 

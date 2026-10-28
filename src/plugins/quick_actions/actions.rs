@@ -103,8 +103,9 @@ pub const ENTRIES: [Entry; 23] = [
     Entry {
         id: 21,
         command: Command::Toggle(Setting::DesktopIcons),
-        label: "Desktop: Toggle Desktop Icons",
-        words: "icons desktop clean screen share hide show presentation",
+        label: "Desktop: Show Desktop Icons",
+        // "toggle" keeps the old name findable.
+        words: "toggle icons desktop clean screen share hide show presentation",
         subtitle: "Hides or shows the icons on the desktop",
         confirm: "",
         list: false,

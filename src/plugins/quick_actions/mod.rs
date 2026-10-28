@@ -16,6 +16,7 @@ mod inspect;
 mod lists;
 mod network;
 mod ports;
+mod states;
 mod system;
 mod toggles;
 mod tools;
@@ -35,7 +36,7 @@ use crate::core::traits::{
     FieldKind, HostContext, PaletteCommand, PluginMetadata, SettingField, TrayToggle,
     WinCraftPlugin,
 };
-use crate::core::ui_bridge::{ActionKind, CommandDetails, SubList};
+use crate::core::ui_bridge::{ActionKind, CommandDetails, SubList, ToggleState};
 use crate::core::{host, instance, wide};
 
 use actions::{Awake, Outcome, Undo, ENTRIES, KEEP_AWAKE};
@@ -167,6 +168,14 @@ impl Engine {
             &mut self.next_uuid,
             now,
         ))
+    }
+
+    fn toggle_state(&self, id: u32) -> Option<ToggleState> {
+        states::state_of(
+            actions::entry(id)?.command,
+            self.system.as_ref(),
+            &self.awake,
+        )
     }
 
     fn list(&mut self, id: u32) -> Option<SubList> {
@@ -464,7 +473,7 @@ impl WinCraftPlugin for QuickActions {
                 words: entry.words,
                 confirm: entry.confirm,
                 list: entry.list,
-                toggle: None,
+                toggle: states::look_of(entry.command),
             })
             .collect()
     }
@@ -491,6 +500,13 @@ impl WinCraftPlugin for QuickActions {
             return None;
         }
         ask_engine(|engine| engine.details(action_id)).flatten()
+    }
+
+    fn toggle_state(&mut self, kind: ActionKind, action_id: u32) -> Option<ToggleState> {
+        if kind != ActionKind::Palette {
+            return None;
+        }
+        ask_engine(|engine| engine.toggle_state(action_id)).flatten()
     }
 
     fn palette_subtitle(&self, kind: ActionKind, action_id: u32) -> Option<String> {
@@ -565,6 +581,43 @@ mod tests {
         assert!(plugin.palette_subtitle(ActionKind::Hotkey, 1).is_none());
         assert!(plugin.palette_subtitle(ActionKind::Palette, 999).is_none());
         assert!(plugin.hotkey_actions().is_empty(), "no default hotkeys");
+    }
+
+    #[test]
+    fn eight_commands_are_toggles_and_none_of_them_asks_first_or_lists() {
+        let mut plugin = QuickActions::new();
+        let toggles: Vec<_> = plugin
+            .palette_commands()
+            .into_iter()
+            .filter(|command| command.toggle.is_some())
+            .collect();
+        assert_eq!(toggles.len(), 8);
+        for command in &toggles {
+            assert!(
+                command.confirm.is_empty() && !command.list,
+                "{}",
+                command.label
+            );
+        }
+        // With the plugin off there is no engine to read from: unknown.
+        assert!(plugin.toggle_state(ActionKind::Palette, 20).is_none());
+        assert!(plugin.toggle_state(ActionKind::Hotkey, 20).is_none());
+    }
+
+    #[test]
+    fn show_desktop_icons_is_still_found_by_its_old_name() {
+        let plugin = QuickActions::new();
+        let commands = plugin.palette_commands();
+        let icons = commands
+            .iter()
+            .find(|command| command.id == 21)
+            .expect("the desktop icons command");
+        assert_eq!(icons.label, "Desktop: Show Desktop Icons");
+        assert!(icons.toggle.is_some());
+        assert!(crate::ui::fuzzy::score_words("toggle desktop icons", icons.words).is_some());
+        assert!(!commands
+            .iter()
+            .any(|command| command.label.contains("Toggle Desktop Icons")));
     }
 
     #[test]

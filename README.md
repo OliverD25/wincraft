@@ -143,7 +143,7 @@ Shows which input language you switched to right in the center of the screen, ma
 
 ### 8. QuickActions
 
-The Windows 11 switches that Settings hides several clicks deep, one search away in the palette, VS Code style. Type `dark`, `center` or `awake` and press `Enter`. Every action is named *Area: Verb* and is also found by everyday words: `night` finds dark mode, `caffeine` finds keep awake, `pin` finds always on top. Window actions change the window you were in before the palette opened (never WinCraft's own), restore a maximized window first, and use real screen pixels of the visible window, so `1280 × 720` records as `1280 × 720` at any scale. Every change shows a notice from WinCraft with **Undo**, which puts back exactly what was there before; running a switch again also switches it back. No default hotkeys: select an action in the palette and press `Ctrl+K` to give it one. [Full README](src/plugins/quick_actions/README.md)
+The Windows 11 switches that Settings hides several clicks deep, one search away in the palette, VS Code style. Type `dark`, `center` or `awake` and press `Enter`. Every action is named *Area: Verb* and is also found by everyday words: `night` finds dark mode, `caffeine` finds keep awake, `pin` finds always on top. Window actions change the window you were in before the palette opened (never WinCraft's own), restore a maximized window first, and use real screen pixels of the visible window, so `1280 × 720` records as `1280 × 720` at any scale. Every change shows a notice from WinCraft with **Undo**, which puts back exactly what was there before; running a switch again also switches it back. The eight switches show their state in the palette, read from Windows each time it opens, and `Enter` flips one with the palette left open. No default hotkeys: select an action in the palette and press `Ctrl+K` to give it one. [Full README](src/plugins/quick_actions/README.md)
 
 | Palette command | What it does |
 | --- | --- |
@@ -152,7 +152,7 @@ The Windows 11 switches that Settings hides several clicks deep, one search away
 | `Window: Resize to 1280 × 720` / `1920 × 1080` / `80 % of the Monitor` | Resizes the window and centers it, shrinking to fit the screen if needed |
 | `Display: Toggle Keep Awake` | Keeps the PC and the screen awake until run again (also a tick in the tray menu) |
 | `Theme: Toggle Dark Mode` | Switches apps and Windows between dark and light together |
-| `Desktop: Toggle Desktop Icons` | Hides or shows the desktop icons, for a clean screen share |
+| `Desktop: Show Desktop Icons` | Hides or shows the desktop icons, for a clean screen share |
 | `Taskbar: Toggle Auto-Hide` | Hides the taskbar until the mouse reaches it |
 | `File Explorer: Toggle Hidden Files` / `Toggle File Extensions` | Shows or hides hidden files, or the `.txt` end of file names |
 | `Network: Copy Local IP` | Copies the PC's own address (Wi-Fi first, then Ethernet and WSL); no outside service is asked |
