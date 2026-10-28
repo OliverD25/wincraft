@@ -545,6 +545,15 @@ pub struct MonitorRect {
     pub bottom: i32,
 }
 
+/// One key for the strip from a keyboard hook, as egui names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ArrangeKey {
+    pub key: egui::Key,
+    pub modifiers: egui::Modifiers,
+    /// The key was held down and Windows repeated it.
+    pub repeat: bool,
+}
+
 pub enum UiCommand {
     ShowPalette(MonitorRect),
     /// The palette as a one-line box that answers a plugin's question.
@@ -594,6 +603,11 @@ pub enum UiCommand {
     ArrangeSelectWindow(isize),
     /// Win and the same number again: pick the next card on this desktop.
     ArrangeSelectNext,
+    /// A key the hover strip's keyboard hook kept from the app in front,
+    /// while the mouse is in the strip: the strip handles it as if typed.
+    ArrangeKey(ArrangeKey),
+    /// Whether keys go to the hover strip now, because the mouse is in it.
+    ArrangeKeysRouted(bool),
     HideArrange,
     /// No running plugin shows the strip any more: its window, kept hidden
     /// between openings, is freed.

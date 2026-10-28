@@ -42,6 +42,7 @@ mod pictures;
 mod pointer;
 mod rename;
 mod reveal;
+mod routed;
 mod rows;
 mod sizing;
 mod strip;
@@ -285,6 +286,10 @@ struct Shared {
     took_back: bool,
     /// Closed, with its window kept hidden for the next opening.
     parked: bool,
+    /// Keys the hover strip's hook routed here, for the next frame.
+    routed: Vec<egui::Event>,
+    /// Keys go to the strip now, because the mouse is in it.
+    keys_routed: bool,
 }
 
 impl Shared {

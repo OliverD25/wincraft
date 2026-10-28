@@ -260,6 +260,14 @@ impl App {
                     self.arrange.select_next();
                     ctx.request_repaint_of(arrange::viewport_id());
                 }
+                UiCommand::ArrangeKey(key) => {
+                    self.arrange.route_key(key);
+                    ctx.request_repaint_of(arrange::viewport_id());
+                }
+                UiCommand::ArrangeKeysRouted(on) => {
+                    self.arrange.keys_routed(on);
+                    ctx.request_repaint_of(arrange::viewport_id());
+                }
                 UiCommand::ArrangeNote(text) => {
                     self.arrange.note(text);
                     ctx.request_repaint_of(arrange::viewport_id());

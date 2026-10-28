@@ -116,6 +116,28 @@ pub fn post_win_released(alone: bool) {
     }
 }
 
+/// The UI's channel, for the calls that go straight to the UI thread from
+/// any thread, past a host thread that may be busy.
+pub(super) static TO_UI: std::sync::OnceLock<Arc<UiChannel>> = std::sync::OnceLock::new();
+
+/// Hands a key to the open strip, as if typed in it: for the hover strip's
+/// keyboard hook, while the mouse is in the strip. Goes straight to the UI
+/// thread. Safe to call from any thread, but it may wait a moment for the
+/// UI, so a hook's callback hands it to a thread of its own.
+pub fn route_arrange_key(key: crate::core::ui_bridge::ArrangeKey) {
+    if let Some(to_ui) = TO_UI.get() {
+        to_ui.send(UiCommand::ArrangeKey(key));
+    }
+}
+
+/// Tells the strip whether keys go to it now, so it can say so on screen.
+/// Safe to call from any thread.
+pub fn arrange_keys_routed(on: bool) {
+    if let Some(to_ui) = TO_UI.get() {
+        to_ui.send(UiCommand::ArrangeKeysRouted(on));
+    }
+}
+
 /// Closes the Arrange strip if it is open. Safe to call from any callback.
 pub fn close_arrange() {
     ARRANGE_CLOSE.with(|cell| cell.set(true));
