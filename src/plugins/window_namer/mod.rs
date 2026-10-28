@@ -929,6 +929,7 @@ impl WinCraftPlugin for WindowNamer {
             label: "Clear all names",
             hint: "",
             words: "",
+            confirm: "",
         }]
     }
 

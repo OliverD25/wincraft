@@ -360,7 +360,7 @@ impl Host {
                             "chord {}: second key matched",
                             hotkeys::format(press.hotkey)
                         );
-                        self.run_command(command);
+                        self.run_from_key(command);
                         return;
                     }
                     shortcuts::ChordKey::Cancel => {

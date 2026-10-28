@@ -17,6 +17,7 @@ impl Palette {
         self.refresh(snapshot, &ctx);
         self.sync_tips(snapshot);
         self.refresh_details();
+        self.refresh_command_details(to_host);
         let tokens = with_window_corners(Tokens::get(&ctx), self.glass);
         let mut outcome = Outcome::Stay;
         let mut run: Option<(Run, Via)> = None;
@@ -56,6 +57,7 @@ impl Palette {
             });
             if other_key {
                 self.router.interrupted();
+                self.armed = None;
             }
             if pressed(egui::Key::Escape) {
                 let left_actions =
@@ -511,7 +513,13 @@ impl Palette {
                 .as_ref()
                 .filter(|(hwnd, _)| item.as_ref().and_then(ResultItem::window) == Some(*hwnd))
                 .map(|(_, details)| details);
+            let armed = self.armed_text(snapshot);
+            if let Some((_, at)) = self.armed.filter(|_| armed.is_some()) {
+                ctx.request_repaint_after(state::CONFIRM_FOR.saturating_sub(at.elapsed()));
+            }
             let inspected = Inspected {
+                command: self.shown_command_details(),
+                armed: armed.as_deref(),
                 item: item.as_ref(),
                 marks: &self.marks,
                 actions: &actions,

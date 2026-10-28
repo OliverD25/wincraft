@@ -25,7 +25,8 @@ use windows_sys::Win32::Foundation::HWND;
 use crate::core::theme::{self, Tokens};
 use crate::core::tips::{self, Place, TipsConfig};
 use crate::core::ui_bridge::{
-    HostChannel, HostRequest, HostSetting, Page, Prompt, UiSnapshot, SEARCH_PROMPT,
+    CommandDetails, CommandId, HostChannel, HostRequest, HostSetting, Page, Prompt, UiSnapshot,
+    SEARCH_PROMPT,
 };
 use crate::core::virtual_desktops::Pinner;
 use crate::core::window_info::{self, WindowDetails};
@@ -141,6 +142,11 @@ pub struct Palette {
     /// What the inspector shows about the selected window, read once when
     /// the cursor reaches it.
     details: Option<(isize, WindowDetails)>,
+    /// What the selected plugin command's plugin said about it, asked once
+    /// when the cursor gets there; None inside until the answer comes.
+    command_details: Option<(CommandId, Option<CommandDetails>)>,
+    /// A command that asks for Enter twice got its first, at this moment.
+    armed: Option<(CommandId, Instant)>,
     /// Made when first needed; None inside when the shell's interface for
     /// pinning is not there.
     pinner: Option<Option<Pinner>>,
@@ -213,6 +219,8 @@ impl Palette {
             window: 0,
             thumbnail: None,
             details: None,
+            command_details: None,
+            armed: None,
             pinner: None,
             query_id: None,
             hotkey_dialog: None,
@@ -242,6 +250,8 @@ impl Palette {
         self.action_cursor = None;
         self.marks.clear();
         self.details = None;
+        self.command_details = None;
+        self.armed = None;
         self.thumbnail = None;
         if let Some(icons) = &mut self.icons {
             icons.forget_windows();

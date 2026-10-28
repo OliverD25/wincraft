@@ -54,6 +54,62 @@ impl Host {
         }
     }
 
+    /// What a plugin says about one of its commands for the inspector.
+    pub(super) fn command_details(
+        &mut self,
+        id: CommandId,
+    ) -> Option<crate::core::ui_bridge::CommandDetails> {
+        let CommandId::Plugin {
+            index,
+            kind,
+            action,
+        } = id
+        else {
+            return None;
+        };
+        let slot = self
+            .plugins
+            .slots
+            .get_mut(index)
+            .filter(|slot| slot.enabled)?;
+        slot.plugin.command_details(kind, action)
+    }
+
+    /// The text a palette command shows before its second Enter, when it
+    /// asks for one.
+    pub(super) fn confirm_of(&self, id: CommandId) -> Option<(String, String)> {
+        let CommandId::Plugin {
+            index,
+            kind: ActionKind::Palette,
+            action,
+        } = id
+        else {
+            return None;
+        };
+        let slot = self.plugins.slots.get(index)?;
+        slot.plugin
+            .palette_commands()
+            .into_iter()
+            .find(|command| command.id == action && !command.confirm.is_empty())
+            .map(|command| (command.label.to_string(), command.confirm.to_string()))
+    }
+
+    /// A hotkey's command. One that asks for Enter twice, such as emptying
+    /// the Recycle Bin, is not run from a key: the palette opens on it, so
+    /// the user sees what it will do and presses Enter twice there.
+    pub(super) fn run_from_key(&mut self, id: CommandId) {
+        let Some((label, _)) = self.confirm_of(id) else {
+            self.run_command(id);
+            return;
+        };
+        log::info!("the hotkey for \"{label}\" opens the palette on it, to ask first");
+        search::actions::remember_front();
+        self.to_ui.send(UiCommand::ShowPalette(cursor_monitor()));
+        self.to_ui
+            .send(UiCommand::TypeInPalette(format!("!{label}")));
+        bring_to_front(self.palette_hwnd);
+    }
+
     pub(super) fn handle_request(&mut self, request: HostRequest) {
         match request {
             HostRequest::UiReady { palette_hwnd } => {
@@ -62,6 +118,10 @@ impl Host {
                 self.publish();
             }
             HostRequest::RunCommand(id) => self.run_command(id),
+            HostRequest::CommandDetails(id) => {
+                let details = self.command_details(id);
+                self.to_ui.send(UiCommand::CommandDetails { id, details });
+            }
             HostRequest::RunAction(search::Action::Command(id)) => self.run_command(id),
             HostRequest::RunAction(search::Action::Arrange(hwnd)) => {
                 if self.send_arrange_for(true, false) {

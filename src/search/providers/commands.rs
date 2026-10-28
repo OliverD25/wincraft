@@ -152,6 +152,7 @@ mod tests {
             label: label.to_string(),
             hint: String::new(),
             words: String::new(),
+            confirm: String::new(),
             disabled,
             plugin: Some("screen_dimmer".to_string()),
             subtitle: None,

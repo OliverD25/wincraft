@@ -543,6 +543,7 @@ impl WinCraftPlugin for LayoutKeeper {
             label: "Open state file",
             hint: "",
             words: "",
+            confirm: "",
         }]
     }
 

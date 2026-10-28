@@ -448,6 +448,7 @@ impl WinCraftPlugin for WindowDeck {
             label: "WindowDeck: Switch taskbar hover on or off",
             hint: "",
             words: "",
+            confirm: "",
         }]
     }
 
@@ -580,6 +581,7 @@ mod tests {
                 label: String::new(),
                 hint: String::new(),
                 words: String::new(),
+                confirm: String::new(),
                 disabled: false,
                 plugin: Some(ID.to_string()),
                 subtitle: None,

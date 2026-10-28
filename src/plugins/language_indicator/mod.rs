@@ -275,6 +275,7 @@ impl WinCraftPlugin for LanguageIndicator {
             label: "Show current input language",
             hint: "",
             words: "",
+            confirm: "",
         }]
     }
 

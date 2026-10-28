@@ -165,6 +165,9 @@ impl Palette {
                 }
             }
             Action::Command(id) => {
+                if !self.confirmed(snapshot, id) {
+                    return Outcome::Stay;
+                }
                 to_host.send(HostRequest::RunCommand(id));
                 Outcome::Hide
             }

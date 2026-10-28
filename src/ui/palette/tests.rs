@@ -1479,3 +1479,104 @@ fn a_typed_list_is_left_alone_when_the_index_arrives() {
     assert_eq!(palette.results.items.len(), before);
     assert_eq!(palette.searched.as_ref().map(|s| s.1.as_str()), Some("zzz"));
 }
+
+fn plugin_row(action: u32) -> (crate::core::ui_bridge::CommandId, ResultItem) {
+    let id = crate::core::ui_bridge::CommandId::Plugin {
+        index: 0,
+        kind: crate::core::ui_bridge::ActionKind::Palette,
+        action,
+    };
+    let item = ResultItem {
+        title: "System: Empty Recycle Bin".to_string(),
+        enter: Some(Choice {
+            label: "Run".to_string(),
+            action: Action::Command(id),
+        }),
+        ..Default::default()
+    };
+    (id, item)
+}
+
+fn asking_snapshot(id: crate::core::ui_bridge::CommandId) -> UiSnapshot {
+    UiSnapshot {
+        commands: vec![crate::core::ui_bridge::PaletteEntry {
+            id,
+            group: "QuickActions".to_string(),
+            label: "System: Empty Recycle Bin".to_string(),
+            hint: String::new(),
+            words: String::new(),
+            confirm: "Press Enter again to empty it".to_string(),
+            disabled: false,
+            plugin: Some("quick_actions".to_string()),
+            subtitle: None,
+            shortcut_id: String::new(),
+            shortcut: String::new(),
+            quiet: false,
+            badge: None,
+        }],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_selected_plugin_command_asks_the_host_once_and_shows_its_answer() {
+    let bridge = crate::core::ui_bridge::create();
+    let mut palette = reply_palette();
+    let (id, item) = plugin_row(35);
+    palette.results.items = vec![item];
+    palette.selected = 0;
+    palette.refresh_command_details(&bridge.to_host);
+    palette.refresh_command_details(&bridge.to_host);
+    let asked: Vec<HostRequest> = std::iter::from_fn(|| bridge.host_rx.try_recv().ok()).collect();
+    assert_eq!(asked.len(), 1, "once per selection");
+    assert!(matches!(asked[0], HostRequest::CommandDetails(asked_id) if asked_id == id));
+    assert!(palette.shown_command_details().is_none(), "no answer yet");
+    let (other, _) = plugin_row(1);
+    palette.set_command_details(other, Some(CommandDetails::default()));
+    assert!(
+        palette.shown_command_details().is_none(),
+        "an old answer is dropped"
+    );
+    let answer = CommandDetails {
+        status: "12 items".to_string(),
+        lines: Vec::new(),
+    };
+    palette.set_command_details(id, Some(answer.clone()));
+    assert_eq!(palette.shown_command_details(), Some(&answer));
+    palette.opened();
+    assert!(palette.command_details.is_none());
+}
+
+#[test]
+fn a_command_that_asks_first_runs_on_the_second_enter_only() {
+    let bridge = crate::core::ui_bridge::create();
+    let mut palette = reply_palette();
+    let (id, item) = plugin_row(35);
+    palette.results.items = vec![item];
+    palette.selected = 0;
+    let snapshot = asking_snapshot(id);
+    let outcome = palette.perform(Action::Command(id), &snapshot, &bridge.to_host);
+    assert!(matches!(outcome, Outcome::Stay));
+    assert!(bridge.host_rx.try_recv().is_err(), "nothing ran yet");
+    assert_eq!(
+        palette.armed_text(&snapshot).as_deref(),
+        Some("Press Enter again to empty it")
+    );
+    let outcome = palette.perform(Action::Command(id), &snapshot, &bridge.to_host);
+    assert!(matches!(outcome, Outcome::Hide));
+    assert!(matches!(
+        bridge.host_rx.try_recv().ok(),
+        Some(HostRequest::RunCommand(ran)) if ran == id
+    ));
+    assert!(palette.armed_text(&snapshot).is_none());
+
+    // A first Enter that is too old counts as a new first one.
+    palette.armed = Some((id, Instant::now() - state::CONFIRM_FOR));
+    assert!(palette.armed_text(&snapshot).is_none());
+    let outcome = palette.perform(Action::Command(id), &snapshot, &bridge.to_host);
+    assert!(matches!(outcome, Outcome::Stay));
+    // Any other command runs at once.
+    let (plain, _) = plugin_row(1);
+    let outcome = palette.perform(Action::Command(plain), &snapshot, &bridge.to_host);
+    assert!(matches!(outcome, Outcome::Hide));
+}

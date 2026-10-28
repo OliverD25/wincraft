@@ -72,7 +72,7 @@ impl Host {
         self.end_wait();
         if press.seconds.is_empty() {
             if let Some(command) = press.plain {
-                self.run_command(command);
+                self.run_from_key(command);
             }
             return;
         }

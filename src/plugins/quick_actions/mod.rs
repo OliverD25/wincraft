@@ -302,6 +302,7 @@ impl WinCraftPlugin for QuickActions {
                 label: entry.label,
                 hint: "",
                 words: entry.words,
+                confirm: "",
             })
             .collect()
     }

@@ -63,6 +63,18 @@ pub enum CommandId {
     },
 }
 
+/// What a plugin tells the palette's inspector about one of its commands
+/// while its row is selected: the state the command would change, read at
+/// that moment and never in the background.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CommandDetails {
+    /// One line on what Enter does now, such as "Now: Dark. Enter
+    /// switches to Light".
+    pub status: String,
+    /// Name and value pairs under it, such as ("Wi-Fi", "192.168.1.20").
+    pub lines: Vec<(String, String)>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HostSetting {
     StartWithWindows(bool),
@@ -450,6 +462,12 @@ pub enum UiCommand {
     },
     /// The palette forgets every pick it recorded.
     ClearPaletteUsage,
+    /// The answer to `HostRequest::CommandDetails`; None when the plugin
+    /// has nothing to say or is off.
+    CommandDetails {
+        id: CommandId,
+        details: Option<CommandDetails>,
+    },
     /// Test instances only: text put in the palette's box as if typed,
     /// prefix and all. Nothing runs.
     TypeInPalette(String),
@@ -515,6 +533,9 @@ pub enum HostRequest {
         palette_hwnd: isize,
     },
     RunCommand(CommandId),
+    /// The palette selected a plugin command's row: what its inspector
+    /// should show. Asked once per selection.
+    CommandDetails(CommandId),
     /// A palette row's action that needs the host thread.
     RunAction(crate::search::Action),
     /// The text typed in answer to a `Prompt`.
@@ -650,6 +671,9 @@ pub struct PaletteEntry {
     pub hint: String,
     /// More words the palette finds it by, split by spaces.
     pub words: String,
+    /// Not empty: Enter must be pressed twice within 5 s, and this says
+    /// what the second Enter will do.
+    pub confirm: String,
     /// The plugin is off: the entry is shown dimmed and opens the plugin's page.
     pub disabled: bool,
     pub plugin: Option<String>,

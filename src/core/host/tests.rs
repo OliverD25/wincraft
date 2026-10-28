@@ -175,7 +175,29 @@ impl WinCraftPlugin for FakePlugin {
             label: "Tidy up",
             hint: "tidy",
             words: "",
+            confirm: if self.id == "fake_confirm" {
+                "Press Enter again to tidy up"
+            } else {
+                ""
+            },
         }]
+    }
+
+    fn on_palette_command(&mut self, id: u32) {
+        self.note(format!("palette {} {id}", self.id));
+    }
+
+    fn command_details(
+        &mut self,
+        kind: ActionKind,
+        action_id: u32,
+    ) -> Option<crate::core::ui_bridge::CommandDetails> {
+        (kind == ActionKind::Palette && action_id == 7).then(|| {
+            crate::core::ui_bridge::CommandDetails {
+                status: format!("{} is untidy", self.id),
+                lines: vec![("Mess".to_string(), "a lot".to_string())],
+            }
+        })
     }
 
     fn on_settings_changed(&mut self, settings: &Value) -> bool {
@@ -2061,4 +2083,100 @@ fn windows_gathered_when_win_goes_down_serve_the_next_opening() {
     host.prepare_deck();
     host.buttons_changed();
     assert!(!host.prepared.is_fresh(now()));
+}
+
+#[test]
+fn the_inspector_asks_a_running_plugin_about_its_command_and_gets_an_answer() {
+    let data = Scratch::new("command-details");
+    let (log, keyboard) = (diary(), FakeKeys::default());
+    let (mut host, ui) = test_host(
+        vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+        &keyboard,
+        &data,
+    );
+    let tidy = CommandId::Plugin {
+        index: 0,
+        kind: ActionKind::Palette,
+        action: 7,
+    };
+    ui.try_iter().count();
+    host.handle_request(HostRequest::CommandDetails(tidy));
+    let answers: Vec<_> = ui
+        .try_iter()
+        .filter_map(|command| match command {
+            UiCommand::CommandDetails { id, details } => Some((id, details)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(answers.len(), 1);
+    assert_eq!(answers[0].0, tidy);
+    let details = answers[0].1.as_ref().expect("details");
+    assert_eq!(details.status, "fake_a is untidy");
+    assert!(host.confirm_of(tidy).is_none());
+
+    host.plugins.disable(0);
+    host.handle_request(HostRequest::CommandDetails(tidy));
+    let off = ui.try_iter().find_map(|command| match command {
+        UiCommand::CommandDetails { details, .. } => Some(details),
+        _ => None,
+    });
+    assert_eq!(off, Some(None), "a plugin that is off says nothing");
+    host.handle_request(HostRequest::CommandDetails(CommandId::Host(
+        HostCommand::OpenSettings,
+    )));
+}
+
+#[test]
+fn a_hotkey_on_a_command_that_asks_first_opens_the_palette_on_it() {
+    let data = Scratch::new("confirm-key");
+    let (log, keyboard) = (diary(), FakeKeys::default());
+    let (mut host, ui) = test_host(
+        vec![
+            fake("fake_a", "Fake A", "Win+Alt+F1", &log),
+            fake("fake_confirm", "Fake C", "Win+Alt+F2", &log),
+        ],
+        &keyboard,
+        &data,
+    );
+    read(&log);
+    ui.try_iter().count();
+    let plain = CommandId::Plugin {
+        index: 0,
+        kind: ActionKind::Palette,
+        action: 7,
+    };
+    let asks = CommandId::Plugin {
+        index: 1,
+        kind: ActionKind::Palette,
+        action: 7,
+    };
+    assert_eq!(
+        host.confirm_of(asks),
+        Some((
+            "Tidy up".to_string(),
+            "Press Enter again to tidy up".to_string()
+        ))
+    );
+    host.run_from_key(plain);
+    assert_eq!(read(&log), ["palette fake_a 7"]);
+    host.run_from_key(asks);
+    assert!(read(&log).is_empty(), "it does not run from the key");
+    let sent: Vec<UiCommand> = ui.try_iter().collect();
+    assert!(sent.iter().any(|c| matches!(c, UiCommand::ShowPalette(_))));
+    assert!(sent
+        .iter()
+        .any(|c| matches!(c, UiCommand::TypeInPalette(text) if text == "!Tidy up")));
+    let snapshot = host.snapshot();
+    let entry = snapshot
+        .commands
+        .iter()
+        .find(|entry| entry.id == asks)
+        .expect("its row");
+    assert_eq!(entry.confirm, "Press Enter again to tidy up");
+    host.handle_request(HostRequest::RunCommand(asks));
+    assert_eq!(
+        read(&log),
+        ["palette fake_confirm 7"],
+        "the palette's own run goes through"
+    );
 }

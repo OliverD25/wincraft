@@ -4,7 +4,7 @@ use crate::core::config::PluginConfig;
 use crate::core::ui_bridge::HostChannel;
 use crate::core::ui_bridge::{
     ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeMonitor, ArrangeView,
-    LayoutAction, LayoutSnapshot,
+    CommandDetails, LayoutAction, LayoutSnapshot,
 };
 use crate::search::SearchProvider;
 
@@ -124,6 +124,11 @@ pub struct PaletteCommand {
     /// More words the palette finds the command by, split by spaces, such
     /// as "night light" for a dark-mode switch. Empty for none.
     pub words: &'static str,
+    /// Not empty for a command that cannot be undone: the palette then
+    /// asks for Enter twice within 5 s and shows this before the second,
+    /// such as "Press Enter again to empty the Recycle Bin". A hotkey on
+    /// it opens the palette on the command instead of running it.
+    pub confirm: &'static str,
 }
 
 /// What a plugin that keeps a window order shows in the Arrange strip.
@@ -318,6 +323,15 @@ pub trait WinCraftPlugin {
     /// A second line for one of the plugin's palette entries, such as the
     /// state it would change. Asked each time the palette's list is rebuilt;
     /// call `host::plugin_changed()` when the answer changes.
+    /// What the palette's inspector shows while one of your command rows
+    /// is selected, read at that moment: the state the command would
+    /// change and what Enter does now. Keep it quick; it runs on the host
+    /// thread while the user waits.
+    fn command_details(&mut self, kind: ActionKind, action_id: u32) -> Option<CommandDetails> {
+        let _ = (kind, action_id);
+        None
+    }
+
     fn palette_subtitle(&self, kind: ActionKind, action_id: u32) -> Option<String> {
         let _ = (kind, action_id);
         None

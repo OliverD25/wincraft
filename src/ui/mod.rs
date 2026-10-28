@@ -315,6 +315,10 @@ impl App {
                     log::info!("palette query set to \"{text}\"");
                 }
                 UiCommand::ClearPaletteUsage => self.palette.clear_usage(),
+                UiCommand::CommandDetails { id, details } => {
+                    self.palette.set_command_details(id, details);
+                    ctx.request_repaint();
+                }
                 UiCommand::PeekCard(card) => {
                     self.arrange.peek_card(card);
                     ctx.request_repaint_of(arrange::viewport_id());

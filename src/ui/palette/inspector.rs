@@ -5,6 +5,7 @@
 use egui::{pos2, vec2, Align2, Rect, Sense, StrokeKind};
 
 use crate::core::theme::{self, Tokens};
+use crate::core::ui_bridge::CommandDetails;
 use crate::core::window_info::{self, WindowDetails};
 use crate::search::{PickInfo, ResultItem};
 use crate::ui::palette::actions::{Marks, RowAction};
@@ -25,6 +26,10 @@ const SOURCE_LINE: f32 = 16.0;
 /// Everything the inspector shows for the row under the cursor.
 pub struct Inspected<'a> {
     pub item: Option<&'a ResultItem>,
+    /// What a plugin says about the selected command's state.
+    pub command: Option<&'a CommandDetails>,
+    /// The selected command waits for a second Enter, which does this.
+    pub armed: Option<&'a str>,
     pub marks: &'a Marks,
     pub actions: &'a [RowAction],
     /// Which listed action the keyboard is on, after →.
@@ -104,18 +109,45 @@ pub fn show(ui: &mut egui::Ui, rect: Rect, inspected: &Inspected) -> Clicked {
             painter.galley(pos2(inner.left(), y), galley, tokens.text_secondary);
             y += height;
         }
-        let mut meta: Vec<(&str, String)> = Vec::new();
+        let live = inspected
+            .armed
+            .map(|text| (text.to_string(), tokens.warning))
+            .or_else(|| {
+                inspected
+                    .command
+                    .filter(|details| !details.status.is_empty())
+                    .map(|details| (details.status.clone(), tokens.accent))
+            });
+        if let Some((text, colour)) = live {
+            y += 8.0;
+            let mut job =
+                crate::ui::widgets::text::job(&text, theme::semibold(13.0), colour, Some(18.0));
+            job.wrap = egui::text::TextWrapping {
+                max_width: inner.width(),
+                max_rows: 2,
+                break_anywhere: false,
+                overflow_character: Some('\u{2026}'),
+            };
+            let galley = painter.layout_job(job);
+            let height = galley.size().y;
+            painter.galley(pos2(inner.left(), y), galley, colour);
+            y += height;
+        }
+        let mut meta: Vec<(String, String)> = Vec::new();
+        if let Some(details) = inspected.command {
+            meta.extend(details.lines.iter().cloned());
+        }
         if let Some(details) = inspected.details.filter(|_| window.is_some()) {
             let process = details.process_line();
             if !process.is_empty() {
-                meta.push(("Process", process));
+                meta.push(("Process".to_string(), process));
             }
             let place = details.place_line();
             if !place.is_empty() {
-                meta.push(("Monitor", place));
+                meta.push(("Monitor".to_string(), place));
             }
             if let Some(bytes) = details.memory {
-                meta.push(("Memory", window_info::memory_text(bytes)));
+                meta.push(("Memory".to_string(), window_info::memory_text(bytes)));
             }
         }
         if let Some((typed, pick)) = &inspected.pick {
@@ -125,18 +157,18 @@ pub fn show(ui: &mut egui::Ui, rect: Rect, inspected: &Inspected) -> Clicked {
                 format!("{} times", pick.this_month)
             };
             meta.push((
-                "Picked",
+                "Picked".to_string(),
                 format!("for \u{201c}{typed}\u{201d}: {times} this month"),
             ));
             meta.push((
-                "Last picked",
+                "Last picked".to_string(),
                 crate::core::clock::when(pick.last, crate::search::usage::now()),
             ));
         }
         if !meta.is_empty() {
             y += gap;
             for (key, value) in meta {
-                meta_row(&painter, inner, y, key, &value, &tokens);
+                meta_row(&painter, inner, y, &key, &value, &tokens);
                 y += META_LINE;
             }
         }

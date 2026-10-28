@@ -315,6 +315,79 @@ impl Palette {
         }
     }
 
+    /// The plugin command on the selected row, if it is one of a plugin
+    /// that is on.
+    pub(super) fn selected_command(&self) -> Option<CommandId> {
+        let item = self.selected_item().filter(|item| !item.disabled)?;
+        match item.enter.as_ref().map(|choice| &choice.action) {
+            Some(Action::Command(id @ CommandId::Plugin { .. })) => Some(*id),
+            _ => None,
+        }
+    }
+
+    /// Asks the host once what the selected plugin command's plugin has to
+    /// say about it, when the cursor gets there.
+    pub(super) fn refresh_command_details(&mut self, to_host: &Arc<HostChannel>) {
+        let Some(id) = self.selected_command() else {
+            return;
+        };
+        if self
+            .command_details
+            .as_ref()
+            .is_some_and(|(known, _)| *known == id)
+        {
+            return;
+        }
+        self.command_details = Some((id, None));
+        to_host.send(HostRequest::CommandDetails(id));
+    }
+
+    /// The host's answer; an answer for a row the cursor has left is
+    /// dropped.
+    pub fn set_command_details(&mut self, id: CommandId, details: Option<CommandDetails>) {
+        if let Some((known, slot)) = self.command_details.as_mut() {
+            if *known == id {
+                *slot = details;
+            }
+        }
+    }
+
+    /// The details for the selected row, when they have come.
+    pub(super) fn shown_command_details(&self) -> Option<&CommandDetails> {
+        let id = self.selected_command()?;
+        self.command_details
+            .as_ref()
+            .filter(|(known, _)| *known == id)
+            .and_then(|(_, details)| details.as_ref())
+    }
+
+    /// What the selected command says before its second Enter, while it
+    /// waits for one.
+    pub(super) fn armed_text(&self, snapshot: &UiSnapshot) -> Option<String> {
+        let (id, at) = self.armed?;
+        if self.selected_command() != Some(id) || at.elapsed() >= CONFIRM_FOR {
+            return None;
+        }
+        confirm_text(snapshot, id)
+    }
+
+    /// Enter on a command that asks for it twice: true when this is the
+    /// second Enter within 5 s and the command may run; false arms it.
+    pub(super) fn confirmed(&mut self, snapshot: &UiSnapshot, id: CommandId) -> bool {
+        if confirm_text(snapshot, id).is_none() {
+            return true;
+        }
+        if self
+            .armed
+            .is_some_and(|(armed, at)| armed == id && at.elapsed() < CONFIRM_FOR)
+        {
+            self.armed = None;
+            return true;
+        }
+        self.armed = Some((id, Instant::now()));
+        false
+    }
+
     /// Reads the selected window's details once, when the cursor gets there.
     pub(super) fn refresh_details(&mut self) {
         let Some(hwnd) = self.selected_item().and_then(ResultItem::window) else {
@@ -413,4 +486,16 @@ impl RowId {
             && self.title == item.title
             && self.window == item.window()
     }
+}
+
+/// How long a first Enter on a command that asks for two stays waiting.
+pub(super) const CONFIRM_FOR: Duration = Duration::from_secs(5);
+
+/// The text a command shows before its second Enter, if it asks for one.
+pub(super) fn confirm_text(snapshot: &UiSnapshot, id: CommandId) -> Option<String> {
+    snapshot
+        .commands
+        .iter()
+        .find(|entry| entry.id == id && !entry.confirm.is_empty())
+        .map(|entry| entry.confirm.clone())
 }
