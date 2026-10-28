@@ -13,6 +13,7 @@ use std::sync::Arc;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use crate::core::open_timing::{self, OpenStep};
+use crate::core::raw_input;
 use crate::core::theme;
 use crate::core::traits::{PluginWindow, WindowFrame};
 use crate::core::ui_bridge::{
@@ -454,6 +455,7 @@ impl eframe::App for App {
     }
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        raw_input::keep_hooks_working();
         self.drain(ctx);
         // Stroke widths are snapped to physical pixels when the theme is
         // applied, so a move to a monitor with other scaling re-applies it.
