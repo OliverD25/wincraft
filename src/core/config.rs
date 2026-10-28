@@ -147,6 +147,10 @@ pub struct Config {
     /// plugin's own hotkeys stay in its file under `hotkeys`.
     #[serde(default)]
     pub shortcuts: BTreeMap<String, String>,
+    /// The detailed log (`core::detailed`): off by default. Kept here so it
+    /// stays on after a restart and an update, until the user turns it off.
+    #[serde(default)]
+    pub detailed_log: bool,
 }
 
 impl Default for Config {
@@ -160,6 +164,7 @@ impl Default for Config {
             updates: UpdateConfig::default(),
             tips: TipsConfig::default(),
             shortcuts: BTreeMap::new(),
+            detailed_log: false,
         }
     }
 }

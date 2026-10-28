@@ -10,6 +10,24 @@ pub fn notify(title: &str, text: &str) {
     plugin_changed();
 }
 
+/// Whether the detailed log is on. A plugin checks it before it gathers
+/// anything costly for a line. Safe to call from any thread.
+pub fn detailed_on() -> bool {
+    crate::core::detailed::on()
+}
+
+/// One key event a plugin's keyboard hook saw, for the detailed log: build
+/// it only when `detailed_on()` is true, then `.write(&decision)`.
+pub use crate::core::detailed::KeyEvent as DetailedKey;
+
+/// Writes one line to the detailed log: `host::detailed(format_args!(...))`.
+/// The text is formatted only while the log is on, and the call never
+/// waits for a file, so a keyboard hook's callback may use it. Safe to
+/// call from any thread.
+pub fn detailed(args: std::fmt::Arguments) {
+    crate::core::detailed::write_args(args);
+}
+
 /// Sets the tray icon's tooltip, or with None puts the plain name back.
 /// Safe to call from any plugin callback.
 pub fn set_tray_tip(tip: Option<String>) {
@@ -205,21 +223,32 @@ pub fn bring_to_front(hwnd: HWND) {
     }
     let began = std::time::Instant::now();
     let ms = |began: std::time::Instant| began.elapsed().as_millis();
+    let before = unsafe { GetForegroundWindow() };
     if unsafe { SetForegroundWindow(hwnd) } != 0 {
         log::debug!("took the keyboard for {hwnd:?} at once ({} ms)", ms(began));
+        ask_noted(hwnd, before, "SetForegroundWindow 1 at once");
         return;
     }
+    let first_error = last_error();
     // Without a hotkey, as when the palette reopens after an update, Windows
     // refuses and only flashes the taskbar button. It allows the process that
     // sent the last input, so send an empty mouse event: no move, no click.
-    send_empty_input();
+    let sent = send_empty_input();
     if unsafe { SetForegroundWindow(hwnd) } != 0 {
         log::debug!(
             "took the keyboard for {hwnd:?} after an empty input ({} ms)",
             ms(began)
         );
+        ask_noted(
+            hwnd,
+            before,
+            &format!(
+                "SetForegroundWindow 0 (error {first_error}), empty input sent {sent}, then 1"
+            ),
+        );
         return;
     }
+    let second_error = last_error();
     log::warn!("Windows did not let WinCraft take the keyboard");
     let foreground = unsafe { GetForegroundWindow() };
     if foreground.is_null() {
@@ -231,17 +260,43 @@ pub fn bring_to_front(hwnd: HWND) {
     let set = unsafe { SetForegroundWindow(hwnd) };
     unsafe { SetFocus(hwnd) };
     unsafe { AttachThreadInput(mine, other, 0) };
+    ask_noted(
+        hwnd,
+        before,
+        &format!(
+            "SetForegroundWindow 0 (error {first_error}), empty input sent {sent}, then 0 (error {second_error}), AttachThreadInput {attached}, then {set}"
+        ),
+    );
     log::info!(
         "took the keyboard for {hwnd:?} through the other thread's input (attached {attached}, set {set}, {} ms)",
         ms(began)
     );
 }
 
-fn send_empty_input() {
+/// How many inputs Windows took: 1, or 0 when it refused.
+fn send_empty_input() -> u32 {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_MOUSE};
     let mut input: INPUT = unsafe { std::mem::zeroed() };
     input.r#type = INPUT_MOUSE;
-    unsafe { SendInput(1, &input, std::mem::size_of::<INPUT>() as i32) };
+    unsafe { SendInput(1, &input, std::mem::size_of::<INPUT>() as i32) }
+}
+
+fn last_error() -> u32 {
+    unsafe { windows_sys::Win32::Foundation::GetLastError() }
+}
+
+/// For the detailed log: what `bring_to_front` did, so the window-in-front
+/// line that follows can say WinCraft asked for it.
+fn ask_noted(hwnd: HWND, before: HWND, how: &str) {
+    if !crate::core::detailed::on() {
+        return;
+    }
+    crate::core::detailed::watch::note_ask(hwnd, how);
+    crate::detailed!(
+        "front-ask: {:#x} (in front before: {:#x}): {how}",
+        hwnd as isize,
+        before as isize
+    );
 }
 
 /// The palette window is larger than the panel so the shadow fits inside it,

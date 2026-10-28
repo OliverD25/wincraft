@@ -49,6 +49,12 @@ pub enum HostCommand {
     OpenConfig,
     /// Check now, and install a newer release at once.
     UpdateWinCraft,
+    /// Turns the detailed log on or off.
+    DetailedLog,
+    /// Asks for a few words and writes them into the detailed log.
+    DetailedLogMark,
+    /// Deletes the detailed log's files.
+    DetailedLogDelete,
     TogglePlugin(usize),
     Exit,
 }
@@ -162,6 +168,8 @@ pub enum HostSetting {
     DownloadUpdatesAhead(bool),
     /// The tips' switch and what each tip has done, sent whole.
     Tips(TipsConfig),
+    /// The detailed log's switch.
+    DetailedLog(bool),
 }
 
 /// One window in the Arrange strip.

@@ -282,7 +282,10 @@ pub(super) fn paint_footer(
         tokens.text_disabled,
     );
     let version_left = footer.right() - 16.0 - version_galley.size().x;
-    let name_left = version_left - 6.0 - name_galley.size().x;
+    let mut name_left = version_left - 6.0 - name_galley.size().x;
+    if crate::core::detailed::on() {
+        name_left = log_tag(&painter, tokens, footer, name_left);
+    }
     painter.galley(
         pos2(name_left, footer.center().y - name_galley.size().y / 2.0),
         name_galley,
@@ -310,6 +313,33 @@ pub(super) fn paint_footer(
         |ui| footer_hints(ui, tokens, &hints),
     );
     response.clicked()
+}
+
+/// The small "LOG" tag left of the name while the detailed log records, so
+/// the user always sees it is on. Returns the new left edge of the right
+/// part of the footer.
+fn log_tag(painter: &egui::Painter, tokens: &Tokens, footer: Rect, right: f32) -> f32 {
+    let galley = painter.layout_no_wrap("LOG".to_string(), theme::semibold(12.0), tokens.warning);
+    let size = vec2(galley.size().x + 10.0, 18.0);
+    let tag = Rect::from_min_size(
+        pos2(right - 8.0 - size.x, footer.center().y - size.y / 2.0),
+        size,
+    );
+    painter.rect_stroke(
+        tag,
+        tokens.radius_row,
+        theme::line(painter.ctx(), tokens.warning),
+        egui::StrokeKind::Inside,
+    );
+    painter.galley(
+        pos2(
+            tag.center().x - galley.size().x / 2.0,
+            tag.center().y - galley.size().y / 2.0,
+        ),
+        galley,
+        tokens.warning,
+    );
+    tag.left()
 }
 
 /// Group header inside the list: 28 high, 12 px, sitting at the bottom

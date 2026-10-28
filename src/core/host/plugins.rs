@@ -564,6 +564,18 @@ impl PluginSet {
             (HostCommand::OpenConfig, "Open the config file"),
             (HostCommand::OpenLog, "Open the log file"),
             (HostCommand::UpdateWinCraft, "Update WinCraft"),
+            (
+                HostCommand::DetailedLog,
+                detailed_log::toggle_label(crate::core::detailed::on()),
+            ),
+            (
+                HostCommand::DetailedLogMark,
+                "Detailed log: Mark this moment",
+            ),
+            (
+                HostCommand::DetailedLogDelete,
+                "Detailed log: Delete the files",
+            ),
             (HostCommand::Exit, "Quit WinCraft"),
         ] {
             entries.push(PaletteEntry {
@@ -572,12 +584,19 @@ impl PluginSet {
                 label: label.to_string(),
                 hint: String::new(),
                 words: String::new(),
-                confirm: String::new(),
+                confirm: if command == HostCommand::DetailedLogDelete {
+                    "Press Enter again to delete every detailed log file. This cannot be undone."
+                        .to_string()
+                } else {
+                    String::new()
+                },
                 list: false,
                 disabled: false,
                 plugin: None,
-                subtitle: (command == HostCommand::UpdateWinCraft)
-                    .then(|| "Checks now and installs a newer version at once".to_string()),
+                subtitle: detailed_log::subtitle(command).or_else(|| {
+                    (command == HostCommand::UpdateWinCraft)
+                        .then(|| "Checks now and installs a newer version at once".to_string())
+                }),
                 shortcut_id: String::new(),
                 shortcut: String::new(),
                 quiet: matches!(

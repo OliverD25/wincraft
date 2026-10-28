@@ -18,6 +18,13 @@ impl Host {
             CommandId::Host(HostCommand::OpenConfig) => open_in_notepad(&config::config_path()),
             CommandId::Host(HostCommand::OpenLog) => open_in_notepad(&config::log_path()),
             CommandId::Host(HostCommand::UpdateWinCraft) => self.update_from_palette(),
+            CommandId::Host(HostCommand::DetailedLog) => {
+                self.set_detailed_log(!crate::core::detailed::on());
+                self.save_config();
+                self.publish();
+            }
+            CommandId::Host(HostCommand::DetailedLogMark) => self.ask_mark(),
+            CommandId::Host(HostCommand::DetailedLogDelete) => self.delete_detailed_log(),
             CommandId::Host(HostCommand::Exit) => self.shutdown(),
             CommandId::Host(HostCommand::TogglePlugin(index)) => {
                 if index < self.plugins.slots.len() {
@@ -238,6 +245,7 @@ impl Host {
                 target,
                 text,
             } => match self.plugins.index_of(&plugin) {
+                _ if plugin == detailed_log::HOST_PROMPT => self.host_prompt_answer(id, &text),
                 Some(index) if self.plugins.slots[index].enabled => self.plugins.slots[index]
                     .plugin
                     .on_prompt_answer(id, target, &text),
@@ -358,6 +366,7 @@ impl Host {
                 log::info!("check for updates automatically: {on}");
             }
             HostSetting::DownloadUpdatesAhead(on) => self.set_download_ahead(on),
+            HostSetting::DetailedLog(on) => self.set_detailed_log(on),
             HostSetting::Theme(name) => {
                 self.config.theme = name;
                 theme::set_current(name, self.config.mode);

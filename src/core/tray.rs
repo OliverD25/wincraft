@@ -57,6 +57,21 @@ pub struct Tray {
     data: NOTIFYICONDATAW,
     visible: bool,
     hinstance: *mut core::ffi::c_void,
+    /// The tooltip a plugin set; None for the plain name.
+    plugin_tip: Option<String>,
+    /// The detailed log is on, and the tooltip says so.
+    detailed: bool,
+}
+
+/// The tooltip: a plugin's, or the plain name, with "detailed log on"
+/// after it while the detailed log records.
+pub fn tip_text(plugin_tip: Option<&str>, detailed: bool) -> String {
+    let base = plugin_tip.unwrap_or("WinCraft");
+    if detailed {
+        format!("{base} \u{b7} detailed log on")
+    } else {
+        base.to_string()
+    }
 }
 
 impl Tray {
@@ -73,6 +88,8 @@ impl Tray {
             data,
             visible: false,
             hinstance,
+            plugin_tip: None,
+            detailed: false,
         }
     }
 
@@ -85,9 +102,21 @@ impl Tray {
         }
     }
 
-    /// Replaces the tooltip; None goes back to the plain name.
+    /// Replaces a plugin's tooltip; None goes back to the plain name.
     pub fn set_tip(&mut self, tip: Option<&str>) {
-        copy_into(&mut self.data.szTip, tip.unwrap_or("WinCraft"));
+        self.plugin_tip = tip.map(str::to_string);
+        self.show_tip();
+    }
+
+    /// Says in the tooltip whether the detailed log is on.
+    pub fn set_detailed(&mut self, on: bool) {
+        self.detailed = on;
+        self.show_tip();
+    }
+
+    fn show_tip(&mut self) {
+        let text = tip_text(self.plugin_tip.as_deref(), self.detailed);
+        copy_into(&mut self.data.szTip, &text);
         if self.visible {
             let mut data = self.data;
             data.uFlags = NIF_TIP;

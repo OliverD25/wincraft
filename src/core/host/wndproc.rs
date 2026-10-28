@@ -110,6 +110,11 @@ pub(super) fn message_name(msg: u32, wparam: WPARAM) -> String {
         WM_APP_PLUGIN => "WM_APP_PLUGIN (plugin request)".to_string(),
         WM_APP_UPDATE => "WM_APP_UPDATE (update result)".to_string(),
         WM_APP_NOTICE_CLICK => "WM_APP_NOTICE_CLICK (click on the update notice)".to_string(),
+        WM_APP_WIN_DIGIT => "WM_APP_WIN_DIGIT (Win and a digit)".to_string(),
+        WM_APP_WIN_DOWN => "WM_APP_WIN_DOWN (a Windows key went down)".to_string(),
+        WM_APP_WIN_UP => "WM_APP_WIN_UP (a Windows key let go)".to_string(),
+        WM_APP_WAIT_KEY => "WM_APP_WAIT_KEY (key after a hotkey)".to_string(),
+        WM_APP_BUTTONS => "WM_APP_BUTTONS (taskbar buttons read)".to_string(),
         WM_SETTINGCHANGE => "WM_SETTINGCHANGE".to_string(),
         WM_POWERBROADCAST => "WM_POWERBROADCAST".to_string(),
         WM_QUERYENDSESSION => "WM_QUERYENDSESSION".to_string(),
@@ -182,6 +187,13 @@ pub(super) fn handle_menu_choice(choice: u32) {
         MENU_QUIT => {
             with_host(|host| host.shutdown());
         }
+        MENU_DETAILED_LOG => {
+            with_host(|host| {
+                host.set_detailed_log(!crate::core::detailed::on());
+                host.save_config();
+                host.publish();
+            });
+        }
         id if id >= MENU_PLUGIN_ACTION_BASE => {
             with_host(|host| {
                 let offset = id - MENU_PLUGIN_ACTION_BASE;
@@ -243,7 +255,14 @@ pub(super) unsafe extern "system" fn wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     let outer = CURRENT_MESSAGE.with(|current| current.replace(Some((msg, wparam))));
+    let began = crate::core::detailed::on().then(std::time::Instant::now);
     let result = dispatch(hwnd, msg, wparam, lparam);
+    if let Some(began) = began {
+        let took = began.elapsed().as_secs_f64() * 1000.0;
+        if let Some(line) = detailed_log::message_line(msg, &message_name(msg, wparam), took) {
+            crate::core::detailed::write(line);
+        }
+    }
     CURRENT_MESSAGE.with(|current| current.set(outer));
     result
 }
@@ -295,6 +314,11 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
     match msg {
         WM_HOTKEY => {
             let global_id = wparam as i32;
+            crate::detailed!(
+                "hotkey: id {global_id}, modifiers {:#x}, {}",
+                lparam & 0xFFFF,
+                crate::core::detailed::key_name(((lparam >> 16) & 0xFFFF) as u32)
+            );
             if global_id == PALETTE_HOTKEY_ID {
                 if host_is_busy() {
                     deliver_later(hwnd, msg, wparam, lparam);

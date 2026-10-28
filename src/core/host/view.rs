@@ -61,6 +61,11 @@ impl Host {
             items.extend(primary);
             items.push(MenuItem::Separator);
         }
+        items.push(MenuItem::Entry {
+            id: MENU_DETAILED_LOG,
+            label: "Detailed log".to_string(),
+            checked: crate::core::detailed::on(),
+        });
         items.push(entry(MENU_QUIT, "Quit WinCraft"));
         items
     }

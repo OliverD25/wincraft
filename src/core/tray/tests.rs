@@ -1,4 +1,4 @@
-use super::copy_into;
+use super::{copy_into, tip_text};
 
 fn text_of(buffer: &[u16]) -> String {
     let end = buffer
@@ -27,4 +27,15 @@ fn a_long_text_is_cut_to_fit_and_still_ends_with_a_zero() {
 fn an_empty_buffer_is_left_alone() {
     let mut buffer: [u16; 0] = [];
     copy_into(&mut buffer, "anything");
+}
+
+#[test]
+fn the_tooltip_says_when_the_detailed_log_is_on() {
+    assert_eq!(tip_text(None, false), "WinCraft");
+    assert_eq!(tip_text(None, true), "WinCraft \u{b7} detailed log on");
+    assert_eq!(tip_text(Some("Dimmed"), false), "Dimmed");
+    assert_eq!(
+        tip_text(Some("Dimmed"), true),
+        "Dimmed \u{b7} detailed log on"
+    );
 }

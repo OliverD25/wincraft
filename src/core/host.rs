@@ -58,6 +58,7 @@ use crate::ui;
 mod api;
 mod arrange;
 mod bindings;
+mod detailed_log;
 mod plugins;
 mod prepared;
 mod requests;
@@ -81,6 +82,7 @@ const MENU_QUIT: u32 = 5;
 const MENU_PALETTE: u32 = 6;
 const MENU_SETTINGS: u32 = 7;
 const MENU_UPDATE: u32 = 8;
+const MENU_DETAILED_LOG: u32 = 9;
 const MENU_PLUGIN_ACTION_BASE: u32 = 1000;
 
 const DETECTOR_ID: &str = "shortcut_detector";
@@ -352,6 +354,7 @@ thread_local! {
 }
 
 pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: StartupFlags) {
+    detailed_log::start_detailed_log(&config);
     DEMO_RESTORE_PANEL.store(flags.scene.restore_panel, Ordering::Relaxed);
     ALLOW_HIDE_POPUP.store(flags.scene.allow_hide_popup, Ordering::Relaxed);
     STARTED_AGAIN.store(
@@ -470,6 +473,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
 
     host.tray.add();
     log::info!("WinCraft {} is running", env!("CARGO_PKG_VERSION"));
+    host.detailed_log_at_start();
     if update::automatic_checks_allowed() {
         unsafe { SetTimer(hwnd, UPDATE_TIMER, FIRST_CHECK_MS, None) };
     }
@@ -543,6 +547,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         wait_for_ui(thread);
     }
     log::info!("WinCraft stopped");
+    crate::core::detailed::flush();
 }
 
 /// Gives the UI thread a moment to close its windows (the Arrange peek

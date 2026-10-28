@@ -89,6 +89,7 @@ pub fn show(
                 to_host,
             );
             file_row(ui, "log-file", "Log file", &snapshot.log_path, to_host);
+            detailed_log_row(ui, to_host);
 
             page::section_header(ui, "Palette search");
             search_rows(ui, &snapshot.search, to_host);
@@ -413,6 +414,27 @@ fn tips_rows(
     if showing {
         ui.ctx().request_repaint_after(RESET_NOTE);
     }
+}
+
+/// The detailed log's switch. Its state is the host's switch itself, so it
+/// is right however it was changed: here, from the palette or the tray.
+fn detailed_log_row(ui: &mut egui::Ui, to_host: &Arc<HostChannel>) {
+    let tokens = Tokens::get(ui.ctx());
+    settings_row(
+        ui,
+        "detailed-log",
+        RowText::new("Detailed log").desc(
+            "Records everything WinCraft does, to find a bug: keys, window titles and palette text. The files stay on this PC. Turn it off when you are done.",
+            tokens.text_secondary,
+        ),
+        false,
+        |ui| {
+            let mut on = crate::core::detailed::on();
+            if toggle::toggle(ui, &mut on).changed() {
+                to_host.send(HostRequest::SetHostSetting(HostSetting::DetailedLog(on)));
+            }
+        },
+    );
 }
 
 fn file_row(

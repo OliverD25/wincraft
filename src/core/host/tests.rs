@@ -827,7 +827,8 @@ fn the_palette_lists_each_plugins_commands_dimmed_while_it_is_off() {
     );
     assert_eq!(
         off.iter().filter(|entry| entry.group == "WinCraft").count(),
-        8
+        11,
+        "eight commands and the detailed log's three"
     );
     set.enable(0);
     let on = set.palette_entries(&plugins(&set));
@@ -2415,4 +2416,95 @@ fn download_ahead_is_kept_only_in_the_installed_copy_and_goes_when_switched_off(
     assert!(!stage.join(update_stage::STAGED_EXE).exists());
     assert!(!stage.join(update_stage::RECORD).exists());
     assert!(!host.update_view().downloaded);
+}
+
+#[test]
+fn the_detailed_log_commands_are_in_the_palette_and_deleting_asks_twice() {
+    let data = Scratch::new("detailed-entries");
+    let (log, keyboard) = (diary(), FakeKeys::default());
+    let set = plugin_set(
+        vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+        &keyboard,
+        &data,
+    );
+    let entries = set.palette_entries(&[]);
+    let find = |command: HostCommand| {
+        entries
+            .iter()
+            .find(|entry| entry.id == CommandId::Host(command))
+            .unwrap_or_else(|| panic!("{command:?} missing"))
+    };
+    // No test turns the detailed log on, so the switch offers to turn it on.
+    assert_eq!(
+        find(HostCommand::DetailedLog).label,
+        "Detailed log: Turn on"
+    );
+    assert_eq!(
+        find(HostCommand::DetailedLogMark).label,
+        "Detailed log: Mark this moment"
+    );
+    let delete = find(HostCommand::DetailedLogDelete);
+    assert_eq!(delete.label, "Detailed log: Delete the files");
+    assert!(delete.confirm.starts_with("Press Enter again"));
+    assert!(find(HostCommand::DetailedLog).confirm.is_empty());
+    assert_eq!(
+        find(HostCommand::DetailedLog).subtitle.as_deref(),
+        Some("Records everything WinCraft does, to find a bug. Stays on this PC")
+    );
+    assert_eq!(arrange::host_slug(HostCommand::DetailedLog), "detailed-log");
+}
+
+#[test]
+fn the_detailed_log_switch_says_what_enter_does() {
+    assert_eq!(detailed_log::toggle_label(false), "Detailed log: Turn on");
+    assert_eq!(detailed_log::toggle_label(true), "Detailed log: Turn off");
+    assert_eq!(detailed_log::subtitle(HostCommand::OpenSettings), None);
+}
+
+#[test]
+fn a_host_message_gets_a_line_when_it_is_slow_or_not_a_quick_timer() {
+    use detailed_log::message_line;
+    assert_eq!(
+        message_line(WM_HOTKEY, "WM_HOTKEY", 0.4).as_deref(),
+        Some("host: WM_HOTKEY 0.40 ms")
+    );
+    assert_eq!(message_line(WM_TIMER, "WM_TIMER (badges)", 1.0), None);
+    assert_eq!(
+        message_line(WM_TIMER, "WM_TIMER (badges)", 7.0).as_deref(),
+        Some("host: WM_TIMER (badges) 7.00 ms")
+    );
+    assert_eq!(
+        message_line(WM_APP_PLUGIN, "WM_APP_PLUGIN", 73.2).as_deref(),
+        Some("host busy 73 ms in WM_APP_PLUGIN")
+    );
+    assert_eq!(
+        message_line(WM_TIMER, "WM_TIMER", detailed_log::BUSY_MS).as_deref(),
+        Some("host busy 50 ms in WM_TIMER")
+    );
+}
+
+#[test]
+fn the_tray_menu_has_the_detailed_log_check_item_before_quit() {
+    let data = Scratch::new("detailed-menu");
+    let (log, keyboard) = (diary(), FakeKeys::default());
+    let (host, _ui) = test_host(
+        vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+        &keyboard,
+        &data,
+    );
+    let entries: Vec<(u32, String, bool)> = host
+        .menu_items()
+        .into_iter()
+        .filter_map(|item| match item {
+            MenuItem::Entry { id, label, checked } => Some((id, label, checked)),
+            MenuItem::Separator => None,
+        })
+        .collect();
+    let at = entries.len() - 2;
+    assert_eq!(
+        entries[at],
+        (MENU_DETAILED_LOG, "Detailed log".to_string(), false),
+        "unticked: no test turns the detailed log on"
+    );
+    assert_eq!(entries[at + 1].0, MENU_QUIT);
 }

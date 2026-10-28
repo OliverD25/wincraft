@@ -533,6 +533,9 @@ pub(super) fn host_slug(command: HostCommand) -> &'static str {
         HostCommand::OpenConfig => "config-file",
         HostCommand::OpenLog => "log-file",
         HostCommand::UpdateWinCraft => "update",
+        HostCommand::DetailedLog => "detailed-log",
+        HostCommand::DetailedLogMark => "detailed-log-mark",
+        HostCommand::DetailedLogDelete => "detailed-log-delete",
         HostCommand::Exit => "quit",
         HostCommand::TogglePlugin(_) => "turn-on-off",
     }
