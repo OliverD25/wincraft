@@ -153,7 +153,8 @@ static WORKER: Mutex<Option<HookThread>> = Mutex::new(None);
 enum Job {
     /// The mask key, after a taken digit.
     Mask,
-    Log(String),
+    /// A log line at that level.
+    Log(log::Level, String),
     #[cfg(test)]
     Ping(mpsc::Sender<()>),
 }
@@ -173,7 +174,7 @@ fn start_side_work() {
             for job in inbox {
                 match job {
                     Job::Mask => mask_key::send("WindowDeck"),
-                    Job::Log(line) => log::info!("{line}"),
+                    Job::Log(level, line) => log::log!(level, "{line}"),
                     #[cfg(test)]
                     Job::Ping(back) => {
                         let _ = back.send(());
@@ -266,7 +267,12 @@ fn modifiers_now() -> u32 {
 
 /// While Win+digit after another Win+digit is looked into: the Windows
 /// keys, and digits while a Windows key is down.
+/// Only at the debug level: the lines found the 2026-10-28 fault
+/// (`core::raw_input`) and are too many for the everyday log.
 fn worth_logging(vk: u32, modifiers: u32, win: bool) -> bool {
+    if !log::log_enabled!(log::Level::Debug) {
+        return false;
+    }
     let win_key = vk == u32::from(VK_LWIN) || vk == u32::from(VK_RWIN);
     let digit = taskbar_number::digit_of(vk).is_some();
     win_key || vk == mask_key::VK || (digit && (win || modifiers & MOD_WIN != 0))
@@ -281,7 +287,7 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         // Never seen so far; a line here would show a call this hook was
         // told not to act on.
         let line = format!("win-number hook: called with code {code}, message {wparam:#x}");
-        if !hand_off(Job::Log(line.clone())) {
+        if !hand_off(Job::Log(log::Level::Info, line.clone())) {
             log::info!("{line}");
         }
         return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
@@ -302,13 +308,13 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
                 let step = rule.step(info.vkCode, is_down, modifiers, ours);
                 TOOK.store(rule.took(), Ordering::Relaxed);
                 let line = worth_logging(info.vkCode, modifiers, rule.win).then(|| {
-                    format!(
+                    (log::Level::Debug, format!(
                         "win-number hook: key {:#04x} {} (modifiers {modifiers:#x}, ours {ours}, flags {:#x}, extra {:#x}, waited {lag} ms): {step:?}",
                         info.vkCode,
                         if is_down { "down" } else { "up" },
                         info.flags,
                         info.dwExtraInfo,
-                    )
+                    ))
                 });
                 (step, line)
             }
@@ -320,7 +326,7 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
             "win-number hook: unexpected message {event:#x} for key {:#04x}",
             info.vkCode
         );
-        (Step::Pass, Some(line))
+        (Step::Pass, Some((log::Level::Info, line)))
     };
     let result = match step {
         Step::Pass => unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) },
@@ -348,17 +354,20 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
     let took = began.elapsed().as_secs_f64() * 1000.0;
     let line = line.or_else(|| {
         (took >= SLOW_MS || f64::from(lag) >= SLOW_MS).then(|| {
-            format!(
-                "win-number hook: slow for key {:#04x} {} (waited {lag} ms)",
-                info.vkCode,
-                if is_down { "down" } else { "up" }
+            (
+                log::Level::Info,
+                format!(
+                    "win-number hook: slow for key {:#04x} {} (waited {lag} ms)",
+                    info.vkCode,
+                    if is_down { "down" } else { "up" }
+                ),
             )
         })
     });
-    if let Some(mut line) = line {
+    if let Some((level, mut line)) = line {
         line.push_str(&format!(", took {took:.2} ms"));
-        if !hand_off(Job::Log(line.clone())) {
-            log::info!("{line}");
+        if !hand_off(Job::Log(level, line.clone())) {
+            log::log!(level, "{line}");
         }
     }
     result

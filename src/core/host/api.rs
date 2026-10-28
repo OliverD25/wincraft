@@ -206,7 +206,7 @@ pub fn bring_to_front(hwnd: HWND) {
     let began = std::time::Instant::now();
     let ms = |began: std::time::Instant| began.elapsed().as_millis();
     if unsafe { SetForegroundWindow(hwnd) } != 0 {
-        log::info!("took the keyboard for {hwnd:?} at once ({} ms)", ms(began));
+        log::debug!("took the keyboard for {hwnd:?} at once ({} ms)", ms(began));
         return;
     }
     // Without a hotkey, as when the palette reopens after an update, Windows
@@ -214,7 +214,7 @@ pub fn bring_to_front(hwnd: HWND) {
     // sent the last input, so send an empty mouse event: no move, no click.
     send_empty_input();
     if unsafe { SetForegroundWindow(hwnd) } != 0 {
-        log::info!(
+        log::debug!(
             "took the keyboard for {hwnd:?} after an empty input ({} ms)",
             ms(began)
         );
