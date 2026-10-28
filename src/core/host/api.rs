@@ -206,6 +206,14 @@ pub fn bring_to_front(hwnd: HWND) {
     if unsafe { SetForegroundWindow(hwnd) } != 0 {
         return;
     }
+    // Without a hotkey, as when the palette reopens after an update, Windows
+    // refuses and only flashes the taskbar button. It allows the process that
+    // sent the last input, so send an empty mouse event: no move, no click.
+    send_empty_input();
+    if unsafe { SetForegroundWindow(hwnd) } != 0 {
+        return;
+    }
+    log::warn!("Windows did not let WinCraft take the keyboard");
     let foreground = unsafe { GetForegroundWindow() };
     if foreground.is_null() {
         return;
@@ -218,6 +226,13 @@ pub fn bring_to_front(hwnd: HWND) {
         SetFocus(hwnd);
         AttachThreadInput(mine, other, 0);
     }
+}
+
+fn send_empty_input() {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_MOUSE};
+    let mut input: INPUT = unsafe { std::mem::zeroed() };
+    input.r#type = INPUT_MOUSE;
+    unsafe { SendInput(1, &input, std::mem::size_of::<INPUT>() as i32) };
 }
 
 /// The palette window is larger than the panel so the shadow fits inside it,
