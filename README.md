@@ -155,6 +155,14 @@ The Windows 11 switches that Settings hides several clicks deep, one search away
 | `Desktop: Toggle Desktop Icons` | Hides or shows the desktop icons, for a clean screen share |
 | `Taskbar: Toggle Auto-Hide` | Hides the taskbar until the mouse reaches it |
 | `File Explorer: Toggle Hidden Files` / `Toggle File Extensions` | Shows or hides hidden files, or the `.txt` end of file names |
+| `Network: Copy Local IP` | Copies the PC's own address (Wi-Fi first, then Ethernet and WSL); no outside service is asked |
+| `Network: Flush DNS Cache` | Clears the web addresses Windows remembers, like `ipconfig /flushdns` |
+| `Clipboard: Convert to Plain Text` / `Copy New UUID` | Strips the formatting from the clipboard, or copies a new random UUID |
+| `Audio: Toggle Microphone Mute` | Mutes or unmutes the default microphone |
+| `System: Empty Recycle Bin` | Empties the Recycle Bin after a second `Enter` within 5 s |
+| `Settings: Open Environment Variables` | Opens the window for editing `PATH` and other variables |
+
+While an action is selected, the palette's inspector shows its live state and what `Enter` will do: *Now: Dark · Enter switches to Light*, the window's current and new size, how long keep awake has been on, the addresses Copy Local IP would copy, the UUID it will copy, or what the Recycle Bin holds.
 
 ---
 

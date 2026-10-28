@@ -24,6 +24,40 @@ dark mode, `caffeine` finds keep awake, `pin` finds always on top.
 | **Taskbar: Toggle Auto-Hide** | Hides the taskbar until the mouse reaches the screen edge, or keeps it on screen. |
 | **File Explorer: Toggle Hidden Files** | Shows or hides hidden files in File Explorer. |
 | **File Explorer: Toggle File Extensions** | Shows or hides the end of file names, such as `.txt`. |
+| **Network: Copy Local IP** | Copies this PC's address on your network, such as `192.168.1.20`. |
+| **Network: Flush DNS Cache** | Makes Windows look up web addresses afresh, as `ipconfig /flushdns` does. |
+| **Clipboard: Convert to Plain Text** | Keeps only the text on the clipboard, without fonts, colours or links. |
+| **Clipboard: Copy New UUID** | Copies a new random UUID (version 4). |
+| **Audio: Toggle Microphone Mute** | Mutes the default microphone, or turns it on again. |
+| **System: Empty Recycle Bin** | Deletes everything in the Recycle Bin for good. Asks for **Enter** twice. |
+| **Settings: Open Environment Variables** | Opens the window where you edit `PATH` and other variables. |
+
+## What the palette shows before you press Enter
+
+Select an action in the palette, and the panel on the right (the
+inspector) shows how things are now and what **Enter** will do. WinCraft
+reads this only while the row is selected, and reading it changes nothing.
+
+- A switch says its state: "Now: Dark · Enter switches to Light".
+- A window action names the window, its size now, the screen's size and
+  the size it will get: "Enter makes it 1280 × 720".
+- Keep awake says how long it has been on: "On for 12 min".
+- Copy Local IP lists the addresses by connection (Wi-Fi, Ethernet, WSL);
+  **Enter** copies the first one. It only reads the PC's own network
+  adapters and asks no outside service.
+- Convert to Plain Text shows the start of the text and its length.
+- Copy New UUID shows the UUID; **Enter** copies exactly that one.
+- Toggle Microphone Mute names the microphone and says whether it is muted.
+- Empty Recycle Bin shows how many items it holds and how much space they
+  take.
+
+## Enter twice for what cannot be undone
+
+Emptying the Recycle Bin cannot be undone, so the first **Enter** only
+shows "Press Enter again to empty the Recycle Bin". A second **Enter**
+within 5 seconds empties it; any other key cancels. If you give it a
+hotkey, the hotkey opens the palette on it instead of emptying the bin, so
+one key press alone never deletes anything.
 
 The window actions change the window you were in before you opened the
 palette. They never touch WinCraft's own windows. A maximised window is
@@ -35,8 +69,10 @@ the screen is made smaller to fit, and the notice says so.
 
 Every change shows a notice from WinCraft with an **Undo** button, for
 8 seconds (longer while the mouse rests on it). Undo puts back exactly what
-was there before: the window's old place and size, maximised or not, or
-the setting's old value. Running a switch again also switches it back.
+was there before: the window's old place and size, maximised or not, the
+setting's old value, or the microphone as it was. Running a switch again
+also switches it back. Copying to the clipboard, clearing the DNS cache and
+emptying the Recycle Bin have no Undo; the notice still says what happened.
 
 If Windows does not take a change, for example when the window belongs to
 an app that runs as administrator, the notice says so and the log

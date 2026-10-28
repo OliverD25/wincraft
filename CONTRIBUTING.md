@@ -167,7 +167,8 @@ The About page lists the kinds the build you are running can draw.
 | `tray_actions` | Every time the tray menu opens. Only your **first** tray action goes into the tray menu; every tray action appears in the palette. |
 | `on_tray_action(id)` | When your menu entry or its palette entry is chosen. |
 | `tray_toggles` | Every time the tray menu opens. Ticked on/off entries, shown after your first tray action, for a setting people switch often. Choosing one calls `on_tray_action` with its id, so keep it apart from your tray action ids (and below 100). Call `host::save_setting` to keep the new value. |
-| `palette_commands` | For entries that are neither a hotkey nor a tray item. `words` holds more words the palette finds the entry by, split by spaces, such as `"night light"` for a dark-mode switch. |
+| `palette_commands` | For entries that are neither a hotkey nor a tray item. `words` holds more words the palette finds the entry by, split by spaces, such as `"night light"` for a dark-mode switch. `confirm`, when not empty, makes the palette ask for Enter twice within 5 s and shows that text before the second; use it for a command that cannot be undone. A hotkey on such a command opens the palette on it instead of running it. |
+| `command_details(kind, id)` | When one of your command rows becomes selected in the palette, once per selection, never in the background. A status line ("Now: Dark · Enter switches to Light") and name/value lines for the inspector. Keep it quick: it runs on the host thread while the user waits. |
 | `on_palette_command(id)` | When one of those is chosen. |
 | `search_providers` | Once at startup, whether the plugin is on or not. Extra sources of palette results; see below. |
 | `windows` | Once at startup, whether the plugin is on or not. Windows your plugin draws itself with egui; see below. |
