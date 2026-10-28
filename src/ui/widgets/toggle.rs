@@ -1,5 +1,5 @@
 use egui::emath::easing;
-use egui::{pos2, vec2, CursorIcon, Response, Sense, StrokeKind, Ui};
+use egui::{pos2, vec2, Color32, CursorIcon, Painter, Pos2, Rect, Response, Sense, StrokeKind, Ui};
 
 use crate::core::theme::{self, Tokens};
 use crate::ui::widgets::{focus, pending};
@@ -68,6 +68,38 @@ pub fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
     }
 }
 
+/// The size of a switch, for a caller that leaves room for one.
+pub const SIZE: egui::Vec2 = vec2(WIDTH, HEIGHT);
+
+/// Where the knob sits in a switch drawn in `rect`: at the right when on.
+pub fn knob_centre(rect: Rect, on: bool) -> Pos2 {
+    let x = if on {
+        rect.right() - INSET - KNOB / 2.0
+    } else {
+        rect.left() + INSET + KNOB / 2.0
+    };
+    pos2(x, rect.center().y)
+}
+
+/// A switch that only shows a state, as at the end of a palette toggle
+/// row, where Enter flips it. On: filled with the accent, the knob in the
+/// window colour at the right. Off: an outline and knob in the secondary
+/// text colour, the knob at the left.
+pub fn paint_state(painter: &Painter, ctx: &egui::Context, rect: Rect, on: bool) {
+    let tokens = Tokens::get(ctx);
+    let (fill, edge, knob) = if on {
+        (tokens.accent, tokens.accent, tokens.window_bg)
+    } else {
+        (
+            Color32::TRANSPARENT,
+            tokens.text_secondary,
+            tokens.text_secondary,
+        )
+    };
+    painter.rect(rect, 10, fill, theme::line(ctx, edge), StrokeKind::Inside);
+    painter.circle_filled(knob_centre(rect, on), KNOB / 2.0, knob);
+}
+
 /// Whether a switch last drawn on pass `previous` is new on pass `now`.
 fn just_appeared(previous: Option<u64>, now: u64) -> bool {
     previous.is_none_or(|previous| now.saturating_sub(previous) > 1)
@@ -82,6 +114,20 @@ mod tests {
         assert!(just_appeared(None, 7));
         assert!(!just_appeared(Some(6), 7));
         assert!(just_appeared(Some(3), 7));
+    }
+
+    #[test]
+    fn a_state_switch_has_its_knob_right_when_on_and_left_when_off() {
+        let rect = Rect::from_min_size(pos2(100.0, 50.0), SIZE);
+        assert_eq!(SIZE, vec2(40.0, 20.0));
+        let on = knob_centre(rect, true);
+        let off = knob_centre(rect, false);
+        assert_eq!(on, pos2(131.0, 60.0));
+        assert_eq!(off, pos2(109.0, 60.0));
+        for centre in [on, off] {
+            let knob = Rect::from_center_size(centre, vec2(KNOB, KNOB));
+            assert!(rect.contains_rect(knob));
+        }
     }
 
     #[test]
