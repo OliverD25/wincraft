@@ -548,6 +548,7 @@ it is a separate instance:
   | `--ddc-test=<what>` | ScreenDimmer's DDC/CI check on real monitors, printed step by step, then exit; no tray icon, no plugins. `list` only reads each monitor's power mode and brightness. `left`, `centre` or `right` turns that monitor off the way Auto does, keeps it so for 10 s and brings it back; `wake-left` and so on only wakes it. Run it only with the person at the PC: it really turns a screen off. |
   | `--show-update-available` | A sample newer release (v9.9.9), shown as if this copy could install it: About lists it and the palette pins its "Update ready" row above Recent. Every real update stays refused. A flag without a value. |
   | `--select-update` | With the one above and `--open-palette`: the palette opens with the "Update ready" row selected, so its inspector shows. Nothing runs. A flag without a value. |
+  | `--show-update-progress` | About and the update panel at the bottom right half way through a sample download of v9.9.9 (42 %). Nothing is downloaded. A flag without a value. |
   | `--update-now` | Checks for an update at once and installs what it finds, as if Update now were clicked. With `WINCRAFT_RELEASES_URL` pointing at a fake releases API on this PC and `WINCRAFT_INSTALL_DIR` (or a scratch `LOCALAPPDATA`) giving the test instance an install folder of its own, the whole update and its rollback run without the internet. A flag without a value. |
   | `--rename-window=<hwnd>:<name>` | Renames that window through WindowNamer at start, for a live test on a window the test owns. Never point it at a window you did not create. |
 
@@ -563,7 +564,10 @@ it is a separate instance:
   without the test environment. `WINCRAFT_INSTALL_DIR` moves a test
   instance's install folder, and `WINCRAFT_RELEASES_URL` points its update
   check at a fake of `releases/latest`; a test instance may download from
-  `http://127.0.0.1:` only then. Without that fake a test instance never
+  `http://127.0.0.1:` only then. `WINCRAFT_RELEASES_PAGE_URL` points the
+  fallback for GitHub's request limit at a fake of the releases page, which
+  answers with a redirect to `/releases/tag/<tag>`; without it a test
+  instance never asks the real page. Without that fake a test instance never
   checks on its own, and it only logs the update balloons. `--install` and
   `--uninstall` refuse inside another app's package, so from a shell started
   by Claude Desktop use a scratch `LOCALAPPDATA` under

@@ -251,6 +251,8 @@ $scenes = @(
     @{ Name = 'restore-panel';          Args = @('--show-restore-panel');                  Window = 'panel';    Settle = 800 },
     # The notice shown once after an update; nothing is updated.
     @{ Name = 'update-notice';          Args = @('--show-update-notice');                  Window = 'update-notice'; Settle = 800 },
+    # The update panel half way through a sample download; nothing is downloaded.
+    @{ Name = 'update-progress';        Args = @('--show-update-progress');                Window = 'update-notice'; Settle = 800 },
     # Two windows of the harness's own with the same title: the strip flags both.
     @{ Name = 'strip-same-title';       Args = @('--open-arrange={helper-group}');         Window = 'strip';    Settle = 1500; Helper = $true },
     @{ Name = 'strip-renamed';          Args = @('"--rename-window={helper}:Build server"', '--open-arrange={helper-group}'); Window = 'strip'; Settle = 1500; Helper = $true },
