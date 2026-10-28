@@ -281,10 +281,19 @@ pub(super) fn paint_footer(
         theme::semibold(13.0),
         tokens.text_disabled,
     );
-    let version_left = footer.right() - 16.0 - version_galley.size().x;
-    let mut name_left = version_left - 6.0 - name_galley.size().x;
-    if crate::core::detailed::on() {
-        name_left = log_tag(&painter, tokens, footer, name_left);
+    let tag_galley = crate::core::detailed::on()
+        .then(|| painter.layout_no_wrap("LOG".to_string(), theme::semibold(12.0), tokens.warning));
+    let at = footer_right_part(
+        footer.right(),
+        version_galley.size().x,
+        name_galley.size().x,
+        tag_galley
+            .as_ref()
+            .map(|galley| galley.size().x + LOG_TAG_PAD),
+    );
+    let (name_left, version_left) = (at.name_left, at.version_left);
+    if let (Some(galley), Some(tag)) = (tag_galley, at.tag) {
+        log_tag(&painter, tokens, footer, galley, tag);
     }
     painter.galley(
         pos2(name_left, footer.center().y - name_galley.size().y / 2.0),
@@ -301,13 +310,13 @@ pub(super) fn paint_footer(
     );
 
     let hints_left = divider_x + 12.0;
-    let room = (name_left - 16.0 - hints_left).max(0.0);
+    let room = (at.hints_right - hints_left).max(0.0);
     let hints = actions::fit_hints(hints, room);
     ui.scope_builder(
         UiBuilder::new()
             .max_rect(Rect::from_min_max(
                 pos2(hints_left, footer.top()),
-                pos2(name_left - 16.0, footer.bottom()),
+                pos2(at.hints_right, footer.bottom()),
             ))
             .layout(Layout::left_to_right(Align::Center)),
         |ui| footer_hints(ui, tokens, &hints),
@@ -315,16 +324,52 @@ pub(super) fn paint_footer(
     response.clicked()
 }
 
+/// Space the LOG tag adds around its 12 px text: 5 px each side.
+const LOG_TAG_PAD: f32 = 10.0;
+/// The gap between the LOG tag and the name, and the least space before it.
+const LOG_TAG_GAP: f32 = 8.0;
+
+/// Where the right part of the footer sits, as left edges on one line.
+#[derive(Debug, PartialEq)]
+struct FooterRight {
+    version_left: f32,
+    name_left: f32,
+    /// The LOG tag's left and right edges, when the log is on.
+    tag: Option<(f32, f32)>,
+    /// The key hints end here: 16 px before the leftmost thing.
+    hints_right: f32,
+}
+
+/// Places the version, the name and the optional LOG tag from the right
+/// edge. The tag is left of the whole name, never on it.
+fn footer_right_part(
+    footer_right: f32,
+    version_width: f32,
+    name_width: f32,
+    tag_width: Option<f32>,
+) -> FooterRight {
+    let version_left = footer_right - 16.0 - version_width;
+    let name_left = version_left - 6.0 - name_width;
+    let tag = tag_width.map(|width| (name_left - LOG_TAG_GAP - width, name_left - LOG_TAG_GAP));
+    FooterRight {
+        version_left,
+        name_left,
+        tag,
+        hints_right: tag.map_or(name_left, |(left, _)| left) - 16.0,
+    }
+}
+
 /// The small "LOG" tag left of the name while the detailed log records, so
-/// the user always sees it is on. Returns the new left edge of the right
-/// part of the footer.
-fn log_tag(painter: &egui::Painter, tokens: &Tokens, footer: Rect, right: f32) -> f32 {
-    let galley = painter.layout_no_wrap("LOG".to_string(), theme::semibold(12.0), tokens.warning);
-    let size = vec2(galley.size().x + 10.0, 18.0);
-    let tag = Rect::from_min_size(
-        pos2(right - 8.0 - size.x, footer.center().y - size.y / 2.0),
-        size,
-    );
+/// the user always sees it is on. `span` is its left and right edge.
+fn log_tag(
+    painter: &egui::Painter,
+    tokens: &Tokens,
+    footer: Rect,
+    galley: std::sync::Arc<egui::Galley>,
+    span: (f32, f32),
+) {
+    let size = vec2(span.1 - span.0, 18.0);
+    let tag = Rect::from_min_size(pos2(span.0, footer.center().y - size.y / 2.0), size);
     painter.rect_stroke(
         tag,
         tokens.radius_row,
@@ -339,7 +384,6 @@ fn log_tag(painter: &egui::Painter, tokens: &Tokens, footer: Rect, right: f32) -
         galley,
         tokens.warning,
     );
-    tag.left()
 }
 
 /// Group header inside the list: 28 high, 12 px, sitting at the bottom
@@ -429,5 +473,30 @@ pub(super) fn footer_hints(ui: &mut egui::Ui, tokens: &Tokens, hints: &[Hint]) {
             ui,
             text::job(&hint.label, theme::regular(12.0), colour, None),
         );
+    }
+}
+
+#[cfg(test)]
+mod footer_tests {
+    use super::*;
+
+    #[test]
+    fn the_log_tag_sits_left_of_the_whole_name_with_a_gap() {
+        let plain = footer_right_part(700.0, 48.0, 56.0, None);
+        assert_eq!(plain.tag, None);
+        assert_eq!(plain.hints_right, plain.name_left - 16.0);
+
+        let at = footer_right_part(700.0, 48.0, 56.0, Some(32.0));
+        // The name and the version do not move because of the tag.
+        assert_eq!(at.name_left, plain.name_left);
+        assert_eq!(at.version_left, plain.version_left);
+        let (left, right) = at.tag.expect("a tag");
+        assert!(
+            right + 8.0 <= at.name_left,
+            "tag {right} name {}",
+            at.name_left
+        );
+        assert_eq!(right - left, 32.0);
+        assert!(at.hints_right + 16.0 <= left, "hints end before the tag");
     }
 }
