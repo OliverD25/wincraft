@@ -7,7 +7,7 @@ Stop running half a dozen background utilities that fight over keyboard hooks, e
 
 [**Download Latest `wincraft.exe`**](https://github.com/OliverD25/wincraft/releases/latest) · [**Live Preview & Screenshots (wincraft.luminart.app)**](https://wincraft.luminart.app)
 
-![The WinCraft command palette: a search box over WinCraft's own commands](docs/palette.png)
+![The WinCraft command palette in the Fluent glass theme: recent apps and WinCraft commands, with the selected result's details beside the list](docs/palette.png)
 
 ---
 
