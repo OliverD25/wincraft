@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="stylesheet" href="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/styles.css">
+  <script src="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/_ds_bundle.js"></script>
+  <style>
+    body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:'Segoe UI Variable Text','Segoe UI',Selawik,'Noto Sans',sans-serif}
+    a{color:var(--color-accent)} a:hover{color:var(--color-accent-700)}
+  </style>
+</helmet>
+
+<section style="padding:48px;display:flex;flex-direction:column;gap:32px">
+  <header style="display:flex;flex-direction:column;gap:6px;max-width:900px">
+    <div style="font-size:12px;font-weight:600;color:var(--color-accent)">Turn 1 · Update WinCraft when a new version is out</div>
+    <h1 style="margin:0;font-family:inherit;font-size:28px;font-weight:600;line-height:1.15">Telling people an update is ready, in the palette</h1>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">All three use the daily check, so the palette already knows a newer version exists when it opens. Version 0.20.60 and its notes are examples. When no update is waiting, everything looks as it does today.</p>
+  </header>
+
+  <div style="display:flex;flex-wrap:wrap;gap:48px;align-items:flex-start">
+    <sc-for list="{{ opts }}" as="o" hint-placeholder-count="3">
+      <div id="{{ o.id }}" style="flex:none;width:900px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="height:24px;min-width:32px;padding:0 8px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--color-accent);border-radius:4px;color:var(--color-accent-700);font-size:13px;font-weight:600">{{ o.id }}</span>
+          <span style="font-size:18px;font-weight:600">{{ o.name }}</span>
+        </div>
+        <p style="margin:0;font-size:13px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">{{ o.blurb }}</p>
+
+        <div style="width:900px;height:560px;background:#2b2827;color:#f3f2f2;border:1px solid rgba(255,255,255,0.09);border-radius:8px;box-shadow:0 24px 48px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.07);overflow:hidden;display:flex;flex-direction:column;font-size:14px">
+          <div style="height:56px;flex:none;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid rgba(255,255,255,0.08);box-shadow:inset 0 -2px 0 #e1ad66">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a8585" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+            <span style="flex:1;display:flex;align-items:center;font-size:16px;min-width:0"><span style="color:{{ o.qColor }};white-space:nowrap">{{ o.query }}</span><span style="width:1px;height:20px;background:#e1ad66;margin-left:1px"></span></span>
+            <span style="height:28px;padding:0 6px 0 10px;flex:none;display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);border-radius:14px;font-size:13px;color:#bab6b6">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#e1ad66" stroke-width="1.75" stroke-linejoin="round"><path d="M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z"></path><path d="M19 3v4M17 5h4"></path></svg>Ask AI<span style="font-size:11px;padding:0 5px;border:1px solid rgba(255,255,255,0.12);border-radius:4px;color:#8a8585">?</span>
+            </span>
+          </div>
+
+          <div style="flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;overflow:hidden">
+            <div style="display:flex;flex-direction:column;padding:4px 8px 8px;min-width:0;overflow:hidden">
+              <sc-for list="{{ o.groups }}" as="g" hint-placeholder-count="2">
+                <div style="display:flex;flex-direction:column">
+                  <div style="height:28px;display:flex;align-items:flex-end;padding:0 12px 4px;font-size:12px;color:{{ g.color }}">{{ g.name }}</div>
+                  <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="2">
+                    <div style="position:relative;min-height:52px;box-sizing:border-box;display:flex;align-items:center;gap:12px;padding:0 12px;border-radius:6px;background:{{ r.bg }};box-shadow:{{ r.ring }}">
+                      <span style="position:absolute;left:0;top:50%;margin-top:-8px;width:3px;height:16px;border-radius:2px;background:{{ r.pill }}"></span>
+                      <span style="position:relative;width:28px;height:28px;flex:none;border-radius:7px;background:{{ r.tile }};box-shadow:inset 0 0 0 1px rgba(255,255,255,0.14);display:flex;align-items:center;justify-content:center">{{ r.icon }}
+                        <sc-if value="{{ r.dot }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;right:-3px;top:-3px;width:10px;height:10px;box-sizing:border-box;border-radius:5px;background:#e1ad66;border:2px solid #2b2827"></span></sc-if>
+                      </span>
+                      <div style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1;padding:6px 0">
+                        <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                          <span style="font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="color:#e1ad66">{{ r.hl }}</span>{{ r.title }}</span>
+                          <sc-if value="{{ r.badge }}" hint-placeholder-val="{{ false }}"><span style="height:18px;padding:0 7px;flex:none;display:inline-flex;align-items:center;gap:5px;border:1px solid {{ r.badgeBorder }};border-radius:9px;font-size:11px;color:{{ r.badgeColor }};white-space:nowrap">{{ r.badge }}</span></sc-if>
+                        </div>
+                        <span style="font-size:12px;color:{{ r.subColor }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.sub }}</span>
+                      </div>
+                      <sc-if value="{{ r.enter }}" hint-placeholder-val="{{ false }}"><span style="height:24px;padding:0 4px 0 8px;flex:none;display:inline-flex;align-items:center;gap:6px;border:1px solid #e1ad66;background:rgba(225,173,102,0.12);border-radius:6px;font-size:12px;color:#e1ad66">{{ r.enter }}<span style="height:16px;min-width:16px;padding:0 3px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid #e1ad66;border-radius:3px;font-size:10px">↵</span></span></sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-for>
+            </div>
+
+            <div style="border-left:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);padding:20px;display:flex;flex-direction:column;gap:14px;min-width:0">
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <span style="font-size:20px;font-weight:600">{{ o.insTitle }}</span>
+                <sc-if value="{{ o.insVersion }}" hint-placeholder-val="{{ true }}">
+                  <div style="display:flex;align-items:center;gap:8px;font:13px Consolas,'Cascadia Mono',monospace;color:#bab6b6"><span>0.20.57</span><span style="color:#8a8585">→</span><span style="color:#e1ad66">0.20.60</span></div>
+                </sc-if>
+                <span style="font-size:13px;line-height:1.5;color:#bab6b6;text-wrap:pretty">{{ o.insDesc }}</span>
+              </div>
+              <sc-if value="{{ o.insVersion }}" hint-placeholder-val="{{ true }}">
+                <div style="padding:12px 14px;border:1px solid rgba(255,255,255,0.08);border-radius:6px;display:flex;flex-direction:column;gap:6px">
+                  <span style="font-size:12px;color:#8a8585">What's new</span>
+                  <span style="font-size:13px;line-height:1.5;text-wrap:pretty">Toggle rows show their state. One hotkey editor everywhere.</span>
+                </div>
+              </sc-if>
+              <div style="display:flex;flex-direction:column">
+                <sc-for list="{{ o.actions }}" as="ac" hint-placeholder-count="3">
+                  <div style="height:44px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid rgba(255,255,255,0.08);font-size:14px;color:{{ ac.color }}">{{ ac.label }}<span style="height:22px;min-width:22px;padding:0 6px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.12);background:rgba(0,0,0,0.2);border-radius:4px;font-size:12px;color:#bab6b6">{{ ac.key }}</span></div>
+                </sc-for>
+              </div>
+              <span style="margin-top:auto;font-size:12px;color:#8a8585">{{ o.insFoot }}</span>
+            </div>
+          </div>
+
+          <div style="height:48px;flex:none;display:flex;align-items:center;gap:16px;padding:0 16px;border-top:1px solid rgba(255,255,255,0.08);background:rgba(0,0,0,0.18);font-size:13px;color:#bab6b6">
+            <span style="position:relative;display:inline-flex">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#bab6b6" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            </span>
+            <span style="width:1px;height:20px;background:rgba(255,255,255,0.1)"></span>
+            <sc-for list="{{ o.foot }}" as="f" hint-placeholder-count="4">
+              <span style="display:inline-flex;align-items:center;gap:8px;white-space:nowrap"><span style="height:22px;min-width:22px;padding:0 6px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.12);background:rgba(0,0,0,0.2);border-radius:4px;font-size:12px">{{ f.k }}</span>{{ f.l }}</span>
+            </sc-for>
+            <span style="margin-left:auto;display:flex;align-items:center">
+              <sc-if value="{{ o.footBtn }}" hint-placeholder-val="{{ false }}">
+                <span style="height:30px;padding:0 6px 0 10px;display:inline-flex;align-items:center;gap:8px;border:1px solid #e1ad66;background:rgba(225,173,102,0.12);border-radius:6px;color:#e1ad66;white-space:nowrap">
+                  <span style="width:7px;height:7px;border-radius:4px;background:#e1ad66"></span>Update to 0.20.60<span style="height:20px;padding:0 5px;display:inline-flex;align-items:center;border:1px solid #e1ad66;border-radius:4px;font-size:11px">Ctrl+U</span>
+                </span>
+              </sc-if>
+              <sc-if value="{{ o.footPlain }}" hint-placeholder-val="{{ true }}">
+                <span style="white-space:nowrap"><span style="font-weight:600;color:#bab6b6">WinCraft</span> <span style="font-family:Consolas,'Cascadia Mono',monospace">v0.20.57</span></span>
+              </sc-if>
+            </span>
+          </div>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const svg = (paths, color = '#fff', w = 16) => React.createElement('svg', { width: w, height: w, viewBox: '0 0 24 24', fill: 'none', stroke: color, strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' }, ...paths.map((d, i) => React.createElement('path', { key: i, d })));
+    const chev = () => svg(['m9 18 6-6-6-6']);
+    const down = () => svg(['M12 3v12', 'm7 10 5 5 5-5', 'M5 21h14']);
+    const app = (letter) => React.createElement('span', { style: { fontSize: 12, fontWeight: 600, color: '#fff' } }, letter);
+    const SEL = 'rgba(225,173,102,0.14)';
+    const plain = { bg: 'transparent', ring: 'none', pill: 'transparent', subColor: '#bab6b6', hl: '' };
+    const sel = { bg: SEL, ring: 'none', pill: '#e1ad66', subColor: '#bab6b6' };
+    const other = [
+      { ...plain, tile: '#3a5a8a', icon: app('U'), hl: 'upd', title: 'ate_server', sub: 'Installed program' },
+      { ...plain, tile: '#b8483a', icon: app('J'), title: 'Check For Updates', sub: 'Start menu\\Java' },
+      { ...plain, tile: '#7a5a3a', icon: app('E'), title: 'ePub to PDF Free', sub: 'Store app' },
+    ];
+    const recent = [
+      { ...plain, tile: '#c77a3a', icon: app('C'), title: 'Claude', sub: 'Desktop 2 · Centre monitor' },
+      { ...plain, tile: '#3f8f5a', icon: app('G'), title: 'Chrome · Dmytro (Oliver)', sub: '14 windows on 3 monitors' },
+      { ...plain, tile: '#5a6578', icon: app('L'), title: 'Saved window layout', sub: 'Restore windows to their saved monitors and desktops' },
+    ];
+    const foot = [{ k: '↵', l: 'Run' }, { k: '↑↓', l: 'Move' }, { k: '→', l: 'Actions' }, { k: 'Esc', l: 'Close' }];
+    const upActions = [{ label: 'Update now', key: '↵', color: '#e1ad66' }, { label: 'Open release page', key: 'Ctrl+O', color: '#f3f2f2' }, { label: 'Change hotkey…', key: 'Ctrl+K', color: '#f3f2f2' }];
+    const upDesc = 'Downloads 0.20.60, checks it and restarts WinCraft. If it does not start properly, 0.20.57 comes back.';
+    const base = { qColor: '#f3f2f2', insVersion: true, insTitle: 'Update WinCraft', insDesc: upDesc, actions: upActions, insFoot: 'Found by the daily check · today, 09:14', foot, footPlain: true, footBtn: false };
+    const opts = [
+      { ...base, id: '1a', name: 'The row itself', query: 'upd',
+        blurb: 'Only the Update WinCraft row changes. Its tile switches to a download arrow in the accent with a dot, the title names the new version, and an \"Update ready\" badge replaces \"often picked\". Quiet: you see it when you search for it or when it is in your recent list.',
+        groups: [
+          { name: 'Best match', color: '#8a8585', rows: [{ ...sel, tile: '#e1ad66', icon: down(), dot: false, hl: 'Upd', title: 'ate WinCraft to 0.20.60', badge: 'Update ready', badgeBorder: '#e1ad66', badgeColor: '#e1ad66', sub: 'You have 0.20.57 · takes about 20 s, then WinCraft restarts', enter: 'Update' }] },
+          { name: 'Apps', color: '#8a8585', rows: other },
+        ] },
+      { ...base, id: '1b', name: 'Pinned at the top', query: 'Type a command, app or window…', qColor: '#8a8585',
+        blurb: 'On an empty query, an \"Update ready\" group sits above Recent with a single row, framed in the accent. It is the first thing in the list every time the palette opens, but not selected, so Enter still opens your top recent item. Ctrl+Del on the row hides it until the next version.',
+        groups: [
+          { name: 'Update ready', color: '#e1ad66', rows: [{ ...plain, ring: 'inset 0 0 0 1px rgba(225,173,102,0.55)', bg: 'rgba(225,173,102,0.06)', tile: '#e1ad66', icon: down(), title: 'Update WinCraft to 0.20.60', sub: 'Toggle rows show their state. One hotkey editor everywhere.', subColor: '#bab6b6', badge: 'New', badgeBorder: '#e1ad66', badgeColor: '#e1ad66' }] },
+          { name: 'Recent', color: '#8a8585', rows: [{ ...recent[0], ...sel, enter: 'Switch' }, recent[1], recent[2]] },
+        ],
+        insTitle: 'Claude', insVersion: false, insDesc: 'Desktop 2 · Centre monitor (3840×2160) · taskbar position 1.', actions: [{ label: 'Switch to window', key: '↵', color: '#e1ad66' }, { label: 'Move to next monitor', key: 'Shift+→', color: '#f3f2f2' }, { label: 'Open in WindowDeck…', key: 'Ctrl+↵', color: '#f3f2f2' }], insFoot: 'Open window · claude.exe' },
+      { ...base, id: '1c', name: 'In the footer', query: 'Type a command, app or window…', qColor: '#8a8585',
+        blurb: 'The version label at the bottom right turns into an accent button: \"Update to 0.20.60\" with Ctrl+U. Always visible, never in the way of the results, and it works from any query. The Update WinCraft row also gets the dot from 1a so search finds the same state.',
+        groups: [{ name: 'Recent', color: '#8a8585', rows: [{ ...recent[0], ...sel, enter: 'Switch' }, recent[1], recent[2], { ...plain, tile: '#3b6fd8', icon: chev(), dot: true, title: 'Update WinCraft', sub: '0.20.60 is ready' }] }],
+        insTitle: 'Claude', insVersion: false, insDesc: 'Desktop 2 · Centre monitor (3840×2160) · taskbar position 1.', actions: [{ label: 'Switch to window', key: '↵', color: '#e1ad66' }, { label: 'Move to next monitor', key: 'Shift+→', color: '#f3f2f2' }, { label: 'Open in WindowDeck…', key: 'Ctrl+↵', color: '#f3f2f2' }], insFoot: 'Open window · claude.exe',
+        footPlain: false, footBtn: true, foot: [...foot.slice(0, 3), { k: 'Ctrl+U', l: 'Update' }, foot[3]] },
+    ];
+    const ub = opts[1];
+    const upRow = ub.groups[0].rows[0];
+    const recentPlain = [recent[0], recent[1], recent[2]];
+    const bOpen = { ...ub, name: 'Pinned at the top · chosen · on open',
+      blurb: 'The first recent item is selected as always, so Enter does what it did before. The update row sits above it, one ↑ away, and the footer says so. Typing works as usual and ranks results as today.',
+      foot: [{ k: '↵', l: 'Switch' }, { k: '↑', l: 'Select update' }, { k: '↓', l: 'Move' }, { k: 'Esc', l: 'Close' }] };
+    const bDown = { ...ub, id: '1b·↑', name: 'Pinned at the top · chosen · after ↑',
+      blurb: 'One ↑ selects the update row: accent pill, the Enter button reads \"Update\". Enter downloads 0.20.60, checks it and restarts WinCraft. ↓ goes back to Recent. Ctrl+Del hides the row until the next version.',
+      groups: [{ ...ub.groups[0], rows: [{ ...upRow, ...sel, ring: 'inset 0 0 0 1px rgba(225,173,102,0.55)', enter: 'Update' }] }, { ...ub.groups[1], rows: recentPlain }],
+      insTitle: 'Update WinCraft', insVersion: true, insDesc: upDesc, actions: upActions, insFoot: 'Found by the daily check · today, 09:14',
+      foot: [{ k: '↵', l: 'Update' }, { k: '↑↓', l: 'Move' }, { k: 'Ctrl+Del', l: 'Hide until next version' }, { k: 'Esc', l: 'Close' }] };
+    return { opts: [bOpen, bDown, opts[0], opts[2]] };
+  }
+}
+</script>
+</body>
+</html>
