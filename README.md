@@ -69,7 +69,9 @@ WinCraft checks GitHub for a newer release every hour, about 30 seconds after th
 1. **Verified Download:** Downloads `wincraft.exe` and `SHA256SUMS.txt` from the release, verifies the checksum, swaps the executable in place, and restarts WinCraft. A 2-step progress bar in the Updates block shows how far it is. While it downloads, **Cancel** stops it, deletes the partial file, and keeps the version you have.
 2. **Automatic 30-Second Rollback:** If the new version does not run for 30 seconds without crashing, WinCraft ends it, restores your previous executable, restarts the old version, and tells you: *"Update to … failed, kept …"*.
 3. **Downloaded Ahead:** With **"Download updates ahead"** on (the default, on the About page), a new version is downloaded and checked in the background as soon as the check finds it, so **Update now** takes a few seconds. It never installs on its own, never downloads on a metered connection, and the kept file (`wincraft.staged.exe` next to `wincraft.exe`) is deleted when a newer one replaces it, after the update, or when you switch the setting off.
-4. **Full Control:** Only an `--install`ed copy updates itself (portable copies ask you to run `--install` first). Toggle **"Check for updates automatically"** on the About page anytime.
+4. **You See It Happen:** While an update you started runs, a small WinCraft panel at the bottom right of the screen shows each step: checking, downloading with a percent, checking the download, restarting. If it fails, the panel says why and that your version stays. It never takes the keyboard; a click opens About. An update you ask for installs a version WinCraft already knows of (or already downloaded) at once, without asking GitHub again.
+5. **GitHub's Limit Is Not "Offline":** GitHub allows 60 update-API requests an hour per internet address, shared by every program and PC behind the same router. WinCraft sends at most 6 of them an hour. When GitHub says the limit is reached, WinCraft reads the newest version from the releases page instead, which that limit does not cover; the checksum check stays the same. If that fails too, it says how many minutes GitHub limits checks, and the automatic checks wait that long.
+6. **Full Control:** Only an `--install`ed copy updates itself (portable copies ask you to run `--install` first). Toggle **"Check for updates automatically"** on the About page anytime.
 
 ---
 
@@ -414,7 +416,7 @@ Everyone follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 WinCraft sends nothing about you anywhere: **no telemetry, no account, no analytics**. It touches the network only in these four cases:
 
-1. **Update check:** Asks `api.github.com/repos/OliverD25/wincraft` for the latest release, at most every hour and after a wake or a palette opening that comes 15 minutes after the last check (can be switched off in **Settings → About**).
+1. **Update check:** Asks `api.github.com/repos/OliverD25/wincraft` for the latest release, at most every hour and after a wake or a palette opening that comes 15 minutes after the last check, and never more than 6 times an hour (can be switched off in **Settings → About**). When GitHub's API is limiting requests, it asks `github.com/OliverD25/wincraft/releases/latest` instead and reads only where it redirects.
 2. **Update now and Download updates ahead:** Downloads `wincraft.exe` and `SHA256SUMS.txt` from this repository's releases when you start an update, or in the background as soon as a new release is found while **Download updates ahead** is on (the default; never on a metered connection, never installed without you).
 3. **Plugin Store:** Reads the plugin list from this repository when you open the Plugin Store page.
 4. **Search & Ask AI:** Opens your default browser at the search or AI site you chose, only when you press `Enter`.
