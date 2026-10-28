@@ -7,6 +7,8 @@ pub(crate) mod settings;
 pub mod taskbar_badges;
 pub(crate) mod widgets;
 
+pub use palette::set_scene_select_update;
+
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 

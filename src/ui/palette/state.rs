@@ -151,6 +151,9 @@ impl Palette {
     /// nothing matches a query typed without a prefix, the rows are the
     /// "Try instead" ones.
     pub(super) fn refresh(&mut self, snapshot: &UiSnapshot, ctx: &egui::Context) {
+        if self.pinned.is_none() {
+            self.pinned = Some(pinned::pinned_update(snapshot));
+        }
         if let Some(view) = &self.sub_list {
             let wanted = (Some(SUB_LIST_KEY.to_string()), self.query.clone());
             if self.searched.as_ref() != Some(&wanted) {
@@ -194,6 +197,7 @@ impl Palette {
             if self.trying {
                 self.results.items = actions::try_instead(&self.query, &snapshot.search);
             }
+            self.pin_update();
             // Output streaming in keeps the newest line in view, unless the
             // user moved the cursor up to read something.
             if news && at_end && self.results.follows_end {
@@ -219,6 +223,57 @@ impl Palette {
         self.results.items.get(self.selected)
     }
 
+    /// The pinned "Update ready" row this opening shows, if any.
+    pub(super) fn pinned_update(&self) -> Option<&PinnedUpdate> {
+        self.pinned.as_ref().and_then(Option::as_ref)
+    }
+
+    /// Puts the "Update ready" row above everything when nothing is typed.
+    /// After an opening or a new query the cursor starts on the row under
+    /// it, so Enter does what it did before the update came.
+    fn pin_update(&mut self) {
+        let fresh = std::mem::take(&mut self.pin_fresh);
+        if self.prefix.is_some() || !self.query.trim().is_empty() || self.trying {
+            return;
+        }
+        let Some(row) = self.pinned_update().map(|update| update.row.clone()) else {
+            return;
+        };
+        self.results.items.insert(0, row);
+        self.results.best_match = false;
+        if fresh && self.results.items.len() > 1 && !pinned::scene_select_update() {
+            self.selected = 1;
+            self.follow_selection = true;
+        }
+    }
+
+    /// Where the cursor is against the pinned row, for the footer.
+    pub(super) fn pinned_spot(&self) -> actions::Pinned {
+        let shown = self
+            .results
+            .items
+            .first()
+            .is_some_and(|item| item.group == UPDATE_GROUP)
+            && self.pinned_update().is_some();
+        match self.selected {
+            _ if !shown || !self.marks.is_empty() => actions::Pinned::Away,
+            0 => actions::Pinned::On,
+            1 => actions::Pinned::Below,
+            _ => actions::Pinned::Away,
+        }
+    }
+
+    /// Ctrl+Del on the pinned row: it goes now, and the host keeps the tag
+    /// so it stays away until a newer release.
+    pub(super) fn hide_pinned(&mut self, tag: String, to_host: &Arc<HostChannel>) {
+        self.pinned = Some(None);
+        self.searched = None;
+        self.selected = 0;
+        self.follow_selection = true;
+        self.action_cursor = None;
+        to_host.send(HostRequest::HideUpdate(tag));
+    }
+
     /// Puts `text` in the box as if it had been typed, so a prefix at its
     /// start becomes the chip. Runs nothing.
     pub fn type_in(&mut self, text: &str) {
@@ -235,6 +290,7 @@ impl Palette {
     pub(super) fn set_query(&mut self, text: String) {
         self.query = text;
         self.selected = 0;
+        self.pin_fresh = true;
         self.follow_selection = true;
         self.cursor_to_end = true;
         self.action_cursor = None;
@@ -283,6 +339,11 @@ impl Palette {
     pub(super) fn current_actions(&mut self) -> Vec<RowAction> {
         if !self.marks.is_empty() {
             return actions::marks_actions(&self.marks.windows());
+        }
+        if self.pinned_spot() == actions::Pinned::On {
+            if let Some(update) = self.pinned_update() {
+                return actions::update_actions(update);
+            }
         }
         let tab_action = self.tab_action();
         let best_match = self.on_best_match();

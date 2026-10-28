@@ -231,6 +231,10 @@ $scenes = @(
     # About half way through a sample download; nothing is downloaded.
     # About with a sample newer release and its notes; nothing is downloaded.
     @{ Name = 'settings-about-available'; Args = @('--open-settings=about', '--show-update-available'); Window = 'settings' },
+    # The palette with that release pinned above Recent ("Update ready"),
+    # then with the row selected and its inspector; nothing is downloaded.
+    @{ Name = 'palette-update-ready';    Args = @('--open-palette', '--show-update-available'); Window = 'palette'; Settle = 1000 },
+    @{ Name = 'palette-update-selected'; Args = @('--open-palette', '--show-update-available', '--select-update'); Window = 'palette'; Settle = 1000 },
     @{ Name = 'settings-about-update';  Args = @('--open-settings=about', '--show-update-progress'); Window = 'settings' },
     # The strip in the view Auto picks (By monitor with two monitors or
     # more), then in the Flat view.

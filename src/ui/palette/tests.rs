@@ -1820,3 +1820,172 @@ fn toggle_rows_draw_with_and_without_a_switch_in_every_theme_without_panicking()
         output.textures_delta.clear();
     }
 }
+
+fn update_snapshot(tag: &str) -> UiSnapshot {
+    UiSnapshot {
+        version: "0.20.59".to_string(),
+        update: crate::core::ui_bridge::UpdateView {
+            available: Some(crate::core::ui_bridge::NewRelease {
+                tag: tag.to_string(),
+                notes: "- Toggle rows show their state.".to_string(),
+                page: "https://github.com/OliverD25/wincraft/releases".to_string(),
+            }),
+            ..Default::default()
+        },
+        ..UiSnapshot::default()
+    }
+}
+
+fn titles(palette: &Palette) -> Vec<&str> {
+    palette
+        .results
+        .items
+        .iter()
+        .map(|item| item.title.as_str())
+        .collect()
+}
+
+#[test]
+fn the_update_row_sits_above_recent_and_the_first_recent_row_stays_selected() {
+    let mut palette = windows_palette();
+    let bridge = crate::core::ui_bridge::create();
+    let ctx = drawing_context();
+    let snapshot = update_snapshot("v0.20.60");
+    frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+    assert_eq!(
+        titles(&palette),
+        ["Update WinCraft to 0.20.60", "Notes", "Inbox"]
+    );
+    assert_eq!(palette.selected, 1, "Enter still does what it did");
+    assert_eq!(palette.pinned_spot(), actions::Pinned::Below);
+    let hints =
+        actions::pinned_hints(&palette.current_actions(), palette.pinned_spot(), "Close").unwrap();
+    let words: Vec<&str> = hints.iter().map(|hint| hint.label.as_str()).collect();
+    assert_eq!(words, ["Switch", "Select update", "Move", "Close"]);
+
+    // Up selects it; its actions are the update's.
+    frame(
+        &mut palette,
+        &ctx,
+        &snapshot,
+        &bridge,
+        vec![key(egui::Key::ArrowUp)],
+    );
+    assert_eq!(palette.selected, 0);
+    assert_eq!(palette.pinned_spot(), actions::Pinned::On);
+    let actions = palette.current_actions();
+    assert_eq!(actions[0].label, "Update now");
+    assert_eq!(actions::enter_verb(&actions[0].label), "Update");
+    let keys: Vec<Key> = actions.iter().map(|action| action.key).collect();
+    assert_eq!(
+        keys,
+        [Key::Enter, Key::CtrlO, Key::CtrlDelete],
+        "no Ctrl+K without a hotkey id"
+    );
+    let hints = actions::pinned_hints(&actions, palette.pinned_spot(), "Close").unwrap();
+    let words: Vec<&str> = hints.iter().map(|hint| hint.label.as_str()).collect();
+    assert_eq!(
+        words,
+        ["Update", "Move", "Hide until next version", "Close"]
+    );
+}
+
+#[test]
+fn typing_ranks_as_before_without_the_pinned_row() {
+    let mut palette = windows_palette();
+    let bridge = crate::core::ui_bridge::create();
+    let ctx = drawing_context();
+    let snapshot = update_snapshot("v0.20.60");
+    palette.type_in("no");
+    frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+    assert!(!titles(&palette).contains(&"Update WinCraft to 0.20.60"));
+    assert_eq!(palette.selected, 0);
+    assert_eq!(palette.pinned_spot(), actions::Pinned::Away);
+
+    // Back to an empty box: pinned again, the cursor under it.
+    palette.set_query(String::new());
+    frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+    assert_eq!(titles(&palette)[0], "Update WinCraft to 0.20.60");
+    assert_eq!(palette.selected, 1);
+}
+
+#[test]
+fn the_row_comes_only_with_the_next_opening_never_while_open() {
+    let mut palette = windows_palette();
+    let bridge = crate::core::ui_bridge::create();
+    let ctx = drawing_context();
+    frame(
+        &mut palette,
+        &ctx,
+        &UiSnapshot::default(),
+        &bridge,
+        Vec::new(),
+    );
+    assert_eq!(titles(&palette), ["Notes", "Inbox"]);
+    // The check started at this opening answers while the palette is open.
+    let found = update_snapshot("v0.20.60");
+    palette.invalidate();
+    frame(&mut palette, &ctx, &found, &bridge, Vec::new());
+    assert_eq!(
+        titles(&palette),
+        ["Notes", "Inbox"],
+        "the list does not change"
+    );
+    palette.opened();
+    frame(&mut palette, &ctx, &found, &bridge, Vec::new());
+    assert_eq!(titles(&palette)[0], "Update WinCraft to 0.20.60");
+}
+
+#[test]
+fn ctrl_del_hides_the_row_and_tells_the_host_its_tag() {
+    let mut palette = windows_palette();
+    let bridge = crate::core::ui_bridge::create();
+    let ctx = drawing_context();
+    let snapshot = update_snapshot("v0.20.60");
+    frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+    frame(
+        &mut palette,
+        &ctx,
+        &snapshot,
+        &bridge,
+        vec![key(egui::Key::ArrowUp)],
+    );
+    frame(
+        &mut palette,
+        &ctx,
+        &snapshot,
+        &bridge,
+        vec![ctrl_key(egui::Key::Delete)],
+    );
+    let hidden = bridge.host_rx.try_iter().find_map(|request| match request {
+        HostRequest::HideUpdate(tag) => Some(tag),
+        _ => None,
+    });
+    assert_eq!(hidden.as_deref(), Some("v0.20.60"));
+    frame(&mut palette, &ctx, &snapshot, &bridge, Vec::new());
+    assert_eq!(titles(&palette), ["Notes", "Inbox"]);
+    assert_eq!(palette.selected, 0);
+}
+
+#[test]
+fn a_copy_that_cannot_update_or_a_hidden_release_pins_nothing() {
+    for change in [0, 1] {
+        let mut palette = windows_palette();
+        let bridge = crate::core::ui_bridge::create();
+        let mut snapshot = update_snapshot("v0.20.60");
+        if change == 0 {
+            snapshot.update.blocked = Some("a development build".to_string());
+        } else {
+            snapshot.update.hidden = true;
+        }
+        frame(
+            &mut palette,
+            &drawing_context(),
+            &snapshot,
+            &bridge,
+            Vec::new(),
+        );
+        assert_eq!(titles(&palette), ["Notes", "Inbox"], "{change}");
+        assert_eq!(palette.selected, 0);
+    }
+}

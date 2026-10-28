@@ -2,6 +2,7 @@ mod actions;
 mod dispatch;
 mod inspector;
 mod panel;
+mod pinned;
 mod prompt;
 mod rows;
 mod state;
@@ -45,6 +46,8 @@ use crate::ui::widgets::tip::{self, STRIP_HEIGHT};
 use crate::ui::widgets::{keycap, row, text, toggle};
 use actions::{Hint, Key, Marks, RowAction, Run, Situation};
 use inspector::Inspected;
+pub use pinned::set_scene_select_update;
+use pinned::{PinnedUpdate, UPDATE_GROUP};
 
 pub use actions::is_narrow;
 
@@ -165,6 +168,13 @@ pub struct Palette {
     hotkey_dialog: Option<Editor>,
     /// Where the panel was drawn last, for the dialog's backdrop.
     panel: Rect,
+    /// The "Update ready" row as the snapshot had it when the palette
+    /// opened; None inside when there is none. Kept for the whole opening,
+    /// so the list never changes under the user's eyes.
+    pinned: Option<Option<PinnedUpdate>>,
+    /// The cursor was put back to the top (an opening, a new query), so the
+    /// next list with the pinned row starts on the row under it.
+    pin_fresh: bool,
 }
 
 /// A command's rows, shown in place of the search results until Enter
@@ -245,6 +255,8 @@ impl Palette {
             query_id: None,
             hotkey_dialog: None,
             panel: Rect::NOTHING,
+            pinned: None,
+            pin_fresh: false,
         }
     }
 
@@ -275,6 +287,8 @@ impl Palette {
         self.armed = None;
         self.sub_list = None;
         self.thumbnail = None;
+        self.pinned = None;
+        self.pin_fresh = true;
         if let Some(icons) = &mut self.icons {
             icons.forget_windows();
         }

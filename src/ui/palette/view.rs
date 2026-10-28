@@ -165,6 +165,7 @@ impl Palette {
                 (egui::Key::B, Key::CtrlB),
                 (egui::Key::Delete, Key::CtrlDelete),
                 (egui::Key::K, Key::CtrlK),
+                (egui::Key::O, Key::CtrlO),
                 (egui::Key::W, Key::CtrlW),
                 (egui::Key::M, Key::CtrlM),
                 (egui::Key::Space, Key::CtrlSpace),
@@ -307,6 +308,7 @@ impl Palette {
         }
         if response.changed() {
             self.selected = 0;
+            self.pin_fresh = true;
             self.follow_selection = true;
             self.action_cursor = None;
             if self.prefix.is_none() {
@@ -340,7 +342,8 @@ impl Palette {
             self.results.escape_label.unwrap_or("Close")
         };
         let clear_scope = self.prefix.is_some() && self.query.is_empty();
-        let hints = actions::footer_hints(&actions, clear_scope, escape);
+        let hints = actions::pinned_hints(&actions, self.pinned_spot(), escape)
+            .unwrap_or_else(|| actions::footer_hints(&actions, clear_scope, escape));
         if paint_footer(
             ui,
             footer,
@@ -440,7 +443,7 @@ impl Palette {
                             };
                             if last_group != Some(group) {
                                 last_group = Some(group);
-                                group_header(ui, group);
+                                group_header(ui, group, group == UPDATE_GROUP);
                             }
                             let selected = position == self.selected;
                             let look = RowLook {
@@ -525,10 +528,14 @@ impl Palette {
                 }),
                 _ => None,
             };
-            let source = item
-                .as_ref()
-                .map(|item| self.source_line(item, snapshot))
-                .unwrap_or_default();
+            let update = self
+                .pinned_update()
+                .filter(|_| self.pinned_spot() == actions::Pinned::On && self.marks.is_empty());
+            let source = match (update, &item) {
+                (Some(update), _) => update.found_line(crate::core::update::now_secs()),
+                (None, Some(item)) => self.source_line(item, snapshot),
+                (None, None) => String::new(),
+            };
             let details = self
                 .details
                 .as_ref()
@@ -539,6 +546,7 @@ impl Palette {
                 ctx.request_repaint_after(state::CONFIRM_FOR.saturating_sub(at.elapsed()));
             }
             let inspected = Inspected {
+                update,
                 command: self.shown_command_details(),
                 armed: armed.as_deref(),
                 item: item.as_ref(),

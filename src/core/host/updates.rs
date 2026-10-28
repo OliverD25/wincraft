@@ -34,6 +34,10 @@ pub(super) struct Updates {
     pub(super) cancel: Arc<AtomicBool>,
     /// Why this copy cannot update itself, worked out once at start.
     pub(super) blocked: Option<String>,
+    /// `--show-update-available`: the views show the sample release as if
+    /// this copy could install it, so the palette pins its row. `blocked`
+    /// still stops every real update.
+    pub(super) scene_unblocked: bool,
     /// What went wrong with the update a rollback came back from.
     pub(super) failed: Option<String>,
     /// The version that started this one and waits to hear it is healthy.
@@ -68,6 +72,7 @@ impl Default for Updates {
             stage_dir: None,
             cancel: Arc::new(AtomicBool::new(false)),
             blocked: None,
+            scene_unblocked: false,
             failed: None,
             healthy_pending: None,
             auto_update: false,
@@ -197,7 +202,11 @@ impl Host {
                 notes: release.notes.clone(),
                 page: release.page.clone(),
             }),
-            blocked: self.updates.blocked.clone(),
+            blocked: self
+                .updates
+                .blocked
+                .clone()
+                .filter(|_| !self.updates.scene_unblocked),
             failed: self.updates.failed.clone(),
             installed_notes: self.updates.installed_notes.clone(),
         }
@@ -273,6 +282,7 @@ Nothing is downloaded."
                 page: github::repo_url().to_string(),
                 assets: Vec::new(),
             });
+            self.updates.scene_unblocked = true;
             self.publish();
         }
         if flags.scene.update_now {

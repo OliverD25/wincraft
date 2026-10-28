@@ -196,13 +196,26 @@ pub(super) fn result_row(
     let hover =
         ui.ctx()
             .animate_bool_with_time(response.id.with("hover"), response.hovered(), 0.08);
+    let pinned = entry.group == UPDATE_GROUP;
     if look.selected {
         row::paint_selection(ui, rect);
+    } else if pinned {
+        // The "Update ready" row's faint accent fill.
+        ui.painter()
+            .rect_filled(rect, tokens.radius_row, tokens.accent.gamma_multiply(0.06));
     } else if hover > 0.0 {
         ui.painter().rect_filled(
             rect,
             tokens.radius_row,
             tokens.hover_bg.gamma_multiply(hover),
+        );
+    }
+    if pinned {
+        ui.painter().rect_stroke(
+            rect,
+            tokens.radius_row,
+            theme::line(ui.ctx(), tokens.accent.gamma_multiply(0.55)),
+            StrokeKind::Inside,
         );
     }
 
@@ -256,6 +269,7 @@ pub(super) fn result_row(
     };
     match &look.toggle {
         Some(toggle) => paint_state_tile(ui.ctx(), &painter, slot, toggle, &tokens),
+        None if pinned => paint_update_tile(&painter, slot, &tokens),
         None => paint_icon(
             ui.ctx(),
             &painter,
@@ -465,6 +479,15 @@ fn paint_state_tile(
         );
         icons::paint(painter, glyph, toggle.icon(), tokens.text_secondary);
     }
+}
+
+/// The "Update ready" row's 28 px tile: the accent with a white download
+/// arrow, centred on the icon slot like a toggle's tile.
+fn paint_update_tile(painter: &egui::Painter, slot: Rect, tokens: &Tokens) {
+    let tile = Rect::from_center_size(slot.center(), vec2(STATE_TILE, STATE_TILE));
+    painter.rect_filled(tile, 7, tokens.accent);
+    let glyph = Rect::from_center_size(tile.center(), vec2(16.0, 16.0));
+    icons::paint(painter, glyph, Icon::Download, Color32::WHITE);
 }
 
 /// Long window titles and paths end in an ellipsis instead of running under

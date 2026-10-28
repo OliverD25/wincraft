@@ -9,6 +9,7 @@ use crate::core::ui_bridge::CommandDetails;
 use crate::core::window_info::{self, WindowDetails};
 use crate::search::{PickInfo, ResultItem};
 use crate::ui::palette::actions::{Marks, RowAction};
+use crate::ui::palette::pinned::PinnedUpdate;
 use crate::ui::palette::{badge, row_badges};
 use crate::ui::widgets::icons::{self, Icon};
 use crate::ui::widgets::toggle;
@@ -26,6 +27,9 @@ const SOURCE_LINE: f32 = 16.0;
 /// Everything the inspector shows for the row under the cursor.
 pub struct Inspected<'a> {
     pub item: Option<&'a ResultItem>,
+    /// The pinned "Update ready" row is selected: the update's own block
+    /// stands in place of the row's title and words.
+    pub update: Option<&'a PinnedUpdate>,
     /// What a plugin says about the selected command's state.
     pub command: Option<&'a CommandDetails>,
     /// The selected command waits for a second Enter, which does this.
@@ -74,6 +78,8 @@ pub fn show(ui: &mut egui::Ui, rect: Rect, inspected: &Inspected) -> Clicked {
 
     if !inspected.marks.is_empty() {
         y = marks_block(&painter, inner, y, inspected.marks, &tokens);
+    } else if let Some(update) = inspected.update {
+        y = update_block(ui, inner, y, update, &tokens);
     } else if let Some(item) = inspected.item {
         if window.is_some() {
             let preview =
@@ -392,6 +398,106 @@ fn title_block(
             x = badge(ui, pos2(x, y), one, tokens).right() + 6.0;
         }
         y += 18.0;
+    }
+    y
+}
+
+/// The update's block (design 1b after the up arrow): "Update WinCraft",
+/// the versions in the mono font with the new one in the accent, what
+/// Update does, and the release notes in a "What's new" box.
+fn update_block(ui: &egui::Ui, inner: Rect, y: f32, update: &PinnedUpdate, tokens: &Tokens) -> f32 {
+    let painter = ui.painter();
+    let wrapped = |text: &str, font: egui::FontId, colour, line: f32, rows: usize, width: f32| {
+        let mut job = crate::ui::widgets::text::job(text, font, colour, Some(line));
+        job.wrap = egui::text::TextWrapping {
+            max_width: width,
+            max_rows: rows,
+            break_anywhere: false,
+            overflow_character: Some('\u{2026}'),
+        };
+        painter.layout_job(job)
+    };
+    let title = wrapped(
+        "Update WinCraft",
+        theme::semibold(20.0),
+        tokens.text_primary,
+        26.0,
+        1,
+        inner.width(),
+    );
+    let mut y = y;
+    let height = title.size().y;
+    painter.galley(pos2(inner.left(), y), title, tokens.text_primary);
+    y += height + 6.0;
+
+    let mut versions = egui::text::LayoutJob::default();
+    for (text, colour) in [
+        (update.current.as_str(), tokens.text_secondary),
+        ("  \u{2192}  ", tokens.text_disabled),
+        (update.version.as_str(), tokens.accent),
+    ] {
+        versions.append(
+            text,
+            0.0,
+            egui::TextFormat {
+                font_id: theme::mono(13.0),
+                color: colour,
+                ..Default::default()
+            },
+        );
+    }
+    let versions = painter.layout_job(versions);
+    let height = versions.size().y;
+    painter.galley(pos2(inner.left(), y), versions, tokens.text_secondary);
+    y += height + 6.0;
+
+    let said = wrapped(
+        &update.description(),
+        theme::regular(13.0),
+        tokens.text_secondary,
+        19.0,
+        4,
+        inner.width(),
+    );
+    let height = said.size().y;
+    painter.galley(pos2(inner.left(), y), said, tokens.text_secondary);
+    y += height;
+
+    let news = update.news(4);
+    if !news.is_empty() {
+        y += GAP;
+        let pad = vec2(14.0, 12.0);
+        let width = inner.width() - pad.x * 2.0;
+        let label = painter.layout_no_wrap(
+            "What's new".to_string(),
+            theme::regular(12.0),
+            tokens.text_disabled,
+        );
+        let body = wrapped(
+            &news.join("\n"),
+            theme::regular(13.0),
+            tokens.text_primary,
+            19.0,
+            5,
+            width,
+        );
+        let height = pad.y * 2.0 + label.size().y + 6.0 + body.size().y;
+        let frame = Rect::from_min_size(pos2(inner.left(), y), vec2(inner.width(), height));
+        painter.rect(
+            frame,
+            tokens.radius_row,
+            egui::Color32::TRANSPARENT,
+            theme::line(ui.ctx(), tokens.border),
+            StrokeKind::Inside,
+        );
+        let label_height = label.size().y;
+        painter.galley(frame.min + pad, label, tokens.text_disabled);
+        painter.galley(
+            frame.min + pad + vec2(0.0, label_height + 6.0),
+            body,
+            tokens.text_primary,
+        );
+        y = frame.bottom();
     }
     y
 }

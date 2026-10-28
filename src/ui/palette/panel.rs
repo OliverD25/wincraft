@@ -313,8 +313,9 @@ pub(super) fn paint_footer(
 }
 
 /// Group header inside the list: 28 high, 12 px, sitting at the bottom
-/// with 4 px under it, 12 px in from the left.
-pub(super) fn group_header(ui: &mut egui::Ui, name: &str) {
+/// with 4 px under it, 12 px in from the left. `accent` draws it in the
+/// accent colour, as "Update ready" is.
+pub(super) fn group_header(ui: &mut egui::Ui, name: &str, accent: bool) {
     let tokens = Tokens::get(ui.ctx());
     let (rect, _) =
         ui.allocate_exact_size(vec2(ui.available_width(), GROUP_HEADER), Sense::hover());
@@ -326,7 +327,11 @@ pub(super) fn group_header(ui: &mut egui::Ui, name: &str) {
         Align2::LEFT_BOTTOM,
         name,
         theme::regular(12.0),
-        tokens.text_disabled,
+        if accent {
+            tokens.accent
+        } else {
+            tokens.text_disabled
+        },
     );
 }
 

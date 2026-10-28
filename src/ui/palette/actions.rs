@@ -3,8 +3,10 @@
 //! so all of it is tested without a window.
 
 use crate::core::config::SearchConfig;
+use crate::core::ui_bridge::{CommandId, HostCommand};
 use crate::search::providers::web;
 use crate::search::{ask_ai, Action, Choice, Glyph, IconRef, ResultItem};
+use crate::ui::palette::pinned::PinnedUpdate;
 
 /// Below this monitor width, in logical pixels, the inspector does not fit
 /// beside the list and opens over it instead.
@@ -24,6 +26,7 @@ pub enum Key {
     CtrlB,
     CtrlDelete,
     CtrlK,
+    CtrlO,
     CtrlC,
     ShiftRight,
     CtrlW,
@@ -42,6 +45,7 @@ impl Key {
             Key::CtrlB => "Ctrl+B",
             Key::CtrlDelete => "Ctrl+Del",
             Key::CtrlK => "Ctrl+K",
+            Key::CtrlO => "Ctrl+O",
             Key::CtrlC => "Ctrl+C",
             Key::ShiftRight => "Shift+\u{2192}",
             Key::CtrlW => "Ctrl+W",
@@ -61,6 +65,8 @@ pub enum Run {
     Forget,
     /// Marks or unmarks the window.
     Mark,
+    /// Ctrl+Del on the "Update ready" row: hides that release tag.
+    HideUpdate(String),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -205,6 +211,81 @@ pub fn row_actions(item: &ResultItem, situation: &Situation) -> Vec<RowAction> {
         }
     }
     actions
+}
+
+/// The "Update ready" row's actions, in the inspector's order: Update now,
+/// the release page and, when the command has a hotkey id, Change hotkey.
+/// Ctrl+Del hides the row and is only hinted in the footer.
+pub fn update_actions(update: &PinnedUpdate) -> Vec<RowAction> {
+    let mut actions = vec![
+        RowAction::new(
+            Key::Enter,
+            "Update now",
+            "Update",
+            Run::Action(Action::Command(CommandId::Host(
+                HostCommand::UpdateWinCraft,
+            ))),
+        ),
+        RowAction::new(
+            Key::CtrlO,
+            "Open release page",
+            "Release page",
+            Run::Action(Action::OpenUrl(update.page.clone())),
+        )
+        .quiet(),
+    ];
+    if let Some(choice) = &update.shortcut {
+        actions.push(RowAction::from_choice(Key::CtrlK, choice).quiet());
+    }
+    actions.push(
+        RowAction::new(
+            Key::CtrlDelete,
+            "Hide until next version",
+            "Hide until next version",
+            Run::HideUpdate(update.tag.clone()),
+        )
+        .footer_only(),
+    );
+    actions
+}
+
+/// Where the cursor is against the pinned "Update ready" row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pinned {
+    /// No pinned row, or the cursor is further down.
+    Away,
+    /// On the row just under it: up selects the update.
+    Below,
+    /// On the update row.
+    On,
+}
+
+/// The footer while the pinned row is near, as design 1b has it; None
+/// leaves the footer to `footer_hints`. Below: "Enter Switch, Up Select
+/// update, Down Move, Esc Close". On: "Enter Update, Up/Down Move, Ctrl+Del
+/// Hide until next version, Esc Close".
+pub fn pinned_hints(actions: &[RowAction], pinned: Pinned, escape: &str) -> Option<Vec<Hint>> {
+    let mut hints = Vec::new();
+    match pinned {
+        Pinned::Away => return None,
+        Pinned::Below => {
+            if let Some(action) = actions.iter().find(|action| action.hinted) {
+                hints.push(Hint::plain(action.key.caps(), &action.short));
+            }
+            hints.push(Hint::plain("\u{2191}", "Select update"));
+            hints.push(Hint::plain("\u{2193}", "Move"));
+        }
+        Pinned::On => {
+            hints.push(Hint::plain(Key::Enter.caps(), "Update"));
+            hints.push(Hint::plain("\u{2191}\u{2193}", "Move"));
+            hints.push(Hint::plain(
+                Key::CtrlDelete.caps(),
+                "Hide until next version",
+            ));
+        }
+    }
+    hints.push(Hint::plain("Esc", escape));
+    Some(hints)
 }
 
 /// What the marked windows can do together; Enter arranges them.

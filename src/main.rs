@@ -154,6 +154,7 @@ fn main() {
         "--show-update-notice",
         "--show-update-progress",
         "--show-update-available",
+        "--select-update",
         "--allow-hide-popup",
     ] {
         if !has_flag(&args, flag) {
@@ -171,6 +172,8 @@ fn main() {
             scene.update_progress = true;
         } else if flag == "--show-update-available" {
             scene.update_available = true;
+        } else if flag == "--select-update" {
+            ui::set_scene_select_update(true);
         } else if flag == "--allow-hide-popup" {
             scene.allow_hide_popup = true;
         } else {

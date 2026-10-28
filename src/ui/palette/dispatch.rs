@@ -114,6 +114,10 @@ impl Palette {
                 }
                 Outcome::Stay
             }
+            Run::HideUpdate(tag) => {
+                self.hide_pinned(tag, to_host);
+                Outcome::Stay
+            }
         }
     }
 
