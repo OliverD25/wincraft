@@ -651,8 +651,9 @@ pub fn report_healthy() -> bool {
 /// The old process, after its host stopped and its single-instance mutex
 /// was freed: starts the new version and waits for it. The exit code is 0
 /// when the new version took over, 1 after a rollback, 2 when that failed
-/// too.
-pub fn run_handover(plan: &Handover) -> i32 {
+/// too. `starting` runs once, right before the new version starts: the
+/// update panel goes then, as the new version shows its own.
+pub fn run_handover(plan: &Handover, starting: &dyn Fn()) -> i32 {
     // The new version writes the same log from now on.
     logging::reopen_appending();
     log::info!(
@@ -661,13 +662,17 @@ pub fn run_handover(plan: &Handover) -> i32 {
         HANDOVER_WAIT.as_secs()
     );
     let outcome = match HealthSignal::named(&instance::name(HEALTHY_EVENT)) {
-        Ok(mut signal) => hand_over(plan, &mut signal, &mut Disk, HANDOVER_WAIT),
+        Ok(mut signal) => {
+            let mut first = FirstStart::new(&mut signal, starting);
+            hand_over(plan, &mut first, &mut Disk, HANDOVER_WAIT)
+        }
         Err(err) => {
             // Without the event no signal could ever arrive, so the new
             // version is not started at all.
             log::error!("{err}");
             let mut never = NoSignal;
-            hand_over(plan, &mut never, &mut Disk, HANDOVER_WAIT)
+            let mut first = FirstStart::new(&mut never, starting);
+            hand_over(plan, &mut first, &mut Disk, HANDOVER_WAIT)
         }
     };
     match outcome {
@@ -683,6 +688,30 @@ pub fn run_handover(plan: &Handover) -> i32 {
             log::error!("update failed and could not be undone: {reason}");
             2
         }
+    }
+}
+
+/// A launcher that runs `before` once, ahead of its first start.
+pub struct FirstStart<'a> {
+    inner: &'a mut dyn Launcher,
+    before: Option<&'a dyn Fn()>,
+}
+
+impl<'a> FirstStart<'a> {
+    pub fn new(inner: &'a mut dyn Launcher, before: &'a dyn Fn()) -> Self {
+        Self {
+            inner,
+            before: Some(before),
+        }
+    }
+}
+
+impl Launcher for FirstStart<'_> {
+    fn start(&mut self, exe: &Path, args: &[String]) -> Result<Box<dyn Started>, String> {
+        if let Some(before) = self.before.take() {
+            before();
+        }
+        self.inner.start(exe, args)
     }
 }
 
@@ -1123,6 +1152,18 @@ mod tests {
 
     fn swapped() -> FakeFiles {
         FakeFiles::with(&[EXE_NAME, OLD_EXE])
+    }
+
+    #[test]
+    fn the_update_panel_goes_once_right_before_the_new_version_starts() {
+        let closed = std::cell::Cell::new(0);
+        let close = || closed.set(closed.get() + 1);
+        let mut inner = FakeLauncher::new(vec![Ok((None, Some(2))), Ok((None, None))]);
+        let mut first = FirstStart::new(&mut inner, &close);
+        let outcome = hand_over(&plan(), &mut first, &mut swapped(), HANDOVER_WAIT);
+        assert!(matches!(outcome, Outcome::RolledBack(_)), "{outcome:?}");
+        assert_eq!(closed.get(), 1, "once, though two versions started");
+        assert_eq!(inner.started.len(), 2);
     }
 
     #[test]

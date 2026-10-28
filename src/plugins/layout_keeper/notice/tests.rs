@@ -320,6 +320,7 @@ fn the_panel_never_passes_its_widest() {
             total: 10,
             finished: false,
             least: 0,
+            kind: BarKind::Windows,
         }),
     };
     for scale in [1.0, 1.5, 2.0] {
@@ -394,7 +395,8 @@ fn the_bar_sums_windows_over_all_apps_and_counts_finished_apps_in_full() {
             done: 17,
             total: 27,
             finished: false,
-            least: 0
+            least: 0,
+            kind: BarKind::Windows
         })
     );
 }
@@ -474,6 +476,7 @@ fn active_bar(list: &[Progress]) -> Option<Bar> {
         total,
         finished: false,
         least: 0,
+        kind: BarKind::Windows,
     })
 }
 
@@ -578,7 +581,8 @@ fn the_final_state_has_a_full_finished_bar_and_the_tooltip_counts_windows() {
             done: 22,
             total: 22,
             finished: true,
-            least: 1000
+            least: 1000,
+            kind: BarKind::Windows
         })
     );
     assert!(last.lines.is_empty());
@@ -587,9 +591,11 @@ fn the_final_state_has_a_full_finished_bar_and_the_tooltip_counts_windows() {
             done: 1,
             total: 1,
             finished: false,
-            least: 0
+            least: 0,
+            kind: BarKind::Windows
         }
-        .label(),
+        .label()
+        .unwrap(),
         "1 of 1 window"
     );
     assert_eq!(
@@ -597,9 +603,11 @@ fn the_final_state_has_a_full_finished_bar_and_the_tooltip_counts_windows() {
             done: 7,
             total: 10,
             finished: false,
-            least: 0
+            least: 0,
+            kind: BarKind::Windows
         }
-        .label(),
+        .label()
+        .unwrap(),
         "7 of 10 windows"
     );
 }
@@ -616,6 +624,7 @@ fn the_bar_is_drawn_in_the_track_and_fill_colours() {
         total: 10,
         finished: false,
         least: 0,
+        kind: BarKind::Windows,
     };
     let plain = render(&with(None), 1.0, &tokens).expect("GDI draws the panel");
     let barred = render(&with(Some(bar)), 1.0, &tokens).expect("GDI draws the panel");
@@ -648,6 +657,7 @@ fn the_bar_is_drawn_in_the_track_and_fill_colours() {
         total: 10,
         finished: true,
         least: 0,
+        kind: BarKind::Windows,
     };
     draw_bar(
         &mut full,
@@ -658,4 +668,72 @@ fn the_bar_is_drawn_in_the_track_and_fill_colours() {
         tokens.border,
     );
     assert_eq!(full[3 * 40 + 30] & 0xFF_FFFF, rgb(tokens.success));
+}
+
+#[test]
+fn a_bar_without_words_or_with_a_moving_piece_fills_the_right_span() {
+    let bar = |done, kind| Bar {
+        done,
+        total: 100,
+        finished: false,
+        least: 0,
+        kind,
+    };
+    assert_eq!(bar(42, BarKind::Plain).label(), None);
+    assert_eq!(bar(42, BarKind::Moving(0)).label(), None);
+    assert_eq!(fill_span(bar(0, BarKind::Plain), 300, 4), None);
+    assert_eq!(fill_span(bar(42, BarKind::Plain), 300, 4), Some((0, 126)));
+    assert_eq!(fill_span(bar(100, BarKind::Plain), 300, 4), Some((0, 300)));
+    // A moving piece is a third of the track; it enters at the left and
+    // leaves at the right.
+    assert_eq!(fill_span(bar(0, BarKind::Moving(0)), 300, 4), None);
+    assert_eq!(
+        fill_span(bar(0, BarKind::Moving(500)), 300, 4),
+        Some((100, 100))
+    );
+    assert_eq!(fill_span(bar(0, BarKind::Moving(1000)), 300, 4), None);
+    let (from, long) = fill_span(bar(0, BarKind::Moving(100)), 300, 4).unwrap();
+    assert_eq!(from, 0);
+    assert!(long > 0 && long < 100, "{long}");
+    for phase in (0..=1000).step_by(50) {
+        if let Some((from, long)) = fill_span(bar(0, BarKind::Moving(phase)), 300, 4) {
+            assert!(from >= 0 && from + long <= 300, "{phase}: {from} {long}");
+        }
+    }
+}
+
+#[test]
+fn a_bar_without_words_is_drawn_across_the_whole_row() {
+    let tokens = theme::Tokens::dark();
+    let content = Content {
+        title: "WinCraft \u{b7} Updating to 0.20.69".to_string(),
+        lines: vec!["Downloading WinCraft 0.20.69 \u{b7} 42 %".to_string()],
+        footer: None,
+        bar: Some(Bar {
+            done: 42,
+            total: 100,
+            finished: false,
+            least: 0,
+            kind: BarKind::Plain,
+        }),
+    };
+    let image = render(&content, 1.0, &tokens).expect("GDI draws the panel");
+    let plain = render(
+        &Content {
+            bar: None,
+            ..content.clone()
+        },
+        1.0,
+        &tokens,
+    )
+    .unwrap();
+    assert!(image.height > plain.height, "the bar has its own row");
+    let moving = Content {
+        bar: Some(Bar {
+            kind: BarKind::Moving(500),
+            ..content.bar.unwrap()
+        }),
+        ..content
+    };
+    assert!(render(&moving, 1.25, &tokens).is_some());
 }

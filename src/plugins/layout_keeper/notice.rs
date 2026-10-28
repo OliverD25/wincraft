@@ -78,6 +78,20 @@ pub struct Bar {
     /// another app opens its first window, and the bar must not run back.
     /// The words always say the true numbers.
     pub least: u16,
+    pub kind: BarKind,
+}
+
+/// What a bar shows besides its fill.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BarKind {
+    /// "7 of 10 windows" at the right end of the bar's row.
+    #[default]
+    Windows,
+    /// No words: the line under the title says the share.
+    Plain,
+    /// The end is not known: a short piece slides along the track. The
+    /// number is how far one sweep has gone, in thousandths.
+    Moving(u16),
 }
 
 /// The longest the panel stays up after the last window was placed. Every
@@ -105,8 +119,8 @@ pub fn steady(bar: Option<Bar>, floor: &mut u16) -> Option<Bar> {
 }
 
 impl Bar {
-    fn label(self) -> String {
-        format!("{} of {}", self.done, windows(self.total))
+    fn label(self) -> Option<String> {
+        (self.kind == BarKind::Windows).then(|| format!("{} of {}", self.done, windows(self.total)))
     }
 }
 
@@ -138,6 +152,7 @@ fn bar_for(progress: &[Progress]) -> Option<Bar> {
         total,
         finished: false,
         least: 0,
+        kind: BarKind::Windows,
     })
 }
 
@@ -249,6 +264,7 @@ pub fn final_line(progress: &[Progress], label: &dyn Fn(&str) -> String) -> Opti
         total,
         finished: true,
         least: 1000,
+        kind: BarKind::Windows,
     });
     Some(Content {
         title,
@@ -461,7 +477,13 @@ impl Notice {
     pub fn show(&mut self, content: &Content) {
         // The primary monitor's work area, so the panel sits above the
         // taskbar wherever it is.
-        let monitor = unsafe { MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY) };
+        self.show_near(content, POINT { x: 0, y: 0 });
+    }
+
+    /// The panel at the bottom right of the monitor that holds `point`,
+    /// above its taskbar.
+    pub fn show_near(&mut self, content: &Content, point: POINT) {
+        let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTOPRIMARY) };
         let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
         info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
         if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
@@ -490,6 +512,10 @@ impl Notice {
 
     pub fn set_alpha(&mut self, alpha: u8) {
         self.window.set_alpha(alpha);
+    }
+
+    pub fn hwnd(&self) -> windows_sys::Win32::Foundation::HWND {
+        self.window.hwnd()
     }
 
     pub fn hide(&mut self) {
@@ -625,20 +651,39 @@ fn draw_bar(
     track: Color32,
 ) {
     let (left, top, length, thick) = rect;
-    let share = (bar.done.min(bar.total) as f32 / bar.total.max(1) as f32)
-        .max(f32::from(bar.least.min(1000)) / 1000.0);
-    let filled = match (share * length as f32).round() as i32 {
-        0 => 0,
-        part => part.max(thick).min(length),
-    };
+    let filled = fill_span(bar, length, thick);
     for y in top..top + thick {
         for x in left..left + length {
             let at = &mut pixels[(y * width + x) as usize];
             blend_over(at, track, capsule_coverage(x, y, rect));
-            if filled > 0 {
-                blend_over(at, fill, capsule_coverage(x, y, (left, top, filled, thick)));
+            if let Some((from, long)) = filled {
+                blend_over(
+                    at,
+                    fill,
+                    capsule_coverage(x, y, (left + from, top, long, thick)),
+                );
             }
         }
+    }
+}
+
+/// Where the fill sits in a track `length` long: its start from the
+/// track's left end and its length, None for no fill. A fill that has
+/// started is at least as long as the bar is thick, so its ends stay round.
+/// A moving bar's piece is a third of the track; it slides in from the left
+/// and out at the right, cut where it leaves the track.
+fn fill_span(bar: Bar, length: i32, thick: i32) -> Option<(i32, i32)> {
+    if let BarKind::Moving(phase) = bar.kind {
+        let piece = (length / 3).max(thick);
+        let start = -piece + (length + piece) * i32::from(phase.min(1000)) / 1000;
+        let (from, to) = (start.max(0), (start + piece).min(length));
+        return (to - from > 0).then_some((from, (to - from).max(thick.min(length))));
+    }
+    let share = (bar.done.min(bar.total) as f32 / bar.total.max(1) as f32)
+        .max(f32::from(bar.least.min(1000)) / 1000.0);
+    match (share * length as f32).round() as i32 {
+        0 => None,
+        part => Some((0, part.max(thick).min(length))),
     }
 }
 
@@ -665,7 +710,7 @@ fn render(content: &Content, scale: f32, tokens: &theme::Tokens) -> Option<Image
     let icon = app_icon(px(ICON_SIZE));
     let icon_room = icon.as_ref().map_or(0, |_| px(ICON_SIZE + ICON_GAP));
     let inner = px(MAX_WIDTH) - 2 * px(PAD_X);
-    let bar_label = content.bar.map(|bar| utf16(&bar.label()));
+    let bar_label = content.bar.and_then(Bar::label).map(|label| utf16(&label));
     let bar_label_size = bar_label.as_ref().map(|text| measure(text, fonts[2]));
 
     // (text, colour, font, gap above, left offset) in reading order.
@@ -697,7 +742,11 @@ fn render(content: &Content, scale: f32, tokens: &theme::Tokens) -> Option<Image
         .map(|((_, _, _, _, left), size)| left + size.cx)
         .max()
         .unwrap_or(0);
-    let bar_width = bar_label_size.map_or(0, |size| px(BAR_MIN_WIDTH) + px(BAR_GAP) + size.cx);
+    let bar_width = match (content.bar, bar_label_size) {
+        (Some(_), Some(size)) => px(BAR_MIN_WIDTH) + px(BAR_GAP) + size.cx,
+        (Some(_), None) => px(BAR_MIN_WIDTH),
+        (None, _) => 0,
+    };
     let width = (text_width.max(bar_width) + 2 * px(PAD_X)).clamp(px(MIN_WIDTH), px(MAX_WIDTH));
     let mut y = px(PAD_Y);
     let mut runs = Vec::new();
@@ -726,6 +775,18 @@ fn render(content: &Content, scale: f32, tokens: &theme::Tokens) -> Option<Image
             font,
         });
         y += row_height;
+        if index == 0 && content.bar.is_some() && bar_label.is_none() {
+            // A bar without words takes the whole row.
+            y += px(SECTION_GAP);
+            let (row, thick) = (px(SMALL_TEXT), px(BAR_HEIGHT));
+            bar_rect = Some((
+                px(PAD_X),
+                y + (row - thick) / 2,
+                width - 2 * px(PAD_X),
+                thick,
+            ));
+            y += row;
+        }
         if let (0, Some(label), Some(size)) = (index, &bar_label, bar_label_size) {
             y += px(SECTION_GAP);
             let label_x = width - px(PAD_X) - size.cx;

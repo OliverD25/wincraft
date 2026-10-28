@@ -1,4 +1,5 @@
 use super::*;
+use crate::core::update_notice::Stage;
 use crate::store::release_lookup::{self, CheckError};
 
 pub(super) enum UpdateEvent {
@@ -10,6 +11,34 @@ pub(super) enum UpdateEvent {
     InstalledNotes(String),
     /// A download ahead of this release tag ended.
     Staged(String, Result<(), String>),
+    /// The download is complete; its checksum is being checked.
+    Verifying,
+}
+
+/// The download's network, telling the host when the file is complete and
+/// the checksum check begins.
+struct Announced<'a> {
+    web: &'a dyn update::Fetch,
+    complete: &'a dyn Fn(),
+}
+
+impl update::Fetch for Announced<'_> {
+    fn text(&self, url: &str) -> Result<String, String> {
+        self.web.text(url)
+    }
+
+    fn to_file(
+        &self,
+        url: &str,
+        dest: &std::path::Path,
+        progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+    ) -> Result<(), String> {
+        let result = self.web.to_file(url, dest, progress);
+        if result.is_ok() {
+            (self.complete)();
+        }
+        result
+    }
 }
 
 pub(super) struct Updates {
@@ -39,6 +68,8 @@ pub(super) struct Updates {
     /// this copy could install it, so the palette pins its row. `blocked`
     /// still stops every real update.
     pub(super) scene_unblocked: bool,
+    /// `--show-update-progress`: the update panel shows in a test instance.
+    pub(super) scene_panel: bool,
     /// What went wrong with the update a rollback came back from.
     pub(super) failed: Option<String>,
     /// The version that started this one and waits to hear it is healthy.
@@ -54,6 +85,8 @@ pub(super) struct Updates {
     /// Where the user started the update that is under way, for the next
     /// start to open again. None for the tray menu and for unattended ones.
     pub(super) reopen: Option<update::Reopen>,
+    /// The user started the update under way, so its panel shows each step.
+    pub(super) panel: bool,
     /// GitHub's API requests in the last hour, kept to six.
     pub(super) api_budget: update_timing::ApiBudget,
     /// GitHub's API said it is limiting requests: until then, in unix
@@ -82,12 +115,14 @@ impl Default for Updates {
             cancel: Arc::new(AtomicBool::new(false)),
             blocked: None,
             scene_unblocked: false,
+            scene_panel: false,
             failed: None,
             healthy_pending: None,
             auto_update: false,
             report: false,
             installed_notes: None,
             reopen: None,
+            panel: false,
             api_budget: update_timing::ApiBudget::default(),
             api_paused_until: 0,
             checks_paused_until: 0,
@@ -356,6 +391,12 @@ impl Host {
             });
             self.updates.busy = true;
             self.updates.status = UpdateStatus::Downloading(Some(42));
+            self.updates.panel = true;
+            self.updates.scene_panel = true;
+            self.progress(Stage::Downloading {
+                version: "9.9.9".to_string(),
+                percent: Some(42),
+            });
             self.publish();
         }
         if flags.scene.update_available {
@@ -414,6 +455,8 @@ Nothing is downloaded."
         }
         self.updates.auto_update = true;
         self.updates.report = true;
+        self.updates.panel = true;
+        self.progress(Stage::Checking);
         self.check_for_updates(true);
     }
 
@@ -451,6 +494,8 @@ Nothing is downloaded."
         }
         let Some(release) = self.known_release() else {
             self.updates.auto_update = true;
+            self.updates.panel = true;
+            self.progress(Stage::Checking);
             self.check_for_updates(true);
             return;
         };
@@ -462,6 +507,17 @@ Nothing is downloaded."
             self.updates.newer = Some(release.clone());
         }
         log::info!("downloading {}", release.tag);
+        let version = update_notice::plain_version(&release.tag);
+        let ahead = self.updates.staged.as_deref() == Some(release.tag.as_str());
+        self.updates.panel = true;
+        self.progress(if ahead {
+            Stage::UsingStaged { version }
+        } else {
+            Stage::Downloading {
+                version,
+                percent: None,
+            }
+        });
         self.updates.busy = true;
         self.updates.staged = None;
         self.updates.cancel.store(false, Ordering::Relaxed);
@@ -500,8 +556,12 @@ Nothing is downloaded."
                     post(UpdateEvent::Downloaded(Ok(path)));
                     return;
                 }
-                let result =
-                    update::download(&release, &dir, &update::Web, local_fake, &mut progress);
+                let complete = || post(UpdateEvent::Verifying);
+                let web = Announced {
+                    web: &update::Web,
+                    complete: &complete,
+                };
+                let result = update::download(&release, &dir, &web, local_fake, &mut progress);
                 post(UpdateEvent::Downloaded(result));
             });
         if let Err(err) = started {
@@ -509,6 +569,7 @@ Nothing is downloaded."
             self.updates.busy = false;
             self.updates.status =
                 UpdateStatus::Error(format!("Could not start the download: {err}"));
+            self.update_failed("The download could not start.".to_string());
         }
     }
 
@@ -529,12 +590,14 @@ Nothing is downloaded."
             self.updates.busy = false;
             self.updates.reopen = None;
             self.updates.status = UpdateStatus::Idle;
+            self.end_progress();
             return;
         }
         if let Err(err) = result {
             log::warn!("the update to {tag} was not installed: {err}");
             self.updates.busy = false;
             self.updates.reopen = None;
+            self.update_failed(update_notice::plain_reason(&err));
             self.updates.status = UpdateStatus::Error(err);
             return;
         }
@@ -543,12 +606,18 @@ Nothing is downloaded."
             release_notes::store(&release.tag, &release.notes);
         }
         self.updates.status = UpdateStatus::Installing;
+        self.progress(Stage::Restarting {
+            version: update_notice::plain_version(&tag),
+        });
         self.publish();
         let dir = install::dir();
         if let Err(err) = update::swap_in(&dir, &mut update::Disk) {
             log::error!("could not put {tag} in place: {err}");
             self.updates.busy = false;
             self.updates.reopen = None;
+            self.update_failed(update_notice::plain_reason(
+                "could not put the new version in place",
+            ));
             self.updates.status =
                 UpdateStatus::Error(format!("Could not put the new version in place: {err}"));
             return;
@@ -563,6 +632,11 @@ Nothing is downloaded."
             to: tag,
             reopen: self.updates.reopen.take(),
         });
+        // "Restarting WinCraft…" stays until the new version starts.
+        unsafe { KillTimer(self.hwnd, NOTICE_TIMER) };
+        if let Some(panel) = self.update_notice.take() {
+            panel.keep_after_exit();
+        }
         self.shutdown();
     }
 
@@ -715,6 +789,60 @@ Nothing is downloaded."
         }
     }
 
+    /// The update panel moves to `stage`. Only for an update the user
+    /// started; a test instance and the tests only log it, except in a
+    /// screenshot scene.
+    pub(super) fn progress(&mut self, stage: Stage) {
+        if !self.updates.panel {
+            return;
+        }
+        let running = self.update_notice.as_ref().filter(|panel| panel.running());
+        let new_step = !running.is_some_and(|panel| panel.at(&stage));
+        if new_step {
+            log::info!(
+                "update panel: {}",
+                update_notice::stage_content(&stage, 0).lines.join(" / ")
+            );
+        }
+        if self.hwnd.is_null() || (instance::is_test() && !self.updates.scene_panel) {
+            return;
+        }
+        if let Some(panel) = self.update_notice.as_mut().filter(|panel| panel.running()) {
+            panel.set_stage(stage);
+            return;
+        }
+        self.close_update_notice();
+        match UpdateNotice::show_stage(stage, self.hwnd, WM_APP_NOTICE_CLICK) {
+            Ok(panel) => {
+                self.update_notice = Some(panel);
+                unsafe { SetTimer(self.hwnd, NOTICE_TIMER, update_notice::TICK_MS, None) };
+            }
+            Err(err) => log::warn!("could not show the update panel: {err}"),
+        }
+    }
+
+    /// The update stopped: the panel says why and that this version stays,
+    /// then fades.
+    pub(super) fn update_failed(&mut self, reason: String) {
+        self.progress(Stage::Failed {
+            reason,
+            kept: env!("CARGO_PKG_VERSION").to_string(),
+        });
+        self.updates.panel = false;
+    }
+
+    /// The update ended without a failure to show: the panel goes.
+    pub(super) fn end_progress(&mut self) {
+        if std::mem::take(&mut self.updates.panel)
+            && self
+                .update_notice
+                .as_ref()
+                .is_some_and(UpdateNotice::running)
+        {
+            self.close_update_notice();
+        }
+    }
+
     /// A balloon that opens About when clicked. A test instance only logs
     /// it: a fake release must never put a notice on the user's screen.
     pub(super) fn update_notice(&mut self, text: &str) {
@@ -735,6 +863,19 @@ Nothing is downloaded."
                 UpdateEvent::Progress(percent) => {
                     if self.updates.busy {
                         self.updates.status = UpdateStatus::Downloading(percent);
+                        if let Some(release) = &self.updates.newer {
+                            let version = update_notice::plain_version(&release.tag);
+                            self.progress(Stage::Downloading { version, percent });
+                        }
+                    }
+                }
+                UpdateEvent::Verifying => {
+                    if self.updates.busy {
+                        self.updates.status = UpdateStatus::Downloading(Some(100));
+                        if let Some(release) = &self.updates.newer {
+                            let version = update_notice::plain_version(&release.tag);
+                            self.progress(Stage::Verifying { version });
+                        }
                     }
                 }
                 UpdateEvent::Downloaded(result) => self.downloaded(result),
@@ -746,9 +887,23 @@ Nothing is downloaded."
     }
 
     pub(super) fn checked(&mut self, result: Result<Checked, CheckError>) {
-        let after = self
-            .updates
-            .checked(result, &mut self.config.updates, update::now_secs());
+        let now = update::now_secs();
+        let failed = result.as_ref().err().cloned();
+        let mut after = self.updates.checked(result, &mut self.config.updates, now);
+        if self.updates.panel && !after.update_now {
+            match failed {
+                // The panel says it; a balloon too would say it twice.
+                Some(err) => {
+                    after.notice = None;
+                    let reason = self.updates.failure_text(&err, now);
+                    self.update_failed(reason);
+                }
+                None => self.end_progress(),
+            }
+        } else if self.updates.panel {
+            // The panel shows the download from here.
+            after.notice = None;
+        }
         if after.reload_notes {
             self.updates.installed_notes = release_notes::load(env!("CARGO_PKG_VERSION"));
         }

@@ -530,7 +530,14 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
         }
         WM_APP_NOTICE_CLICK => {
             with_host_or_later(hwnd, msg, wparam, lparam, |host| {
-                host.close_update_notice();
+                // A running update keeps its panel: About shows the same.
+                if !host
+                    .update_notice
+                    .as_ref()
+                    .is_some_and(UpdateNotice::running)
+                {
+                    host.close_update_notice();
+                }
                 host.to_ui.send(UiCommand::ShowSettings(Page::About));
             });
             0

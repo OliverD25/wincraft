@@ -2833,3 +2833,41 @@ fn update_now_with_a_known_release_downloads_without_a_check() {
         Some("v98.0.0")
     );
 }
+
+#[test]
+fn the_update_panel_ends_with_the_update_it_shows() {
+    let data = Scratch::new("update-panel");
+    let (log, keyboard) = (diary(), FakeKeys::default());
+    let (mut host, _ui) = test_host(
+        vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+        &keyboard,
+        &data,
+    );
+    host.updates.blocked = None;
+    // A check the user's update waited on failed: the panel says why.
+    host.updates.panel = true;
+    host.updates.auto_update = true;
+    host.checked(Err(CheckError::Limited { wait: Some(120) }));
+    assert!(!host.updates.panel);
+    assert!(host.update_notice.is_none(), "the tests draw nothing");
+
+    // Nothing newer: the panel goes, the notice says up to date.
+    host.updates.panel = true;
+    let version = env!("CARGO_PKG_VERSION");
+    host.checked(Ok(Checked::UpToDate(format!("v{version}"))));
+    assert!(!host.updates.panel);
+
+    // A download that failed ends it too, and About keeps the full text.
+    host.updates.panel = true;
+    host.updates.busy = true;
+    host.downloaded(Err("the download stopped: reset".to_string()));
+    assert!(!host.updates.panel && !host.updates.busy);
+    assert_eq!(
+        host.updates.status,
+        UpdateStatus::Error("the download stopped: reset".to_string())
+    );
+
+    // Only an update the user started has a panel.
+    host.progress(update_notice::Stage::Checking);
+    assert!(host.update_notice.is_none());
+}

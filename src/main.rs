@@ -219,7 +219,10 @@ fn main() {
     let handover = update::take_handover();
     unsafe { CloseHandle(mutex) };
     if let Some(plan) = handover {
-        std::process::exit(update::run_handover(&plan));
+        std::process::exit(update::run_handover(
+            &plan,
+            &crate::core::update_notice::close_kept,
+        ));
     }
 }
 
