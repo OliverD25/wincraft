@@ -278,6 +278,12 @@ const SLOW_MS: f64 = 20.0;
 
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code < 0 {
+        // Never seen so far; a line here would show a call this hook was
+        // told not to act on.
+        let line = format!("win-number hook: called with code {code}, message {wparam:#x}");
+        if !hand_off(Job::Log(line.clone())) {
+            log::info!("{line}");
+        }
         return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
     }
     let began = Instant::now();
@@ -309,7 +315,12 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
             Err(_) => (Step::Pass, None),
         })
     } else {
-        (Step::Pass, None)
+        // Only the four key messages are documented; anything else is news.
+        let line = format!(
+            "win-number hook: unexpected message {event:#x} for key {:#04x}",
+            info.vkCode
+        );
+        (Step::Pass, Some(line))
     };
     let result = match step {
         Step::Pass => unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) },
