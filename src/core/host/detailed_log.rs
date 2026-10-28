@@ -148,3 +148,40 @@ pub(super) fn message_line(msg: u32, name: &str, ms: f64) -> Option<String> {
     }
     Some(format!("host: {name} {ms:.2} ms"))
 }
+
+/// Runs `call`, a call into a plugin, and writes to the detailed log how
+/// long it took: "plugin <id>: <what> N ms". A call quicker than
+/// `quiet_below_ms` gets no line (timers come often). Off, it only runs
+/// `call`; `what` is not even built.
+pub(super) fn plugin_call<R>(
+    plugin: &mut dyn WinCraftPlugin,
+    what: impl FnOnce() -> String,
+    quiet_below_ms: f64,
+    call: impl FnOnce(&mut dyn WinCraftPlugin) -> R,
+) -> R {
+    if !detailed::on() {
+        return call(plugin);
+    }
+    let id = plugin.metadata().id;
+    let began = std::time::Instant::now();
+    let result = call(plugin);
+    let ms = began.elapsed().as_secs_f64() * 1000.0;
+    if let Some(line) = plugin_line(id, &what(), ms, quiet_below_ms) {
+        detailed::write(line);
+    }
+    result
+}
+
+/// A plugin call at or over this many ms is called slow in its line.
+pub(super) const SLOW_PLUGIN_MS: f64 = 20.0;
+
+pub(super) fn plugin_line(id: &str, what: &str, ms: f64, quiet_below_ms: f64) -> Option<String> {
+    if ms < quiet_below_ms {
+        return None;
+    }
+    let slow = if ms >= SLOW_PLUGIN_MS { " SLOW" } else { "" };
+    Some(format!("plugin {id}: {what} {ms:.2} ms{slow}"))
+}
+
+/// The `quiet_below_ms` for timer messages.
+pub(super) const QUIET_PLUGIN_TIMER_MS: f64 = QUIET_TIMER_MS;

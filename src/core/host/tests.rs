@@ -2508,3 +2508,17 @@ fn the_tray_menu_has_the_detailed_log_check_item_before_quit() {
     );
     assert_eq!(entries[at + 1].0, MENU_QUIT);
 }
+
+#[test]
+fn a_plugin_call_line_says_how_long_and_marks_a_slow_one() {
+    use detailed_log::plugin_line;
+    assert_eq!(
+        plugin_line("window_deck", "hotkey action 1", 0.5, 0.0).as_deref(),
+        Some("plugin window_deck: hotkey action 1 0.50 ms")
+    );
+    assert_eq!(plugin_line("dimmer", "WM_TIMER", 1.0, 5.0), None);
+    assert_eq!(
+        plugin_line("dimmer", "WM_TIMER", 25.0, 5.0).as_deref(),
+        Some("plugin dimmer: WM_TIMER 25.00 ms SLOW")
+    );
+}

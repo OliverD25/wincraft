@@ -278,7 +278,12 @@ impl PluginSet {
                 hwnd: self.hwnd,
                 settings: &settings,
             };
-            self.slots[index].plugin.init(&ctx)
+            detailed_log::plugin_call(
+                self.slots[index].plugin.as_mut(),
+                || "init".to_string(),
+                0.0,
+                |plugin| plugin.init(&ctx),
+            )
         };
         if let Err(err) = init_result {
             log::error!("{}: init failed: {err}", meta.id);
@@ -373,7 +378,12 @@ impl PluginSet {
         if self.slots[index].plugin.strip_look().is_some() {
             ARRANGE_FREE.with(|cell| cell.set(true));
         }
-        self.slots[index].plugin.teardown();
+        detailed_log::plugin_call(
+            self.slots[index].plugin.as_mut(),
+            || "teardown".to_string(),
+            0.0,
+            |plugin| plugin.teardown(),
+        );
         self.slots[index].enabled = false;
         let id = self.slots[index].plugin.metadata().id.to_string();
         WINDOWS_WANTED.with(|queue| queue.borrow_mut().push((id, None, false)));
@@ -439,8 +449,14 @@ impl PluginSet {
 
         let settings = self.settings_of(plugin_id);
         if let Some(index) = self.index_of(plugin_id) {
-            if self.slots[index].enabled && !self.slots[index].plugin.on_settings_changed(&settings)
-            {
+            let applied = self.slots[index].enabled
+                && detailed_log::plugin_call(
+                    self.slots[index].plugin.as_mut(),
+                    || "settings changed".to_string(),
+                    0.0,
+                    |plugin| plugin.on_settings_changed(&settings),
+                );
+            if self.slots[index].enabled && !applied {
                 self.restart(index);
             }
         }

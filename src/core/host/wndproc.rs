@@ -201,7 +201,12 @@ pub(super) fn handle_menu_choice(choice: u32) {
                 let action_id = offset % 100;
                 if let Some(slot) = host.plugins.slots.get_mut(index) {
                     if slot.enabled {
-                        slot.plugin.on_tray_action(action_id);
+                        detailed_log::plugin_call(
+                            slot.plugin.as_mut(),
+                            || format!("tray action {action_id}"),
+                            0.0,
+                            |plugin| plugin.on_tray_action(action_id),
+                        );
                     }
                 }
             });
@@ -339,7 +344,12 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
                         .find(|entry| entry.active && entry.global_id == global_id)
                         .map(|entry| (entry.hotkey, entry.keys.clone()));
                     LAST_HOTKEY.with(|cell| *cell.borrow_mut() = pressed);
-                    host.plugins.slots[index].plugin.on_hotkey(action_id);
+                    detailed_log::plugin_call(
+                        host.plugins.slots[index].plugin.as_mut(),
+                        || format!("hotkey action {action_id}"),
+                        0.0,
+                        |plugin| plugin.on_hotkey(action_id),
+                    );
                 }
             });
             0
@@ -544,7 +554,16 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
                 // longer exists, so it is hidden rather than left stranded.
                 host.to_ui.send(UiCommand::HideAll);
                 for slot in host.plugins.slots.iter_mut().filter(|slot| slot.enabled) {
-                    slot.plugin.on_windows_message(msg, wparam, lparam);
+                    detailed_log::plugin_call(
+                        slot.plugin.as_mut(),
+                        || message_name(msg, wparam),
+                        if msg == WM_TIMER {
+                            detailed_log::QUIET_PLUGIN_TIMER_MS
+                        } else {
+                            0.0
+                        },
+                        |plugin| plugin.on_windows_message(msg, wparam, lparam),
+                    );
                 }
             });
             0
@@ -565,7 +584,16 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
             }
             with_host(|host| {
                 for slot in host.plugins.slots.iter_mut().filter(|slot| slot.enabled) {
-                    slot.plugin.on_windows_message(msg, wparam, lparam);
+                    detailed_log::plugin_call(
+                        slot.plugin.as_mut(),
+                        || message_name(msg, wparam),
+                        if msg == WM_TIMER {
+                            detailed_log::QUIET_PLUGIN_TIMER_MS
+                        } else {
+                            0.0
+                        },
+                        |plugin| plugin.on_windows_message(msg, wparam, lparam),
+                    );
                 }
             });
             0
@@ -584,7 +612,16 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
             }
             with_host(|host| {
                 for slot in host.plugins.slots.iter_mut().filter(|slot| slot.enabled) {
-                    slot.plugin.on_windows_message(msg, wparam, lparam);
+                    detailed_log::plugin_call(
+                        slot.plugin.as_mut(),
+                        || message_name(msg, wparam),
+                        if msg == WM_TIMER {
+                            detailed_log::QUIET_PLUGIN_TIMER_MS
+                        } else {
+                            0.0
+                        },
+                        |plugin| plugin.on_windows_message(msg, wparam, lparam),
+                    );
                 }
             });
             if msg == WM_QUERYENDSESSION {

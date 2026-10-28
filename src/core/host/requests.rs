@@ -47,16 +47,20 @@ impl Host {
                 if !slot.enabled {
                     return;
                 }
-                match kind {
-                    ActionKind::Hotkey => {
-                        // From the palette, not the keyboard: the action runs
-                        // at once, without the hotkey's wait for a digit.
-                        LAST_HOTKEY.with(|cell| cell.borrow_mut().take());
-                        slot.plugin.on_hotkey(action)
+                let what = || format!("{kind:?} action {action}");
+                detailed_log::plugin_call(slot.plugin.as_mut(), what, 0.0, |plugin| {
+                    match kind {
+                        ActionKind::Hotkey => {
+                            // From the palette, not the keyboard: the action
+                            // runs at once, without the hotkey's wait for a
+                            // digit.
+                            LAST_HOTKEY.with(|cell| cell.borrow_mut().take());
+                            plugin.on_hotkey(action)
+                        }
+                        ActionKind::Tray => plugin.on_tray_action(action),
+                        ActionKind::Palette => plugin.on_palette_command(action),
                     }
-                    ActionKind::Tray => slot.plugin.on_tray_action(action),
-                    ActionKind::Palette => slot.plugin.on_palette_command(action),
-                }
+                })
             }
         }
     }
@@ -324,9 +328,12 @@ impl Host {
 
     pub(super) fn arrange_action(&mut self, plugin: &str, action: &ArrangeAction) {
         match self.plugins.index_of(plugin) {
-            Some(index) if self.plugins.slots[index].enabled => {
-                self.plugins.slots[index].plugin.on_arrange_action(action)
-            }
+            Some(index) if self.plugins.slots[index].enabled => detailed_log::plugin_call(
+                self.plugins.slots[index].plugin.as_mut(),
+                || "strip action".to_string(),
+                0.0,
+                |plugin| plugin.on_arrange_action(action),
+            ),
             _ => log::info!("{plugin} is off; the strip's request was dropped"),
         }
     }
