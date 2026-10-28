@@ -207,6 +207,15 @@ pub fn app_windows(on_known_desktop: &dyn Fn(HWND) -> bool) -> Vec<HWND> {
 /// The same windows with what was read about each, for a caller that
 /// shows their titles or where they are.
 pub fn app_window_records(on_known_desktop: &dyn Fn(HWND) -> bool) -> Vec<(HWND, WindowRecord)> {
+    top_windows()
+        .into_iter()
+        .map(|hwnd| (hwnd, read(hwnd, on_known_desktop)))
+        .filter(|(_, record)| is_app_window(record))
+        .collect()
+}
+
+/// Every top-level window, hidden ones too, in Windows' order.
+pub fn top_windows() -> Vec<HWND> {
     let mut candidates: Vec<HWND> = Vec::new();
     unsafe extern "system" fn collect(hwnd: HWND, found: LPARAM) -> BOOL {
         let found = unsafe { &mut *(found as *mut Vec<HWND>) };
@@ -215,10 +224,6 @@ pub fn app_window_records(on_known_desktop: &dyn Fn(HWND) -> bool) -> Vec<(HWND,
     }
     unsafe { EnumWindows(Some(collect), &mut candidates as *mut Vec<HWND> as LPARAM) };
     candidates
-        .into_iter()
-        .map(|hwnd| (hwnd, read(hwnd, on_known_desktop)))
-        .filter(|(_, record)| is_app_window(record))
-        .collect()
 }
 
 #[cfg(test)]

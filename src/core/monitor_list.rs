@@ -97,6 +97,12 @@ impl Monitor {
     pub fn id(&self) -> &MonitorId {
         &self.id
     }
+
+    /// For the detailed log's session header: the handle, the whole area,
+    /// the work area and whether it is the primary monitor.
+    pub fn parts(&self) -> (HMONITOR, Rect, Rect, bool) {
+        (self.handle, self.rect, self.work, self.primary)
+    }
 }
 
 /// Every monitor's names, in the order of `list`.

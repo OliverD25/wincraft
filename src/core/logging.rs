@@ -1,6 +1,7 @@
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use log::{Level, Metadata, Record};
@@ -12,13 +13,20 @@ use crate::core::config;
 /// Outside the logger, so the file can be opened again in append mode.
 static FILE: Mutex<Option<File>> = Mutex::new(None);
 
+/// The level wincraft.log is written at, as a `log::Level` number.
+static FILE_LEVEL: AtomicUsize = AtomicUsize::new(Level::Info as usize);
+
 struct FileLogger {
     level: Level,
 }
 
 impl log::Log for FileLogger {
+    /// While the detailed log is on, every level down to debug is taken:
+    /// all of it goes to the detailed log, and wincraft.log keeps its own
+    /// level.
     fn enabled(&self, metadata: &Metadata) -> bool {
         metadata.level() <= self.level
+            || (metadata.level() <= Level::Debug && crate::core::detailed::on())
     }
 
     fn log(&self, record: &Record) {
@@ -26,6 +34,10 @@ impl log::Log for FileLogger {
             return;
         }
         let target = record.target().rsplit("::").next().unwrap_or("wincraft");
+        crate::detailed!("log {} {target}: {}", record.level(), record.args());
+        if record.level() > self.level {
+            return;
+        }
         let line = format!(
             "{} {:<5} {}: {}\n",
             now(),
@@ -124,14 +136,43 @@ fn start(path: &Path, append: bool) {
     if let Ok(mut guard) = FILE.lock() {
         *guard = open(path, append);
     }
+    FILE_LEVEL.store(level as usize, Ordering::Relaxed);
     if log::set_boxed_logger(Box::new(FileLogger { level })).is_ok() {
-        log::set_max_level(level.to_level_filter());
+        follow_detailed();
+    }
+}
+
+/// Lets debug lines through while the detailed log is on, and back to the
+/// file's own level when it is off. The detailed log calls it on every
+/// switch.
+pub fn follow_detailed() {
+    let file = if FILE_LEVEL.load(Ordering::Relaxed) >= Level::Debug as usize {
+        Level::Debug
+    } else {
+        Level::Info
+    };
+    log::set_max_level(max_level(file, crate::core::detailed::on()));
+}
+
+fn max_level(file: Level, detailed: bool) -> log::LevelFilter {
+    if detailed {
+        file.max(Level::Debug).to_level_filter()
+    } else {
+        file.to_level_filter()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_detailed_log_lets_debug_lines_through_and_never_trace() {
+        assert_eq!(max_level(Level::Info, false), log::LevelFilter::Info);
+        assert_eq!(max_level(Level::Info, true), log::LevelFilter::Debug);
+        assert_eq!(max_level(Level::Debug, false), log::LevelFilter::Debug);
+        assert_eq!(max_level(Level::Debug, true), log::LevelFilter::Debug);
+    }
 
     #[test]
     fn a_new_start_keeps_one_older_log() {
@@ -221,6 +262,10 @@ mod tests {
         assert_eq!(stamp.as_bytes()[13], b':');
         assert!(logger.enabled(&Metadata::builder().level(Level::Error).build()));
         assert!(!logger.enabled(&Metadata::builder().level(Level::Trace).build()));
+        assert!(
+            !logger.enabled(&Metadata::builder().level(Level::Debug).build()),
+            "debug only while the detailed log is on"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 }
