@@ -527,7 +527,8 @@ it is a separate instance:
   watches, saves into the scratch folder and WindowDeck shows the strip, but never
   restores, reorders taskbar buttons, moves, raises, switches to or closes a
   real window; each such step is logged as "read-only test instance: ...
-  skipped".
+  skipped". Its hover strip never keeps keys from the window in front
+  either: no keyboard hook goes in, and the log says when it would have.
 - **Scene flags open one view without any input**, and only in a test
   instance (a normal WinCraft logs that it ignored them):
 
