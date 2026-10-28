@@ -211,7 +211,7 @@ fn scene_saved(scene: Option<&str>) -> Option<Saved> {
 
 /// Where a run came from, so only a row's own Enter or click counts as a
 /// pick for the ranking.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Via {
     Pick,
     Other,

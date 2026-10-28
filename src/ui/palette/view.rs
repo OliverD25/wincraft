@@ -601,6 +601,18 @@ impl Palette {
             _ => {}
         }
 
+        if let Some((what, via)) = &run {
+            if crate::core::detailed::on() {
+                let row = self
+                    .selected_item()
+                    .map(|item| format!("{:?} from {}", item.title, item.provider))
+                    .unwrap_or_else(|| "no row".to_string());
+                crate::detailed!(
+                    "palette: run {what:?} by {via:?} on row {row}, query {:?}",
+                    self.query
+                );
+            }
+        }
         if let Some((_, Via::Pick)) = &run {
             if let Some(key) = self.selected_item().and_then(|item| item.usage_key.clone()) {
                 self.router.record_pick(

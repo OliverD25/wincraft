@@ -790,6 +790,7 @@ impl Router {
     }
 
     pub fn search(&mut self, prefix: Option<&str>, text: &str, context: &Context) -> Results {
+        crate::detailed!("palette: query {text:?} with prefix {prefix:?}");
         let text = text.trim_start();
         let Some(prefix) = prefix else {
             return self.blended(text.trim_end(), context);
