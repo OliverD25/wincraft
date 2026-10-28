@@ -225,12 +225,12 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
             1
         }
         Step::WinDown => {
-            ui_bridge::note_win_key(true);
+            ui_bridge::note_win_key(true, false);
             host::post_win_down();
             unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
         }
         Step::WinUp { alone } => {
-            ui_bridge::note_win_key(false);
+            ui_bridge::note_win_key(false, took_digit_this_press());
             host::post_win_released(alone);
             unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
         }

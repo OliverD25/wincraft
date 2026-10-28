@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicIsize, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -284,15 +284,24 @@ pub fn arrange_window() -> Option<isize> {
 /// it could look at the key itself.
 static WIN_DOWN_AT: AtomicU64 = AtomicU64::new(0);
 static WIN_UP_AT: AtomicU64 = AtomicU64::new(0);
+/// The Windows key's last press took a digit for WindowDeck.
+static WIN_TOOK_DIGIT: AtomicBool = AtomicBool::new(false);
 
-/// A keyboard hook saw a Windows key go down or come up.
-pub fn note_win_key(down: bool) {
+/// A keyboard hook saw a Windows key go down or come up; `took_digit` is
+/// whether that press took a digit for WindowDeck.
+pub fn note_win_key(down: bool, took_digit: bool) {
     let now = unsafe { windows_sys::Win32::System::SystemInformation::GetTickCount64() };
     if down {
         WIN_DOWN_AT.store(now, Ordering::Relaxed);
     } else {
         WIN_UP_AT.store(now, Ordering::Relaxed);
     }
+    WIN_TOOK_DIGIT.store(took_digit, Ordering::Relaxed);
+}
+
+/// Whether the Windows key's last press took a digit for WindowDeck.
+pub fn win_took_digit() -> bool {
+    WIN_TOOK_DIGIT.load(Ordering::Relaxed)
 }
 
 /// When a Windows key last went down and last came up, if ever seen.

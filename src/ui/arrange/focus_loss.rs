@@ -5,7 +5,10 @@
 //! nothing closes, because Win and a digit may follow and move the strip,
 //! and Win let go alone closes it through the host. When the shell (the
 //! taskbar, Start or search) took the keyboard right after a Windows key,
-//! the strip takes it back once instead of closing.
+//! the strip takes it back once instead of closing. After Win and a digit,
+//! Windows hands the keyboard back to the app that had it before the strip
+//! opened as soon as Win is let go; the strip takes it back from any window
+//! for a moment, so a second Win and digit still finds it open.
 //!
 //! The Windows key times come from WindowDeck's hook through
 //! `ui_bridge::win_key_times`, so they are right even when the strip lost
@@ -40,6 +43,8 @@ pub struct WinKeys {
     pub down_now: bool,
     pub since_down: Option<u64>,
     pub since_up: Option<u64>,
+    /// The last press took a digit for WindowDeck.
+    pub took_digit: bool,
 }
 
 impl WinKeys {
@@ -76,7 +81,11 @@ pub fn verdict(lost_for: Duration, win: WinKeys, shell_in_front: bool, took_back
             return Verdict::Keep(left);
         }
     }
-    if shell_in_front && !took_back && since_up.is_some_and(|up| up < SHELL_AFTER_WIN) {
+    let just_after = since_up.is_some_and(|up| up < SHELL_AFTER_WIN);
+    if win.took_digit && just_after {
+        return Verdict::TakeBack;
+    }
+    if shell_in_front && !took_back && just_after {
         return Verdict::TakeBack;
     }
     match WAIT.checked_sub(lost_for) {
@@ -112,6 +121,7 @@ pub fn win_keys() -> WinKeys {
         down_now: down(VK_LWIN) || down(VK_RWIN),
         since_down: down_at.map(|at| now.saturating_sub(at)),
         since_up: up_at.map(|at| now.saturating_sub(at)),
+        took_digit: ui_bridge::win_took_digit(),
     }
 }
 
@@ -142,6 +152,7 @@ mod tests {
             down_now: false,
             since_down: Some(60_000),
             since_up: Some(59_000),
+            took_digit: false,
         }
     }
 
@@ -170,6 +181,7 @@ mod tests {
             down_now: false,
             since_down: Some(5),
             since_up: Some(2000),
+            took_digit: false,
         };
         assert!(just_pressed.held());
         assert_eq!(
@@ -181,6 +193,7 @@ mod tests {
             down_now: false,
             since_down: Some(60_000),
             since_up: None,
+            took_digit: false,
         };
         assert!(!stale.held());
     }
@@ -205,6 +218,7 @@ mod tests {
             down_now: false,
             since_down: Some(150),
             since_up: Some(100),
+            took_digit: false,
         };
         assert_eq!(
             verdict(WAIT * 2, let_go, false, false),
@@ -218,6 +232,7 @@ mod tests {
             down_now: false,
             since_down: Some(600),
             since_up: Some(400),
+            took_digit: false,
         };
         assert_eq!(verdict(WAIT, after, true, false), Verdict::TakeBack);
         assert_eq!(
@@ -226,6 +241,36 @@ mod tests {
             "only once"
         );
         assert_eq!(verdict(WAIT, after, false, false), Verdict::Close, "an app");
+    }
+
+    #[test]
+    fn after_win_and_a_digit_any_window_gives_the_keyboard_back() {
+        // Reported 2026-10-28: Win+1 opened WindowDeck; letting go of Win,
+        // Windows gave the keyboard back to Chrome and WindowDeck closed, so
+        // Win+2 opened a new one instead of moving it.
+        let after = WinKeys {
+            down_now: false,
+            since_down: Some(600),
+            since_up: Some(400),
+            took_digit: true,
+        };
+        assert_eq!(verdict(WAIT, after, false, false), Verdict::TakeBack);
+        assert_eq!(
+            verdict(WAIT, after, false, true),
+            Verdict::TakeBack,
+            "again, while it is that soon"
+        );
+        let later = WinKeys {
+            since_down: Some(SHELL_AFTER_WIN.as_millis() as u64 + 200),
+            since_up: Some(SHELL_AFTER_WIN.as_millis() as u64),
+            ..after
+        };
+        assert_eq!(verdict(WAIT, later, false, false), Verdict::Close);
+        let other_key = WinKeys {
+            took_digit: false,
+            ..after
+        };
+        assert_eq!(verdict(WAIT, other_key, false, false), Verdict::Close);
     }
 
     #[test]
