@@ -52,11 +52,12 @@ pub enum Icon {
     Coffee,
     Cup,
     PinOff,
+    Download,
 }
 
 impl Icon {
     /// The icons a plugin can name for its tile, by their lucide names.
-    pub const NAMED: [(&'static str, Icon); 27] = [
+    pub const NAMED: [(&'static str, Icon); 28] = [
         ("layout-grid", Icon::LayoutGrid),
         ("copy", Icon::Copy),
         ("pin", Icon::Pin),
@@ -84,6 +85,7 @@ impl Icon {
         ("coffee", Icon::Coffee),
         ("cup", Icon::Cup),
         ("pin-off", Icon::PinOff),
+        ("download", Icon::Download),
     ];
 
     /// The icon with this lucide name, in any case; None for a name WinCraft
@@ -644,6 +646,12 @@ fn paths(icon: Icon) -> Vec<Path> {
             Path::start(18.0, 6.0).line(6.0, 18.0),
             Path::start(6.0, 6.0).line(18.0, 18.0),
         ],
+        // Lucide's download: the shaft, the head and the tray line.
+        Icon::Download => vec![
+            Path::start(12.0, 3.0).line(12.0, 15.0),
+            Path::start(7.0, 10.0).line(12.0, 15.0).line(17.0, 10.0),
+            Path::start(5.0, 21.0).line(19.0, 21.0),
+        ],
         Icon::Check => vec![Path::start(20.0, 6.0).line(9.0, 17.0).line(4.0, 12.0)],
         Icon::Globe => vec![
             Path::arc(pos2(12.0, 12.0), 10.0, 0.0, 360.0),
@@ -821,6 +829,7 @@ mod tests {
         assert_eq!(Icon::named("COPY"), Some(Icon::Copy));
         assert_eq!(Icon::named("pin"), Some(Icon::Pin));
         assert_eq!(Icon::named("pin-off"), Some(Icon::PinOff));
+        assert_eq!(Icon::named("download"), Some(Icon::Download));
         assert_eq!(Icon::named("Mic-Off"), Some(Icon::MicOff));
         assert_eq!(Icon::named("file-text"), Some(Icon::FileText));
         assert_eq!(
@@ -865,7 +874,7 @@ mod tests {
             .all(|p| (p.y - 7.5).abs() < 0.01 && (p.x - 7.5).abs() <= 0.5));
     }
 
-    const EVERY_ICON: [Icon; 47] = [
+    const EVERY_ICON: [Icon; 48] = [
         Icon::Search,
         Icon::ChevronDown,
         Icon::ChevronRight,
@@ -913,6 +922,7 @@ mod tests {
         Icon::Coffee,
         Icon::Cup,
         Icon::PinOff,
+        Icon::Download,
     ];
 
     #[test]
