@@ -37,20 +37,6 @@ fn main() {
         return;
     }
 
-    // A check that reads the screen and exits. It skips logging::init, which
-    // would empty the log of the WinCraft already running.
-    if let Some(point) = arg_after(&args, "--probe-taskbar-at") {
-        unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
-        match parse_point(&point) {
-            Some((x, y)) => {
-                let app = core::taskbar::app_at(x, y);
-                println!("{x},{y}: {}", app.as_deref().unwrap_or("none"));
-            }
-            None => println!("expected --probe-taskbar-at X,Y, got {point}"),
-        }
-        return;
-    }
-
     // ShortcutDetector's verdict on key combinations, for choosing a
     // default; also before logging::init. Each is registered and freed at
     // once.
@@ -460,13 +446,6 @@ fn theme_choice(value: &str) -> Option<ThemeChoice> {
     }
 }
 
-/// "X,Y" in screen pixels; either may be negative on a monitor left of or
-/// above the primary.
-fn parse_point(text: &str) -> Option<(i32, i32)> {
-    let (x, y) = text.split_once(',')?;
-    Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
-}
-
 fn claim_single_instance() -> Option<HANDLE> {
     let name = wide(&instance::name(SINGLE_INSTANCE_MUTEX));
     let handle = unsafe { CreateMutexW(std::ptr::null(), 1, name.as_ptr()) };
@@ -510,19 +489,19 @@ mod tests {
 
     #[test]
     fn the_value_after_a_flag_is_read() {
-        let list = args(&["wincraft.exe", "--probe-taskbar-at", "10,20"]);
+        let list = args(&["wincraft.exe", "--example-value", "10,20"]);
         assert_eq!(
-            arg_after(&list, "--probe-taskbar-at").as_deref(),
+            arg_after(&list, "--example-value").as_deref(),
             Some("10,20")
         );
-        let missing = args(&["wincraft.exe", "--probe-taskbar-at"]);
-        assert_eq!(arg_after(&missing, "--probe-taskbar-at"), None);
+        let missing = args(&["wincraft.exe", "--example-value"]);
+        assert_eq!(arg_after(&missing, "--example-value"), None);
         assert_eq!(
-            arg_after(&args(&["wincraft.exe"]), "--probe-taskbar-at"),
+            arg_after(&args(&["wincraft.exe"]), "--example-value"),
             None
         );
         assert_eq!(
-            arg_after(&args(&["--probe-taskbar-at", "1,2"]), "--probe-taskbar-at"),
+            arg_after(&args(&["--example-value", "1,2"]), "--example-value"),
             None
         );
     }
@@ -757,16 +736,5 @@ mod tests {
         assert_eq!(theme_choice("light"), Some(ThemeChoice::Light));
         assert_eq!(theme_choice(" DARK "), Some(ThemeChoice::Dark));
         assert_eq!(theme_choice("system"), None);
-    }
-
-    #[test]
-    fn points_are_read_with_negative_and_spaced_numbers() {
-        assert_eq!(parse_point("1294,2124"), Some((1294, 2124)));
-        assert_eq!(parse_point("-958, 1056"), Some((-958, 1056)));
-        assert_eq!(parse_point(" 5 , -7 "), Some((5, -7)));
-        assert_eq!(parse_point("1294"), None);
-        assert_eq!(parse_point("a,b"), None);
-        assert_eq!(parse_point("1,2,3"), None);
-        assert_eq!(parse_point(""), None);
     }
 }
