@@ -227,6 +227,11 @@ These keys work in every view, on a card or a ghost.
   would, so the app can still ask to save first. The next card is picked
   (or the one before, after the last); WindowDeck stays open, and closes
   when the app has no window left.
+  A middle click on a card does the same. The card shrinks and fades; when
+  the window is gone, the cards after it slide into the gap. If the window
+  is still open after about 1.5 seconds (the app asks to save, or refuses),
+  the card grows back with the note "Waiting for <app>" until the window
+  closes. With Windows' "Animation effects" off, cards change at once.
 - **Ctrl+N** starts the app again, as Shift and a click on its taskbar
   button do: from its Start menu entry, or else from its program file with
   nothing added. WindowDeck closes, and the new window comes to the front
