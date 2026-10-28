@@ -51,6 +51,8 @@ impl Arrange {
                 focus_lost_at: None,
                 took_back: false,
                 parked: false,
+                routed: Vec::new(),
+                keys_routed: false,
             })),
             palette_hwnd,
         }
@@ -76,6 +78,7 @@ impl Arrange {
         }
         shared.pointer.rest(cursor_position());
         shared.parked = false;
+        shared.routed.clear();
         shared.focus_lost_at = None;
         shared.took_back = false;
         shared.close_when_empty = false;
@@ -234,6 +237,7 @@ impl Arrange {
                 );
             }
             shared.parked = true;
+            shared.routed.clear();
             shared.asked_at = None;
             shared.closed = false;
             shared.window = 0;
@@ -361,6 +365,7 @@ impl Arrange {
                 return;
             }
             focus::track(ui.ctx());
+            routed::feed(ui.ctx(), &mut shared);
             if shared.asked_at.is_some() {
                 open_timing::mark(OpenStep::FirstFrame);
             }

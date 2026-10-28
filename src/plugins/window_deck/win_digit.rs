@@ -248,7 +248,7 @@ fn down(vk: u16) -> bool {
     (unsafe { GetAsyncKeyState(i32::from(vk)) } as u16 & 0x8000) != 0
 }
 
-fn modifiers_now() -> u32 {
+pub(super) fn modifiers_now() -> u32 {
     let mut modifiers = 0;
     if down(VK_LWIN) || down(VK_RWIN) {
         modifiers |= MOD_WIN;

@@ -452,6 +452,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
     };
     HOST_WINDOW.with(|cell| cell.set(hwnd));
     HOST_HWND.store(hwnd as isize, Ordering::Relaxed);
+    let _ = TO_UI.set(Arc::clone(&host.to_ui));
     // Notices queued before the window existed have nobody to post them.
     plugin_changed();
     TASKBAR_CREATED

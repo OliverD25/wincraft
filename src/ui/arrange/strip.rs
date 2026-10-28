@@ -318,6 +318,9 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
         ctx.request_repaint_after(peek::REST);
     }
 
+    if routed::shows_line(shared.keys_routed, ctx.input(|i| i.viewport().focused)) {
+        routed::routed_line(&ctx, panel);
+    }
     if let Some((text, since)) = shared.note.clone() {
         match NOTE_TIME.checked_sub(since.elapsed()) {
             Some(left) => {

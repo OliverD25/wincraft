@@ -14,6 +14,9 @@
 //! Hiding is a plain `ShowWindowAsync(SW_HIDE)` of Explorer's popup, never a
 //! move, so the popup comes back on the next hover if WinCraft stops. The
 //! key rules in `keys::decide` keep Win+number and Alt+Tab untouched.
+//!
+//! While the open strip is under the mouse and does not have the keyboard,
+//! its keys follow the mouse into it (`super::hover_keys`).
 
 mod machine;
 
@@ -28,6 +31,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SetTimer,
 };
 
+use super::hover_keys::HoverKeys;
 use crate::core::taskbar_popup as popup;
 use crate::core::{taskbar, ui_bridge, wide};
 use machine::{contains, Answer, Button, Gate, Look, Machine, Point, Rect};
@@ -65,11 +69,18 @@ pub struct HoverPreview {
     pub may_hide: bool,
     /// The hover the test instance's refusal was last logged for.
     refusal_noted: bool,
+    keys: HoverKeys,
 }
 
 impl HoverPreview {
     pub fn is_on(&self) -> bool {
         self.machine.on
+    }
+
+    /// False in a read-only test instance: the strip's keys never follow
+    /// the mouse there, which is only logged.
+    pub fn set_may_route_keys(&mut self, may: bool) {
+        self.keys.may_route = may;
     }
 
     /// Applies the switch and the delay. Off stops every timer and hook and
@@ -172,6 +183,9 @@ impl HoverPreview {
             );
         }
 
+        self.keys
+            .update(routes_keys(self.machine.is_open(), &look), now);
+
         let gate = self.machine.gate(strip);
         if gate.is_some() && !self.may_hide && !self.refusal_noted {
             log::info!("read-only test instance: hiding Windows' taskbar preview skipped");
@@ -259,6 +273,7 @@ impl HoverPreview {
     }
 
     fn stop_watching(&mut self) {
+        self.keys.stop();
         self.stop_hooks();
         GATE.with(|cell| cell.set(None));
         if let (Some(hwnd), Some(_)) = (self.hwnd, self.timer_ms.take()) {
@@ -268,6 +283,13 @@ impl HoverPreview {
         self.answer = None;
         self.taskbars_at = None;
     }
+}
+
+/// Whether the strip's keys follow the mouse into it: the hover strip is
+/// open, the mouse is in the strip itself (not only on its taskbar button),
+/// and the strip does not have the keyboard already.
+fn routes_keys(open: bool, look: &Look) -> bool {
+    open && !look.strip_focused && look.strip.is_some_and(|strip| contains(strip, look.cursor))
 }
 
 fn hide(hwnd: HWND) {
@@ -452,6 +474,54 @@ mod tests {
         };
         let answer = hover.take_answer(&|_, _| 1).unwrap();
         assert!(!answer.button.unwrap().eligible());
+    }
+
+    #[test]
+    fn keys_follow_the_mouse_only_into_an_open_strip_without_the_keyboard() {
+        let strip = [100, 700, 900, 1000];
+        let look = |cursor: Point, strip: Option<Rect>, focused: bool| Look {
+            cursor,
+            strip,
+            strip_focused: focused,
+            on_taskbar: cursor.1 >= 1040,
+            ..Default::default()
+        };
+        let inside = (400, 800);
+        let on_button = (30, 1060);
+        let outside = (1500, 300);
+        assert!(routes_keys(true, &look(inside, Some(strip), false)));
+        assert!(
+            !routes_keys(true, &look(inside, Some(strip), true)),
+            "clicked into"
+        );
+        assert!(
+            !routes_keys(true, &look(on_button, Some(strip), false)),
+            "only on the button"
+        );
+        assert!(!routes_keys(true, &look(outside, Some(strip), false)));
+        assert!(
+            !routes_keys(true, &look(inside, None, false)),
+            "not on screen yet"
+        );
+        for (cursor, focused) in [
+            (inside, false),
+            (inside, true),
+            (on_button, false),
+            (outside, false),
+        ] {
+            assert!(
+                !routes_keys(false, &look(cursor, Some(strip), focused)),
+                "closed, or a Win+Alt+A strip"
+            );
+        }
+        assert!(
+            routes_keys(true, &look((100, 700), Some(strip), false)),
+            "its top-left corner"
+        );
+        assert!(
+            !routes_keys(true, &look((900, 1000), Some(strip), false)),
+            "past its far edge"
+        );
     }
 
     #[test]
