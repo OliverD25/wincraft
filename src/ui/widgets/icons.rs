@@ -38,11 +38,25 @@ pub enum Icon {
     ArrowRightLeft,
     Tag,
     Pencil,
+    Moon,
+    Sun,
+    FileText,
+    File,
+    Eye,
+    EyeOff,
+    GridOff,
+    PanelBottom,
+    PanelBottomDashed,
+    Mic,
+    MicOff,
+    Coffee,
+    Cup,
+    PinOff,
 }
 
 impl Icon {
     /// The icons a plugin can name for its tile, by their lucide names.
-    pub const NAMED: [(&'static str, Icon); 13] = [
+    pub const NAMED: [(&'static str, Icon); 27] = [
         ("layout-grid", Icon::LayoutGrid),
         ("copy", Icon::Copy),
         ("pin", Icon::Pin),
@@ -56,6 +70,20 @@ impl Icon {
         ("lightbulb", Icon::Lightbulb),
         ("calculator", Icon::Calculator),
         ("settings", Icon::Settings),
+        ("moon", Icon::Moon),
+        ("sun", Icon::Sun),
+        ("file-text", Icon::FileText),
+        ("file", Icon::File),
+        ("eye", Icon::Eye),
+        ("eye-off", Icon::EyeOff),
+        ("grid-off", Icon::GridOff),
+        ("panel-bottom", Icon::PanelBottom),
+        ("panel-bottom-dashed", Icon::PanelBottomDashed),
+        ("mic", Icon::Mic),
+        ("mic-off", Icon::MicOff),
+        ("coffee", Icon::Coffee),
+        ("cup", Icon::Cup),
+        ("pin-off", Icon::PinOff),
     ];
 
     /// The icon with this lucide name, in any case; None for a name WinCraft
@@ -132,7 +160,24 @@ impl Path {
         }
         path
     }
+    /// A rectangle with rounded corners, as Lucide's `rect` with `rx`.
+    fn rounded(x: f32, y: f32, width: f32, height: f32, r: f32) -> Self {
+        let (right, bottom) = (x + width, y + height);
+        Self::start(x + r, y)
+            .line(right - r, y)
+            .corner(right, y, right, y + r)
+            .line(right, bottom - r)
+            .corner(right, bottom, right - r, bottom)
+            .line(x + r, bottom)
+            .corner(x, bottom, x, bottom - r)
+            .line(x, y + r)
+            .corner(x, y, x + r, y)
+    }
 }
+
+/// The centres of the eye's upper and lower outline arcs.
+const EYE_TOP: Pos2 = pos2(12.0, 15.744);
+const EYE_BOTTOM: Pos2 = pos2(12.0, 8.256);
 
 fn paths(icon: Icon) -> Vec<Path> {
     match icon {
@@ -439,6 +484,155 @@ fn paths(icon: Icon) -> Vec<Path> {
                 .line(21.17, 6.81),
             Path::start(15.0, 5.0).line(19.0, 9.0),
         ],
+        Icon::Moon => vec![
+            Path::arc(pos2(16.5, 7.5), 6.364, 225.0, 45.0).then(Path::arc(
+                pos2(12.0, 12.0),
+                9.0,
+                0.0,
+                270.0,
+            )),
+        ],
+        Icon::Sun => {
+            let mut paths = vec![Path::arc(pos2(12.0, 12.0), 4.0, 0.0, 360.0)];
+            for (a, b, c, d) in [
+                (12.0, 2.0, 12.0, 4.0),
+                (12.0, 20.0, 12.0, 22.0),
+                (4.93, 4.93, 6.34, 6.34),
+                (17.66, 17.66, 19.07, 19.07),
+                (2.0, 12.0, 4.0, 12.0),
+                (20.0, 12.0, 22.0, 12.0),
+                (6.34, 17.66, 4.93, 19.07),
+                (19.07, 4.93, 17.66, 6.34),
+            ] {
+                paths.push(Path::start(a, b).line(c, d));
+            }
+            paths
+        }
+        Icon::FileText | Icon::File => {
+            let mut paths = vec![
+                Path::start(15.0, 2.0)
+                    .line(6.0, 2.0)
+                    .corner(4.0, 2.0, 4.0, 4.0)
+                    .line(4.0, 20.0)
+                    .corner(4.0, 22.0, 6.0, 22.0)
+                    .line(18.0, 22.0)
+                    .corner(20.0, 22.0, 20.0, 20.0)
+                    .line(20.0, 7.0)
+                    .line(15.0, 2.0),
+                Path::start(14.0, 2.0)
+                    .line(14.0, 6.0)
+                    .corner(14.0, 8.0, 16.0, 8.0)
+                    .line(20.0, 8.0),
+            ];
+            if icon == Icon::FileText {
+                paths.push(Path::start(8.0, 15.0).line(16.0, 15.0));
+            }
+            paths
+        }
+        // The eye's outline is two arcs of radius 10.75 that meet at the
+        // corners; the eye-off keeps the parts of them the slash leaves.
+        Icon::Eye => vec![
+            Path::start(2.06, 12.35)
+                .line(2.0, 12.0)
+                .then(Path::arc(EYE_TOP, 10.75, 202.38, 337.62))
+                .line(22.0, 12.0)
+                .then(Path::arc(EYE_BOTTOM, 10.75, 22.38, 157.62)),
+            Path::arc(pos2(12.0, 12.0), 3.0, 0.0, 360.0),
+        ],
+        Icon::EyeOff => vec![
+            Path::arc(EYE_TOP, 10.75, 263.2, 337.62)
+                .line(22.0, 12.0)
+                .then(Path::arc(EYE_BOTTOM, 10.75, 22.38, 37.76)),
+            Path::arc(pos2(12.0, 12.0), 3.0, 46.1, 225.0),
+            Path::arc(EYE_BOTTOM, 10.75, 59.34, 157.62)
+                .line(2.0, 12.0)
+                .then(Path::arc(EYE_TOP, 10.75, 202.38, 239.27)),
+            Path::start(2.0, 2.0).line(22.0, 22.0),
+        ],
+        Icon::GridOff => vec![
+            Path::rounded(3.0, 3.0, 18.0, 18.0, 2.0),
+            Path::start(2.0, 2.0).line(22.0, 22.0),
+        ],
+        Icon::PanelBottom => vec![
+            Path::rounded(3.0, 3.0, 18.0, 18.0, 2.0),
+            Path::start(3.0, 15.0).line(21.0, 15.0),
+        ],
+        // The rule dashed 2 on, 3 off, and a small chevron under it: the
+        // taskbar hides until the mouse comes.
+        Icon::PanelBottomDashed => {
+            let mut paths = vec![Path::rounded(3.0, 3.0, 18.0, 18.0, 2.0)];
+            for x in [3.0, 8.0, 13.0, 18.0] {
+                paths.push(Path::start(x, 15.0).line(x + 2.0, 15.0));
+            }
+            paths.push(Path::start(9.0, 19.0).line(12.0, 17.0).line(15.0, 19.0));
+            paths
+        }
+        Icon::Mic => vec![
+            Path::arc(pos2(12.0, 5.0), 3.0, 180.0, 360.0)
+                .line(15.0, 12.0)
+                .then(Path::arc(pos2(12.0, 12.0), 3.0, 0.0, 180.0))
+                .line(9.0, 5.0),
+            Path::start(19.0, 10.0)
+                .line(19.0, 12.0)
+                .then(Path::arc(pos2(12.0, 12.0), 7.0, 0.0, 180.0))
+                .line(5.0, 10.0),
+            Path::start(12.0, 19.0).line(12.0, 22.0),
+        ],
+        Icon::MicOff => vec![
+            Path::start(12.0, 19.0).line(12.0, 22.0),
+            Path::start(15.0, 9.34).line(15.0, 5.0).then(Path::arc(
+                pos2(12.0, 5.0),
+                3.0,
+                360.0,
+                206.4,
+            )),
+            Path::arc(pos2(12.0, 12.0), 7.0, 45.0, 180.0).line(5.0, 10.0),
+            Path::start(18.89, 13.23).line(19.0, 12.0).line(19.0, 10.0),
+            Path::start(2.0, 2.0).line(22.0, 22.0),
+            Path::start(9.0, 9.0).line(9.0, 12.0).then(Path::arc(
+                pos2(12.0, 12.0),
+                3.0,
+                180.0,
+                45.0,
+            )),
+        ],
+        Icon::Coffee | Icon::Cup => {
+            let mut paths = vec![Path::start(16.0, 8.0)
+                .corner(17.0, 8.0, 17.0, 9.0)
+                .line(17.0, 17.0)
+                .then(Path::arc(pos2(13.0, 17.0), 4.0, 0.0, 90.0))
+                .line(7.0, 21.0)
+                .then(Path::arc(pos2(7.0, 17.0), 4.0, 90.0, 180.0))
+                .line(3.0, 9.0)
+                .corner(3.0, 8.0, 4.0, 8.0)
+                .line(18.0, 8.0)
+                .then(Path::arc(pos2(18.0, 12.0), 4.0, 270.0, 450.0))
+                .line(17.0, 16.0)];
+            if icon == Icon::Coffee {
+                for x in [6.0, 10.0, 14.0] {
+                    paths.push(Path::start(x, 2.0).line(x, 4.0));
+                }
+            }
+            paths
+        }
+        Icon::PinOff => vec![
+            Path::start(12.0, 17.0).line(12.0, 22.0),
+            Path::start(15.0, 9.34)
+                .line(15.0, 7.0)
+                .corner(15.0, 6.0, 16.0, 6.0)
+                .corner(18.0, 6.0, 18.0, 4.0)
+                .corner(18.0, 2.0, 16.0, 2.0)
+                .line(7.89, 2.0),
+            Path::start(9.0, 9.0)
+                .line(9.0, 10.76)
+                .corner(9.0, 12.0, 7.9, 12.55)
+                .line(6.1, 13.45)
+                .corner(5.0, 14.0, 5.0, 15.24)
+                .line(5.0, 16.0)
+                .corner(5.0, 17.0, 6.0, 17.0)
+                .line(17.0, 17.0),
+            Path::start(2.0, 2.0).line(22.0, 22.0),
+        ],
         // Lucide's arrow-right-left: one arrow each way.
         Icon::ArrowRightLeft => vec![
             Path::start(16.0, 3.0).line(20.0, 7.0).line(16.0, 11.0),
@@ -626,6 +820,13 @@ mod tests {
         assert_eq!(Icon::named(" Layout-Grid "), Some(Icon::LayoutGrid));
         assert_eq!(Icon::named("COPY"), Some(Icon::Copy));
         assert_eq!(Icon::named("pin"), Some(Icon::Pin));
+        assert_eq!(Icon::named("pin-off"), Some(Icon::PinOff));
+        assert_eq!(Icon::named("Mic-Off"), Some(Icon::MicOff));
+        assert_eq!(Icon::named("file-text"), Some(Icon::FileText));
+        assert_eq!(
+            Icon::named("panel-bottom-dashed"),
+            Some(Icon::PanelBottomDashed)
+        );
         assert_eq!(Icon::named("no-such-icon"), None);
         assert_eq!(Icon::named(""), None);
         for (name, icon) in Icon::NAMED {
@@ -664,7 +865,7 @@ mod tests {
             .all(|p| (p.y - 7.5).abs() < 0.01 && (p.x - 7.5).abs() <= 0.5));
     }
 
-    const EVERY_ICON: [Icon; 33] = [
+    const EVERY_ICON: [Icon; 47] = [
         Icon::Search,
         Icon::ChevronDown,
         Icon::ChevronRight,
@@ -698,6 +899,20 @@ mod tests {
         Icon::ArrowRightLeft,
         Icon::Tag,
         Icon::Pencil,
+        Icon::Moon,
+        Icon::Sun,
+        Icon::FileText,
+        Icon::File,
+        Icon::Eye,
+        Icon::EyeOff,
+        Icon::GridOff,
+        Icon::PanelBottom,
+        Icon::PanelBottomDashed,
+        Icon::Mic,
+        Icon::MicOff,
+        Icon::Coffee,
+        Icon::Cup,
+        Icon::PinOff,
     ];
 
     #[test]
@@ -713,6 +928,33 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn every_named_icon_is_drawn_and_every_toggle_pair_differs() {
+        for (name, icon) in Icon::NAMED {
+            assert!(EVERY_ICON.contains(&icon), "{name}");
+        }
+        for (on, off) in [
+            (Icon::Moon, Icon::Sun),
+            (Icon::FileText, Icon::File),
+            (Icon::Eye, Icon::EyeOff),
+            (Icon::LayoutGrid, Icon::GridOff),
+            (Icon::PanelBottomDashed, Icon::PanelBottom),
+            (Icon::MicOff, Icon::Mic),
+            (Icon::Coffee, Icon::Cup),
+            (Icon::Pin, Icon::PinOff),
+        ] {
+            assert_ne!(outline(on, 24.0), outline(off, 24.0), "{on:?} {off:?}");
+        }
+    }
+
+    #[test]
+    fn the_moon_closes_where_it_starts() {
+        let moon = &paths(Icon::Moon)[0].points;
+        let (first, last) = (moon[0], moon[moon.len() - 1]);
+        assert!(first.distance(last) < 0.05, "{first:?} {last:?}");
+        assert!(first.distance(pos2(12.0, 3.0)) < 0.05, "{first:?}");
     }
 
     #[test]
