@@ -2301,6 +2301,10 @@ fn the_palette_gets_every_toggles_state_and_again_after_a_flip() {
             .collect()
     };
 
+    let log_switch = (
+        CommandId::Host(HostCommand::DetailedLog),
+        detailed_log::toggle_state(crate::core::detailed::on()),
+    );
     host.send_toggle_states();
     let sent = states(&ui);
     assert_eq!(
@@ -2308,8 +2312,9 @@ fn the_palette_gets_every_toggles_state_and_again_after_a_flip() {
         vec![vec![
             (id(1), ToggleState::on("Tidy now")),
             (id(2), ToggleState::unknown()),
+            log_switch.clone(),
         ]],
-        "a plain command has no state; a plugin with no answer is unknown"
+        "a plain command has no state; a plugin with no answer is unknown;          the host's own toggle comes last"
     );
     assert_eq!(
         read(&log),
@@ -2333,11 +2338,19 @@ fn the_palette_gets_every_toggles_state_and_again_after_a_flip() {
     assert_eq!(states(&ui).len(), 1, "a flip reads the states again");
     host.handle_request(HostRequest::RunCommand(id(0)));
     assert!(states(&ui).is_empty(), "a plain command does not");
+    assert!(
+        host.is_toggle(CommandId::Host(HostCommand::DetailedLog)),
+        "a host toggle also gets its state read again after a flip"
+    );
+    assert!(!host.is_toggle(CommandId::Host(HostCommand::DetailedLogMark)));
     read(&log);
 
     host.plugins.disable(1);
     host.send_toggle_states();
-    assert_eq!(states(&ui), vec![vec![(id(2), ToggleState::unknown())]]);
+    assert_eq!(
+        states(&ui),
+        vec![vec![(id(2), ToggleState::unknown()), log_switch]]
+    );
     assert_eq!(ToggleState::unknown().line, "State unknown");
     assert_eq!(ToggleState::unknown().on, None);
     assert_eq!(ToggleState::off("x").on, Some(false));
@@ -2434,11 +2447,7 @@ fn the_detailed_log_commands_are_in_the_palette_and_deleting_asks_twice() {
             .find(|entry| entry.id == CommandId::Host(command))
             .unwrap_or_else(|| panic!("{command:?} missing"))
     };
-    // No test turns the detailed log on, so the switch offers to turn it on.
-    assert_eq!(
-        find(HostCommand::DetailedLog).label,
-        "Detailed log: Turn on"
-    );
+    assert_eq!(find(HostCommand::DetailedLog).label, "Detailed log");
     assert_eq!(
         find(HostCommand::DetailedLogMark).label,
         "Detailed log: Mark this moment"
@@ -2452,17 +2461,61 @@ fn the_detailed_log_commands_are_in_the_palette_and_deleting_asks_twice() {
     assert!(delete.confirm.starts_with("Press Enter again"));
     assert!(find(HostCommand::DetailedLog).confirm.is_empty());
     assert_eq!(
-        find(HostCommand::DetailedLog).subtitle.as_deref(),
-        Some("Records everything WinCraft does, to find a bug. Stays on this PC")
+        find(HostCommand::DetailedLog).toggle,
+        Some(detailed_log::toggle_look())
     );
+    for plain in [
+        HostCommand::DetailedLogMark,
+        HostCommand::DetailedLogReport,
+        HostCommand::DetailedLogDelete,
+    ] {
+        assert_eq!(find(plain).toggle, None, "{plain:?} is a plain command");
+    }
     assert_eq!(arrange::host_slug(HostCommand::DetailedLog), "detailed-log");
 }
 
 #[test]
-fn the_detailed_log_switch_says_what_enter_does() {
-    assert_eq!(detailed_log::toggle_label(false), "Detailed log: Turn on");
-    assert_eq!(detailed_log::toggle_label(true), "Detailed log: Turn off");
+fn the_detailed_log_toggle_says_its_state_in_words_and_keeps_its_title() {
+    let on = detailed_log::toggle_state(true);
+    assert_eq!(on.on, Some(true));
+    assert_eq!(
+        on.line,
+        "Recording keys, window titles and palette text on this PC"
+    );
+    let off = detailed_log::toggle_state(false);
+    assert_eq!(off.on, Some(false));
+    assert_eq!(off.line, "Off. Nothing is recorded");
+    let look = detailed_log::toggle_look();
+    assert_eq!((look.icon_on, look.icon_off), ("circle-dot", "circle"));
+    assert_eq!(look.tile, [0xb8, 0x48, 0x3a]);
+    assert_eq!(detailed_log::TOGGLE_TITLE, "Detailed log");
     assert_eq!(detailed_log::subtitle(HostCommand::OpenSettings), None);
+    assert!(detailed_log::host_toggle_look(HostCommand::DetailedLogMark).is_none());
+    // The host sends this toggle's state with the plugins' states.
+    let states = detailed_log::host_toggle_states();
+    assert_eq!(states.len(), 1);
+    assert_eq!(states[0].0, CommandId::Host(HostCommand::DetailedLog));
+}
+
+#[test]
+fn the_old_words_for_the_detailed_log_still_find_it() {
+    let data = Scratch::new("detailed-words");
+    let (log, keyboard) = (diary(), FakeKeys::default());
+    let set = plugin_set(
+        vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+        &keyboard,
+        &data,
+    );
+    let entries = set.palette_entries(&[]);
+    let entry = entries
+        .iter()
+        .find(|entry| entry.id == CommandId::Host(HostCommand::DetailedLog))
+        .expect("the toggle");
+    for query in ["turn on", "turn off", "toggle", "debug", "logging"] {
+        let found = crate::ui::fuzzy::score_command(query, &entry.group, &entry.label)
+            .max(crate::ui::fuzzy::score_words(query, &entry.words));
+        assert!(found.is_some(), "\"{query}\" does not find it");
+    }
 }
 
 #[test]

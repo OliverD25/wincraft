@@ -1733,6 +1733,29 @@ fn enter_on_a_toggle_runs_it_and_the_palette_stays_open() {
 }
 
 #[test]
+fn enter_on_a_host_toggle_runs_it_and_the_palette_stays_open() {
+    use crate::core::ui_bridge::HostCommand;
+    let bridge = crate::core::ui_bridge::create();
+    let mut palette = reply_palette();
+    let id = CommandId::Host(HostCommand::DetailedLog);
+    let snapshot = toggle_snapshot(id);
+    let outcome = palette.perform(Action::Command(id), &snapshot, &bridge.to_host);
+    assert!(matches!(outcome, Outcome::Stay));
+    assert!(matches!(
+        bridge.host_rx.try_recv().ok(),
+        Some(HostRequest::RunCommand(ran)) if ran == id
+    ));
+    let mut item = titled("Detailed log");
+    item.enter = Some(Choice {
+        label: "Run".to_string(),
+        action: Action::Command(id),
+    });
+    palette.set_toggle_states(vec![(id, ToggleState::on("Recording"))]);
+    let shown = rows::row_toggle(&item, &snapshot, &palette.toggle_states).expect("a toggle");
+    assert_eq!(shown.on(), Some(true));
+}
+
+#[test]
 fn a_toggle_row_shows_the_state_the_host_sent_and_forgets_it_on_the_next_opening() {
     let mut palette = reply_palette();
     let (id, item) = plugin_row(23);

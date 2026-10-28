@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::core::detailed;
+use crate::core::ui_bridge::ToggleLook;
 
 /// The name the host answers prompts under; no plugin has it.
 pub(super) const HOST_PROMPT: &str = "wincraft";
@@ -16,13 +17,43 @@ const STILL_ON_TEXT: &str = "The detailed log is still on. WinCraft records keys
 const OFF_TEXT: &str =
     "WinCraft stopped the detailed log. Its files stay on this PC until you delete them.";
 
-/// The palette's label for the switch, which says what Enter will do.
-pub(super) fn toggle_label(on: bool) -> &'static str {
-    if on {
-        "Detailed log: Turn off"
-    } else {
-        "Detailed log: Turn on"
+/// The switch's title in the palette. It never changes with the state, so
+/// search and recall stay stable.
+pub(super) const TOGGLE_TITLE: &str = "Detailed log";
+/// Words that find the switch: what the old titles said, and what it is.
+pub(super) const TOGGLE_WORDS: &str = "turn on turn off toggle debug logging record";
+const ON_LINE: &str = "Recording keys, window titles and palette text on this PC";
+const OFF_LINE: &str = "Off. Nothing is recorded";
+
+/// The switch's row look. The tile is red when on, because it records.
+pub(super) const fn toggle_look() -> ToggleLook {
+    ToggleLook {
+        icon_on: "circle-dot",
+        icon_off: "circle",
+        tile: [0xb8, 0x48, 0x3a],
     }
+}
+
+/// The switch's state in the palette, from the log's state.
+pub(super) fn toggle_state(on: bool) -> ToggleState {
+    if on {
+        ToggleState::on(ON_LINE)
+    } else {
+        ToggleState::off(OFF_LINE)
+    }
+}
+
+/// The row look of a host command that is a toggle.
+pub(super) fn host_toggle_look(command: HostCommand) -> Option<ToggleLook> {
+    (command == HostCommand::DetailedLog).then(toggle_look)
+}
+
+/// Every host toggle command and its state now.
+pub(super) fn host_toggle_states() -> Vec<(CommandId, ToggleState)> {
+    vec![(
+        CommandId::Host(HostCommand::DetailedLog),
+        toggle_state(detailed::on()),
+    )]
 }
 
 /// The first thing a start does: a detailed log left on starts again.
@@ -148,12 +179,8 @@ impl Host {
 /// The second line of the detailed log's palette commands.
 pub(super) fn subtitle(command: HostCommand) -> Option<String> {
     let text = match command {
-        HostCommand::DetailedLog if detailed::on() => {
-            "Recording keys, window titles and palette text on this PC"
-        }
-        HostCommand::DetailedLog => {
-            "Records everything WinCraft does, to find a bug. Stays on this PC"
-        }
+        HostCommand::DetailedLog if detailed::on() => ON_LINE,
+        HostCommand::DetailedLog => OFF_LINE,
         HostCommand::DetailedLogMark => "Writes the time and a few words into the detailed log",
         HostCommand::DetailedLogReport => {
             "Copies the logs and settings into one folder and opens it, to hand over"

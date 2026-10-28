@@ -350,7 +350,7 @@ Splitting the files this way means resetting one plugin deletes one file, and a 
 
 ### Detailed log
 
-When a bug is hard to catch, turn on the **Detailed log**: in the palette (`Detailed log: Turn on`), on **Settings → General**, or with the tray menu's *Detailed log* item. It has no hotkey. While it is on, WinCraft records everything it does in `%LOCALAPPDATA%\WinCraft\detailed\`: every key its keyboard hooks see and what they decided, the Windows and digit keys while a Windows key is down, every change of the window in front, how long each step took, and what WindowDeck and the palette did. It also mirrors everything from `wincraft.log`, with the debug lines.
+When a bug is hard to catch, turn on the **Detailed log**: in the palette (the **Detailed log** switch row; Enter flips it and the palette stays open), on **Settings → General**, or with the tray menu's *Detailed log* item. It has no hotkey. While it is on, WinCraft records everything it does in `%LOCALAPPDATA%\WinCraft\detailed\`: every key its keyboard hooks see and what they decided, the Windows and digit keys while a Windows key is down, every change of the window in front, how long each step took, and what WindowDeck and the palette did. It also mirrors everything from `wincraft.log`, with the debug lines.
 
 You always see that it is on: WinCraft shows a notice when it turns on or off and at every start while it is on, the tray tooltip reads *WinCraft · detailed log on*, and the palette footer shows a small **LOG** tag.
 

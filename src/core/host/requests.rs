@@ -108,7 +108,8 @@ impl Host {
         slot.plugin.command_details(kind, action)
     }
 
-    /// Every enabled plugin's toggle commands and their state now.
+    /// Every enabled plugin's toggle commands and the host's own, with their
+    /// state now.
     pub(super) fn toggle_states(&mut self) -> Vec<(CommandId, ToggleState)> {
         let mut states = Vec::new();
         for (index, slot) in self.plugins.slots.iter_mut().enumerate() {
@@ -131,6 +132,7 @@ impl Host {
                 states.push((id, state));
             }
         }
+        states.extend(detailed_log::host_toggle_states());
         states
     }
 
@@ -149,7 +151,10 @@ impl Host {
         self.to_ui.send(UiCommand::ToggleStates(states));
     }
 
-    fn is_toggle(&self, id: CommandId) -> bool {
+    pub(super) fn is_toggle(&self, id: CommandId) -> bool {
+        if let CommandId::Host(command) = id {
+            return detailed_log::host_toggle_look(command).is_some();
+        }
         self.palette_command(id)
             .is_some_and(|command| command.toggle.is_some())
     }

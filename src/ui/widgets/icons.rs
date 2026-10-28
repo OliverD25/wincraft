@@ -53,11 +53,13 @@ pub enum Icon {
     Cup,
     PinOff,
     Download,
+    Circle,
+    CircleDot,
 }
 
 impl Icon {
     /// The icons a plugin can name for its tile, by their lucide names.
-    pub const NAMED: [(&'static str, Icon); 28] = [
+    pub const NAMED: [(&'static str, Icon); 30] = [
         ("layout-grid", Icon::LayoutGrid),
         ("copy", Icon::Copy),
         ("pin", Icon::Pin),
@@ -86,6 +88,8 @@ impl Icon {
         ("cup", Icon::Cup),
         ("pin-off", Icon::PinOff),
         ("download", Icon::Download),
+        ("circle", Icon::Circle),
+        ("circle-dot", Icon::CircleDot),
     ];
 
     /// The icon with this lucide name, in any case; None for a name WinCraft
@@ -646,6 +650,12 @@ fn paths(icon: Icon) -> Vec<Path> {
             Path::start(18.0, 6.0).line(6.0, 18.0),
             Path::start(6.0, 6.0).line(18.0, 18.0),
         ],
+        // Lucide's circle, and circle-dot: the same ring with a dot in it.
+        Icon::Circle => vec![Path::arc(pos2(12.0, 12.0), 10.0, 0.0, 360.0)],
+        Icon::CircleDot => vec![
+            Path::arc(pos2(12.0, 12.0), 10.0, 0.0, 360.0),
+            Path::arc(pos2(12.0, 12.0), 1.0, 0.0, 360.0),
+        ],
         // Lucide's download: the shaft, the head and the tray line.
         Icon::Download => vec![
             Path::start(12.0, 3.0).line(12.0, 15.0),
@@ -831,6 +841,8 @@ mod tests {
         assert_eq!(Icon::named("pin-off"), Some(Icon::PinOff));
         assert_eq!(Icon::named("download"), Some(Icon::Download));
         assert_eq!(Icon::named("Mic-Off"), Some(Icon::MicOff));
+        assert_eq!(Icon::named("circle"), Some(Icon::Circle));
+        assert_eq!(Icon::named("Circle-Dot"), Some(Icon::CircleDot));
         assert_eq!(Icon::named("file-text"), Some(Icon::FileText));
         assert_eq!(
             Icon::named("panel-bottom-dashed"),
@@ -874,7 +886,7 @@ mod tests {
             .all(|p| (p.y - 7.5).abs() < 0.01 && (p.x - 7.5).abs() <= 0.5));
     }
 
-    const EVERY_ICON: [Icon; 48] = [
+    const EVERY_ICON: [Icon; 50] = [
         Icon::Search,
         Icon::ChevronDown,
         Icon::ChevronRight,
@@ -923,6 +935,8 @@ mod tests {
         Icon::Cup,
         Icon::PinOff,
         Icon::Download,
+        Icon::Circle,
+        Icon::CircleDot,
     ];
 
     #[test]
@@ -954,6 +968,7 @@ mod tests {
             (Icon::MicOff, Icon::Mic),
             (Icon::Coffee, Icon::Cup),
             (Icon::Pin, Icon::PinOff),
+            (Icon::CircleDot, Icon::Circle),
         ] {
             assert_ne!(outline(on, 24.0), outline(off, 24.0), "{on:?} {off:?}");
         }
