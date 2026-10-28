@@ -29,7 +29,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::core::ll_hook::HookThread;
-use crate::core::{chord, host, mask_key, open_timing, taskbar_number};
+use crate::core::{chord, host, mask_key, open_timing, taskbar_number, ui_bridge};
 
 /// What the hook does with one key event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -225,10 +225,12 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
             1
         }
         Step::WinDown => {
+            ui_bridge::note_win_key(true);
             host::post_win_down();
             unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
         }
         Step::WinUp { alone } => {
+            ui_bridge::note_win_key(false);
             host::post_win_released(alone);
             unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
         }

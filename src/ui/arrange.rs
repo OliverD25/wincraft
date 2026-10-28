@@ -32,6 +32,7 @@ mod by_monitor;
 mod cards;
 mod compact;
 mod flat;
+mod focus_loss;
 mod hold;
 mod input;
 mod life;
@@ -95,10 +96,6 @@ const TASKBAR_GAP: f32 = 12.0;
 /// to another monitor, while it takes the focus back: a window that
 /// maximizes itself there can come to the front for a moment.
 const MOVE_GRACE: Duration = Duration::from_millis(1500);
-/// Losing the focus does not close the strip while a Windows key is down,
-/// nor this long after it was let go: Win and a digit may move the strip,
-/// and Win let go alone closes it through the host.
-const WIN_GRACE: Duration = Duration::from_millis(300);
 /// How long a note such as "Button 4 has no windows" stays.
 const NOTE_TIME: Duration = Duration::from_secs(2);
 /// How long a card takes to come in or to go.
@@ -282,8 +279,10 @@ struct Shared {
     close_when_empty: bool,
     /// The title being edited after F2.
     rename: Option<rename::Rename>,
-    /// When a Windows key was last seen down while the strip was open.
-    win_seen: Option<Instant>,
+    /// Since when another window has had the keyboard; see `focus_loss`.
+    focus_lost_at: Option<Instant>,
+    /// The strip asked for the keyboard back from the shell in this loss.
+    took_back: bool,
     /// Closed, with its window kept hidden for the next opening.
     parked: bool,
 }

@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicIsize, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -238,6 +238,33 @@ pub fn set_arrange_window(hwnd: isize) {
 /// The Arrange strip's window while it is on screen.
 pub fn arrange_window() -> Option<isize> {
     Some(ARRANGE_WINDOW.load(Ordering::Relaxed)).filter(|hwnd| *hwnd != 0)
+}
+
+/// When a Windows key last went down and last came up, in
+/// `GetTickCount64` milliseconds (0: not seen), as WindowDeck's keyboard
+/// hook saw it. The hook sees the key before any window can react to it,
+/// so the strip knows Win is in use even when it loses the focus before
+/// it could look at the key itself.
+static WIN_DOWN_AT: AtomicU64 = AtomicU64::new(0);
+static WIN_UP_AT: AtomicU64 = AtomicU64::new(0);
+
+/// A keyboard hook saw a Windows key go down or come up.
+pub fn note_win_key(down: bool) {
+    let now = unsafe { windows_sys::Win32::System::SystemInformation::GetTickCount64() };
+    if down {
+        WIN_DOWN_AT.store(now, Ordering::Relaxed);
+    } else {
+        WIN_UP_AT.store(now, Ordering::Relaxed);
+    }
+}
+
+/// When a Windows key last went down and last came up, if ever seen.
+pub fn win_key_times() -> (Option<u64>, Option<u64>) {
+    let seen = |at: u64| (at != 0).then_some(at);
+    (
+        seen(WIN_DOWN_AT.load(Ordering::Relaxed)),
+        seen(WIN_UP_AT.load(Ordering::Relaxed)),
+    )
 }
 
 /// What the strip asks the plugin to do.

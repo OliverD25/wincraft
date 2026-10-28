@@ -1,5 +1,3 @@
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LWIN, VK_RWIN};
-
 use super::*;
 
 impl Arrange {
@@ -50,7 +48,8 @@ impl Arrange {
                 pointer: pointer::Pointer::default(),
                 close_when_empty: false,
                 rename: None,
-                win_seen: None,
+                focus_lost_at: None,
+                took_back: false,
                 parked: false,
             })),
             palette_hwnd,
@@ -71,6 +70,8 @@ impl Arrange {
         }
         shared.pointer.rest(cursor_position());
         shared.parked = false;
+        shared.focus_lost_at = None;
+        shared.took_back = false;
         shared.close_when_empty = false;
         shared.key = snapshot
             .groups
@@ -236,7 +237,8 @@ impl Arrange {
             shared.sources.clear();
             shared.hide_peek();
             shared.forced_peek = None;
-            shared.win_seen = None;
+            shared.focus_lost_at = None;
+            shared.took_back = false;
         }
     }
 
@@ -378,6 +380,8 @@ impl Arrange {
                 .input(|i| (i.key_pressed(egui::Key::Escape), i.viewport().focused));
             if focused == Some(true) {
                 shared.focused_once = true;
+                shared.focus_lost_at = None;
+                shared.took_back = false;
             }
             // A middle-click on the hover strip's own taskbar button opens a
             // new window of the app, which takes the keyboard. The strip
@@ -386,13 +390,9 @@ impl Arrange {
                 shared.focused_once = false;
             }
             let now = Instant::now();
-            if win_key_down() {
-                shared.win_seen = Some(now);
-            }
             let grace = shared
                 .keep_open_until
-                .and_then(|until| until.checked_duration_since(now))
-                .or_else(|| win_grace_left(shared.win_seen, now));
+                .and_then(|until| until.checked_duration_since(now));
             if let Some(left) = grace {
                 ui.ctx().request_repaint_after(left);
             }
@@ -401,8 +401,31 @@ impl Arrange {
             if escape {
                 shared.closed = true;
             } else if shared.focused_once && focused == Some(false) && grace.is_none() {
-                log::info!("WindowDeck closes: it lost the keyboard to another window");
-                shared.closed = true;
+                let lost = *shared.focus_lost_at.get_or_insert(now);
+                let (class, exe) = focus_loss::front_window();
+                let verdict = focus_loss::verdict(
+                    now.saturating_duration_since(lost),
+                    focus_loss::win_keys(),
+                    focus_loss::is_shell(&class, &exe),
+                    shared.took_back,
+                );
+                match verdict {
+                    focus_loss::Verdict::Keep(after) => ui.ctx().request_repaint_after(after),
+                    focus_loss::Verdict::TakeBack => {
+                        log::info!(
+                            "WindowDeck takes the keyboard back from {class} ({exe}), which took it right after a Windows key"
+                        );
+                        shared.took_back = true;
+                        shared.to_host.send(HostRequest::FocusWindow(shared.window));
+                        ui.ctx().request_repaint_after(focus_loss::WAIT);
+                    }
+                    focus_loss::Verdict::Close => {
+                        log::info!(
+                            "WindowDeck closes: it lost the keyboard to another window, {class} ({exe})"
+                        );
+                        shared.closed = true;
+                    }
+                }
             }
             if ui.ctx().input(|i| i.viewport().close_requested()) {
                 shared.closed = true;
@@ -461,19 +484,6 @@ pub(super) fn note_line(ctx: &egui::Context, panel: Rect, text: &str) {
         galley,
         tokens.text_primary,
     );
-}
-
-/// Whether a Windows key is down now.
-fn win_key_down() -> bool {
-    let down = |vk: u16| (unsafe { GetAsyncKeyState(i32::from(vk)) } as u16 & 0x8000) != 0;
-    down(VK_LWIN) || down(VK_RWIN)
-}
-
-/// How much longer losing the focus may not close the strip, for a Windows
-/// key last seen down at `win_seen`; `None` once `WIN_GRACE` is over.
-pub(super) fn win_grace_left(win_seen: Option<Instant>, now: Instant) -> Option<Duration> {
-    let left = (win_seen? + WIN_GRACE).checked_duration_since(now)?;
-    (!left.is_zero()).then_some(left)
 }
 
 /// Where the mouse is, in screen pixels.
