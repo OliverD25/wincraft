@@ -369,3 +369,19 @@ fn a_report_copies_the_newest_log_the_normal_logs_and_the_config() {
     assert!(!reports_dir(&detailed).exists());
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_report_copies_the_log_while_it_is_still_being_written() {
+    use std::io::Write;
+    let dir = scratch("copy-open");
+    fs::create_dir_all(&dir).unwrap();
+    let source = dir.join("detailed-live.log");
+    let mut open = fs::File::create(&source).unwrap();
+    open.write_all(b"line one\n").unwrap();
+    open.flush().unwrap();
+    let target = dir.join("copy.log");
+    assert_eq!(report::copy_shared(&source, &target).unwrap(), 9);
+    assert_eq!(fs::read_to_string(&target).unwrap(), "line one\n");
+    drop(open);
+    let _ = fs::remove_dir_all(&dir);
+}

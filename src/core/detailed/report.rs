@@ -5,7 +5,7 @@
 //! the reports too.
 
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use super::writer;
@@ -46,7 +46,7 @@ pub fn save(sources: &Sources, stamp: &str) -> std::io::Result<PathBuf> {
         let Some(name) = source.file_name() else {
             continue;
         };
-        if fs::copy(source, folder.join(name)).is_ok() {
+        if copy_shared(source, &folder.join(name)).is_ok() {
             copied.push(name.to_string_lossy().into_owned());
         }
     }
@@ -102,4 +102,12 @@ pub fn delete_reports(detailed: &Path) -> usize {
         .count();
     let _ = fs::remove_dir(reports_dir(detailed));
     count
+}
+/// Copies a file that WinCraft may still be writing. `fs::copy` asks
+/// Windows for the file without letting others write, so it fails on the
+/// detailed log while it records; `File::open` shares it.
+pub(super) fn copy_shared(source: &Path, target: &Path) -> io::Result<u64> {
+    let mut from = fs::File::open(source)?;
+    let mut to = fs::File::create(target)?;
+    io::copy(&mut from, &mut to)
 }

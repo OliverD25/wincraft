@@ -36,7 +36,14 @@ if (-not (Test-Path -LiteralPath $Path)) {
 
 $pattern = '^(\d{4}-\d\d-\d\d) (\d\d):(\d\d):(\d\d)\.(\d{3}) \[([^\]]*)\] (.*)$'
 $entries = New-Object System.Collections.Generic.List[object]
-foreach ($raw in [System.IO.File]::ReadAllLines($Path)) {
+# WinCraft keeps the newest file open while it records, so it is read with
+# the writer's share mode; ReadAllLines would refuse a file open for writing.
+$stream = [System.IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite, Delete')
+$reader = New-Object System.IO.StreamReader($stream)
+$lines = New-Object System.Collections.Generic.List[string]
+while ($null -ne ($line = $reader.ReadLine())) { $lines.Add($line) }
+$reader.Close()
+foreach ($raw in $lines) {
     if ($raw -notmatch $pattern) { continue }
     $ms = ((([int]$Matches[2] * 60) + [int]$Matches[3]) * 60 + [int]$Matches[4]) * 1000 + [int]$Matches[5]
     $time = "$($Matches[2]):$($Matches[3]):$($Matches[4]).$($Matches[5])"
