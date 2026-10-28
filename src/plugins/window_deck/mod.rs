@@ -240,7 +240,10 @@ fn run_hover(commands: Vec<hover_preview::Command>) {
     for command in commands {
         match command {
             hover_preview::Command::Open { app, button } => host::open_arrange_at(app, button),
-            hover_preview::Command::Close => host::close_arrange(),
+            hover_preview::Command::Close => {
+                log::info!("WindowDeck closes: the taskbar hover rules closed it");
+                host::close_arrange();
+            }
             hover_preview::Command::Lookup(_) => {}
         }
     }

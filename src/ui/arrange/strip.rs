@@ -221,6 +221,7 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
             flat(ui, shared, &group, &snapshot.desktops, rows_area, menu_open)
         }
     };
+    let by_digit = frame.activate.is_none() && digit_card.is_some();
     if frame.activate.is_none() {
         frame.activate = digit_card;
     }
@@ -347,6 +348,14 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
         shared.to_host.send(HostRequest::FocusWindow(shared.window));
     }
     if let Some(hwnd) = frame.activate {
+        log::info!(
+            "WindowDeck switches to window {hwnd:#x} ({}) and closes",
+            if by_digit {
+                "a digit typed in it"
+            } else {
+                "a click or Enter"
+            }
+        );
         shared.hide_peek();
         shared.to_host.send(HostRequest::Arrange {
             plugin: snapshot.plugin.clone(),

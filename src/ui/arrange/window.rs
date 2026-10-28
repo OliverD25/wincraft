@@ -399,6 +399,7 @@ impl Arrange {
             // Esc ends a title edit and nothing more.
             let escape = escape && shared.rename.is_none();
             if escape {
+                log::info!("WindowDeck closes: Esc");
                 shared.closed = true;
             } else if shared.focused_once && focused == Some(false) && grace.is_none() {
                 let lost = *shared.focus_lost_at.get_or_insert(now);
@@ -428,6 +429,7 @@ impl Arrange {
                 }
             }
             if ui.ctx().input(|i| i.viewport().close_requested()) {
+                log::info!("WindowDeck closes: Windows asked its window to close");
                 shared.closed = true;
             }
 
