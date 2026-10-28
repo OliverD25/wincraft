@@ -231,7 +231,13 @@ pub fn body(
     }
 
     if snapshot.hints {
-        footer(ui, panel, shown && snapshot.keeps_order, others_count > 0);
+        footer(
+            ui,
+            panel,
+            shown && snapshot.keeps_order,
+            others_count > 0,
+            cards_here(group, &snapshot.desktops) > 10,
+        );
     }
 
     if !menu_open && !dragging && shared.rename.is_none() {

@@ -185,8 +185,9 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
         shared.others.toggle();
         ctx.request_repaint();
     }
-    // A plain digit opens the card with that number; Ctrl and a digit jump
-    // to that taskbar button's app, the way Win+Alt+A and a digit do.
+    // A plain digit opens the card with that number and Shift and a digit
+    // the card ten higher; Ctrl and a digit jump to that taskbar button's
+    // app, the way Win+Alt+A and a digit do.
     let mut digit_card = None;
     if !menu_open && !typing && shared.drag.is_none() {
         let typed = |modifiers: egui::Modifiers| {
@@ -195,10 +196,16 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
         if let Some(digit) = typed(egui::Modifiers::CTRL) {
             shared.to_host.send(HostRequest::ArrangeDigit(digit));
         }
-        if let Some(digit) = typed(egui::Modifiers::NONE) {
-            digit_card = card_for_digit(&group, &snapshot.desktops, &visible, digit);
+        // Shift goes first: egui also reports Shift and a digit as the plain
+        // digit on layouts where that pair types no character.
+        let number = ctx
+            .input_mut(consume_shift_digit)
+            .map(|digit| typed_number(digit, true))
+            .or_else(|| typed(egui::Modifiers::NONE).map(|digit| typed_number(digit, false)));
+        if let Some(number) = number {
+            digit_card = card_for_digit(&group, &snapshot.desktops, &visible, number);
             if digit_card.is_none() {
-                log::info!("digit {digit} in the strip: no card has that number");
+                log::info!("number {number} typed in the strip: no card has it");
             }
         }
     }

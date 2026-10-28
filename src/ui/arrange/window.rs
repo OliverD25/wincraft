@@ -461,6 +461,35 @@ pub(super) fn digit_key(digit: u8) -> egui::Key {
     ][digit.min(9) as usize]
 }
 
+/// Takes Shift and a top-row digit out of this frame's input and gives the
+/// digit. Shift+1 types "!" (or another sign, by the keyboard layout), so the
+/// key is read by its place on the keyboard, not by what it types.
+pub(super) fn consume_shift_digit(input: &mut egui::InputState) -> Option<u8> {
+    let mut found = None;
+    input.events.retain(|event| {
+        if found.is_some() {
+            return true;
+        }
+        if let egui::Event::Key {
+            physical_key: Some(key),
+            pressed: true,
+            modifiers,
+            ..
+        } = event
+        {
+            let shift_only =
+                modifiers.shift && !modifiers.ctrl && !modifiers.alt && !modifiers.command;
+            let digit = (0u8..=9).find(|digit| digit_key(*digit) == *key);
+            if let (true, Some(digit)) = (shift_only, digit) {
+                found = Some(digit);
+                return false;
+            }
+        }
+        true
+    });
+    found
+}
+
 /// A short line over the top of the cards, above everything, for a moment.
 pub(super) fn note_line(ctx: &egui::Context, panel: Rect, text: &str) {
     let tokens = Tokens::get(ctx);

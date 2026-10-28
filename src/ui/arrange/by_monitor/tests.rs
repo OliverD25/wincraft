@@ -1143,7 +1143,7 @@ fn scope(only: Option<usize>, taskbars: MultiMonitor) -> Scope {
 #[test]
 fn the_footer_lists_select_and_move_first_and_drops_from_the_end() {
     let keys = |others| -> Vec<&str> {
-        footer_hints(others)
+        footer_hints(others, false)
             .into_iter()
             .map(|(_, label)| label)
             .collect()
@@ -1167,17 +1167,23 @@ fn the_footer_lists_select_and_move_first_and_drops_from_the_end() {
         ]
     );
     assert!(!keys(false).contains(&"Other desktops"));
-    assert_eq!(footer_hints(false)[6].0, "1\u{2013}9");
-    assert_eq!(footer_hints(false)[7].0, "Ctrl + 1\u{2013}9");
-    assert_eq!(footer_hints(false)[8].0, "Ctrl + W");
-    assert_eq!(footer_hints(false)[9].0, "Ctrl + N");
-    assert_eq!(footer_hints(false)[10], ("F2", "Rename"));
+    assert_eq!(footer_hints(false, false)[6].0, "1\u{2013}9");
+    assert_eq!(footer_hints(false, false)[7].0, "Ctrl + 1\u{2013}9");
+    assert_eq!(footer_hints(false, false)[8].0, "Ctrl + W");
+    assert_eq!(footer_hints(false, false)[9].0, "Ctrl + N");
+    assert_eq!(footer_hints(false, false)[10], ("F2", "Rename"));
     // Ctrl + H comes last, after the optional D hint too.
     assert_eq!(
-        footer_hints(false).last(),
+        footer_hints(false, false).last(),
         Some(&("Ctrl + H", "Hide hints"))
     );
-    assert_eq!(footer_hints(true).last(), Some(&HIDE_HINT));
+    assert_eq!(footer_hints(true, false).last(), Some(&HIDE_HINT));
+    // More than ten cards: the Shift hint follows the plain digits'.
+    let many = footer_hints(false, true);
+    assert_eq!(many[6].0, "1\u{2013}9");
+    assert_eq!(many[7], SHIFT_DIGIT_HINT);
+    assert_eq!(many[8].0, "Ctrl + 1\u{2013}9");
+    assert!(!footer_hints(false, false).contains(&SHIFT_DIGIT_HINT));
     // Too narrow for all: they go from the end, and Select, Open and
     // Move stay even when they do not fit.
     let widths = [80.0, 60.0, 90.0, 140.0, 140.0];

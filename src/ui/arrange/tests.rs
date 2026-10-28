@@ -192,7 +192,7 @@ fn a_digit_opens_the_card_with_that_number_on_this_desktop() {
         "no card 4"
     );
     assert_eq!(
-        card_for_digit(&group, &desktops, &all, 0),
+        card_for_digit(&group, &desktops, &all, 10),
         None,
         "no card 10"
     );
@@ -203,10 +203,42 @@ fn a_digit_opens_the_card_with_that_number_on_this_desktop() {
     let twelve = self::group(&["work"; 12]);
     let shown = [true; 12];
     assert_eq!(
-        card_for_digit(&twelve, &desktops, &shown, 0),
+        card_for_digit(&twelve, &desktops, &shown, typed_number(0, false)),
         Some(9),
         "0 is 10"
     );
+    assert_eq!(
+        card_for_digit(&twelve, &desktops, &shown, typed_number(2, true)),
+        Some(11),
+        "Shift+2 is 12"
+    );
+    assert_eq!(
+        card_for_digit(&twelve, &desktops, &shown, typed_number(3, true)),
+        None,
+        "no card 13"
+    );
+}
+
+#[test]
+fn shift_adds_ten_to_a_typed_digit() {
+    assert_eq!(typed_number(1, false), 1);
+    assert_eq!(typed_number(9, false), 9);
+    assert_eq!(typed_number(0, false), 10);
+    assert_eq!(typed_number(1, true), 11);
+    assert_eq!(typed_number(9, true), 19);
+    assert_eq!(typed_number(0, true), 20);
+}
+
+#[test]
+fn cards_here_counts_only_this_desktops_cards() {
+    let desktops = [
+        desktop("home", "Home", false),
+        desktop("work", "Work", true),
+    ];
+    let group = group(&["home", "work", "home", "work", ""]);
+    assert_eq!(cards_here(&group, &desktops), 3);
+    let eleven = self::group(&["work"; 11]);
+    assert_eq!(cards_here(&eleven, &desktops), 11);
 }
 
 #[test]
@@ -1475,4 +1507,46 @@ fn a_window_can_be_found_by_its_handle_after_the_changes() {
             (1, "home".to_string(), false)
         ]
     );
+}
+
+/// One key press as the keyboard sends it: what it types (`key`) and where
+/// it sits (`physical`).
+fn key_event(key: egui::Key, physical: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
+    egui::Event::Key {
+        key,
+        physical_key: Some(physical),
+        pressed: true,
+        repeat: false,
+        modifiers,
+    }
+}
+
+#[test]
+fn shift_and_a_digit_is_read_by_the_keys_place() {
+    let run = |events: Vec<egui::Event>| {
+        let mut input = egui::InputState::default();
+        input.events = events;
+        window::consume_shift_digit(&mut input)
+    };
+    use egui::{Key, Modifiers};
+    // Shift+1 types "!", but the key is still the 1 key.
+    let bang = key_event(Key::Exclamationmark, Key::Num1, Modifiers::SHIFT);
+    assert_eq!(run(vec![bang]), Some(1));
+    // A layout where Shift+3 types no sign reports the digit itself.
+    assert_eq!(
+        run(vec![key_event(Key::Num3, Key::Num3, Modifiers::SHIFT)]),
+        Some(3)
+    );
+    assert_eq!(
+        run(vec![key_event(Key::Num0, Key::Num0, Modifiers::SHIFT)]),
+        Some(0)
+    );
+    // Without Shift, or with Ctrl too, it is not this key.
+    assert_eq!(
+        run(vec![key_event(Key::Num1, Key::Num1, Modifiers::NONE)]),
+        None
+    );
+    let ctrl_shift = Modifiers::SHIFT | Modifiers::CTRL;
+    assert_eq!(run(vec![key_event(Key::Num1, Key::Num1, ctrl_shift)]), None);
+    assert_eq!(run(vec![key_event(Key::A, Key::A, Modifiers::SHIFT)]), None);
 }

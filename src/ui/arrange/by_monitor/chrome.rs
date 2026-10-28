@@ -128,9 +128,13 @@ pub(super) fn insertion_bar(ui: &Ui, others: &[Rect], index: usize, start: egui:
         .vline(x, egui::Rangef::new(top, top + CARD_HEIGHT), stroke);
 }
 
+/// The Shift and digit hint, for a desktop with more than ten cards.
+pub const SHIFT_DIGIT_HINT: (&str, &str) = ("Shift + 1\u{2013}0", "Cards 11\u{2013}20");
+
 /// The key hints under the bands, most needed first: when the strip is too
-/// narrow they go from the end. The D hint needs other desktops to show.
-pub(super) fn footer_hints(others_key: bool) -> Vec<(&'static str, &'static str)> {
+/// narrow they go from the end. The D hint needs other desktops to show; the
+/// Shift hint needs more than ten cards on this desktop.
+pub(super) fn footer_hints(others_key: bool, over_ten: bool) -> Vec<(&'static str, &'static str)> {
     let mut hints = vec![
         ("\u{2190}\u{2192}\u{2191}\u{2193}", "Select"),
         ("Enter", "Open"),
@@ -144,6 +148,9 @@ pub(super) fn footer_hints(others_key: bool) -> Vec<(&'static str, &'static str)
         ("Ctrl + N", "New window"),
         ("F2", "Rename"),
     ];
+    if over_ten {
+        hints.insert(7, SHIFT_DIGIT_HINT);
+    }
     if others_key {
         hints.push(("D", "Other desktops"));
     }
@@ -232,7 +239,7 @@ pub fn paint_toolbar_hint(
 /// The note on order and the key hints under the bands. The note is only
 /// true while other desktops are on screen and a plugin saves the order;
 /// the D hint needs some to show.
-pub(super) fn footer(ui: &Ui, panel: Rect, note: bool, others_key: bool) {
+pub(super) fn footer(ui: &Ui, panel: Rect, note: bool, others_key: bool, over_ten: bool) {
     let tokens = Tokens::get(ui.ctx());
     let painter = ui.painter();
     let area = Rect::from_min_max(pos2(panel.min.x, panel.max.y - FOOTER), panel.max);
@@ -242,7 +249,7 @@ pub(super) fn footer(ui: &Ui, panel: Rect, note: bool, others_key: bool) {
         theme::line(ui.ctx(), tokens.border),
     );
     let centre = area.top() + 1.0 + (FOOTER - 1.0) / 2.0;
-    let mut hints: Vec<Hint> = footer_hints(others_key)
+    let mut hints: Vec<Hint> = footer_hints(others_key, over_ten)
         .into_iter()
         .map(|(key, label)| hint_galleys(painter, key, label, tokens.text_secondary))
         .collect();

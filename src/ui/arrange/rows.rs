@@ -64,16 +64,34 @@ pub fn taskbar_numbers(group: &ArrangeGroup, desktops: &[ArrangeDesktop]) -> Vec
     numbers
 }
 
-/// The window whose card shows number `digit` on this desktop (0 is 10),
-/// among the cards on screen (`visible`): what a plain digit in the strip
-/// opens. None when no card has that number.
+/// The card number a digit typed in the strip stands for: 1 to 9, and 0 is
+/// 10. With Shift it is ten more, so Shift+1 is 11 and Shift+0 is 20.
+pub fn typed_number(digit: u8, shift: bool) -> usize {
+    let number = if digit == 0 { 10 } else { usize::from(digit) };
+    if shift {
+        number + 10
+    } else {
+        number
+    }
+}
+
+/// How many cards this desktop has in the strip.
+pub fn cards_here(group: &ArrangeGroup, desktops: &[ArrangeDesktop]) -> usize {
+    rows(group, desktops)
+        .into_iter()
+        .next()
+        .map_or(0, |row| row.members.len())
+}
+
+/// The window whose card shows `number` on this desktop, among the cards on
+/// screen (`visible`): what a digit typed in the strip opens. None when no
+/// card has that number.
 pub fn card_for_digit(
     group: &ArrangeGroup,
     desktops: &[ArrangeDesktop],
     visible: &[bool],
-    digit: u8,
+    number: usize,
 ) -> Option<isize> {
-    let number = if digit == 0 { 10 } else { usize::from(digit) };
     let numbers = taskbar_numbers(group, desktops);
     let this_desktop = rows(group, desktops).into_iter().next()?;
     this_desktop

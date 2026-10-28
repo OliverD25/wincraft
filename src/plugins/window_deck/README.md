@@ -154,7 +154,9 @@ at all, keeps ordinary columns.
   it); Ctrl+Shift+↑ and Ctrl+Shift+↓ move it to the next desktop, on the same
   monitor (or the main one when its own is unplugged). Enter switches to the
   window, a number switches to the window whose card shows that number
-  (0 is 10), Ctrl and a number open WindowDeck for that taskbar button, D
+  (0 is 10), Shift and a number switches to the card ten higher (Shift+1 is
+  11, Shift+0 is 20; the footer says so when this desktop has more than ten
+  cards), Ctrl and a number open WindowDeck for that taskbar button, D
   shows or hides the other desktops, Esc closes the strip, Alt+← and Alt+→ give it the next
   lower or higher number (see **Changing a window's number**). Ctrl+W
   closes the picked window and Ctrl+N opens a new window of the app (see
