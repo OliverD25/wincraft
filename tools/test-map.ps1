@@ -305,4 +305,4 @@ Add-Line ''
 
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Out) | Out-Null
 [IO.File]::WriteAllText($Out, (($doc -join "`n") + "`n"), (New-Object Text.UTF8Encoding($false)))
-Write-Host ("wrote {0}: {1} tests, {2} flags, {3} suspects" -f (Rel $Out), $totalTests, $flagRows.Count, $suspects.Count)
+Write-Host ("wrote {0}: {1} tests, {2} flags, {3} suspects" -f $Out, $totalTests, $flagRows.Count, $suspects.Count)

@@ -157,6 +157,23 @@ if ($Quick) {
     } else {
         Skip-Step 'coverage' 'cargo-llvm-cov is not installed'
     }
+
+    # A report, never a gate: it writes to the scratch folder, so the tree
+    # stays clean, and says if docs\test-map.md no longer matches the code.
+    if (-not $failed) {
+        $mapFile = Join-Path $scratch 'test-map.md'
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-map.ps1') -Out $mapFile *> $null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $mapFile)) {
+            $suspects = @(Get-Content $mapFile | Where-Object { $_ -match '^- (Flag|Test module|Plugin folder|plugins\.json)' }).Count
+            $committed = Join-Path $root 'docs\test-map.md'
+            $same = (Test-Path $committed) -and
+                ((Get-Content $mapFile | Select-Object -Skip 3) -join "`n") -eq ((Get-Content $committed | Select-Object -Skip 3) -join "`n")
+            $note = if ($same) { 'docs\test-map.md is current' } else { 'docs\test-map.md is out of date: run tools\test-map.ps1' }
+            Write-Host ("info  {0,-12} {1} suspect(s); {2}" -f 'test-map', $suspects, $note)
+        } else {
+            Write-Host ("info  {0,-12} could not run test-map.ps1 (not a failure)" -f 'test-map')
+        }
+    }
 }
 
 if ($Smoke) {

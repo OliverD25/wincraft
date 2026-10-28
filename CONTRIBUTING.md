@@ -470,6 +470,16 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   `-Smoke` also starts every plugin in a test instance (see
   `tools\smoke.ps1`). Raise the floor when coverage grows; never lower it to
   make a change pass.
+- **Remove a feature completely, in one commit.** When you remove a feature,
+  setting, flag, view or screenshot scene, remove its tests, its docs (README
+  lines, plugin README, this file) and its scene in `tools\screenshots.ps1` in
+  the same commit. A test of something that no longer exists gives
+  a wrong feeling of safety. The one exception is a test written for a bug that a user saw: it
+  stays, next to the code that still has the behaviour. Then run
+  `tools\test-map.ps1`. It regenerates `docs\test-map.md` (tests per feature,
+  thin features, suspects, who uses each flag) and you commit the result. The
+  full `tools\check.ps1` prints the suspect count as a report; it never fails
+  the check.
 - **A pre-push hook runs `check.ps1 -Quick`.** Turn it on once in each clone
   with `git config core.hooksPath .githooks`. `git push --no-verify` skips it
   for one push.
