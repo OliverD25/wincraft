@@ -2785,7 +2785,7 @@ dependencies = [
 
 [[package]]
 name = "wincraft"
-version = "0.20.68"
+version = "0.20.69"
 dependencies = [
  "eframe",
  "egui",
