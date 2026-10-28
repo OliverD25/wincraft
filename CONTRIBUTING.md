@@ -444,7 +444,11 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   on, after its decision, and never writes a file itself: the line goes to
   the writer thread through a channel. Start a line with a short word for
   its kind (`key`, `front`, `host`, `deck`, `palette`, `plugin`, `call`),
-  which `tools\detailed-log.ps1` sorts by.
+  which `tools\detailed-log.ps1` sorts by. That script sums a detailed log
+  up (`powershell -NoProfile -ExecutionPolicy Bypass -File
+  tools\detailed-log.ps1 <file>`); a test runs it on
+  `tools\samples\detailed-sample.log`, so a change to a line's form that
+  the script reads needs the sample changed with it.
 - **Use the shared Win32 helpers in `src/core/`** instead of writing another
   copy: `com` (the owned COM pointer), `windows_list` (the Alt+Tab window
   filter, window text, a process's program path), `desktop_manager` (which

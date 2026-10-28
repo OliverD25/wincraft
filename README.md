@@ -287,6 +287,7 @@ wincraft.prev.log                   the log of the run before, kept at each new 
 install.log                         what the last --install or --uninstall did
 detailed\                           the detailed log, only while you have it on (see below)
   detailed-<date>.log               up to 100 MB each, at most 5 files kept
+  reports\                          the reports saved with "Detailed log: Save a report"
 ```
 
 Splitting the files this way means resetting one plugin deletes one file, and a broken manual edit costs one plugin rather than your whole configuration. If WinCraft cannot read a file, it leaves your file untouched, runs on defaults, logs the reason, and never overwrites your work until you fix it.
@@ -354,7 +355,11 @@ When a bug is hard to catch, turn on the **Detailed log**: in the palette (`Deta
 You always see that it is on: WinCraft shows a notice when it turns on or off and at every start while it is on, the tray tooltip reads *WinCraft · detailed log on*, and the palette footer shows a small **LOG** tag.
 
 - **Detailed log: Mark this moment** asks for a few words and writes them with the time. Use it right after a bug happens, so the reader knows where to look.
-- **Detailed log: Delete the files** deletes every detailed log file (press `Enter` twice).
+- **Detailed log: Save a report** copies the newest detailed log, `wincraft.log`, the log before it, `config.json` and the session header into one dated folder under `detailed
+eports\`, and opens it, so you can hand it over.
+- **Detailed log: Delete the files** deletes every detailed log file and saved report (press `Enter` twice).
+
+`tools\detailed-log.ps1 <file>` in the repository sums a detailed log up on one page: the session header, your marks, each press of a Windows key with the hook lines next to the key states Windows saw (a digit Windows saw that no WinCraft hook line names is marked), the busy moments, and the window-in-front changes.
 
 The detailed log only reads: it never moves a window, presses a key or changes a setting.
 
