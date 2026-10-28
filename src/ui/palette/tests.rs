@@ -1698,3 +1698,125 @@ fn a_risky_row_runs_on_the_second_enter_and_a_plain_one_at_once() {
         "no confirm text, no second Enter"
     );
 }
+
+fn toggle_snapshot(id: crate::core::ui_bridge::CommandId) -> UiSnapshot {
+    let mut snapshot = asking_snapshot(id);
+    snapshot.commands[0].confirm.clear();
+    snapshot.commands[0].label = "File Explorer: Toggle Hidden Files".to_string();
+    snapshot.commands[0].subtitle = Some("Shows or hides hidden files".to_string());
+    snapshot.commands[0].toggle = Some(ToggleLook {
+        icon_on: "eye",
+        icon_off: "eye-off",
+        tile: [0xb8, 0x86, 0x2e],
+    });
+    snapshot
+}
+
+#[test]
+fn enter_on_a_toggle_runs_it_and_the_palette_stays_open() {
+    let bridge = crate::core::ui_bridge::create();
+    let mut palette = reply_palette();
+    let (id, _) = plugin_row(23);
+    let snapshot = toggle_snapshot(id);
+    let outcome = palette.perform(Action::Command(id), &snapshot, &bridge.to_host);
+    assert!(matches!(outcome, Outcome::Stay));
+    assert!(matches!(
+        bridge.host_rx.try_recv().ok(),
+        Some(HostRequest::RunCommand(ran)) if ran == id
+    ));
+    let (plain, _) = plugin_row(2);
+    let outcome = palette.perform(Action::Command(plain), &snapshot, &bridge.to_host);
+    assert!(
+        matches!(outcome, Outcome::Hide),
+        "a normal command closes it"
+    );
+}
+
+#[test]
+fn a_toggle_row_shows_the_state_the_host_sent_and_forgets_it_on_the_next_opening() {
+    let mut palette = reply_palette();
+    let (id, item) = plugin_row(23);
+    let snapshot = toggle_snapshot(id);
+
+    let waiting = rows::row_toggle(&item, &snapshot, &palette.toggle_states).expect("a toggle");
+    assert_eq!(waiting.on(), None, "no switch before the host answers");
+    assert_eq!(waiting.line("Shows or hides"), "Shows or hides");
+    assert_eq!(waiting.icon(), Icon::EyeOff);
+
+    palette.command_details = Some((id, Some(CommandDetails::default())));
+    palette.set_toggle_states(vec![(id, ToggleState::on("Hidden files are shown"))]);
+    assert!(
+        palette.command_details.is_none(),
+        "the inspector asks again after a flip"
+    );
+    let shown = rows::row_toggle(&item, &snapshot, &palette.toggle_states).unwrap();
+    assert_eq!(shown.on(), Some(true));
+    assert_eq!(shown.line("Shows or hides"), "Hidden files are shown");
+    assert_eq!(shown.icon(), Icon::Eye);
+
+    palette.set_toggle_states(vec![(id, ToggleState::unknown())]);
+    let unknown = rows::row_toggle(&item, &snapshot, &palette.toggle_states).unwrap();
+    assert_eq!(unknown.on(), None, "no switch when the state is unknown");
+    assert_eq!(unknown.line(""), "State unknown");
+    assert_eq!(unknown.icon(), Icon::EyeOff, "the tile shows off");
+
+    palette.opened();
+    assert!(
+        palette.toggle_states.is_empty(),
+        "read again on every opening"
+    );
+
+    let (plain, plain_item) = plugin_row(2);
+    assert!(rows::row_toggle(&plain_item, &toggle_snapshot(plain), &[]).is_some());
+    assert!(rows::row_toggle(&plain_item, &asking_snapshot(plain), &[]).is_none());
+    assert!(rows::row_toggle(&titled("Calculator"), &snapshot, &[]).is_none());
+}
+
+#[test]
+fn toggle_rows_draw_with_and_without_a_switch_in_every_theme_without_panicking() {
+    let (id, item) = plugin_row(23);
+    let snapshot = toggle_snapshot(id);
+    let states = [
+        None,
+        Some(ToggleState::on("Hidden files are shown")),
+        Some(ToggleState::off("Hidden files are not shown")),
+        Some(ToggleState::without_switch("No window selected")),
+    ];
+    let themes = crate::core::config::ThemeName::ALL
+        .into_iter()
+        .flat_map(|name| {
+            [
+                crate::core::config::ThemeChoice::Light,
+                crate::core::config::ThemeChoice::Dark,
+            ]
+            .map(|mode| (name, mode))
+        });
+    for ((name, mode), state) in themes.flat_map(|theme| states.iter().map(move |s| (theme, s))) {
+        let ctx = drawing_context();
+        theme::apply(&ctx, name, mode);
+        let input = egui::RawInput {
+            screen_rect: Some(window()),
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(input, |ui| {
+            let toggle = RowToggle {
+                look: snapshot.commands[0].toggle.unwrap(),
+                state: state.as_ref(),
+            };
+            let look = RowLook {
+                needle: "",
+                selected: true,
+                interactive: true,
+                column: false,
+                marked: false,
+                best: false,
+                verb: Some("Run"),
+                toggle: Some(toggle),
+            };
+            let mut icons = IconCache::new(ui.ctx());
+            let row = result_row(ui, &item, &look, &mut icons);
+            assert!(row.rect.height() >= 44.0);
+        });
+        output.textures_delta.clear();
+    }
+}

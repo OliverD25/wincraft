@@ -165,11 +165,8 @@ impl Palette {
                 }
             }
             Action::Command(id) => {
-                let opens_list = snapshot
-                    .commands
-                    .iter()
-                    .any(|entry| entry.id == id && entry.list);
-                if opens_list {
+                let entry = snapshot.commands.iter().find(|entry| entry.id == id);
+                if entry.is_some_and(|entry| entry.list) {
                     self.open_sub_list(id, to_host);
                     return Outcome::Stay;
                 }
@@ -177,7 +174,13 @@ impl Palette {
                     return Outcome::Stay;
                 }
                 to_host.send(HostRequest::RunCommand(id));
-                Outcome::Hide
+                // A toggle flips in place: the palette stays open and its
+                // row shows the new state when the host has read it.
+                if entry.is_some_and(|entry| entry.toggle.is_some()) {
+                    Outcome::Stay
+                } else {
+                    Outcome::Hide
+                }
             }
             Action::ListPick { command, row } => {
                 if !self.confirmed(snapshot, command, &row) {

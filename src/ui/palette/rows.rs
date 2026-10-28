@@ -118,6 +118,38 @@ pub(super) struct RowLook<'a> {
     pub(super) best: bool,
     /// The Enter pill's word on the selected row, in place of its keycaps.
     pub(super) verb: Option<&'a str>,
+    /// A toggle command's look and, once the host said it, its state.
+    pub(super) toggle: Option<RowToggle<'a>>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct RowToggle<'a> {
+    pub(super) look: ToggleLook,
+    pub(super) state: Option<&'a ToggleState>,
+}
+
+impl RowToggle<'_> {
+    /// On or off when there is something to switch; None while the state
+    /// is not known yet, cannot be read, or has no target.
+    pub(super) fn on(&self) -> Option<bool> {
+        self.state.and_then(|state| state.on)
+    }
+
+    /// The line under the title: the state in words, or the command's own
+    /// subtitle until the host has answered.
+    pub(super) fn line<'b>(&'b self, subtitle: &'b str) -> &'b str {
+        self.state.map_or(subtitle, |state| state.line.as_str())
+    }
+
+    /// The icon on the tile: the on icon only when on.
+    pub(super) fn icon(&self) -> Icon {
+        let name = if self.on() == Some(true) {
+            self.look.icon_on
+        } else {
+            self.look.icon_off
+        };
+        Icon::named(name).unwrap_or(Icon::ChevronRight)
+    }
 }
 
 pub(super) struct RowResponse {
@@ -222,18 +254,38 @@ pub(super) fn result_row(
         );
         (slot, slot.right() + 12.0)
     };
-    paint_icon(
-        ui.ctx(),
-        &painter,
-        slot,
-        entry,
-        look.selected,
-        icons,
-        &tokens,
-    );
+    match &look.toggle {
+        Some(toggle) => paint_state_tile(ui.ctx(), &painter, slot, toggle, &tokens),
+        None => paint_icon(
+            ui.ctx(),
+            &painter,
+            slot,
+            entry,
+            look.selected,
+            icons,
+            &tokens,
+        ),
+    }
 
     let mut text_right = inner.right();
-    if let Some(verb) = look.verb.filter(|_| !entry.compact) {
+    // A toggle ends in its switch, selected or not; Enter flips it, so it
+    // needs no Enter pill. Its hotkey, if it has one, sits before it.
+    let switch = look.toggle.as_ref().and_then(RowToggle::on);
+    if let Some(on) = switch {
+        let drawn = ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let (rect, _) = ui.allocate_exact_size(toggle::SIZE, Sense::hover());
+            toggle::paint_state(ui.painter(), ui.ctx(), rect, on);
+            let mut left = rect.left();
+            if let Some(keys) = crate::core::shortcuts::parse(&entry.keys) {
+                ui.add_space(12.0);
+                left = keycap::caps(ui, &keys.steps(), keycap::Caps::palette())
+                    .rect
+                    .left();
+            }
+            left
+        });
+        text_right = drawn.inner - 12.0;
+    } else if let Some(verb) = look.verb.filter(|_| !entry.compact) {
         let pill = ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             enter_pill(ui, verb)
         });
@@ -306,7 +358,13 @@ pub(super) fn result_row(
     );
     title.wrap = one_line(title_width);
     let title = painter.layout_job(title);
-    let top = if entry.subtitle.is_empty() || entry.compact {
+    let subtitle = look
+        .toggle
+        .as_ref()
+        .map_or(entry.subtitle.as_str(), |toggle| {
+            toggle.line(&entry.subtitle)
+        });
+    let top = if subtitle.is_empty() || entry.compact {
         rect.center().y - line_height / 2.0
     } else {
         rect.center().y - (line_height + SUBTITLE_LINE) / 2.0
@@ -324,9 +382,9 @@ pub(super) fn result_row(
         let at = pos2(after, top + (line_height - 18.0) / 2.0);
         after = badge(ui, at, kind, &tokens).right() + 6.0;
     }
-    if !entry.subtitle.is_empty() && !entry.compact {
+    if !subtitle.is_empty() && !entry.compact {
         let mut subtitle = text::job(
-            &entry.subtitle,
+            subtitle,
             theme::regular(12.0),
             tokens.text_secondary,
             Some(SUBTITLE_LINE),
@@ -379,6 +437,34 @@ fn enter_pill(ui: &mut egui::Ui, verb: &str) -> Rect {
     );
     painter.galley(cap.center() - arrow.size() / 2.0, arrow, tokens.accent);
     rect
+}
+
+/// A toggle's 28 px state tile on the icon slot. On: the command's own
+/// colour with the on icon in white. Off, or not known: the theme's faint
+/// fill and border with the off icon in the secondary text colour.
+fn paint_state_tile(
+    ctx: &egui::Context,
+    painter: &egui::Painter,
+    slot: Rect,
+    toggle: &RowToggle,
+    tokens: &Tokens,
+) {
+    let tile = Rect::from_center_size(slot.center(), vec2(STATE_TILE, STATE_TILE));
+    let glyph = Rect::from_center_size(tile.center(), vec2(16.0, 16.0));
+    if toggle.on() == Some(true) {
+        let [r, g, b] = toggle.look.tile;
+        painter.rect_filled(tile, 7, Color32::from_rgb(r, g, b));
+        icons::paint(painter, glyph, toggle.icon(), Color32::WHITE);
+    } else {
+        painter.rect(
+            tile,
+            7,
+            tokens.hover_bg,
+            theme::line(ctx, tokens.border),
+            StrokeKind::Inside,
+        );
+        icons::paint(painter, glyph, toggle.icon(), tokens.text_secondary);
+    }
 }
 
 /// Long window titles and paths end in an ellipsis instead of running under
@@ -476,4 +562,26 @@ fn paint_icon(
             }
         }
     }
+}
+
+/// A row's toggle look and state: for a row that runs a command marked as
+/// a toggle, with the state the host last sent for it.
+pub(super) fn row_toggle<'a>(
+    item: &ResultItem,
+    snapshot: &UiSnapshot,
+    states: &'a [(CommandId, ToggleState)],
+) -> Option<RowToggle<'a>> {
+    let Some(Action::Command(id)) = item.enter.as_ref().map(|choice| &choice.action) else {
+        return None;
+    };
+    let look = snapshot
+        .commands
+        .iter()
+        .find(|entry| entry.id == *id)?
+        .toggle?;
+    let state = states
+        .iter()
+        .find(|(known, _)| known == id)
+        .map(|(_, state)| state);
+    Some(RowToggle { look, state })
 }

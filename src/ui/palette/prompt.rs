@@ -141,6 +141,7 @@ impl Palette {
             marked: false,
             best: false,
             verb: None,
+            toggle: None,
         };
         let clicked = ui
             .scope_builder(

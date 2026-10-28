@@ -26,7 +26,7 @@ use crate::core::theme::{self, Tokens};
 use crate::core::tips::{self, Place, TipsConfig};
 use crate::core::ui_bridge::{
     CommandDetails, CommandId, HostChannel, HostRequest, HostSetting, ListRow, Page, Prompt,
-    SubList, ToggleState, UiSnapshot, SEARCH_PROMPT,
+    SubList, ToggleLook, ToggleState, UiSnapshot, SEARCH_PROMPT,
 };
 use crate::core::virtual_desktops::Pinner;
 use crate::core::window_info::{self, WindowDetails};
@@ -42,7 +42,7 @@ use crate::ui::fuzzy;
 use crate::ui::widgets::hotkey_dialog::{self, Editor, Target};
 use crate::ui::widgets::icons::{self, Icon};
 use crate::ui::widgets::tip::{self, STRIP_HEIGHT};
-use crate::ui::widgets::{keycap, row, text};
+use crate::ui::widgets::{keycap, row, text, toggle};
 use actions::{Hint, Key, Marks, RowAction, Run, Situation};
 use inspector::Inspected;
 
@@ -65,6 +65,8 @@ const COMPACT_HEIGHT: f32 = 24.0;
 const ROW_PADDING: f32 = 12.0;
 const ROW_MIN_HEIGHT: f32 = 44.0;
 const ICON_SLOT: f32 = 26.0;
+/// A toggle's state tile; it sits centred on the icon slot.
+const STATE_TILE: f32 = 28.0;
 const CHECK_SIZE: f32 = 16.0;
 const GROUP_HEADER: f32 = 28.0;
 const TITLE_LINE: f32 = 20.0;

@@ -455,6 +455,7 @@ impl Palette {
                                 } else {
                                     None
                                 },
+                                toggle: rows::row_toggle(item, snapshot, &self.toggle_states),
                             };
                             let row = result_row(ui, item, &look, icons);
                             if selected && std::mem::take(&mut self.follow_selection) {
