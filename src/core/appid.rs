@@ -220,4 +220,10 @@ mod tests {
             "Chrome \u{b7} Work"
         );
     }
+
+    #[test]
+    fn a_plain_name_is_not_looked_up() {
+        assert_eq!(resolve("Notepad"), "Notepad");
+        assert_eq!(resolve(""), "");
+    }
 }

@@ -250,4 +250,10 @@ mod tests {
         let at = badge_place([1000, 2040, 1048, 2088], (30, 30), 6);
         assert_eq!((at.x, at.y), (1009, 2004));
     }
+
+    #[test]
+    fn a_work_area_left_of_the_primary_monitor_gives_a_negative_place() {
+        let at = bottom_centre([-1920, 0, 0, 1032], (400, 100), 24);
+        assert_eq!((at.x, at.y), (-1160, 908));
+    }
 }

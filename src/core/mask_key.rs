@@ -112,4 +112,14 @@ mod tests {
             [(win, false), (one, false), (one, true), (win, true)]
         );
     }
+
+    #[test]
+    fn a_key_event_carries_the_tag_and_says_up_or_down() {
+        let down = input(0x31, false);
+        let up = input(0x31, true);
+        let (down, up) = unsafe { (down.Anonymous.ki, up.Anonymous.ki) };
+        assert!(is_ours(down.dwExtraInfo));
+        assert_eq!((down.wVk, down.dwFlags), (0x31, 0));
+        assert_eq!(up.dwFlags, KEYEVENTF_KEYUP);
+    }
 }
