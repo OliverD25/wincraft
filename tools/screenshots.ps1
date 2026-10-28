@@ -191,6 +191,8 @@ $scenes = @(
     @{ Name = 'palette-calc';           Args = @('--open-palette==2+2*3');                 Window = 'palette' },
     @{ Name = 'palette-windows';        Args = @('--open-palette=<');                      Window = 'palette'; Settle = 1200 },
     @{ Name = 'palette-help';           Args = @('--open-palette=?');                      Window = 'palette' },
+    # QuickActions' switches with their state tiles, state lines and switches.
+    @{ Name = 'palette-toggles';        Args = @('--open-palette=toggle');                 Window = 'palette'; Settle = 1000 },
     @{ Name = 'settings-general';       Args = @('--open-settings=general');               Window = 'settings' },
     @{ Name = 'settings-plugins';       Args = @('--open-settings=plugins');               Window = 'settings' },
     # The Hotkeys page, and the hotkey dialog over it: waiting for keys, with

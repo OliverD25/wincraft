@@ -543,7 +543,7 @@ it is a separate instance:
 ### Screenshots while you are away
 
 `tools\screenshots.ps1` takes a PNG of every scene (the palette empty and
-with `/`, `=2+2*3`, `<` and `?`; settings General, Plugins, Hotkeys, the
+with `/`, `=2+2*3`, `<`, `?` and `toggle`; settings General, Plugins, Hotkeys, the
 hotkey dialog waiting, with free keys, a conflict and a Windows shortcut, LayoutKeeper's
 page and About; the empty Bookmarks page and the palette's two bookmark tips; the strip in the view Auto picks and in the Flat view; the
 strip with a peek on a card of a window off the primary monitor; WindowNamer's rename box for the window that was in front; the strip
