@@ -4,6 +4,7 @@ pub mod fuzzy;
 mod palette;
 mod peek;
 pub(crate) mod settings;
+mod spot;
 pub mod taskbar_badges;
 pub(crate) mod widgets;
 
@@ -129,6 +130,10 @@ struct App {
     palette: Palette,
     palette_visible: bool,
     pending_position: Option<MonitorRect>,
+    /// The work area the palette was last opened on.
+    shown_on: Option<MonitorRect>,
+    /// The user dragged the palette since it opened: remember where it ended.
+    dragged: bool,
     settings_open: bool,
     settings: Settings,
     arrange_life: arrange::Life,
@@ -180,6 +185,8 @@ impl App {
             palette,
             palette_visible: false,
             pending_position: None,
+            shown_on: None,
+            dragged: false,
             settings_open: false,
             arrange_life: arrange::Life::None,
             arrange: Arrange::new(Arc::clone(&to_host_for_settings), palette_hwnd),
@@ -206,6 +213,8 @@ impl App {
                     self.palette_visible = true;
                     self.closing = false;
                     self.pending_position = Some(monitor);
+                    self.shown_on = Some(monitor);
+                    self.dragged = false;
                     self.set_palette_visible(ctx, true);
                     log::info!("palette shown");
                 }
@@ -217,6 +226,8 @@ impl App {
                     self.palette_visible = true;
                     self.closing = false;
                     self.pending_position = Some(monitor);
+                    self.shown_on = Some(monitor);
+                    self.dragged = false;
                     self.set_palette_visible(ctx, true);
                     log::info!("palette shown with a question");
                 }
@@ -318,6 +329,7 @@ impl App {
                     log::info!("palette query set to \"{text}\"");
                 }
                 UiCommand::ClearPaletteUsage => self.palette.clear_usage(),
+                UiCommand::CentrePalette => self.centre_palette(ctx),
                 UiCommand::CommandList { id, list } => {
                     self.palette.set_command_list(id, list);
                     ctx.request_repaint();
@@ -392,6 +404,7 @@ impl App {
             return;
         }
         self.palette.flush_usage();
+        self.remember_palette_spot(ctx);
         self.palette.hidden();
         self.palette_visible = false;
         self.closing = false;
@@ -434,6 +447,56 @@ impl App {
         }
     }
 
+    /// Where the panel's top-left corner goes on this monitor, in physical
+    /// pixels: where the user last dragged it, or the default spot.
+    fn panel_corner(&self, monitor: MonitorRect, scale: f32) -> (i32, i32) {
+        let work = (monitor.left, monitor.top, monitor.right, monitor.bottom);
+        let size = (
+            (self.palette.panel_width() * scale) as i32,
+            (palette::PANEL_HEIGHT * scale) as i32,
+        );
+        let saved = spot::of_work_area(monitor)
+            .and_then(|found| self.snapshot.palette_spots.get(&found.name).copied());
+        spot::panel_corner(saved, work, size)
+    }
+
+    /// Double-click on blank space and the "Move back to the centre" command.
+    fn centre_palette(&mut self, ctx: &egui::Context) {
+        let Some(monitor) = self.shown_on else {
+            return;
+        };
+        if let Some(found) = spot::of_work_area(monitor) {
+            self.snapshot.palette_spots.remove(&found.name);
+            self.to_host.send(HostRequest::SetPaletteSpot {
+                monitor: found.name,
+                spot: None,
+            });
+        }
+        self.dragged = false;
+        if self.palette_visible {
+            self.pending_position = Some(monitor);
+            ctx.request_repaint();
+        }
+    }
+
+    /// Tells the host where the user left the palette, on the monitor it is on.
+    fn remember_palette_spot(&mut self, ctx: &egui::Context) {
+        if !std::mem::take(&mut self.dragged) {
+            return;
+        }
+        let Some((found, (x, y))) = spot::of_window(self.palette_window) else {
+            return;
+        };
+        let margin = (self.palette.margin() * ctx.pixels_per_point()) as i32;
+        let spot =
+            crate::core::config::PaletteSpot::from_screen(found.work, x + margin, y + margin);
+        self.snapshot.palette_spots.insert(found.name.clone(), spot);
+        self.to_host.send(HostRequest::SetPaletteSpot {
+            monitor: found.name,
+            spot: Some(spot),
+        });
+    }
+
     /// Placing the window through the builder is unreliable across monitors
     /// with different scaling, so the position is sent once the window exists.
     fn place_palette(&mut self, ctx: &egui::Context) {
@@ -441,15 +504,12 @@ impl App {
             return;
         };
         let scale = ctx.pixels_per_point().max(0.1);
-        let width = self.palette.window_width() * scale;
-        let left = monitor.left as f32 + ((monitor.right - monitor.left) as f32 - width) / 2.0;
-        // 18 % down is where the panel's top edge goes; the window starts the
-        // shadow margin above it.
-        let top = monitor.top as f32 + (monitor.bottom - monitor.top) as f32 * 0.18
-            - self.palette.margin() * scale;
+        let (left, top) = self.panel_corner(monitor, scale);
+        // The window starts the shadow margin before the panel.
+        let margin = self.palette.margin() * scale;
         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
-            left / scale,
-            top / scale,
+            (left as f32 - margin) / scale,
+            (top as f32 - margin) / scale,
         )));
         ctx.request_repaint();
     }
@@ -598,6 +658,14 @@ impl eframe::App for App {
                 self.settings_open = true;
                 self.begin_hide(&ctx);
             }
+        }
+        match self.palette.take_window_step() {
+            palette::WindowStep::None => {}
+            palette::WindowStep::StartDrag => {
+                self.dragged = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+            }
+            palette::WindowStep::Centre => self.centre_palette(&ctx),
         }
     }
 

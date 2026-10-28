@@ -593,6 +593,10 @@ impl PluginSet {
                 HostCommand::DetailedLogDelete,
                 "Detailed log: Delete the files",
             ),
+            (
+                HostCommand::PaletteCentre,
+                "Palette: Move back to the centre",
+            ),
             (HostCommand::Exit, "Quit WinCraft"),
         ] {
             entries.push(PaletteEntry {

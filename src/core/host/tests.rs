@@ -827,8 +827,8 @@ fn the_palette_lists_each_plugins_commands_dimmed_while_it_is_off() {
     );
     assert_eq!(
         off.iter().filter(|entry| entry.group == "WinCraft").count(),
-        12,
-        "eight commands and the detailed log's four"
+        13,
+        "nine commands and the detailed log's four"
     );
     set.enable(0);
     let on = set.palette_entries(&plugins(&set));

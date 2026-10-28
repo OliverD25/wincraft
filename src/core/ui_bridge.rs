@@ -57,6 +57,8 @@ pub enum HostCommand {
     DetailedLogReport,
     /// Deletes the detailed log's files.
     DetailedLogDelete,
+    /// Forgets where the palette was dragged to: it opens centred again.
+    PaletteCentre,
     TogglePlugin(usize),
     Exit,
 }
@@ -558,6 +560,8 @@ pub enum UiCommand {
     },
     /// The palette forgets every pick it recorded.
     ClearPaletteUsage,
+    /// The palette forgets where it was dragged to and moves back to the centre.
+    CentrePalette,
     /// The answer to `HostRequest::CommandDetails`; None when the plugin
     /// has nothing to say or is off.
     CommandDetails {
@@ -676,6 +680,12 @@ pub enum HostRequest {
     ArrangeDigit(u8),
     /// Settings' "Clear usage history": the palette forgets every pick.
     ClearPaletteUsage,
+    /// The palette was dragged: remember its spot on this monitor (a device
+    /// name), or forget it with `None`.
+    SetPaletteSpot {
+        monitor: String,
+        spot: Option<crate::core::config::PaletteSpot>,
+    },
     SetPluginEnabled {
         id: String,
         enabled: bool,
@@ -829,6 +839,7 @@ pub struct UiSnapshot {
     pub shortcuts: Vec<ShortcutInfo>,
     pub search: SearchConfig,
     pub tips: TipsConfig,
+    pub palette_spots: std::collections::BTreeMap<String, crate::core::config::PaletteSpot>,
     pub update: UpdateView,
 }
 

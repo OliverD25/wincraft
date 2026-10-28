@@ -26,6 +26,9 @@ impl Host {
             CommandId::Host(HostCommand::DetailedLogMark) => self.ask_mark(),
             CommandId::Host(HostCommand::DetailedLogReport) => self.save_detailed_report(),
             CommandId::Host(HostCommand::DetailedLogDelete) => self.delete_detailed_log(),
+            CommandId::Host(HostCommand::PaletteCentre) => {
+                self.to_ui.send(UiCommand::CentrePalette)
+            }
             CommandId::Host(HostCommand::Exit) => self.shutdown(),
             CommandId::Host(HostCommand::TogglePlugin(index)) => {
                 if index < self.plugins.slots.len() {
@@ -313,6 +316,14 @@ impl Host {
             HostRequest::SetShortcuts(changes) => self.set_shortcuts(changes),
             HostRequest::ResetPlugin(id) => self.reset_plugin(&id),
             HostRequest::SetHostSetting(setting) => self.set_host_setting(setting),
+            HostRequest::SetPaletteSpot { monitor, spot } => {
+                match spot {
+                    Some(spot) => self.config.palette_spots.insert(monitor, spot),
+                    None => self.config.palette_spots.remove(&monitor),
+                };
+                self.save_config();
+                self.publish();
+            }
             HostRequest::HideUpdate(tag) => self.hide_update(tag),
             HostRequest::CheckForUpdates => self.check_for_updates(true),
             HostRequest::UpdateNow => {
