@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use crate::core::instance;
+use crate::core::release_cache::{self, Answer};
 
 const RAW_BASE: &str = "https://raw.githubusercontent.com/OliverD25/wincraft/main";
 const RELEASES_LATEST: &str = "https://api.github.com/repos/OliverD25/wincraft/releases/latest";
@@ -36,20 +37,50 @@ pub fn releases_url() -> &'static str {
     "https://github.com/OliverD25/wincraft/releases"
 }
 
-pub fn get(url: &str) -> Result<String, String> {
-    let agent = ureq::Agent::config_builder()
+fn agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
         .timeout_global(Some(TIMEOUT))
         // GitHub's API rejects requests without one.
         .user_agent(concat!("WinCraft/", env!("CARGO_PKG_VERSION")))
         .build()
-        .new_agent();
-    agent
+        .new_agent()
+}
+
+pub fn get(url: &str) -> Result<String, String> {
+    agent()
         .get(url)
         .call()
         .map_err(|err| format!("{err}"))?
         .body_mut()
         .read_to_string()
         .map_err(|err| format!("{err}"))
+}
+
+/// A GET that sends `etag` back as `If-None-Match`, so GitHub can answer
+/// "304 Not Modified" when nothing changed.
+pub fn get_if_changed(url: &str, etag: Option<&str>) -> Result<Answer, String> {
+    let mut request = agent().get(url);
+    if let Some(etag) = etag {
+        request = request.header("If-None-Match", etag);
+    }
+    let mut response = match request.call() {
+        Ok(response) => response,
+        Err(ureq::Error::StatusCode(404)) => return Ok(Answer::NotFound),
+        Err(err) => return Err(format!("{err}")),
+    };
+    if response.status().as_u16() == 304 {
+        return Ok(Answer::NotModified);
+    }
+    let etag = response
+        .headers()
+        .get("etag")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    let body = response
+        .body_mut()
+        .read_to_string()
+        .map_err(|err| format!("{err}"))?;
+    Ok(Answer::Fresh { body, etag })
 }
 
 /// A test instance's fake releases API, when it names one.
@@ -77,13 +108,19 @@ pub struct Asset {
 
 /// None while the repository has no release: GitHub answers 404 until the
 /// first one is published, which is a different fact from being offline.
+/// The last answer is kept with its ETag (see `release_cache`), so an
+/// unchanged release costs GitHub a "304 Not Modified" only.
 pub fn latest_release() -> Result<Option<Release>, String> {
     let url = releases_override().unwrap_or_else(|| RELEASES_LATEST.to_string());
-    match get(&url) {
-        Ok(body) => parse_release(&body).map(Some),
-        Err(err) if err.contains("404") => Ok(None),
-        Err(err) => Err(err),
+    let path = release_cache::path();
+    let cached = release_cache::load_at(&path);
+    let answer = get_if_changed(&url, release_cache::etag_for(cached.as_ref(), &url))?;
+    if answer == Answer::NotModified {
+        log::info!("update check: GitHub says the latest release has not changed");
     }
+    let (release, change) = release_cache::resolve(answer, cached.as_ref(), &url)?;
+    release_cache::apply_at(&path, change);
+    Ok(release)
 }
 
 /// One release by its tag, such as `v0.16.2`; None when there is no such

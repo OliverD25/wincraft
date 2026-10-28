@@ -28,6 +28,7 @@ pub mod package;
 pub mod panel_look;
 pub mod quit;
 pub mod raw_input;
+pub mod release_cache;
 pub mod release_notes;
 pub mod session;
 pub mod sha256;
