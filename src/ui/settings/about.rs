@@ -71,6 +71,24 @@ pub fn show(
                 },
             );
 
+            settings_row(
+                ui,
+                "download-ahead",
+                RowText::new("Download updates ahead").desc(
+                    "Downloads and checks a new version in the background, so Update takes a                      few seconds. It never installs on its own.",
+                    tokens.text_secondary,
+                ),
+                false,
+                |ui| {
+                    let mut on = update.download_ahead;
+                    if toggle::toggle(ui, &mut on).changed() {
+                        to_host.send(HostRequest::SetHostSetting(
+                            HostSetting::DownloadUpdatesAhead(on),
+                        ));
+                    }
+                },
+            );
+
             settings_row(ui, "links", RowText::new("Links"), false, |ui| {
                 if button::button(ui, "Repository", Kind::Secondary).clicked() {
                     ui.ctx()

@@ -158,6 +158,8 @@ pub enum HostSetting {
     /// The palette search settings, sent whole after one of them changed.
     Search(SearchConfig),
     CheckUpdatesDaily(bool),
+    /// About's "Download updates ahead".
+    DownloadUpdatesAhead(bool),
     /// The tips' switch and what each tip has done, sent whole.
     Tips(TipsConfig),
 }
@@ -624,6 +626,9 @@ pub enum HostRequest {
     UiReady {
         palette_hwnd: isize,
     },
+    /// Ctrl+Del on the palette's "Update ready" row: no pinned row for this
+    /// release tag, until a newer one comes out.
+    HideUpdate(String),
     RunCommand(CommandId),
     /// The palette selected a plugin command's row: what its inspector
     /// should show. Asked once per selection.
@@ -821,6 +826,12 @@ pub struct UiSnapshot {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct UpdateView {
     pub check_daily: bool,
+    /// About's "Download updates ahead".
+    pub download_ahead: bool,
+    /// The available release is downloaded and checked already.
+    pub downloaded: bool,
+    /// The user hid the available release from the palette with Ctrl+Del.
+    pub hidden: bool,
     pub status: UpdateStatus,
     /// Unix seconds of the last answered check; 0 when there was none.
     pub last_check: u64,

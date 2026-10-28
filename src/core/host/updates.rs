@@ -7,6 +7,8 @@ pub(super) enum UpdateEvent {
     Downloaded(Result<std::path::PathBuf, String>),
     /// The release notes of the installed version, fetched after an update.
     InstalledNotes(String),
+    /// A download ahead of this release tag ended.
+    Staged(String, Result<(), String>),
 }
 
 pub(super) struct Updates {
@@ -20,6 +22,14 @@ pub(super) struct Updates {
     pub(super) newer: Option<Release>,
     /// Downloading or swapping; a second Update now waits for it.
     pub(super) busy: bool,
+    /// A download ahead runs on its own thread.
+    pub(super) staging: bool,
+    /// The release tag downloaded ahead and kept, when there is one.
+    pub(super) staged: Option<String>,
+    /// Where a download ahead is kept: the installed copy's own folder, set
+    /// at start only in a copy that can update itself. None in every other
+    /// copy and in the tests, so they never touch a real install folder.
+    pub(super) stage_dir: Option<std::path::PathBuf>,
     /// About's Cancel was clicked: the download stops and its file is deleted.
     pub(super) cancel: Arc<AtomicBool>,
     /// Why this copy cannot update itself, worked out once at start.
@@ -53,6 +63,9 @@ impl Default for Updates {
             status: UpdateStatus::Idle,
             newer: None,
             busy: false,
+            staging: false,
+            staged: None,
+            stage_dir: None,
             cancel: Arc::new(AtomicBool::new(false)),
             blocked: None,
             failed: None,
@@ -165,8 +178,18 @@ impl Updates {
 
 impl Host {
     pub(super) fn update_view(&self) -> UpdateView {
+        let tag = self
+            .updates
+            .newer
+            .as_ref()
+            .map(|release| release.tag.as_str());
         UpdateView {
             check_daily: self.config.updates.check_daily,
+            download_ahead: self.config.updates.download_ahead,
+            downloaded: tag.is_some() && self.updates.staged.as_deref() == tag,
+            hidden: tag.is_some_and(|tag| {
+                super::view::update_hidden(tag, &self.config.updates.hidden_version)
+            }),
             status: self.updates.status.clone(),
             last_check: self.config.updates.last_check,
             available: self.updates.newer.as_ref().map(|release| NewRelease {
@@ -208,6 +231,16 @@ impl Host {
             };
         } else if self.updates.blocked.is_none() {
             update::remove_leftovers_soon(install::dir());
+        }
+        if self.updates.blocked.is_none() {
+            let dir = install::dir();
+            if self.config.updates.download_ahead {
+                update_stage::tidy(&dir, env!("CARGO_PKG_VERSION"));
+            } else {
+                update_stage::remove(&dir);
+            }
+            self.updates.staged = update_stage::staged_tag(&dir);
+            self.updates.stage_dir = Some(dir);
         }
         if let Some(to) = &flags.update_failed {
             let text = format!("Update to {to} failed, kept {}", env!("CARGO_PKG_VERSION"));
@@ -300,6 +333,7 @@ Nothing is downloaded."
         };
         log::info!("downloading {}", release.tag);
         self.updates.busy = true;
+        self.updates.staged = None;
         self.updates.cancel.store(false, Ordering::Relaxed);
         self.updates.status = UpdateStatus::Downloading(None);
         self.publish();
@@ -330,6 +364,12 @@ Nothing is downloaded."
                     }
                     true
                 };
+                // Downloaded ahead: seconds instead of the whole download.
+                if let Some(path) = update_stage::take(&dir, &release.tag) {
+                    log::info!("{} was downloaded ahead and still matches", release.tag);
+                    post(UpdateEvent::Downloaded(Ok(path)));
+                    return;
+                }
                 let result =
                     update::download(&release, &dir, &update::Web, local_fake, &mut progress);
                 post(UpdateEvent::Downloaded(result));
@@ -382,6 +422,9 @@ Nothing is downloaded."
             self.updates.status =
                 UpdateStatus::Error(format!("Could not put the new version in place: {err}"));
             return;
+        }
+        if let Some(stage) = &self.updates.stage_dir {
+            update_stage::remove(stage);
         }
         log::info!("{tag} is in place; WinCraft closes and starts it");
         update::hand_over_at_exit(Handover {
@@ -545,6 +588,7 @@ Nothing is downloaded."
                 }
                 UpdateEvent::Downloaded(result) => self.downloaded(result),
                 UpdateEvent::InstalledNotes(notes) => self.updates.installed_notes = Some(notes),
+                UpdateEvent::Staged(tag, result) => self.staged(tag, result),
             }
         }
         self.publish();
@@ -565,9 +609,89 @@ Nothing is downloaded."
         }
         if after.update_now {
             self.update_now();
+        } else if self.updates.newer.is_some() {
+            self.stage_ahead();
         }
         if after.answered {
             self.save_config();
         }
+    }
+
+    /// Downloads the newer release ahead, on its own thread, when About's
+    /// "Download updates ahead" is on. Never on a metered connection, never
+    /// in a test instance without a fake releases API, and never installed
+    /// from here: Update now still waits for the user.
+    pub(super) fn stage_ahead(&mut self) {
+        let (Some(release), Some(dir)) =
+            (self.updates.newer.clone(), self.updates.stage_dir.clone())
+        else {
+            return;
+        };
+        let wanted = update_stage::wanted(
+            self.config.updates.download_ahead,
+            self.updates.blocked.is_none() && update::automatic_checks_allowed(),
+            self.updates.busy || self.updates.staging,
+            self.updates.staged.as_deref(),
+            &release.tag,
+        );
+        if !wanted {
+            return;
+        }
+        self.updates.staging = true;
+        let tx = self.updates.tx.clone();
+        let hwnd = self.hwnd as isize;
+        let local_fake = github::releases_override().is_some();
+        let started = std::thread::Builder::new()
+            .name("wincraft-update-ahead".to_string())
+            .spawn(move || {
+                let result = if update_stage::metered_now() {
+                    Err("the connection is metered".to_string())
+                } else {
+                    update_stage::stage(&release, &dir, &update::Web, local_fake)
+                };
+                if tx.send(UpdateEvent::Staged(release.tag, result)).is_ok() {
+                    unsafe { PostMessageW(hwnd as HWND, WM_APP_UPDATE, 0, 0) };
+                }
+            });
+        if let Err(err) = started {
+            log::warn!("could not start the download ahead: {err}");
+            self.updates.staging = false;
+        }
+    }
+
+    pub(super) fn staged(&mut self, tag: String, result: Result<(), String>) {
+        self.updates.staging = false;
+        match result {
+            Ok(()) => {
+                log::info!("{tag} is downloaded ahead and matches its checksum");
+                self.updates.staged = Some(tag);
+            }
+            Err(err) => {
+                log::info!("{tag} was not downloaded ahead: {err}");
+                self.updates.staged = None;
+            }
+        }
+    }
+
+    /// About's "Download updates ahead". Off deletes what was kept, so the
+    /// setting leaves nothing behind (Principle 3).
+    pub(super) fn set_download_ahead(&mut self, on: bool) {
+        self.config.updates.download_ahead = on;
+        log::info!("download updates ahead: {on}");
+        if on {
+            self.stage_ahead();
+        } else if let Some(dir) = &self.updates.stage_dir {
+            update_stage::remove(dir);
+            self.updates.staged = None;
+        }
+    }
+
+    /// Ctrl+Del on the palette's "Update ready" row. Typing "Update
+    /// WinCraft" still finds the update with its badge.
+    pub(super) fn hide_update(&mut self, tag: String) {
+        log::info!("the palette hides the update to {tag} until a newer one");
+        self.config.updates.hidden_version = tag;
+        self.save_config();
+        self.publish();
     }
 }

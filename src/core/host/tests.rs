@@ -897,7 +897,10 @@ fn a_known_release_badges_the_update_entry_unless_updates_are_blocked() {
         badged.subtitle.as_deref(),
         Some("Installs WinCraft 0.20.20 now")
     );
-    assert!(!badged.quiet);
+    assert!(
+        badged.quiet,
+        "found by typing; the palette pins its own row under an empty box"
+    );
 
     let blocked = update_of(&UpdateView {
         blocked: Some("a development build".to_string()),
@@ -2337,4 +2340,79 @@ fn the_palette_gets_every_toggles_state_and_again_after_a_flip() {
     assert_eq!(ToggleState::unknown().line, "State unknown");
     assert_eq!(ToggleState::unknown().on, None);
     assert_eq!(ToggleState::off("x").on, Some(false));
+}
+
+#[test]
+fn ctrl_del_hides_a_release_until_a_newer_tag_comes() {
+    assert!(!view::update_hidden("v0.21.0", ""), "nothing hidden");
+    assert!(
+        view::update_hidden("v0.21.0", "v0.21.0"),
+        "the same tag stays hidden"
+    );
+    assert!(
+        view::update_hidden("v0.20.9", "v0.21.0"),
+        "an older tag too"
+    );
+    assert!(
+        !view::update_hidden("v0.21.1", "v0.21.0"),
+        "a newer tag shows"
+    );
+
+    let data = Scratch::new("update-hide");
+    let (log, keyboard) = (diary(), FakeKeys::default());
+    let (mut host, ui) = test_host(
+        vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+        &keyboard,
+        &data,
+    );
+    host.updates.newer = Some(release("v0.21.0"));
+    assert!(!host.update_view().hidden);
+    host.handle_request(HostRequest::HideUpdate("v0.21.0".to_string()));
+    assert!(host.update_view().hidden);
+    assert_eq!(
+        Config::load_in(&data.0).updates.hidden_version,
+        "v0.21.0",
+        "kept across restarts"
+    );
+    assert!(
+        snapshots(&ui).last().is_some_and(|s| s.update.hidden),
+        "the palette hears it"
+    );
+    host.updates.newer = Some(release("v0.21.1"));
+    assert!(!host.update_view().hidden, "the next version shows again");
+}
+
+#[test]
+fn download_ahead_is_kept_only_in_the_installed_copy_and_goes_when_switched_off() {
+    let data = Scratch::new("update-ahead");
+    let (log, keyboard) = (diary(), FakeKeys::default());
+    let (mut host, _ui) = test_host(
+        vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+        &keyboard,
+        &data,
+    );
+    assert!(host.update_view().download_ahead, "on by default");
+    // A copy without a folder of its own (every test host) starts nothing.
+    host.updates.newer = Some(release("v9.9.9"));
+    host.stage_ahead();
+    assert!(!host.updates.staging);
+
+    let stage = data.0.join("install");
+    std::fs::create_dir_all(&stage).unwrap();
+    std::fs::write(stage.join(update_stage::STAGED_EXE), b"kept").unwrap();
+    std::fs::write(stage.join(update_stage::RECORD), "{}").unwrap();
+    host.updates.stage_dir = Some(stage.clone());
+    host.staged("v9.9.9".to_string(), Ok(()));
+    assert!(host.update_view().downloaded);
+    host.staged("v9.9.9".to_string(), Err("metered".to_string()));
+    assert!(!host.update_view().downloaded, "a failed one is not ready");
+
+    host.updates.staged = Some("v9.9.9".to_string());
+    host.handle_request(HostRequest::SetHostSetting(
+        HostSetting::DownloadUpdatesAhead(false),
+    ));
+    assert!(!Config::load_in(&data.0).updates.download_ahead);
+    assert!(!stage.join(update_stage::STAGED_EXE).exists());
+    assert!(!stage.join(update_stage::RECORD).exists());
+    assert!(!host.update_view().downloaded);
 }

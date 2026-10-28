@@ -295,6 +295,7 @@ impl Host {
             HostRequest::SetShortcuts(changes) => self.set_shortcuts(changes),
             HostRequest::ResetPlugin(id) => self.reset_plugin(&id),
             HostRequest::SetHostSetting(setting) => self.set_host_setting(setting),
+            HostRequest::HideUpdate(tag) => self.hide_update(tag),
             HostRequest::CheckForUpdates => self.check_for_updates(true),
             HostRequest::UpdateNow => {
                 if !self.updates.busy && self.updates.blocked.is_none() {
@@ -356,6 +357,7 @@ impl Host {
                 self.config.updates.check_daily = on;
                 log::info!("check for updates automatically: {on}");
             }
+            HostSetting::DownloadUpdatesAhead(on) => self.set_download_ahead(on),
             HostSetting::Theme(name) => {
                 self.config.theme = name;
                 theme::set_current(name, self.config.mode);

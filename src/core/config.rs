@@ -179,6 +179,14 @@ pub struct UpdateConfig {
     /// update is there.
     #[serde(default)]
     pub latest: String,
+    /// Whether a newer release is downloaded and checked in the background,
+    /// so Update now takes seconds. It never installs on its own.
+    #[serde(default = "enabled_by_default")]
+    pub download_ahead: bool,
+    /// The release tag the user hid from the palette with Ctrl+Del; a newer
+    /// tag shows again. Empty for none.
+    #[serde(default)]
+    pub hidden_version: String,
 }
 
 impl Default for UpdateConfig {
@@ -187,6 +195,8 @@ impl Default for UpdateConfig {
             check_daily: true,
             last_check: 0,
             latest: String::new(),
+            download_ahead: true,
+            hidden_version: String::new(),
         }
     }
 }
@@ -785,10 +795,23 @@ mod tests {
     }
 
     #[test]
-    fn the_daily_update_check_is_on_until_the_file_says_otherwise() {
+    fn the_automatic_update_check_is_on_until_the_file_says_otherwise() {
         let (config, _) = Config::parse("{}").unwrap();
         assert_eq!(config.updates, UpdateConfig::default());
         assert!(config.updates.check_daily);
+        assert!(config.updates.download_ahead, "on by default");
+        assert!(config.updates.hidden_version.is_empty());
+        // A config from before 0.20.60 has neither key and loads.
+        let (config, _) =
+            Config::parse(r#"{"updates":{"check_daily":true,"last_check":5,"latest":"v0.20.59"}}"#)
+                .unwrap();
+        assert!(config.updates.download_ahead);
+        assert_eq!(config.updates.latest, "v0.20.59");
+        let (config, _) =
+            Config::parse(r#"{"updates":{"download_ahead":false,"hidden_version":"v0.21.0"}}"#)
+                .unwrap();
+        assert!(!config.updates.download_ahead);
+        assert_eq!(config.updates.hidden_version, "v0.21.0");
         let (config, _) =
             Config::parse(r#"{"updates":{"check_daily":false,"last_check":5}}"#).unwrap();
         assert!(!config.updates.check_daily);

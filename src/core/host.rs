@@ -49,7 +49,7 @@ use crate::core::update::{self, Checked, Handover};
 use crate::core::update_notice::{self, UpdateNotice};
 use crate::core::{
     autostart, chord, config, hotkeys, install, instance, mask_key, release_notes, taskbar,
-    taskbar_number, theme, update_timing, wide,
+    taskbar_number, theme, update_stage, update_timing, wide,
 };
 use crate::search::{self, Router, SearchProvider};
 use crate::store::github::{self, Release};

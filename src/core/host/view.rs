@@ -266,9 +266,10 @@ impl Host {
     }
 }
 
-/// A known newer release puts a badge on "Update WinCraft" and lifts it out
-/// of the typed-only entries, so the user sees it under an empty box. A copy
-/// that cannot update itself keeps the plain entry.
+/// A known newer release puts a badge on "Update WinCraft", for when it is
+/// typed. Under an empty box the palette pins its own "Update ready" row
+/// instead, so the command stays found by typing only. A copy that cannot
+/// update itself keeps the plain entry.
 pub(super) fn announce_update(entries: &mut [PaletteEntry], update: &UpdateView) {
     let (Some(release), None) = (&update.available, &update.blocked) else {
         return;
@@ -278,9 +279,14 @@ pub(super) fn announce_update(entries: &mut [PaletteEntry], update: &UpdateView)
         if entry.id == CommandId::Host(HostCommand::UpdateWinCraft) {
             entry.badge = Some(format!("{version} available"));
             entry.subtitle = Some(format!("Installs WinCraft {version} now"));
-            entry.quiet = false;
         }
     }
+}
+
+/// Whether Ctrl+Del hid the release `tag` from the palette: `hidden` is the
+/// tag hidden then, and only a newer tag shows again.
+pub(super) fn update_hidden(tag: &str, hidden: &str) -> bool {
+    !hidden.is_empty() && !github::is_newer(tag, hidden)
 }
 
 pub(super) fn field_infos(plugin: &dyn WinCraftPlugin, settings: &Value) -> Vec<FieldInfo> {

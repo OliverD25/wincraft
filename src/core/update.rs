@@ -267,6 +267,18 @@ pub fn download(
     local_fake: bool,
     progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
 ) -> Result<PathBuf, String> {
+    download_as(release, dir, NEW_EXE, fetch, local_fake, progress).map(|(path, _)| path)
+}
+
+/// `download` into `dir/name`, giving back the checksum it matched too.
+pub fn download_as(
+    release: &Release,
+    dir: &Path,
+    name: &str,
+    fetch: &dyn Fetch,
+    local_fake: bool,
+    progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+) -> Result<(PathBuf, String), String> {
     let asset = |name: &str| {
         release
             .assets
@@ -290,7 +302,7 @@ pub fn download(
             release.tag
         )
     })?;
-    let dest = dir.join(NEW_EXE);
+    let dest = dir.join(name);
     let _ = fs::remove_file(&dest);
     let checked = fetch
         .to_file(&exe.url, &dest, progress)
@@ -306,7 +318,7 @@ pub fn download(
             }
         });
     match checked {
-        Ok(()) => Ok(dest),
+        Ok(()) => Ok((dest, expected)),
         Err(err) => {
             let _ = fs::remove_file(&dest);
             Err(err)
