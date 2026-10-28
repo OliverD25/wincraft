@@ -1506,6 +1506,7 @@ fn asking_snapshot(id: crate::core::ui_bridge::CommandId) -> UiSnapshot {
             hint: String::new(),
             words: String::new(),
             confirm: "Press Enter again to empty it".to_string(),
+            list: false,
             disabled: false,
             plugin: Some("quick_actions".to_string()),
             subtitle: None,
@@ -1571,7 +1572,7 @@ fn a_command_that_asks_first_runs_on_the_second_enter_only() {
     assert!(palette.armed_text(&snapshot).is_none());
 
     // A first Enter that is too old counts as a new first one.
-    palette.armed = Some((id, Instant::now() - state::CONFIRM_FOR));
+    palette.armed = Some((id, String::new(), Instant::now() - state::CONFIRM_FOR));
     assert!(palette.armed_text(&snapshot).is_none());
     let outcome = palette.perform(Action::Command(id), &snapshot, &bridge.to_host);
     assert!(matches!(outcome, Outcome::Stay));
@@ -1579,4 +1580,120 @@ fn a_command_that_asks_first_runs_on_the_second_enter_only() {
     let (plain, _) = plugin_row(1);
     let outcome = palette.perform(Action::Command(plain), &snapshot, &bridge.to_host);
     assert!(matches!(outcome, Outcome::Hide));
+}
+
+fn list_snapshot(id: crate::core::ui_bridge::CommandId) -> UiSnapshot {
+    let mut snapshot = asking_snapshot(id);
+    snapshot.commands[0].confirm.clear();
+    snapshot.commands[0].list = true;
+    snapshot
+}
+
+fn port_rows() -> SubList {
+    SubList {
+        title: "Kill process on port".to_string(),
+        rows: vec![
+            ListRow {
+                id: "50:3000".to_string(),
+                title: "Port 3000".to_string(),
+                detail: "node.exe".to_string(),
+                confirm: "Press Enter again to end node.exe".to_string(),
+                current: false,
+            },
+            ListRow {
+                id: "60:5432".to_string(),
+                title: "Port 5432".to_string(),
+                detail: "postgres.exe".to_string(),
+                confirm: String::new(),
+                current: true,
+            },
+        ],
+        empty: "No program listens".to_string(),
+    }
+}
+
+#[test]
+fn a_command_with_rows_shows_them_in_place_and_esc_goes_back() {
+    let bridge = crate::core::ui_bridge::create();
+    let (ctx, mut palette) = (egui::Context::default(), reply_palette());
+    let (id, _) = plugin_row(40);
+    let snapshot = list_snapshot(id);
+    palette.set_query("kill".to_string());
+    let outcome = palette.perform(Action::Command(id), &snapshot, &bridge.to_host);
+    assert!(matches!(outcome, Outcome::Stay));
+    assert!(matches!(
+        bridge.host_rx.try_recv().ok(),
+        Some(HostRequest::OpenList(asked)) if asked == id
+    ));
+    assert_eq!(palette.query, "", "the box is free for filtering");
+    palette.refresh(&snapshot, &ctx);
+    assert_eq!(palette.results.items[0].title, "Loading\u{2026}");
+    assert!(palette.results.items[0].disabled);
+
+    palette.set_command_list(id, Some(port_rows()));
+    palette.refresh(&snapshot, &ctx);
+    assert_eq!(palette.results.items.len(), 2);
+    assert_eq!(palette.selected, 1, "the row in use starts selected");
+    assert_eq!(palette.results.items[1].badge.as_deref(), Some("In use"));
+
+    palette.set_query("3000".to_string());
+    palette.refresh(&snapshot, &ctx);
+    assert_eq!(palette.results.items.len(), 1);
+    assert_eq!(palette.results.items[0].title, "Port 3000");
+    palette.set_query("nothing".to_string());
+    palette.refresh(&snapshot, &ctx);
+    assert_eq!(
+        palette.results.items[0].title,
+        "Nothing matches what you typed"
+    );
+
+    assert!(palette.leave_sub_list());
+    assert_eq!(palette.query, "kill", "Esc puts the search back");
+    assert!(!palette.leave_sub_list());
+}
+
+#[test]
+fn a_risky_row_runs_on_the_second_enter_and_a_plain_one_at_once() {
+    let bridge = crate::core::ui_bridge::create();
+    let (ctx, mut palette) = (egui::Context::default(), reply_palette());
+    let (id, _) = plugin_row(40);
+    let snapshot = list_snapshot(id);
+    palette.perform(Action::Command(id), &snapshot, &bridge.to_host);
+    bridge.host_rx.try_recv().ok();
+    palette.set_command_list(id, Some(port_rows()));
+    palette.refresh(&snapshot, &ctx);
+    palette.selected = 0;
+    let pick = |row: &str| Action::ListPick {
+        command: id,
+        row: row.to_string(),
+    };
+    let outcome = palette.perform(pick("50:3000"), &snapshot, &bridge.to_host);
+    assert!(matches!(outcome, Outcome::Stay));
+    assert!(bridge.host_rx.try_recv().is_err());
+    assert_eq!(
+        palette.armed_text(&snapshot).as_deref(),
+        Some("Press Enter again to end node.exe")
+    );
+    let outcome = palette.perform(pick("50:3000"), &snapshot, &bridge.to_host);
+    assert!(matches!(outcome, Outcome::Hide));
+    assert!(matches!(
+        bridge.host_rx.try_recv().ok(),
+        Some(HostRequest::ListPick { row, .. }) if row == "50:3000"
+    ));
+    assert!(palette.sub_list.is_none());
+
+    palette.perform(Action::Command(id), &snapshot, &bridge.to_host);
+    bridge.host_rx.try_recv().ok();
+    palette.set_command_list(id, None);
+    palette.refresh(&snapshot, &ctx);
+    assert_eq!(
+        palette.results.items[0].title,
+        "This command has nothing to offer now"
+    );
+    palette.set_command_list(id, Some(port_rows()));
+    let outcome = palette.perform(pick("60:5432"), &snapshot, &bridge.to_host);
+    assert!(
+        matches!(outcome, Outcome::Hide),
+        "no confirm text, no second Enter"
+    );
 }

@@ -357,6 +357,7 @@ impl WinCraftPlugin for QuickActions {
                 hint: "",
                 words: entry.words,
                 confirm: entry.confirm,
+                list: false,
             })
             .collect()
     }
@@ -387,7 +388,7 @@ impl WinCraftPlugin for QuickActions {
     fn tray_toggles(&self) -> Vec<TrayToggle> {
         vec![TrayToggle {
             id: TRAY_KEEP_AWAKE,
-            label: "Keep awake",
+            label: "Keep awake".into(),
             on: self.awake_since.get().is_some(),
         }]
     }

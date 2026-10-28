@@ -4,7 +4,7 @@ use crate::core::config::PluginConfig;
 use crate::core::ui_bridge::HostChannel;
 use crate::core::ui_bridge::{
     ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeMonitor, ArrangeView,
-    CommandDetails, LayoutAction, LayoutSnapshot,
+    CommandDetails, LayoutAction, LayoutSnapshot, SubList,
 };
 use crate::search::SearchProvider;
 
@@ -51,7 +51,9 @@ pub struct TrayAction {
 /// `on_tray_action` with its id, which shares the tray ids' space.
 pub struct TrayToggle {
     pub id: u32,
-    pub label: &'static str,
+    /// Usually a fixed text; it may say more, such as "Keep awake until
+    /// 15:30".
+    pub label: std::borrow::Cow<'static, str>,
     pub on: bool,
 }
 
@@ -129,6 +131,9 @@ pub struct PaletteCommand {
     /// such as "Press Enter again to empty the Recycle Bin". A hotkey on
     /// it opens the palette on the command instead of running it.
     pub confirm: &'static str,
+    /// Enter does not run the command but asks `command_list` for rows
+    /// to pick from, and the pick goes to `on_list_pick`.
+    pub list: bool,
 }
 
 /// What a plugin that keeps a window order shows in the Arrange strip.
@@ -330,6 +335,18 @@ pub trait WinCraftPlugin {
     fn command_details(&mut self, kind: ActionKind, action_id: u32) -> Option<CommandDetails> {
         let _ = (kind, action_id);
         None
+    }
+
+    /// The rows of a command with `list: true`, read when the user presses
+    /// Enter on it.
+    fn command_list(&mut self, kind: ActionKind, action_id: u32) -> Option<SubList> {
+        let _ = (kind, action_id);
+        None
+    }
+
+    /// A row of that list was picked; `row` is its id.
+    fn on_list_pick(&mut self, kind: ActionKind, action_id: u32, row: &str) {
+        let _ = (kind, action_id, row);
     }
 
     fn palette_subtitle(&self, kind: ActionKind, action_id: u32) -> Option<String> {

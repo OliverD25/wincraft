@@ -66,6 +66,8 @@ impl Palette {
                     // Back to the list first.
                 } else if self.marks.clear() {
                     actions = self.current_actions();
+                } else if self.leave_sub_list() {
+                    // Back to the search it came from.
                 } else if !self.router.escape(self.prefix.as_deref()) {
                     outcome = Outcome::Hide;
                 }
@@ -243,8 +245,26 @@ impl Palette {
                 self.cursor_to_end = true;
             }
         }
-        let placeholder = match &self.prefix {
-            Some(prefix) => {
+        let sub_list = self.sub_list.as_ref().map(|view| {
+            view.list
+                .as_ref()
+                .map(|list| list.title.clone())
+                .unwrap_or_default()
+        });
+        let placeholder = match (&self.prefix, sub_list) {
+            (_, Some(title)) => {
+                let chip = prefix_chip(
+                    &ctx,
+                    &painter,
+                    pos2(field_left, search.center().y),
+                    "",
+                    if title.is_empty() { "\u{2026}" } else { &title },
+                    &tokens,
+                );
+                field_left = chip.right() + 10.0;
+                "Type to filter, Enter picks, Esc goes back"
+            }
+            (Some(prefix), None) => {
                 let (name, placeholder) = self.router.chip(prefix, &self.query);
                 let chip = prefix_chip(
                     &ctx,
@@ -257,7 +277,7 @@ impl Palette {
                 field_left = chip.right() + 10.0;
                 placeholder
             }
-            None => "Type a command, app or window\u{2026}",
+            (None, None) => "Type a command, app or window\u{2026}",
         };
         let field_right = pill.map_or(search.right() - 16.0, |pill| pill.left() - 12.0);
         let field = Rect::from_min_max(
@@ -514,7 +534,7 @@ impl Palette {
                 .filter(|(hwnd, _)| item.as_ref().and_then(ResultItem::window) == Some(*hwnd))
                 .map(|(_, details)| details);
             let armed = self.armed_text(snapshot);
-            if let Some((_, at)) = self.armed.filter(|_| armed.is_some()) {
+            if let Some((_, _, at)) = self.armed.as_ref().filter(|_| armed.is_some()) {
                 ctx.request_repaint_after(state::CONFIRM_FOR.saturating_sub(at.elapsed()));
             }
             let inspected = Inspected {

@@ -113,6 +113,12 @@ pub enum Action {
     },
     /// Opens the Arrange strip with this window picked.
     Arrange(isize),
+    /// A row of a command's sub-list: the command and the row's own id.
+    #[serde(skip)]
+    ListPick {
+        command: CommandId,
+        row: String,
+    },
 }
 
 /// What the palette does after a provider handled an action.

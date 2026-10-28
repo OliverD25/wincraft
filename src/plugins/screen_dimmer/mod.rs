@@ -684,6 +684,7 @@ impl WinCraftPlugin for ScreenDimmer {
             hint: "Auto checks standby again the next time each monitor goes off",
             words: "",
             confirm: "",
+            list: false,
         }]
     }
 

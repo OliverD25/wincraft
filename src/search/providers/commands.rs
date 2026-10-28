@@ -153,6 +153,7 @@ mod tests {
             hint: String::new(),
             words: String::new(),
             confirm: String::new(),
+            list: false,
             disabled,
             plugin: Some("screen_dimmer".to_string()),
             subtitle: None,

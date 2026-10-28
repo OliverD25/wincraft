@@ -433,7 +433,7 @@ impl WinCraftPlugin for WindowDeck {
     fn tray_toggles(&self) -> Vec<TrayToggle> {
         vec![TrayToggle {
             id: TRAY_HOVER_STRIP,
-            label: HOVER_STRIP_LABEL,
+            label: HOVER_STRIP_LABEL.into(),
             on: self.hover_strip,
         }]
     }
@@ -449,6 +449,7 @@ impl WinCraftPlugin for WindowDeck {
             hint: "",
             words: "",
             confirm: "",
+            list: false,
         }]
     }
 
@@ -582,6 +583,7 @@ mod tests {
                 hint: String::new(),
                 words: String::new(),
                 confirm: String::new(),
+                list: false,
                 disabled: false,
                 plugin: Some(ID.to_string()),
                 subtitle: None,

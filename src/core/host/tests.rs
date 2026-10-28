@@ -164,7 +164,7 @@ impl WinCraftPlugin for FakePlugin {
     fn tray_toggles(&self) -> Vec<TrayToggle> {
         vec![TrayToggle {
             id: 5,
-            label: "Feature",
+            label: "Feature".into(),
             on: true,
         }]
     }
@@ -180,7 +180,28 @@ impl WinCraftPlugin for FakePlugin {
             } else {
                 ""
             },
+            list: self.id == "fake_list",
         }]
+    }
+
+    fn command_list(
+        &mut self,
+        kind: ActionKind,
+        action_id: u32,
+    ) -> Option<crate::core::ui_bridge::SubList> {
+        (kind == ActionKind::Palette && action_id == 7).then(|| crate::core::ui_bridge::SubList {
+            title: "Tidy".to_string(),
+            rows: vec![crate::core::ui_bridge::ListRow {
+                id: "desk".to_string(),
+                title: "The desk".to_string(),
+                ..Default::default()
+            }],
+            empty: String::new(),
+        })
+    }
+
+    fn on_list_pick(&mut self, _kind: ActionKind, action_id: u32, row: &str) {
+        self.note(format!("pick {} {action_id} {row}", self.id));
     }
 
     fn on_palette_command(&mut self, id: u32) {
@@ -2179,4 +2200,57 @@ fn a_hotkey_on_a_command_that_asks_first_opens_the_palette_on_it() {
         ["palette fake_confirm 7"],
         "the palette's own run goes through"
     );
+}
+
+#[test]
+fn a_command_with_rows_answers_with_them_and_hears_the_pick() {
+    let data = Scratch::new("sub-list");
+    let (log, keyboard) = (diary(), FakeKeys::default());
+    let (mut host, ui) = test_host(
+        vec![fake("fake_list", "Fake L", "Win+Alt+F1", &log)],
+        &keyboard,
+        &data,
+    );
+    read(&log);
+    ui.try_iter().count();
+    let tidy = CommandId::Plugin {
+        index: 0,
+        kind: ActionKind::Palette,
+        action: 7,
+    };
+    host.handle_request(HostRequest::OpenList(tidy));
+    let list = ui.try_iter().find_map(|command| match command {
+        UiCommand::CommandList { id, list } if id == tidy => Some(list),
+        _ => None,
+    });
+    let list = list.flatten().expect("rows");
+    assert_eq!(list.rows[0].id, "desk");
+    host.handle_request(HostRequest::ListPick {
+        id: tidy,
+        row: "desk".to_string(),
+    });
+    assert_eq!(read(&log), ["pick fake_list 7 desk"]);
+
+    host.run_from_key(tidy);
+    assert!(
+        read(&log).is_empty(),
+        "a key opens the palette on it instead"
+    );
+    assert!(ui
+        .try_iter()
+        .any(|c| matches!(c, UiCommand::TypeInPalette(text) if text == "!Tidy up")));
+
+    host.plugins.disable(0);
+    read(&log);
+    host.handle_request(HostRequest::OpenList(tidy));
+    let off = ui.try_iter().find_map(|command| match command {
+        UiCommand::CommandList { list, .. } => Some(list),
+        _ => None,
+    });
+    assert_eq!(off, Some(None));
+    host.handle_request(HostRequest::ListPick {
+        id: tidy,
+        row: "desk".to_string(),
+    });
+    assert!(read(&log).is_empty());
 }

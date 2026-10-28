@@ -25,8 +25,8 @@ use windows_sys::Win32::Foundation::HWND;
 use crate::core::theme::{self, Tokens};
 use crate::core::tips::{self, Place, TipsConfig};
 use crate::core::ui_bridge::{
-    CommandDetails, CommandId, HostChannel, HostRequest, HostSetting, Page, Prompt, UiSnapshot,
-    SEARCH_PROMPT,
+    CommandDetails, CommandId, HostChannel, HostRequest, HostSetting, ListRow, Page, Prompt,
+    SubList, UiSnapshot, SEARCH_PROMPT,
 };
 use crate::core::virtual_desktops::Pinner;
 use crate::core::window_info::{self, WindowDetails};
@@ -145,8 +145,11 @@ pub struct Palette {
     /// What the selected plugin command's plugin said about it, asked once
     /// when the cursor gets there; None inside until the answer comes.
     command_details: Option<(CommandId, Option<CommandDetails>)>,
-    /// A command that asks for Enter twice got its first, at this moment.
-    armed: Option<(CommandId, Instant)>,
+    /// A command, or a row of its sub-list (the row's id; empty for the
+    /// command itself), that asks for Enter twice got its first, then.
+    armed: Option<(CommandId, String, Instant)>,
+    /// A command's sub-list shown in place of the results.
+    sub_list: Option<SubListView>,
     /// Made when first needed; None inside when the shell's interface for
     /// pinning is not there.
     pinner: Option<Option<Pinner>>,
@@ -157,6 +160,16 @@ pub struct Palette {
     hotkey_dialog: Option<Editor>,
     /// Where the panel was drawn last, for the dialog's backdrop.
     panel: Rect,
+}
+
+/// A command's rows, shown in place of the search results until Enter
+/// picks one or Esc goes back.
+pub(super) struct SubListView {
+    pub(super) id: CommandId,
+    /// None until the host's answer comes.
+    pub(super) list: Option<SubList>,
+    /// The prefix and the text to put back on Esc.
+    pub(super) back: (Option<String>, String),
 }
 
 /// The line over the footer.
@@ -221,6 +234,7 @@ impl Palette {
             details: None,
             command_details: None,
             armed: None,
+            sub_list: None,
             pinner: None,
             query_id: None,
             hotkey_dialog: None,
@@ -252,6 +266,7 @@ impl Palette {
         self.details = None;
         self.command_details = None;
         self.armed = None;
+        self.sub_list = None;
         self.thumbnail = None;
         if let Some(icons) = &mut self.icons {
             icons.forget_windows();

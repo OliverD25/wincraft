@@ -151,6 +151,18 @@ impl Palette {
     /// nothing matches a query typed without a prefix, the rows are the
     /// "Try instead" ones.
     pub(super) fn refresh(&mut self, snapshot: &UiSnapshot, ctx: &egui::Context) {
+        if let Some(view) = &self.sub_list {
+            let wanted = (Some(SUB_LIST_KEY.to_string()), self.query.clone());
+            if self.searched.as_ref() != Some(&wanted) {
+                self.results.items = sub_list_rows(view, &self.query);
+                self.trying = false;
+                self.searched = Some(wanted);
+            }
+            if self.selected >= self.results.items.len() {
+                self.selected = self.results.items.len().saturating_sub(1);
+            }
+            return;
+        }
         let (news, waiting) = self.router.poll();
         let index_news = self.router.take_index_news();
         // The empty view was built before the app index was ready: build it
@@ -318,6 +330,9 @@ impl Palette {
     /// The plugin command on the selected row, if it is one of a plugin
     /// that is on.
     pub(super) fn selected_command(&self) -> Option<CommandId> {
+        if self.sub_list.is_some() {
+            return None;
+        }
         let item = self.selected_item().filter(|item| !item.disabled)?;
         match item.enter.as_ref().map(|choice| &choice.action) {
             Some(Action::Command(id @ CommandId::Plugin { .. })) => Some(*id),
@@ -361,31 +376,114 @@ impl Palette {
             .and_then(|(_, details)| details.as_ref())
     }
 
-    /// What the selected command says before its second Enter, while it
-    /// waits for one.
-    pub(super) fn armed_text(&self, snapshot: &UiSnapshot) -> Option<String> {
-        let (id, at) = self.armed?;
-        if self.selected_command() != Some(id) || at.elapsed() >= CONFIRM_FOR {
-            return None;
+    /// The command or sub-list row on the selected row: the command and
+    /// the row's id, empty for a command itself.
+    pub(super) fn selected_key(&self) -> Option<(CommandId, String)> {
+        match self
+            .selected_item()?
+            .enter
+            .as_ref()
+            .map(|choice| &choice.action)
+        {
+            Some(Action::Command(id)) => Some((*id, String::new())),
+            Some(Action::ListPick { command, row }) => Some((*command, row.clone())),
+            _ => None,
         }
-        confirm_text(snapshot, id)
     }
 
-    /// Enter on a command that asks for it twice: true when this is the
-    /// second Enter within 5 s and the command may run; false arms it.
-    pub(super) fn confirmed(&mut self, snapshot: &UiSnapshot, id: CommandId) -> bool {
-        if confirm_text(snapshot, id).is_none() {
+    /// The text before the second Enter of a command or a sub-list row.
+    fn confirm_of(&self, snapshot: &UiSnapshot, id: CommandId, row: &str) -> Option<String> {
+        if row.is_empty() {
+            return confirm_text(snapshot, id);
+        }
+        self.sub_list
+            .as_ref()
+            .filter(|view| view.id == id)
+            .and_then(|view| view.list.as_ref())
+            .and_then(|list| list.rows.iter().find(|r| r.id == row))
+            .map(|r| r.confirm.clone())
+            .filter(|text| !text.is_empty())
+    }
+
+    /// What the selected command or row says before its second Enter,
+    /// while it waits for one.
+    pub(super) fn armed_text(&self, snapshot: &UiSnapshot) -> Option<String> {
+        let (id, row, at) = self.armed.as_ref()?;
+        if self.selected_key().as_ref() != Some(&(*id, row.clone())) || at.elapsed() >= CONFIRM_FOR
+        {
+            return None;
+        }
+        self.confirm_of(snapshot, *id, row)
+    }
+
+    /// Enter on a command or row that asks for it twice: true when this is
+    /// the second Enter within 5 s and it may run; false arms it.
+    pub(super) fn confirmed(&mut self, snapshot: &UiSnapshot, id: CommandId, row: &str) -> bool {
+        if self.confirm_of(snapshot, id, row).is_none() {
             return true;
         }
-        if self
-            .armed
-            .is_some_and(|(armed, at)| armed == id && at.elapsed() < CONFIRM_FOR)
-        {
+        let again = self.armed.as_ref().is_some_and(|(armed, armed_row, at)| {
+            *armed == id && armed_row == row && at.elapsed() < CONFIRM_FOR
+        });
+        if again {
             self.armed = None;
             return true;
         }
-        self.armed = Some((id, Instant::now()));
+        self.armed = Some((id, row.to_string(), Instant::now()));
         false
+    }
+
+    /// Enter on a command with rows: the palette asks the host for them
+    /// and shows them in place, keeping what was typed for Esc.
+    pub(super) fn open_sub_list(&mut self, id: CommandId, to_host: &Arc<HostChannel>) {
+        let back = (self.prefix.take(), std::mem::take(&mut self.query));
+        self.sub_list = Some(SubListView {
+            id,
+            list: None,
+            back,
+        });
+        self.searched = None;
+        self.selected = 0;
+        self.cursor_to_end = true;
+        self.armed = None;
+        to_host.send(HostRequest::OpenList(id));
+    }
+
+    /// The host's answer with the rows; an answer for a list that was left
+    /// is dropped.
+    pub fn set_command_list(&mut self, id: CommandId, list: Option<SubList>) {
+        if let Some(view) = self.sub_list.as_mut().filter(|view| view.id == id) {
+            view.list = Some(list.unwrap_or_else(|| SubList {
+                title: String::new(),
+                rows: Vec::new(),
+                empty: "This command has nothing to offer now".to_string(),
+            }));
+            self.searched = None;
+            // The row in use, such as the current sound device, starts
+            // selected.
+            self.selected = view
+                .list
+                .as_ref()
+                .and_then(|list| list.rows.iter().position(|row| row.current))
+                .unwrap_or(0);
+            self.follow_selection = true;
+        }
+    }
+
+    /// Esc in a sub-list: back to the search as it was. False when no
+    /// sub-list is open.
+    pub(super) fn leave_sub_list(&mut self) -> bool {
+        let Some(view) = self.sub_list.take() else {
+            return false;
+        };
+        let (prefix, query) = view.back;
+        self.prefix = prefix;
+        self.query = query;
+        self.searched = None;
+        self.selected = 0;
+        self.cursor_to_end = true;
+        self.armed = None;
+        true
     }
 
     /// Reads the selected window's details once, when the cursor gets there.
@@ -498,4 +596,59 @@ pub(super) fn confirm_text(snapshot: &UiSnapshot, id: CommandId) -> Option<Strin
         .iter()
         .find(|entry| entry.id == id && !entry.confirm.is_empty())
         .map(|entry| entry.confirm.clone())
+}
+
+/// What `searched` holds while a sub-list is shown, so the search runs
+/// again once it is left.
+const SUB_LIST_KEY: &str = "\u{0}sub-list";
+
+/// The sub-list's rows that hold every word typed, anywhere in the title
+/// or the detail: "3000" finds the program on port 3000.
+pub(super) fn sub_list_rows(view: &SubListView, query: &str) -> Vec<ResultItem> {
+    let note = |title: &str| ResultItem {
+        title: title.to_string(),
+        disabled: true,
+        icon: IconRef::Glyph(Glyph::Command),
+        ..Default::default()
+    };
+    let Some(list) = &view.list else {
+        return vec![note("Loading\u{2026}")];
+    };
+    let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    let rows: Vec<ResultItem> = list
+        .rows
+        .iter()
+        .filter(|row| {
+            let text = format!("{} {}", row.title, row.detail).to_lowercase();
+            words.iter().all(|word| text.contains(word.as_str()))
+        })
+        .map(|row| list_item(view.id, &list.title, row))
+        .collect();
+    if rows.is_empty() {
+        let text = if list.rows.is_empty() {
+            list.empty.clone()
+        } else {
+            "Nothing matches what you typed".to_string()
+        };
+        return vec![note(&text)];
+    }
+    rows
+}
+
+fn list_item(id: CommandId, title: &str, row: &ListRow) -> ResultItem {
+    ResultItem {
+        group: title.to_string(),
+        title: row.title.clone(),
+        subtitle: row.detail.clone(),
+        icon: IconRef::Glyph(Glyph::Command),
+        badge: row.current.then(|| "In use".to_string()),
+        enter: Some(Choice {
+            label: "Pick".to_string(),
+            action: Action::ListPick {
+                command: id,
+                row: row.id.clone(),
+            },
+        }),
+        ..Default::default()
+    }
 }

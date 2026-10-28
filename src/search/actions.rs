@@ -73,6 +73,7 @@ pub fn perform(action: &Action, owner: HWND) {
         | Action::SetPrefix(_)
         | Action::ChangeShortcut { .. }
         | Action::Arrange(_)
+        | Action::ListPick { .. }
         | Action::Provider { .. } => {}
     }
 }

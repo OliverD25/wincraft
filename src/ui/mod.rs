@@ -315,6 +315,10 @@ impl App {
                     log::info!("palette query set to \"{text}\"");
                 }
                 UiCommand::ClearPaletteUsage => self.palette.clear_usage(),
+                UiCommand::CommandList { id, list } => {
+                    self.palette.set_command_list(id, list);
+                    ctx.request_repaint();
+                }
                 UiCommand::CommandDetails { id, details } => {
                     self.palette.set_command_details(id, details);
                     ctx.request_repaint();

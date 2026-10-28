@@ -930,6 +930,7 @@ impl WinCraftPlugin for WindowNamer {
             hint: "",
             words: "",
             confirm: "",
+            list: false,
         }]
     }
 

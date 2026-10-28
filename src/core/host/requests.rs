@@ -54,6 +54,27 @@ impl Host {
         }
     }
 
+    /// The rows a plugin offers for one of its commands.
+    pub(super) fn command_list(
+        &mut self,
+        id: CommandId,
+    ) -> Option<crate::core::ui_bridge::SubList> {
+        let CommandId::Plugin {
+            index,
+            kind,
+            action,
+        } = id
+        else {
+            return None;
+        };
+        let slot = self
+            .plugins
+            .slots
+            .get_mut(index)
+            .filter(|slot| slot.enabled)?;
+        slot.plugin.command_list(kind, action)
+    }
+
     /// What a plugin says about one of its commands for the inspector.
     pub(super) fn command_details(
         &mut self,
@@ -75,9 +96,8 @@ impl Host {
         slot.plugin.command_details(kind, action)
     }
 
-    /// The text a palette command shows before its second Enter, when it
-    /// asks for one.
-    pub(super) fn confirm_of(&self, id: CommandId) -> Option<(String, String)> {
+    /// A plugin's palette command by its id.
+    fn palette_command(&self, id: CommandId) -> Option<crate::core::traits::PaletteCommand> {
         let CommandId::Plugin {
             index,
             kind: ActionKind::Palette,
@@ -90,19 +110,31 @@ impl Host {
         slot.plugin
             .palette_commands()
             .into_iter()
-            .find(|command| command.id == action && !command.confirm.is_empty())
+            .find(|command| command.id == action)
+    }
+
+    /// The text a palette command shows before its second Enter, when it
+    /// asks for one.
+    #[cfg(test)]
+    pub(super) fn confirm_of(&self, id: CommandId) -> Option<(String, String)> {
+        self.palette_command(id)
+            .filter(|command| !command.confirm.is_empty())
             .map(|command| (command.label.to_string(), command.confirm.to_string()))
     }
 
     /// A hotkey's command. One that asks for Enter twice, such as emptying
-    /// the Recycle Bin, is not run from a key: the palette opens on it, so
-    /// the user sees what it will do and presses Enter twice there.
+    /// the Recycle Bin, or one that offers rows to pick from, is not run
+    /// from a key: the palette opens on it, so the user sees what it will do.
     pub(super) fn run_from_key(&mut self, id: CommandId) {
-        let Some((label, _)) = self.confirm_of(id) else {
+        let Some(label) = self
+            .palette_command(id)
+            .filter(|command| !command.confirm.is_empty() || command.list)
+            .map(|command| command.label.to_string())
+        else {
             self.run_command(id);
             return;
         };
-        log::info!("the hotkey for \"{label}\" opens the palette on it, to ask first");
+        log::info!("the hotkey for \"{label}\" opens the palette on it");
         search::actions::remember_front();
         self.to_ui.send(UiCommand::ShowPalette(cursor_monitor()));
         self.to_ui
@@ -118,6 +150,23 @@ impl Host {
                 self.publish();
             }
             HostRequest::RunCommand(id) => self.run_command(id),
+            HostRequest::OpenList(id) => {
+                let list = self.command_list(id);
+                self.to_ui.send(UiCommand::CommandList { id, list });
+            }
+            HostRequest::ListPick { id, row } => {
+                if let CommandId::Plugin {
+                    index,
+                    kind,
+                    action,
+                } = id
+                {
+                    match self.plugins.slots.get_mut(index) {
+                        Some(slot) if slot.enabled => slot.plugin.on_list_pick(kind, action, &row),
+                        _ => log::info!("the plugin is off; the pick was dropped"),
+                    }
+                }
+            }
             HostRequest::CommandDetails(id) => {
                 let details = self.command_details(id);
                 self.to_ui.send(UiCommand::CommandDetails { id, details });

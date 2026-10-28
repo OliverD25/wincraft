@@ -75,6 +75,31 @@ pub struct CommandDetails {
     pub lines: Vec<(String, String)>,
 }
 
+/// The rows a command answers with instead of running at once, such as
+/// the programs that listen on a port. The palette shows them in place of
+/// its results; typing filters them, Enter picks one, Esc goes back.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SubList {
+    /// The chip before the box, such as "Kill process on port".
+    pub title: String,
+    pub rows: Vec<ListRow>,
+    /// The one line shown when there are no rows, such as "No program
+    /// listens on a port".
+    pub empty: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ListRow {
+    /// The plugin's own name for the row; it comes back when it is picked.
+    pub id: String,
+    pub title: String,
+    pub detail: String,
+    /// Not empty: Enter twice within 5 s, and this before the second.
+    pub confirm: String,
+    /// The row is what is set now, such as the sound device in use.
+    pub current: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HostSetting {
     StartWithWindows(bool),
@@ -468,6 +493,11 @@ pub enum UiCommand {
         id: CommandId,
         details: Option<CommandDetails>,
     },
+    /// The answer to `HostRequest::OpenList`; None when the plugin is off.
+    CommandList {
+        id: CommandId,
+        list: Option<SubList>,
+    },
     /// Test instances only: text put in the palette's box as if typed,
     /// prefix and all. Nothing runs.
     TypeInPalette(String),
@@ -536,6 +566,13 @@ pub enum HostRequest {
     /// The palette selected a plugin command's row: what its inspector
     /// should show. Asked once per selection.
     CommandDetails(CommandId),
+    /// Enter on a command that answers with a sub-list: its rows.
+    OpenList(CommandId),
+    /// A row of that sub-list was picked.
+    ListPick {
+        id: CommandId,
+        row: String,
+    },
     /// A palette row's action that needs the host thread.
     RunAction(crate::search::Action),
     /// The text typed in answer to a `Prompt`.
@@ -674,6 +711,8 @@ pub struct PaletteEntry {
     /// Not empty: Enter must be pressed twice within 5 s, and this says
     /// what the second Enter will do.
     pub confirm: String,
+    /// Enter opens a sub-list of rows to pick from.
+    pub list: bool,
     /// The plugin is off: the entry is shown dimmed and opens the plugin's page.
     pub disabled: bool,
     pub plugin: Option<String>,

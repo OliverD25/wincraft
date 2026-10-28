@@ -165,10 +165,26 @@ impl Palette {
                 }
             }
             Action::Command(id) => {
-                if !self.confirmed(snapshot, id) {
+                let opens_list = snapshot
+                    .commands
+                    .iter()
+                    .any(|entry| entry.id == id && entry.list);
+                if opens_list {
+                    self.open_sub_list(id, to_host);
+                    return Outcome::Stay;
+                }
+                if !self.confirmed(snapshot, id, "") {
                     return Outcome::Stay;
                 }
                 to_host.send(HostRequest::RunCommand(id));
+                Outcome::Hide
+            }
+            Action::ListPick { command, row } => {
+                if !self.confirmed(snapshot, command, &row) {
+                    return Outcome::Stay;
+                }
+                self.sub_list = None;
+                to_host.send(HostRequest::ListPick { id: command, row });
                 Outcome::Hide
             }
             other => {
