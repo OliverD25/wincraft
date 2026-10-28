@@ -5,6 +5,7 @@
 //! its windows in their saved order; otherwise WindowDeck lists the open
 //! windows itself (`own_windows`).
 
+mod hover_keys;
 pub mod hover_preview;
 mod new_window;
 mod own_windows;
@@ -395,6 +396,7 @@ impl WinCraftPlugin for WindowDeck {
 
     fn init(&mut self, ctx: &HostContext) -> Result<(), String> {
         self.hover.may_hide = !self.read_only || host::allow_hide_popup();
+        self.hover.set_may_route_keys(!self.read_only);
         self.host_hwnd = Some(ctx.hwnd);
         self.apply_settings(ctx.settings);
         Ok(())
