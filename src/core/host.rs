@@ -41,8 +41,8 @@ use crate::core::tray::{show_menu, MenuItem, Tray, WM_TRAY_CALLBACK};
 use crate::core::ui_bridge::{
     self, ActionKind, ArrangeAction, ArrangeGroup, ArrangeSnapshot, CommandId, FieldInfo,
     HostCommand, HostRequest, HostSetting, HotkeyInfo, MonitorRect, NewRelease, Page, PaletteEntry,
-    PeekCard, PluginInfo, Prompt, SettingsTarget, ShortcutChange, ShortcutInfo, UiChannel,
-    UiCommand, UiSnapshot, UpdateStatus, UpdateView, WM_APP_UI,
+    PeekCard, PluginInfo, Prompt, SettingsTarget, ShortcutChange, ShortcutInfo, ToggleState,
+    UiChannel, UiCommand, UiSnapshot, UpdateStatus, UpdateView, WM_APP_UI,
 };
 use crate::core::update::{self, Checked, Handover};
 use crate::core::update_notice::{self, UpdateNotice};

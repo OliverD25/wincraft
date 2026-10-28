@@ -4,7 +4,7 @@ use crate::core::config::PluginConfig;
 use crate::core::ui_bridge::HostChannel;
 use crate::core::ui_bridge::{
     ActionKind, ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeMonitor, ArrangeView,
-    CommandDetails, LayoutAction, LayoutSnapshot, SubList,
+    CommandDetails, LayoutAction, LayoutSnapshot, SubList, ToggleLook, ToggleState,
 };
 use crate::search::SearchProvider;
 
@@ -134,6 +134,10 @@ pub struct PaletteCommand {
     /// Enter does not run the command but asks `command_list` for rows
     /// to pick from, and the pick goes to `on_list_pick`.
     pub list: bool,
+    /// Set for a command that switches something on and off: the palette
+    /// shows its state from `toggle_state`, and Enter flips it with the
+    /// palette left open. A hotkey on it still runs it at once.
+    pub toggle: Option<ToggleLook>,
 }
 
 /// What a plugin that keeps a window order shows in the Arrange strip.
@@ -333,6 +337,15 @@ pub trait WinCraftPlugin {
     /// change and what Enter does now. Keep it quick; it runs on the host
     /// thread while the user waits.
     fn command_details(&mut self, kind: ActionKind, action_id: u32) -> Option<CommandDetails> {
+        let _ = (kind, action_id);
+        None
+    }
+
+    /// The state of one of your commands with `toggle` set, read each time
+    /// the palette opens and right after the command ran from it. Read
+    /// it fresh, never from what the last run did. Keep it quick: it runs
+    /// on the host thread. None shows "State unknown".
+    fn toggle_state(&mut self, kind: ActionKind, action_id: u32) -> Option<ToggleState> {
         let _ = (kind, action_id);
         None
     }

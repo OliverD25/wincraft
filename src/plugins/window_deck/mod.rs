@@ -453,6 +453,7 @@ impl WinCraftPlugin for WindowDeck {
             words: "",
             confirm: "",
             list: false,
+            toggle: None,
         }]
     }
 
@@ -594,6 +595,7 @@ mod tests {
                 shortcut: String::new(),
                 quiet: false,
                 badge: None,
+                toggle: None,
             };
             format!("commands:{}", command_key(&entry))
         };

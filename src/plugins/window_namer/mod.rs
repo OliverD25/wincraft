@@ -931,6 +931,7 @@ impl WinCraftPlugin for WindowNamer {
             words: "",
             confirm: "",
             list: false,
+            toggle: None,
         }]
     }
 

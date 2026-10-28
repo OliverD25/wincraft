@@ -587,6 +587,7 @@ impl PluginSet {
                         | HostCommand::UpdateWinCraft
                 ),
                 badge: None,
+                toggle: None,
             });
         }
         for (index, slot) in self.slots.iter().enumerate() {
@@ -611,6 +612,7 @@ impl PluginSet {
                 shortcut: String::new(),
                 quiet: false,
                 badge: None,
+                toggle: None,
             });
             // A plugin that is off keeps its commands in the list, dimmed, so
             // its hotkey does not seem to vanish; running one opens its page.
@@ -641,6 +643,7 @@ impl PluginSet {
                     shortcut: String::new(),
                     quiet: false,
                     badge: None,
+                    toggle: None,
                 });
             }
             for action in slot.plugin.tray_actions() {
@@ -669,6 +672,7 @@ impl PluginSet {
                     shortcut: String::new(),
                     quiet: false,
                     badge: None,
+                    toggle: None,
                 });
             }
             for command in slot.plugin.palette_commands() {
@@ -693,6 +697,7 @@ impl PluginSet {
                     shortcut: String::new(),
                     quiet: false,
                     badge: None,
+                    toggle: command.toggle,
                 });
             }
         }

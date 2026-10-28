@@ -277,6 +277,7 @@ impl WinCraftPlugin for LanguageIndicator {
             words: "",
             confirm: "",
             list: false,
+            toggle: None,
         }]
     }
 

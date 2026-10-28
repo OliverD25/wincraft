@@ -313,6 +313,7 @@ pub(super) fn show_palette() {
     if let Some(hwnd) = palette {
         bring_to_front(hwnd);
     }
+    with_host(|host| host.send_toggle_states());
 }
 
 pub(super) fn open_shortcut_detector() {

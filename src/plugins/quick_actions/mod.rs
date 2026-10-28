@@ -464,6 +464,7 @@ impl WinCraftPlugin for QuickActions {
                 words: entry.words,
                 confirm: entry.confirm,
                 list: entry.list,
+                toggle: None,
             })
             .collect()
     }

@@ -685,6 +685,7 @@ impl WinCraftPlugin for ScreenDimmer {
             words: "",
             confirm: "",
             list: false,
+            toggle: None,
         }]
     }
 

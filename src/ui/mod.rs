@@ -324,6 +324,10 @@ impl App {
                     self.palette.set_command_details(id, details);
                     ctx.request_repaint();
                 }
+                UiCommand::ToggleStates(states) => {
+                    self.palette.set_toggle_states(states);
+                    ctx.request_repaint();
+                }
                 UiCommand::PeekCard(card) => {
                     self.arrange.peek_card(card);
                     ctx.request_repaint_of(arrange::viewport_id());

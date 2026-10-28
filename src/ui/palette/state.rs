@@ -367,6 +367,21 @@ impl Palette {
         }
     }
 
+    /// The toggles' state from the host. The inspector asks again too,
+    /// since what it said may have changed with a flip.
+    pub fn set_toggle_states(&mut self, states: Vec<(CommandId, ToggleState)>) {
+        self.toggle_states = states;
+        self.command_details = None;
+    }
+
+    /// A toggle command's state, once the host has said it.
+    pub(super) fn toggle_state(&self, id: CommandId) -> Option<&ToggleState> {
+        self.toggle_states
+            .iter()
+            .find(|(known, _)| *known == id)
+            .map(|(_, state)| state)
+    }
+
     /// The details for the selected row, when they have come.
     pub(super) fn shown_command_details(&self) -> Option<&CommandDetails> {
         let id = self.selected_command()?;

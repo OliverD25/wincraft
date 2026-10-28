@@ -26,7 +26,7 @@ use crate::core::theme::{self, Tokens};
 use crate::core::tips::{self, Place, TipsConfig};
 use crate::core::ui_bridge::{
     CommandDetails, CommandId, HostChannel, HostRequest, HostSetting, ListRow, Page, Prompt,
-    SubList, UiSnapshot, SEARCH_PROMPT,
+    SubList, ToggleState, UiSnapshot, SEARCH_PROMPT,
 };
 use crate::core::virtual_desktops::Pinner;
 use crate::core::window_info::{self, WindowDetails};
@@ -145,6 +145,9 @@ pub struct Palette {
     /// What the selected plugin command's plugin said about it, asked once
     /// when the cursor gets there; None inside until the answer comes.
     command_details: Option<(CommandId, Option<CommandDetails>)>,
+    /// The toggle commands' state, read by their plugins as the palette
+    /// opened and after each flip; empty until the host answers.
+    toggle_states: Vec<(CommandId, ToggleState)>,
     /// A command, or a row of its sub-list (the row's id; empty for the
     /// command itself), that asks for Enter twice got its first, then.
     armed: Option<(CommandId, String, Instant)>,
@@ -233,6 +236,7 @@ impl Palette {
             thumbnail: None,
             details: None,
             command_details: None,
+            toggle_states: Vec::new(),
             armed: None,
             sub_list: None,
             pinner: None,
@@ -265,6 +269,7 @@ impl Palette {
         self.marks.clear();
         self.details = None;
         self.command_details = None;
+        self.toggle_states.clear();
         self.armed = None;
         self.sub_list = None;
         self.thumbnail = None;

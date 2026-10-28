@@ -181,7 +181,20 @@ impl WinCraftPlugin for FakePlugin {
                 ""
             },
             list: self.id == "fake_list",
+            toggle: self.id.starts_with("fake_toggle").then_some(
+                crate::core::ui_bridge::ToggleLook {
+                    icon_on: "eye",
+                    icon_off: "eye-off",
+                    tile: [1, 2, 3],
+                },
+            ),
         }]
+    }
+
+    fn toggle_state(&mut self, kind: ActionKind, action_id: u32) -> Option<ToggleState> {
+        self.note(format!("toggle state {} {action_id}", self.id));
+        (kind == ActionKind::Palette && self.id == "fake_toggle")
+            .then(|| ToggleState::on("Tidy now"))
     }
 
     fn command_list(
@@ -2253,4 +2266,75 @@ fn a_command_with_rows_answers_with_them_and_hears_the_pick() {
         row: "desk".to_string(),
     });
     assert!(read(&log).is_empty());
+}
+
+#[test]
+fn the_palette_gets_every_toggles_state_and_again_after_a_flip() {
+    let data = Scratch::new("toggle-states");
+    let (log, keyboard) = (diary(), FakeKeys::default());
+    let (mut host, ui) = test_host(
+        vec![
+            fake("fake_a", "Fake A", "Win+Alt+F1", &log),
+            fake("fake_toggle", "Fake T", "Win+Alt+F2", &log),
+            fake("fake_toggle_quiet", "Fake Q", "Win+Alt+F3", &log),
+        ],
+        &keyboard,
+        &data,
+    );
+    read(&log);
+    ui.try_iter().count();
+    let id = |index| CommandId::Plugin {
+        index,
+        kind: ActionKind::Palette,
+        action: 7,
+    };
+    let states = |ui: &Receiver<UiCommand>| -> Vec<Vec<(CommandId, ToggleState)>> {
+        ui.try_iter()
+            .filter_map(|command| match command {
+                UiCommand::ToggleStates(states) => Some(states),
+                _ => None,
+            })
+            .collect()
+    };
+
+    host.send_toggle_states();
+    let sent = states(&ui);
+    assert_eq!(
+        sent,
+        vec![vec![
+            (id(1), ToggleState::on("Tidy now")),
+            (id(2), ToggleState::unknown()),
+        ]],
+        "a plain command has no state; a plugin with no answer is unknown"
+    );
+    assert_eq!(
+        read(&log),
+        [
+            "toggle state fake_toggle 7",
+            "toggle state fake_toggle_quiet 7"
+        ]
+    );
+    let snapshot = host.snapshot();
+    let look = |index| {
+        snapshot
+            .commands
+            .iter()
+            .find(|entry| entry.id == id(index))
+            .and_then(|entry| entry.toggle)
+    };
+    assert!(look(0).is_none());
+    assert_eq!(look(1).map(|look| look.tile), Some([1, 2, 3]));
+
+    host.handle_request(HostRequest::RunCommand(id(1)));
+    assert_eq!(states(&ui).len(), 1, "a flip reads the states again");
+    host.handle_request(HostRequest::RunCommand(id(0)));
+    assert!(states(&ui).is_empty(), "a plain command does not");
+    read(&log);
+
+    host.plugins.disable(1);
+    host.send_toggle_states();
+    assert_eq!(states(&ui), vec![vec![(id(2), ToggleState::unknown())]]);
+    assert_eq!(ToggleState::unknown().line, "State unknown");
+    assert_eq!(ToggleState::unknown().on, None);
+    assert_eq!(ToggleState::off("x").on, Some(false));
 }

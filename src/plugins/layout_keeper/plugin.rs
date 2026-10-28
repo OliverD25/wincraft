@@ -545,6 +545,7 @@ impl WinCraftPlugin for LayoutKeeper {
             words: "",
             confirm: "",
             list: false,
+            toggle: None,
         }]
     }
 

@@ -1514,6 +1514,7 @@ fn asking_snapshot(id: crate::core::ui_bridge::CommandId) -> UiSnapshot {
             shortcut: String::new(),
             quiet: false,
             badge: None,
+            toggle: None,
         }],
         ..Default::default()
     }

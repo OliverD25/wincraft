@@ -96,6 +96,44 @@ impl Host {
         slot.plugin.command_details(kind, action)
     }
 
+    /// Every enabled plugin's toggle commands and their state now.
+    pub(super) fn toggle_states(&mut self) -> Vec<(CommandId, ToggleState)> {
+        let mut states = Vec::new();
+        for (index, slot) in self.plugins.slots.iter_mut().enumerate() {
+            if !slot.enabled {
+                continue;
+            }
+            for command in slot.plugin.palette_commands() {
+                if command.toggle.is_none() {
+                    continue;
+                }
+                let state = slot
+                    .plugin
+                    .toggle_state(ActionKind::Palette, command.id)
+                    .unwrap_or_else(ToggleState::unknown);
+                let id = CommandId::Plugin {
+                    index,
+                    kind: ActionKind::Palette,
+                    action: command.id,
+                };
+                states.push((id, state));
+            }
+        }
+        states
+    }
+
+    /// Sends the toggles' state to the palette. Called after the palette
+    /// was told to show, so reading does not hold up its first frame.
+    pub(super) fn send_toggle_states(&mut self) {
+        let states = self.toggle_states();
+        self.to_ui.send(UiCommand::ToggleStates(states));
+    }
+
+    fn is_toggle(&self, id: CommandId) -> bool {
+        self.palette_command(id)
+            .is_some_and(|command| command.toggle.is_some())
+    }
+
     /// A plugin's palette command by its id.
     fn palette_command(&self, id: CommandId) -> Option<crate::core::traits::PaletteCommand> {
         let CommandId::Plugin {
@@ -140,6 +178,7 @@ impl Host {
         self.to_ui
             .send(UiCommand::TypeInPalette(format!("!{label}")));
         bring_to_front(self.palette_hwnd);
+        self.send_toggle_states();
     }
 
     pub(super) fn handle_request(&mut self, request: HostRequest) {
@@ -149,7 +188,14 @@ impl Host {
                 clear_system_frame(self.palette_hwnd);
                 self.publish();
             }
-            HostRequest::RunCommand(id) => self.run_command(id),
+            HostRequest::RunCommand(id) => {
+                self.run_command(id);
+                // A toggle runs with the palette left open: its row shows
+                // the state Windows has now.
+                if self.is_toggle(id) {
+                    self.send_toggle_states();
+                }
+            }
             HostRequest::OpenList(id) => {
                 let list = self.command_list(id);
                 self.to_ui.send(UiCommand::CommandList { id, list });

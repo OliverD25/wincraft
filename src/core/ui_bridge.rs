@@ -75,6 +75,56 @@ pub struct CommandDetails {
     pub lines: Vec<(String, String)>,
 }
 
+/// How a toggle command looks in the palette, fixed for the command: the
+/// Lucide names of its icon when on and when off (see `Icon::named`), and
+/// the colour of its tile when on. Off, the tile is the theme's outline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ToggleLook {
+    pub icon_on: &'static str,
+    pub icon_off: &'static str,
+    pub tile: [u8; 3],
+}
+
+/// A toggle command's state now, read when the palette opens and again
+/// right after the command runs from it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ToggleState {
+    /// None when there is nothing to switch or the state cannot be read:
+    /// the tile shows off and the switch is left out.
+    pub on: Option<bool>,
+    /// The state in words, under the title: "Hidden files are shown".
+    pub line: String,
+}
+
+impl ToggleState {
+    pub fn on(line: impl Into<String>) -> Self {
+        Self {
+            on: Some(true),
+            line: line.into(),
+        }
+    }
+
+    pub fn off(line: impl Into<String>) -> Self {
+        Self {
+            on: Some(false),
+            line: line.into(),
+        }
+    }
+
+    /// Nothing to switch, such as no window for a per-window toggle; the
+    /// line says why.
+    pub fn without_switch(line: impl Into<String>) -> Self {
+        Self {
+            on: None,
+            line: line.into(),
+        }
+    }
+
+    pub fn unknown() -> Self {
+        Self::without_switch("State unknown")
+    }
+}
+
 /// The rows a command answers with instead of running at once, such as
 /// the programs that listen on a port. The palette shows them in place of
 /// its results; typing filters them, Enter picks one, Esc goes back.
@@ -502,6 +552,9 @@ pub enum UiCommand {
         id: CommandId,
         details: Option<CommandDetails>,
     },
+    /// The state of every toggle command of an enabled plugin, read as the
+    /// palette opens and after a toggle ran from it.
+    ToggleStates(Vec<(CommandId, ToggleState)>),
     /// The answer to `HostRequest::OpenList`; None when the plugin is off.
     CommandList {
         id: CommandId,
@@ -735,6 +788,9 @@ pub struct PaletteEntry {
     pub quiet: bool,
     /// A pill after the label, such as "0.20.20 available".
     pub badge: Option<String>,
+    /// A toggle: the row shows its state, and Enter flips it with the
+    /// palette left open.
+    pub toggle: Option<ToggleLook>,
 }
 
 /// Everything the windows draw. Rebuilt whole after every change: a plugin's

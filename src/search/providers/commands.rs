@@ -161,6 +161,7 @@ mod tests {
             shortcut: String::new(),
             quiet: false,
             badge: None,
+            toggle: None,
         }
     }
 
