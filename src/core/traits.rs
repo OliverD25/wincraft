@@ -412,3 +412,6 @@ pub trait WinCraftPlugin {
 
     fn teardown(&mut self) {}
 }
+
+#[cfg(test)]
+mod tests;

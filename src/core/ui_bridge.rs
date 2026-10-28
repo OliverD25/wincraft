@@ -948,48 +948,4 @@ pub fn create() -> Bridge {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn group(key: &str) -> ArrangeGroup {
-        ArrangeGroup {
-            key: key.to_string(),
-            label: key.to_string(),
-            windows: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn auto_is_by_monitor_with_two_monitors_or_more() {
-        assert_eq!(ArrangeView::Auto.resolve(1), ArrangeView::Flat);
-        assert_eq!(ArrangeView::Auto.resolve(0), ArrangeView::Flat);
-        assert_eq!(ArrangeView::Auto.resolve(2), ArrangeView::ByMonitor);
-        assert_eq!(ArrangeView::Flat.resolve(3), ArrangeView::Flat);
-        assert_eq!(ArrangeView::ByMonitor.resolve(1), ArrangeView::ByMonitor);
-        for view in [ArrangeView::Auto, ArrangeView::ByMonitor, ArrangeView::Flat] {
-            assert_eq!(ArrangeView::from_setting(view.setting()), view);
-        }
-        assert_eq!(ArrangeView::from_setting("sideways"), ArrangeView::Auto);
-    }
-
-    #[test]
-    fn a_group_is_picked_by_place_or_by_key() {
-        let groups = [
-            group("Chrome.UserData.Profile3"),
-            group("Telegram.TelegramDesktop"),
-        ];
-        assert_eq!(ArrangeGroup::pick(&groups, "0"), Some(0));
-        assert_eq!(ArrangeGroup::pick(&groups, "1"), Some(1));
-        assert_eq!(ArrangeGroup::pick(&groups, "2"), None);
-        assert_eq!(
-            ArrangeGroup::pick(&groups, "telegram.telegramdesktop"),
-            Some(1)
-        );
-        assert_eq!(
-            ArrangeGroup::pick(&groups, " Chrome.UserData.Profile3 "),
-            Some(0)
-        );
-        assert_eq!(ArrangeGroup::pick(&groups, "Viber"), None);
-        assert_eq!(ArrangeGroup::pick(&[], "0"), None);
-    }
-}
+mod tests;

@@ -94,3 +94,6 @@ pub fn keycap(canvas: &mut Canvas, fonts: &Fonts, key: &str, at: (f32, f32), cap
     canvas.text(&[run], &fonts.list, 1.0);
     width
 }
+
+#[cfg(test)]
+mod tests;

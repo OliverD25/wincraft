@@ -181,3 +181,6 @@ fn copy_into(buffer: &mut [u16], text: &str) {
         *last = 0;
     }
 }
+
+#[cfg(test)]
+mod tests;
