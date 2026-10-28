@@ -433,6 +433,18 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
 - **Log with `log::info!`, `log::warn!`, `log::error!`.** They go to
   `%LOCALAPPDATA%\WinCraft\wincraft.log`. Use `log::debug!` for detail that
   only matters while debugging; it is off unless `WINCRAFT_DEBUG=1` is set.
+- **Write what a bug hunt needs to the detailed log.** The user's "Detailed
+  log" switch (`core::detailed`) records into
+  `%LOCALAPPDATA%\WinCraft\detailed\`, and also gets every `log` line,
+  debug lines included. A plugin writes a line with
+  `host::detailed(format_args!("deck: ..."))`, which formats nothing while
+  the log is off; gather anything costly only when `host::detailed_on()` is
+  true. Core code uses `crate::detailed!(...)`. A keyboard hook builds a
+  `host::DetailedKey` (or `core::detailed::KeyEvent`) only when the log is
+  on, after its decision, and never writes a file itself: the line goes to
+  the writer thread through a channel. Start a line with a short word for
+  its kind (`key`, `front`, `host`, `deck`, `palette`, `plugin`, `call`),
+  which `tools\detailed-log.ps1` sorts by.
 - **Use the shared Win32 helpers in `src/core/`** instead of writing another
   copy: `com` (the owned COM pointer), `windows_list` (the Alt+Tab window
   filter, window text, a process's program path), `desktop_manager` (which
@@ -503,6 +515,8 @@ it is a separate instance:
   `{"enabled": false}` for every plugin you are not testing: with no file, a
   plugin starts enabled with its defaults, and LayoutKeeper would then watch
   and restore your real windows.
+- **A test instance writes its detailed log to `detailed.<suffix>`** under
+  its data folder, never into `detailed`, so it cannot touch yours.
 - **A test instance is read-only towards real windows.** Its LayoutKeeper
   watches, saves into the scratch folder and WindowDeck shows the strip, but never
   restores, reorders taskbar buttons, moves, raises, switches to or closes a

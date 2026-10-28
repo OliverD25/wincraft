@@ -285,6 +285,8 @@ cache\                              the last plugin index fetched from GitHub
 wincraft.log                        what the program did in this run; an update adds to it
 wincraft.prev.log                   the log of the run before, kept at each new start
 install.log                         what the last --install or --uninstall did
+detailed\                           the detailed log, only while you have it on (see below)
+  detailed-<date>.log               up to 100 MB each, at most 5 files kept
 ```
 
 Splitting the files this way means resetting one plugin deletes one file, and a broken manual edit costs one plugin rather than your whole configuration. If WinCraft cannot read a file, it leaves your file untouched, runs on defaults, logs the reason, and never overwrites your work until you fix it.
@@ -343,6 +345,18 @@ Splitting the files this way means resetting one plugin deletes one file, and a 
 | `updates.download_ahead` | Mirrors "Download updates ahead": a new version is downloaded and checked in the background, never installed on its own. |
 | `updates.hidden_version` | The release hidden from the palette's "Update ready" row with `Ctrl+Del`; a newer release shows again. |
 | `tips.show` / `tips.state` | Controls the in-app tips (`"Show all tips again"` on General resets the state). |
+| `detailed_log` | Mirrors the "Detailed log" switch (off by default). It stays on after a restart and an update until you turn it off. |
+
+### Detailed log
+
+When a bug is hard to catch, turn on the **Detailed log**: in the palette (`Detailed log: Turn on`), on **Settings → General**, or with the tray menu's *Detailed log* item. It has no hotkey. While it is on, WinCraft records everything it does in `%LOCALAPPDATA%\WinCraft\detailed\`: every key its keyboard hooks see and what they decided, the Windows and digit keys while a Windows key is down, every change of the window in front, how long each step took, and what WindowDeck and the palette did. It also mirrors everything from `wincraft.log`, with the debug lines.
+
+You always see that it is on: WinCraft shows a notice when it turns on or off and at every start while it is on, the tray tooltip reads *WinCraft · detailed log on*, and the palette footer shows a small **LOG** tag.
+
+- **Detailed log: Mark this moment** asks for a few words and writes them with the time. Use it right after a bug happens, so the reader knows where to look.
+- **Detailed log: Delete the files** deletes every detailed log file (press `Enter` twice).
+
+The detailed log only reads: it never moves a window, presses a key or changes a setting.
 
 ### `plugins/<id>.json`
 
@@ -372,7 +386,7 @@ WinCraft fills in every missing key on startup: start it once, then open the fil
 | `--restarted` / `--updated-from <v>` / `--update-failed <v>` | Used by Windows and WinCraft's self-updater across restarts and rollbacks. |
 | `--write-plugin-index` | Regenerates `plugins.json` (for contributors). |
 
-*(Tip: Set `WINCRAFT_DEBUG=1` for a more detailed log, or `WINCRAFT_INSTANCE=<suffix>` to run a separate test instance with its own `WinCraft.<suffix>` logon task.)*
+*(Tip: Turn on the [Detailed log](#detailed-log) or set `WINCRAFT_DEBUG=1` for more detail in the log, or `WINCRAFT_INSTANCE=<suffix>` to run a separate test instance with its own `WinCraft.<suffix>` logon task.)*
 
 ---
 
@@ -400,6 +414,8 @@ WinCraft sends nothing about you anywhere: **no telemetry, no account, no analyt
 4. **Search & Ask AI:** Opens your default browser at the search or AI site you chose, only when you press `Enter`.
 
 Your settings, layouts and palette history stay in `%LOCALAPPDATA%\WinCraft` on your PC.
+
+The **Detailed log** (off by default) records much more while you have it on: window titles, program names, the keys WinCraft's hooks see, and the text you type in the palette. It is written only to `%LOCALAPPDATA%\WinCraft\detailed\` on your PC and is never sent anywhere. **Detailed log: Delete the files** removes it.
 
 ### Code Signing Policy
 
