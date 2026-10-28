@@ -164,10 +164,12 @@ impl Default for Config {
     }
 }
 
-/// The update check. Nothing is downloaded until the user clicks Update now.
+/// The update check. Nothing is installed until the user clicks Update now.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdateConfig {
-    /// Whether GitHub is asked once a day for a newer release.
+    /// Whether GitHub is asked on its own for a newer release: every hour,
+    /// after a wake and when the palette opens. The key keeps its old name
+    /// so older config files still load.
     #[serde(default = "enabled_by_default")]
     pub check_daily: bool,
     /// When GitHub last answered, in seconds since 1970; 0 for never.

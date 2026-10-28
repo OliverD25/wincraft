@@ -1,6 +1,7 @@
-//! Updates from GitHub releases. WinCraft asks once a day whether a newer
-//! release exists and says so; nothing is downloaded until the user clicks
-//! Update now.
+//! Updates from GitHub releases. WinCraft asks every hour (and after a wake,
+//! and when the palette opens after a quiet while; see `update_timing`)
+//! whether a newer release exists and says so. Nothing is installed until
+//! the user clicks Update now.
 //!
 //! Update now downloads `wincraft.exe` and `SHA256SUMS.txt` from the
 //! release, checks the checksum, and swaps the files: Windows lets a running
@@ -26,8 +27,6 @@ use windows_sys::Win32::System::Threading::{
 use crate::core::install::{self, EXE_NAME};
 use crate::core::{config, instance, logging, package, release_notes, sha256, wide};
 use crate::store::github::{self, Release};
-
-pub const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 
 pub const EXE_ASSET: &str = "wincraft.exe";
 pub const SUMS_ASSET: &str = "SHA256SUMS.txt";
@@ -98,12 +97,6 @@ pub const HEALTHY_AFTER: Duration = Duration::from_secs(30);
 /// slow start on a busy PC.
 pub const HANDOVER_WAIT: Duration = Duration::from_secs(60);
 const HEALTHY_EVENT: &str = r"Local\WinCraft.Healthy";
-
-/// Whether the daily check should ask GitHub now. A clock that went back
-/// since the last check counts as due, or the check would stop for as long.
-pub fn check_due(now: u64, last: u64, daily: bool) -> bool {
-    daily && (last == 0 || now < last || now - last >= CHECK_EVERY.as_secs())
-}
 
 pub fn now_secs() -> u64 {
     SystemTime::now()
@@ -697,21 +690,6 @@ mod tests {
     use std::cell::RefCell;
     use std::collections::{BTreeMap, BTreeSet, VecDeque};
     use std::rc::Rc;
-
-    const DAY: u64 = 24 * 60 * 60;
-
-    #[test]
-    fn the_check_is_due_once_a_day_and_never_when_switched_off() {
-        let now = 1_800_000_000;
-        assert!(check_due(now, 0, true), "never checked");
-        assert!(!check_due(now, now - 60, true));
-        assert!(!check_due(now, now - DAY + 1, true));
-        assert!(check_due(now, now - DAY, true));
-        assert!(check_due(now, now - 3 * DAY, true));
-        assert!(check_due(now, now + 3600, true), "the clock went back");
-        assert!(!check_due(now, 0, false));
-        assert!(!check_due(now, now - 3 * DAY, false));
-    }
 
     fn release(tag: &str) -> Release {
         Release {
@@ -1485,13 +1463,7 @@ mod tests {
     }
 
     #[test]
-    fn the_daily_check_is_due_after_a_day_or_when_the_clock_went_back() {
-        let day = CHECK_EVERY.as_secs();
-        assert!(!check_due(1_000_000, 0, false));
-        assert!(check_due(1_000_000, 0, true), "never checked");
-        assert!(!check_due(1_000_000 + day - 1, 1_000_000, true));
-        assert!(check_due(1_000_000 + day, 1_000_000, true));
-        assert!(check_due(500, 1_000_000, true), "the clock went back");
+    fn now_is_after_2023() {
         assert!(now_secs() > 1_700_000_000);
     }
 }

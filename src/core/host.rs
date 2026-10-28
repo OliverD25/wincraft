@@ -22,9 +22,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetMessageW, GetWindowThreadProcessId, KillTimer, PostMessageW,
     PostQuitMessage, RegisterClassW, RegisterShellHookWindow, RegisterWindowMessageW,
     SetForegroundWindow, SetTimer, TranslateMessage, ENDSESSION_CLOSEAPP, ENDSESSION_CRITICAL,
-    ENDSESSION_LOGOFF, MSG, SPI_SETHIGHCONTRAST, SW_SHOWNORMAL, WM_APP, WM_CONTEXTMENU, WM_DESTROY,
-    WM_DISPLAYCHANGE, WM_ENDSESSION, WM_HOTKEY, WM_LBUTTONUP, WM_POWERBROADCAST,
-    WM_QUERYENDSESSION, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
+    ENDSESSION_LOGOFF, MSG, PBT_APMRESUMEAUTOMATIC, SPI_SETHIGHCONTRAST, SW_SHOWNORMAL, WM_APP,
+    WM_CONTEXTMENU, WM_DESTROY, WM_DISPLAYCHANGE, WM_ENDSESSION, WM_HOTKEY, WM_LBUTTONUP,
+    WM_POWERBROADCAST, WM_QUERYENDSESSION, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW,
+    WS_OVERLAPPED,
 };
 
 use serde_json::Value;
@@ -48,7 +49,7 @@ use crate::core::update::{self, Checked, Handover};
 use crate::core::update_notice::{self, UpdateNotice};
 use crate::core::{
     autostart, chord, config, hotkeys, install, instance, mask_key, release_notes, taskbar,
-    taskbar_number, theme, wide,
+    taskbar_number, theme, update_timing, wide,
 };
 use crate::search::{self, Router, SearchProvider};
 use crate::store::github::{self, Release};
@@ -111,10 +112,10 @@ const RETRY_LIMIT: usize = 64;
 const WM_APP_UPDATE: u32 = WM_APP + 22;
 /// The first update check waits a while after start, when the network may
 /// not be up yet and the other programs are starting too; then the timer
-/// comes round every hour and asks GitHub once a day.
+/// comes round every hour and asks GitHub each time.
 const UPDATE_TIMER: usize = 0x5743_0002;
 const FIRST_CHECK_MS: u32 = 2 * 60 * 1000;
-const CHECK_TIMER_MS: u32 = 60 * 60 * 1000;
+const CHECK_TIMER_MS: u32 = update_timing::CHECK_EVERY.as_millis() as u32;
 /// A version an update started tells the old one it is healthy when this
 /// fires.
 const HEALTHY_TIMER: usize = 0x5743_0003;
@@ -130,6 +131,8 @@ const REOPEN_TIMER: usize = 0x5743_0006;
 /// have settled for `BUTTONS_SETTLE_MS`.
 const BUTTONS_TIMER: usize = 0x5743_0007;
 const BUTTONS_SETTLE_MS: u32 = 400;
+/// Fires once, `update_timing::WAKE_DELAY` after the PC woke from sleep.
+const WAKE_TIMER: usize = 0x5743_0008;
 const WM_APP_NOTICE_CLICK: u32 = WM_APP + 23;
 /// Win+Alt+A, then a digit: the message the keyboard hook posts for a key it
 /// kept or for the end of the wait.

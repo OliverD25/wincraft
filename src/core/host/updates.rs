@@ -12,8 +12,10 @@ pub(super) enum UpdateEvent {
 pub(super) struct Updates {
     pub(super) checking: bool,
     /// The check running now was asked for in About, so its failure is
-    /// shown; a daily check stays silent when offline.
+    /// shown; an automatic check stays silent when offline.
     pub(super) manual: bool,
+    /// When the last check started, in unix seconds; 0 before the first.
+    pub(super) last_try: u64,
     pub(super) status: UpdateStatus,
     pub(super) newer: Option<Release>,
     /// Downloading or swapping; a second Update now waits for it.
@@ -47,6 +49,7 @@ impl Default for Updates {
         Self {
             checking: false,
             manual: false,
+            last_try: 0,
             status: UpdateStatus::Idle,
             newer: None,
             busy: false,
@@ -404,6 +407,7 @@ Nothing is downloaded."
             return;
         }
         self.updates.checking = true;
+        self.updates.last_try = update::now_secs();
         let tx = self.updates.tx.clone();
         let hwnd = self.hwnd as isize;
         let started = std::thread::Builder::new()
@@ -420,12 +424,41 @@ Nothing is downloaded."
         }
     }
 
-    /// The hourly timer: asks GitHub when a day has passed since it last
-    /// answered.
-    pub(super) fn daily_check(&mut self) {
+    /// The hourly timer: asks GitHub each time it comes round.
+    pub(super) fn timed_check(&mut self) {
         unsafe { SetTimer(self.hwnd, UPDATE_TIMER, CHECK_TIMER_MS, None) };
-        let updates = &self.config.updates;
-        if update::check_due(update::now_secs(), updates.last_check, updates.check_daily) {
+        self.automatic_check(update_timing::Trigger::Timer);
+    }
+
+    /// The PC woke from sleep: a check follows once the network is back.
+    pub(super) fn woke(&mut self) {
+        if update::automatic_checks_allowed() {
+            let delay = update_timing::WAKE_DELAY.as_millis() as u32;
+            unsafe { SetTimer(self.hwnd, WAKE_TIMER, delay, None) };
+        }
+    }
+
+    pub(super) fn wake_check(&mut self) {
+        unsafe { KillTimer(self.hwnd, WAKE_TIMER) };
+        self.automatic_check(update_timing::Trigger::Wake);
+    }
+
+    /// A check nobody clicked for, when the rules in `update_timing` say it
+    /// is due. A test instance asks only a fake releases API.
+    pub(super) fn automatic_check(&mut self, trigger: update_timing::Trigger) {
+        if !update::automatic_checks_allowed() {
+            return;
+        }
+        let last = self.updates.last_try.max(self.config.updates.last_check);
+        let due = update_timing::due(
+            trigger,
+            update::now_secs(),
+            last,
+            self.config.updates.check_daily,
+            self.updates.checking || self.updates.busy,
+        );
+        if due {
+            log::info!("update check ({trigger:?})");
             self.check_for_updates(false);
         }
     }

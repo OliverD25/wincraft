@@ -117,6 +117,7 @@ pub(super) fn message_name(msg: u32, wparam: WPARAM) -> String {
         WM_DESTROY => "WM_DESTROY".to_string(),
         WM_TIMER => match wparam {
             UPDATE_TIMER => "WM_TIMER (update check)".to_string(),
+            WAKE_TIMER => "WM_TIMER (update check after a wake)".to_string(),
             HEALTHY_TIMER => "WM_TIMER (healthy report)".to_string(),
             NOTICE_TIMER => "WM_TIMER (update notice)".to_string(),
             BADGE_TIMER => "WM_TIMER (taskbar number badges)".to_string(),
@@ -436,7 +437,11 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
             0
         }
         WM_TIMER if wparam == UPDATE_TIMER => {
-            with_host_or_later(hwnd, msg, wparam, lparam, |host| host.daily_check());
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| host.timed_check());
+            0
+        }
+        WM_TIMER if wparam == WAKE_TIMER => {
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| host.wake_check());
             0
         }
         WM_APP_WIN_DIGIT => {
@@ -521,6 +526,11 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
             0
         }
         WM_SETTINGCHANGE | WM_POWERBROADCAST | WM_TIMER => {
+            // Windows sends this one on every resume, with or without a
+            // key pressed; the check waits for the network.
+            if msg == WM_POWERBROADCAST && wparam == PBT_APMRESUMEAUTOMATIC as WPARAM {
+                with_host(|host| host.woke());
+            }
             if msg == WM_SETTINGCHANGE
                 && (is_colour_change(lparam) || wparam == SPI_SETHIGHCONTRAST as WPARAM)
             {

@@ -64,11 +64,11 @@ The result is `target\release\wincraft.exe`.
 
 ## Self-Healing Updates
 
-WinCraft checks GitHub once a day for a newer release (and **About → Check for updates** checks immediately). When a new version arrives, you get a single tray notification, an **"Update to …"** item in the tray menu, and full release notes in the Updates block at the top of the About page. Nothing changes until you click **Update now** or run the palette command **Update WinCraft**.
+WinCraft checks GitHub for a newer release every hour, about 30 seconds after the PC wakes from sleep, and when you open the palette after 15 quiet minutes (and **About → Check for updates** checks immediately). A check that the palette starts shows its answer the next time you open the palette, so the list never changes while you look at it. When a new version arrives, you get a single tray notification, an **"Update to …"** item in the tray menu, and full release notes in the Updates block at the top of the About page. Nothing changes until you click **Update now** or run the palette command **Update WinCraft**.
 
 1. **Verified Download:** Downloads `wincraft.exe` and `SHA256SUMS.txt` from the release, verifies the checksum, swaps the executable in place, and restarts WinCraft. A 2-step progress bar in the Updates block shows how far it is. While it downloads, **Cancel** stops it, deletes the partial file, and keeps the version you have.
 2. **Automatic 30-Second Rollback:** If the new version does not run for 30 seconds without crashing, WinCraft ends it, restores your previous executable, restarts the old version, and tells you: *"Update to … failed, kept …"*.
-3. **Full Control:** Only an `--install`ed copy updates itself (portable copies ask you to run `--install` first). Toggle **"Check for updates daily"** on the About page anytime.
+3. **Full Control:** Only an `--install`ed copy updates itself (portable copies ask you to run `--install` first). Toggle **"Check for updates automatically"** on the About page anytime.
 
 ---
 
@@ -335,7 +335,7 @@ Splitting the files this way means resetting one plugin deletes one file, and a 
 | `search.ask_ai_custom` | Custom URL with a `{query}` placeholder. |
 | `search.everything` | Whether files and folders are searched in the blended list and after `.`. |
 | `search.file_search_fallback` | Whether the Windows Search index answers file searches when Everything is not running. |
-| `updates.check_daily` | Whether GitHub is asked once a day for a newer release. |
+| `updates.check_daily` | Whether GitHub is asked on its own for a newer release: every hour, after a wake, and when the palette opens (the key keeps its old name). |
 | `updates.last_check` / `latest` | Time and tag of the last update check (written by WinCraft). |
 | `tips.show` / `tips.state` | Controls the in-app tips (`"Show all tips again"` on General resets the state). |
 
@@ -389,7 +389,7 @@ Everyone follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 WinCraft sends nothing about you anywhere: **no telemetry, no account, no analytics**. It touches the network only in these four cases:
 
-1. **Daily update check:** Asks `api.github.com/repos/OliverD25/wincraft` for the latest release (can be switched off in **Settings → About**).
+1. **Update check:** Asks `api.github.com/repos/OliverD25/wincraft` for the latest release, at most every hour and after a wake or a palette opening that comes 15 minutes after the last check (can be switched off in **Settings → About**).
 2. **Update now:** Downloads `wincraft.exe` and `SHA256SUMS.txt` from this repository's releases only when you start an update.
 3. **Plugin Store:** Reads the plugin list from this repository when you open the Plugin Store page.
 4. **Search & Ask AI:** Opens your default browser at the search or AI site you chose, only when you press `Enter`.

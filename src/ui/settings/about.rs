@@ -56,8 +56,8 @@ pub fn show(
             settings_row(
                 ui,
                 "check-daily",
-                RowText::new("Check for updates daily").desc(
-                    "Only tells you. Nothing changes until you click Update now.",
+                RowText::new("Check for updates automatically").desc(
+                    "Asks GitHub every hour and tells you. Nothing installs until you click Update now.",
                     tokens.text_secondary,
                 ),
                 false,

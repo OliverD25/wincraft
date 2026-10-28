@@ -122,6 +122,14 @@ impl Host {
         states
     }
 
+    /// After the palette was told to show: the toggles' state, and an update
+    /// check when the last one is old. Its answer shows from the next
+    /// opening, since the palette keeps what it saw when it opened.
+    pub(super) fn palette_opened(&mut self) {
+        self.send_toggle_states();
+        self.automatic_check(update_timing::Trigger::PaletteOpen);
+    }
+
     /// Sends the toggles' state to the palette. Called after the palette
     /// was told to show, so reading does not hold up its first frame.
     pub(super) fn send_toggle_states(&mut self) {
@@ -178,7 +186,7 @@ impl Host {
         self.to_ui
             .send(UiCommand::TypeInPalette(format!("!{label}")));
         bring_to_front(self.palette_hwnd);
-        self.send_toggle_states();
+        self.palette_opened();
     }
 
     pub(super) fn handle_request(&mut self, request: HostRequest) {
@@ -346,7 +354,7 @@ impl Host {
             HostSetting::Tips(tips) => self.config.tips = tips,
             HostSetting::CheckUpdatesDaily(on) => {
                 self.config.updates.check_daily = on;
-                log::info!("check for updates daily: {on}");
+                log::info!("check for updates automatically: {on}");
             }
             HostSetting::Theme(name) => {
                 self.config.theme = name;

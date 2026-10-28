@@ -1,7 +1,7 @@
 //! The release notes of the installed version, kept in `release_notes.json`
 //! so About can show "what is new" after an update without asking GitHub
 //! again. Whoever fetches a release that turns out to be the installed one
-//! (the update that installed it, the daily check, or the new version
+//! (the update that installed it, the update check, or the new version
 //! itself right after an update) writes it here.
 
 use std::path::{Path, PathBuf};
