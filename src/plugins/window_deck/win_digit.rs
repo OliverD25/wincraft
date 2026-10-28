@@ -193,6 +193,14 @@ fn modifiers_now() -> u32 {
     modifiers
 }
 
+/// While Win+digit after another Win+digit is looked into: the Windows
+/// keys, and digits while a Windows key is down.
+fn worth_logging(vk: u32, modifiers: u32, win: bool) -> bool {
+    let win_key = vk == u32::from(VK_LWIN) || vk == u32::from(VK_RWIN);
+    let digit = taskbar_number::digit_of(vk).is_some();
+    win_key || (digit && (win || modifiers & MOD_WIN != 0))
+}
+
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code < 0 {
         return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
@@ -205,8 +213,16 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         let ours = mask_key::is_ours(info.dwExtraInfo);
         RULE.with(|cell| match cell.try_borrow_mut() {
             Ok(mut rule) => {
-                let step = rule.step(info.vkCode, is_down, modifiers_now(), ours);
+                let modifiers = modifiers_now();
+                let step = rule.step(info.vkCode, is_down, modifiers, ours);
                 TOOK.store(rule.took(), Ordering::Relaxed);
+                if worth_logging(info.vkCode, modifiers, rule.win) {
+                    log::info!(
+                        "win-number hook: key {:#04x} {} (modifiers {modifiers:#x}, ours {ours}): {step:?}",
+                        info.vkCode,
+                        if is_down { "down" } else { "up" },
+                    );
+                }
                 step
             }
             Err(_) => Step::Pass,
