@@ -262,6 +262,7 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
     if code < 0 {
         return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
     }
+    let began = std::time::Instant::now();
     let info = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
     let event = wparam as u32;
     let down = event == WM_KEYDOWN || event == WM_SYSKEYDOWN;
@@ -291,6 +292,23 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
     // Sent after the borrow ends: the mask comes back through this hook.
     if mask {
         mask_key::send("capture box");
+    }
+    if crate::core::detailed::on() {
+        let decision = match (hide, mask) {
+            (true, true) => "Hide, mask sent",
+            (true, false) => "Hide",
+            _ => "Pass",
+        };
+        crate::core::detailed::KeyEvent {
+            hook: "hotkey capture",
+            vk,
+            message: event,
+            flags: info.flags,
+            extra: info.dwExtraInfo,
+            lag_ms: crate::core::detailed::lag_ms(info.time),
+            took_ms: began.elapsed().as_secs_f64() * 1000.0,
+        }
+        .write(&decision);
     }
     if hide {
         return 1;

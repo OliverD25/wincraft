@@ -270,7 +270,8 @@ fn modifiers_now() -> u32 {
 /// Only at the debug level: the lines found the 2026-10-28 fault
 /// (`core::raw_input`) and are too many for the everyday log.
 fn worth_logging(vk: u32, modifiers: u32, win: bool) -> bool {
-    if !log::log_enabled!(log::Level::Debug) {
+    // The detailed log has a line for every key, written below.
+    if host::detailed_on() || !log::log_enabled!(log::Level::Debug) {
         return false;
     }
     let win_key = vk == u32::from(VK_LWIN) || vk == u32::from(VK_RWIN);
@@ -352,6 +353,18 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         }
     };
     let took = began.elapsed().as_secs_f64() * 1000.0;
+    if host::detailed_on() {
+        host::DetailedKey {
+            hook: "win-number",
+            vk: info.vkCode,
+            message: event,
+            flags: info.flags,
+            extra: info.dwExtraInfo,
+            lag_ms: lag,
+            took_ms: took,
+        }
+        .write(&step);
+    }
     let line = line.or_else(|| {
         (took >= SLOW_MS || f64::from(lag) >= SLOW_MS).then(|| {
             (

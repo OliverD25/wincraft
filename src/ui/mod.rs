@@ -15,12 +15,12 @@ use std::sync::Arc;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use crate::core::open_timing::{self, OpenStep};
-use crate::core::raw_input;
 use crate::core::theme;
 use crate::core::traits::{PluginWindow, WindowFrame};
 use crate::core::ui_bridge::{
     HostChannel, HostRequest, MonitorRect, UiChannel, UiCommand, UiSnapshot,
 };
+use crate::core::{detailed, raw_input};
 use crate::search::Router;
 use crate::ui::arrange::Arrange;
 use crate::ui::palette::{Outcome, Palette};
@@ -455,12 +455,36 @@ impl App {
     }
 }
 
+thread_local! {
+    /// When this frame's `logic` began, while the detailed log is on.
+    static FRAME_BEGAN: std::cell::Cell<Option<std::time::Instant>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// A frame slower than this gets a line in the detailed log.
+const SLOW_FRAME_MS: f64 = 33.0;
+
+/// Writes a slow frame to the detailed log when `ui` ends, however it ends.
+struct FrameEnd;
+
+impl Drop for FrameEnd {
+    fn drop(&mut self) {
+        if let Some(began) = FRAME_BEGAN.with(|began| began.take()) {
+            let ms = began.elapsed().as_secs_f64() * 1000.0;
+            if let Some(line) = detailed::slow_line("ui frame", ms, SLOW_FRAME_MS) {
+                detailed::write(line);
+            }
+        }
+    }
+}
+
 impl eframe::App for App {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         [0.0, 0.0, 0.0, 0.0]
     }
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        FRAME_BEGAN.with(|began| began.set(detailed::on().then(std::time::Instant::now)));
         raw_input::keep_hooks_working();
         self.drain(ctx);
         // Stroke widths are snapped to physical pixels when the theme is
@@ -499,6 +523,7 @@ impl eframe::App for App {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let _frame_end = FrameEnd;
         let ctx = ui.ctx().clone();
 
         // eframe shows the root window after its first painted frame, to avoid

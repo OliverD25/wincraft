@@ -302,6 +302,7 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
     if code < 0 {
         return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
     }
+    let began = Instant::now();
     let info = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
     let event = wparam as u32;
     let is_down = event == WM_KEYDOWN || event == WM_SYSKEYDOWN;
@@ -321,6 +322,18 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
     } else {
         Step::Pass
     };
+    if crate::core::detailed::on() {
+        crate::core::detailed::KeyEvent {
+            hook: "chord",
+            vk: info.vkCode,
+            message: event,
+            flags: info.flags,
+            extra: info.dwExtraInfo,
+            lag_ms: crate::core::detailed::lag_ms(info.time),
+            took_ms: began.elapsed().as_secs_f64() * 1000.0,
+        }
+        .write(&step);
+    }
     // The owner takes the hook out after `End`; doing it here, inside the
     // hook's own call, is not allowed.
     match step {

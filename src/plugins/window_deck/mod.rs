@@ -414,6 +414,7 @@ impl WinCraftPlugin for WindowDeck {
 
     fn on_hotkey(&mut self, action_id: u32) {
         if action_id == ACTION_OPEN {
+            host::detailed(format_args!("deck: open asked from the hotkey"));
             host::arrange_hotkey();
         }
     }
@@ -427,7 +428,10 @@ impl WinCraftPlugin for WindowDeck {
 
     fn on_tray_action(&mut self, action_id: u32) {
         match action_id {
-            ACTION_OPEN => host::open_arrange(),
+            ACTION_OPEN => {
+                host::detailed(format_args!("deck: open asked from the tray"));
+                host::open_arrange()
+            }
             TRAY_HOVER_STRIP => self.toggle_hover(),
             _ => {}
         }
@@ -505,6 +509,9 @@ impl WinCraftPlugin for WindowDeck {
     }
 
     fn on_arrange_action(&mut self, action: &ArrangeAction) {
+        if host::detailed_on() {
+            host::detailed(format_args!("deck: action {action:?}"));
+        }
         if let ArrangeAction::NewWindow { group, hwnd } = action {
             self.start_new_window(group, *hwnd);
             return;

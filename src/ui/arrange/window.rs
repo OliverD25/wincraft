@@ -64,6 +64,12 @@ impl Arrange {
             let existed = settings::find_window(TITLE, self.palette_hwnd) != 0;
             open_timing::set_new_window(!existed);
         }
+        crate::detailed!(
+            "deck: open ({} groups, focus group {}, strip already on screen: {})",
+            snapshot.groups.len(),
+            snapshot.focus,
+            shared.window != 0
+        );
         // A strip already on screen takes the new data where it is.
         if shared.window == 0 && !shared.reveal.pending() {
             shared.reveal = reveal::Reveal::waiting(Instant::now());
@@ -161,6 +167,7 @@ impl Arrange {
     /// The strip was just opened for a taskbar button: pick the window with
     /// this number in its row and take the keyboard.
     pub fn select_place(&self, place: usize) {
+        crate::detailed!("deck: select card {place} and take the keyboard");
         if let Ok(mut shared) = self.shared.lock() {
             shared.select = Some(place);
             shared.wants_keyboard = true;
@@ -173,6 +180,7 @@ impl Arrange {
     /// Win and the same number came again: pick the next card on this
     /// desktop, round to the first after the last.
     pub fn select_next(&self) {
+        crate::detailed!("deck: select the next card");
         if let Ok(mut shared) = self.shared.lock() {
             shared.select_next = true;
         }
@@ -180,6 +188,7 @@ impl Arrange {
 
     /// The strip was just opened for the window in front: pick its card.
     pub fn select_window(&self, hwnd: isize) {
+        crate::detailed!("deck: select the card of window {hwnd:#x}");
         if let Ok(mut shared) = self.shared.lock() {
             shared.select_window = Some(hwnd);
         }
@@ -210,6 +219,7 @@ impl Arrange {
     /// window, which is kept for the next opening; runs on the UI thread,
     /// which owns them.
     pub fn hidden(&self) {
+        crate::detailed!("deck: hidden (window kept for the next opening)");
         if let Ok(mut shared) = self.shared.lock() {
             // Hidden, so Windows gives the keyboard back to the window the
             // user was in, as when the window was destroyed.
@@ -264,6 +274,9 @@ impl Arrange {
             let border = theme::colorref(Tokens::get(ctx).border);
             dwm_thumbs::round_corners(found as HWND, border);
             dwm_thumbs::cloak(found as HWND, true);
+            crate::detailed!(
+                "deck: reveal: window {found:#x} found, placed, cloak on, shown without activation"
+            );
             shared.reveal_window = found;
             // Shown here, not through winit, which activates a window it
             // shows a second time: a hover strip must leave the keyboard
@@ -276,6 +289,7 @@ impl Arrange {
         if shared.reveal.overdue(now) {
             if cloaked && shared.reveal_window != 0 {
                 dwm_thumbs::cloak(shared.reveal_window as HWND, false);
+                crate::detailed!("deck: reveal: cloak off (overdue)");
                 log::warn!(
                     "the arrange strip was shown before it had drawn itself in place ({} ms)",
                     reveal::LONGEST.as_millis()
@@ -357,6 +371,7 @@ impl Arrange {
             }
             if shared.reveal.frame(placed, Instant::now()) && shared.reveal_window != 0 {
                 dwm_thumbs::cloak(shared.reveal_window as HWND, false);
+                crate::detailed!("deck: reveal: cloak off, drawn in place (placed {placed})");
             }
             if shared.reveal.pending() {
                 ui.ctx().request_repaint();
@@ -371,6 +386,7 @@ impl Arrange {
                 }
                 // A cloaked window is not brought to the front.
                 if std::mem::take(&mut shared.focus_wanted) {
+                    crate::detailed!("deck: focus wanted for {:#x}", shared.window);
                     shared.to_host.send(HostRequest::FocusWindow(shared.window));
                 }
             }
@@ -378,6 +394,12 @@ impl Arrange {
             let (escape, focused) = ui
                 .ctx()
                 .input(|i| (i.key_pressed(egui::Key::Escape), i.viewport().focused));
+            if focused == Some(true) && !shared.focused_once {
+                crate::detailed!("deck: focus got");
+            }
+            if focused == Some(false) && shared.focused_once && shared.focus_lost_at.is_none() {
+                crate::detailed!("deck: focus lost to {:?}", focus_loss::front_window());
+            }
             if focused == Some(true) {
                 shared.focused_once = true;
                 shared.focus_lost_at = None;
