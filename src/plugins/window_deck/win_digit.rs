@@ -16,9 +16,11 @@
 
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{mpsc, Mutex, PoisonError};
+use std::time::Instant;
 
 use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::System::SystemInformation::GetTickCount64;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, VK_CONTROL, VK_LWIN, VK_MENU,
     VK_RWIN, VK_SHIFT,
@@ -145,6 +147,65 @@ pub fn took_digit_this_press() -> bool {
 /// The hook's thread, while the hook is in.
 static WORKER: Mutex<Option<HookThread>> = Mutex::new(None);
 
+/// Work the hook hands off, so its callback only decides and returns.
+/// Windows waits for the callback and skips the hook when it is late, and
+/// a skipped Win+digit goes to Windows, which switches to the app instead.
+enum Job {
+    /// The mask key, after a taken digit.
+    Mask,
+    Log(String),
+    #[cfg(test)]
+    Ping(mpsc::Sender<()>),
+}
+
+static JOBS: Mutex<Option<mpsc::Sender<Job>>> = Mutex::new(None);
+static SIDE: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
+
+fn lock<T>(cell: &'static Mutex<T>) -> std::sync::MutexGuard<'static, T> {
+    cell.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn start_side_work() {
+    let (jobs, inbox) = mpsc::channel::<Job>();
+    let thread = std::thread::Builder::new()
+        .name("win-number side work".to_string())
+        .spawn(move || {
+            for job in inbox {
+                match job {
+                    Job::Mask => mask_key::send("WindowDeck"),
+                    Job::Log(line) => log::info!("{line}"),
+                    #[cfg(test)]
+                    Job::Ping(back) => {
+                        let _ = back.send(());
+                    }
+                }
+            }
+        });
+    match thread {
+        Ok(thread) => {
+            *lock(&JOBS) = Some(jobs);
+            *lock(&SIDE) = Some(thread);
+        }
+        Err(err) => log::warn!("win-number hook: no side thread ({err}); it works inline"),
+    }
+}
+
+/// Ends the side thread once its queue is empty.
+fn stop_side_work() {
+    lock(&JOBS).take();
+    if let Some(thread) = lock(&SIDE).take() {
+        let _ = thread.join();
+    }
+}
+
+/// Hands `job` to the side thread; false when there is none.
+fn hand_off(job: Job) -> bool {
+    match lock(&JOBS).as_ref() {
+        Some(jobs) => jobs.send(job).is_ok(),
+        None => false,
+    }
+}
+
 thread_local! {
     /// Only the hook's own thread uses it.
     static RULE: RefCell<Rule> = RefCell::new(Rule::default());
@@ -161,15 +222,20 @@ pub fn start() -> bool {
     let mut worker = worker();
     if worker.is_none() {
         *worker = HookThread::start("win-number hook", vec![(WH_KEYBOARD_LL, Some(hook_proc))]);
+        if worker.is_some() {
+            start_side_work();
+        }
     }
     worker.is_some()
 }
 
-/// Takes the hook out, if it is in, and ends its thread.
+/// Takes the hook out, if it is in, and ends its thread and the side
+/// thread.
 pub fn stop() {
     let thread = worker().take();
     if let Some(thread) = thread {
         thread.stop();
+        stop_side_work();
     }
 }
 
@@ -210,40 +276,46 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
     if code < 0 {
         return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
     }
+    let began = Instant::now();
     let info = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
+    // How long the key waited before Windows called this hook: a long wait
+    // means the hook was late before, and Windows may have skipped it.
+    let lag = (unsafe { GetTickCount64() } as u32).wrapping_sub(info.time);
     let event = wparam as u32;
     let is_down = event == WM_KEYDOWN || event == WM_SYSKEYDOWN;
     let is_up = event == WM_KEYUP || event == WM_SYSKEYUP;
-    let step = if is_down || is_up {
+    let (step, line) = if is_down || is_up {
         let ours = mask_key::is_ours(info.dwExtraInfo);
         RULE.with(|cell| match cell.try_borrow_mut() {
             Ok(mut rule) => {
                 let modifiers = modifiers_now();
                 let step = rule.step(info.vkCode, is_down, modifiers, ours);
                 TOOK.store(rule.took(), Ordering::Relaxed);
-                if worth_logging(info.vkCode, modifiers, rule.win) {
-                    log::info!(
-                        "win-number hook: key {:#04x} {} (modifiers {modifiers:#x}, ours {ours}, flags {:#x}, extra {:#x}): {step:?}",
+                let line = worth_logging(info.vkCode, modifiers, rule.win).then(|| {
+                    format!(
+                        "win-number hook: key {:#04x} {} (modifiers {modifiers:#x}, ours {ours}, flags {:#x}, extra {:#x}, waited {lag} ms): {step:?}",
                         info.vkCode,
                         if is_down { "down" } else { "up" },
                         info.flags,
                         info.dwExtraInfo,
-                    );
-                }
-                step
+                    )
+                });
+                (step, line)
             }
-            Err(_) => Step::Pass,
+            Err(_) => (Step::Pass, None),
         })
     } else {
-        Step::Pass
+        (Step::Pass, None)
     };
-    match step {
+    let result = match step {
         Step::Pass => unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) },
         Step::Hide => 1,
         Step::Take { digit, again } => {
-            // After the borrow: the mask comes back through this hook.
             open_timing::key_seen();
-            mask_key::send("WindowDeck");
+            if !hand_off(Job::Mask) {
+                // After the borrow: the mask comes back through this hook.
+                mask_key::send("WindowDeck");
+            }
             host::post_taskbar_button(digit, again);
             1
         }
@@ -257,7 +329,17 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
             host::post_win_released(alone);
             unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
         }
+    };
+    if let Some(mut line) = line {
+        line.push_str(&format!(
+            ", took {:.2} ms",
+            began.elapsed().as_secs_f64() * 1000.0
+        ));
+        if !hand_off(Job::Log(line.clone())) {
+            log::info!("{line}");
+        }
     }
+    result
 }
 
 #[cfg(test)]
@@ -303,6 +385,19 @@ mod tests {
             },
             "0 is button 10"
         );
+    }
+
+    #[test]
+    fn the_side_thread_runs_the_handed_off_work_and_ends_on_stop() {
+        start_side_work();
+        let (back, heard) = mpsc::channel();
+        assert!(hand_off(Job::Ping(back)));
+        assert!(heard
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .is_ok());
+        stop_side_work();
+        let (back, _heard) = mpsc::channel();
+        assert!(!hand_off(Job::Ping(back)), "nothing to hand off to");
     }
 
     #[test]
