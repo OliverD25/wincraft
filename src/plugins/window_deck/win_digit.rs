@@ -77,12 +77,17 @@ impl Rule {
         if vk == u32::from(VK_LWIN) || vk == u32::from(VK_RWIN) {
             if down {
                 // A held key repeats its down; only the first one counts.
-                if self.win {
+                // The key state still shows Win down for a repeat, and up
+                // for a new press, so a press after a release this hook
+                // never saw (another program's hook kept it) starts afresh.
+                if self.win && modifiers & MOD_WIN != 0 {
                     return Step::Pass;
                 }
                 self.win = true;
                 self.alone = true;
                 self.took = false;
+                self.last = None;
+                self.held.clear();
                 return Step::WinDown;
             }
             self.last = None;
@@ -218,9 +223,11 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
                 TOOK.store(rule.took(), Ordering::Relaxed);
                 if worth_logging(info.vkCode, modifiers, rule.win) {
                     log::info!(
-                        "win-number hook: key {:#04x} {} (modifiers {modifiers:#x}, ours {ours}): {step:?}",
+                        "win-number hook: key {:#04x} {} (modifiers {modifiers:#x}, ours {ours}, flags {:#x}, extra {:#x}): {step:?}",
                         info.vkCode,
                         if is_down { "down" } else { "up" },
+                        info.flags,
+                        info.dwExtraInfo,
                     );
                 }
                 step
@@ -296,6 +303,35 @@ mod tests {
             },
             "0 is button 10"
         );
+    }
+
+    #[test]
+    fn a_win_press_after_a_release_the_hook_never_saw_starts_afresh() {
+        // Reported 2026-10-28: another program's hook kept the Win release,
+        // so the next Win+1 was taken for a key repeat of a held digit and
+        // hidden, and WindowDeck did not open.
+        let mut rule = Rule::default();
+        assert_eq!(rule.step(WIN, true, 0, false), Step::WinDown);
+        assert_eq!(
+            rule.step(ONE, true, MOD_WIN, false),
+            Step::Take {
+                digit: 1,
+                again: false
+            }
+        );
+        // No release of 1 and no release of Win: the next press comes with
+        // the key state showing Win up.
+        assert_eq!(rule.step(WIN, true, 0, false), Step::WinDown);
+        assert_eq!(
+            rule.step(ONE, true, MOD_WIN, false),
+            Step::Take {
+                digit: 1,
+                again: false
+            },
+            "not a repeat, not again"
+        );
+        // A real key repeat of Win, with the key state showing it down.
+        assert_eq!(rule.step(WIN, true, MOD_WIN, false), Step::Pass);
     }
 
     #[test]

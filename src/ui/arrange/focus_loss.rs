@@ -82,10 +82,7 @@ pub fn verdict(lost_for: Duration, win: WinKeys, shell_in_front: bool, took_back
         }
     }
     let just_after = since_up.is_some_and(|up| up < SHELL_AFTER_WIN);
-    if win.took_digit && just_after {
-        return Verdict::TakeBack;
-    }
-    if shell_in_front && !took_back && just_after {
+    if (win.took_digit || shell_in_front) && !took_back && just_after {
         return Verdict::TakeBack;
     }
     match WAIT.checked_sub(lost_for) {
@@ -255,11 +252,10 @@ mod tests {
             took_digit: true,
         };
         assert_eq!(verdict(WAIT, after, false, false), Verdict::TakeBack);
-        assert_eq!(
-            verdict(WAIT, after, false, true),
-            Verdict::TakeBack,
-            "again, while it is that soon"
-        );
+        // Once only: a second loss means the keyboard is wanted elsewhere,
+        // and taking it back again and again fought with Windows (seen in
+        // the 0.20.50 log, once a second).
+        assert_eq!(verdict(WAIT, after, false, true), Verdict::Close);
         let later = WinKeys {
             since_down: Some(SHELL_AFTER_WIN.as_millis() as u64 + 200),
             since_up: Some(SHELL_AFTER_WIN.as_millis() as u64),
