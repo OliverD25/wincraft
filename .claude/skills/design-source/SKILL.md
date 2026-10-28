@@ -71,6 +71,7 @@ rule, and send the user a prompt so the design page is fixed too.
 | Plugin tiles (1a) | Tile shows "4.1k users" above 100 users | No user count: WinCraft has no user data and collects none (Principle 5). Store "Get update" kept for plugins that need a newer WinCraft. | 2026-10-26 |
 | Arrange strip name and keys | "Arrange strip", part of LayoutKeeper; digit in the strip jumps to taskbar button N; badges show at once after Win+Alt+A | Own plugin **WindowDeck**. In the strip a digit opens card N; Ctrl+digit jumps to taskbar button N. Badges appear only after 700 ms without a digit. Optional switch: Win+1…9 opens WindowDeck (off by default). | 2026-10-26 |
 | WindowDeck keys | (not designed) | Ctrl+W closes the selected window, Ctrl+N opens a new window of the app, F2 renames the selected window on its card (Enter saves, Esc or a click elsewhere cancels; saved as WindowNamer's name). Hover counts only after the mouse moves; hover and keys share one selection. | 2026-10-27 |
+| Palette glass (Fluent) | Acrylic at 66 % (dark) / 68 % (light) over the desktop | 88 % solid in both: windows behind the palette barely show, so its colour stays even. | 2026-10-28 |
 | Artboard desks | Windows drawn on a coloured desk with padding | The desk is background only: no outer frame, margin or extra glass around any window. | 2026-10-26 |
 
 ## Pulls so far

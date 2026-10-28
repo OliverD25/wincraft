@@ -484,7 +484,11 @@ impl Tokens {
             pill_radius: 2,
             search_line: 2.0,
             icon_tiles: true,
-            glass_alpha: if dark { 0.66 } else { 0.68 },
+            // 88 % solid, not the design's 66 %: through thinner glass the
+            // windows behind the palette showed as lighter and darker
+            // patches, so its colour changed with the screen (the user's
+            // decision of 2026-10-28).
+            glass_alpha: 0.88,
             ..Self::painted(ThemeName::Fluent, dark, colours)
         }
     }
