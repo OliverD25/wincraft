@@ -232,6 +232,8 @@ pub(super) fn flat(
                                         .as_ref()
                                         .is_some_and(|edit| edit.hwnd == window.hwnd);
                                     let motion = shared.motion(window.hwnd);
+                                    let waiting = shared.waiting_note(window.hwnd);
+                                    let animate = shared.animate;
                                     let (response, picture, rename, clear) = card(
                                         ui,
                                         widths[member],
@@ -245,6 +247,9 @@ pub(super) fn flat(
                                             leaving,
                                             motion,
                                             awake: shared.pointer.moved(),
+                                            slides: &mut shared.slides,
+                                            animate,
+                                            waiting,
                                             edit: shared
                                                 .rename
                                                 .as_mut()

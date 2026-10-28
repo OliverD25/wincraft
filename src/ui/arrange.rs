@@ -30,6 +30,7 @@ use crate::ui::widgets::{choice, focus, text};
 
 mod by_monitor;
 mod cards;
+mod closing;
 mod compact;
 mod flat;
 mod focus_loss;
@@ -45,6 +46,7 @@ mod reveal;
 mod routed;
 mod rows;
 mod sizing;
+mod slide;
 mod strip;
 mod window;
 pub use cards::*;
@@ -55,6 +57,7 @@ pub use motion::*;
 use pictures::*;
 pub use rows::*;
 pub use sizing::*;
+use slide::{Slides, CLOSE_TIME, CLOSE_WAIT};
 pub use strip::*;
 use window::*;
 
@@ -247,6 +250,16 @@ struct Shared {
     /// When each window that came while the strip was open appeared.
     appeared: HashMap<isize, Instant>,
     leaving: Vec<Leaving>,
+    /// Windows a click or Ctrl+W asked to close, and when. Their cards
+    /// shrink while the app answers.
+    closing: HashMap<isize, Instant>,
+    /// Windows still open after `CLOSE_WAIT`: their cards came back with a
+    /// note.
+    waiting: HashMap<isize, Waiting>,
+    /// Where cards were drawn, for the slide into a gap.
+    slides: Slides,
+    /// The user's Windows setting "Animation effects" is on.
+    animate: bool,
     /// The taskbar number of the window to pick once the strip has its
     /// group, for a strip opened by Win+Alt+A and a digit.
     select: Option<usize>,
@@ -296,48 +309,6 @@ impl Shared {
     fn hide_peek(&mut self) {
         self.peek.hide();
         self.hover = Hover::default();
-    }
-
-    /// A card's size and opacity now; see `card_motion`.
-    fn motion(&self, hwnd: isize) -> (f32, f32) {
-        let now = Instant::now();
-        card_motion(
-            self.appeared
-                .get(&hwnd)
-                .map(|at| now.saturating_duration_since(*at)),
-            self.leaving
-                .iter()
-                .find(|gone| gone.window.hwnd == hwnd)
-                .map(|gone| now.saturating_duration_since(gone.since)),
-        )
-    }
-
-    /// The window is gone and its card is fading out: it takes no clicks.
-    fn is_leaving(&self, hwnd: isize) -> bool {
-        self.leaving.iter().any(|gone| gone.window.hwnd == hwnd)
-    }
-
-    /// Ends the motions that are over, and the windows that have faded out.
-    fn settle_motion(&mut self) -> bool {
-        let now = Instant::now();
-        let over = |since: Instant| now.saturating_duration_since(since) >= CARD_MOTION;
-        let done: Vec<isize> = self
-            .leaving
-            .iter()
-            .filter(|gone| over(gone.since))
-            .map(|gone| gone.window.hwnd)
-            .collect();
-        if !done.is_empty() {
-            self.leaving
-                .retain(|gone| !done.contains(&gone.window.hwnd));
-            if let Some(snapshot) = self.snapshot.as_mut() {
-                for group in &mut snapshot.groups {
-                    group.windows.retain(|w| !done.contains(&w.hwnd));
-                }
-            }
-        }
-        self.appeared.retain(|_, at| !over(*at));
-        !self.leaving.is_empty() || !self.appeared.is_empty()
     }
 
     fn group(&self) -> Option<&ArrangeGroup> {
@@ -453,6 +424,13 @@ impl Shared {
         }
         Some(rect)
     }
+}
+
+/// A card whose window did not close when asked.
+struct Waiting {
+    since: Instant,
+    /// The app's name, for the note.
+    app: String,
 }
 
 /// The mouse way to see and order a program's windows: live pictures of all

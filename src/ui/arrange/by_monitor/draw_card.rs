@@ -13,6 +13,8 @@ impl Draw<'_> {
         let tokens = Tokens::get(ui.ctx());
         let window = &self.group.windows[member];
         let leaving = shared.is_leaving(window.hwnd);
+        let rect = shared.slid((window.hwnd, false), rect);
+        let waiting = shared.waiting_note(window.hwnd);
         let (scale, fade) = shared.motion(window.hwnd);
         let alpha = alpha * fade;
         let response = ui.interact(
@@ -61,13 +63,24 @@ impl Draw<'_> {
         );
         let picture = thumb.shrink(1.0);
         let mut badges = Vec::new();
+        if waiting.is_some() {
+            badges.push(Badge::Waiting);
+        }
         if window.same_title && !leaving {
             badges.push(Badge::SameTitle);
         }
         if moved(window, self.monitors) {
             badges.push(Badge::Moved);
         }
-        let shown = paint_badges(ui, &painter, response.id, thumb, &badges, self.can_rename);
+        let shown = paint_badges(
+            ui,
+            &painter,
+            response.id,
+            thumb,
+            &badges,
+            self.can_rename,
+            waiting.as_deref(),
+        );
         if shown.renamed {
             frame.actions.push(ArrangeAction::AskName(window.hwnd));
         }
@@ -163,6 +176,8 @@ impl Draw<'_> {
         else {
             return;
         };
+        let rect = shared.slid((window.hwnd, true), rect);
+        let alpha = alpha * shared.motion(window.hwnd).1;
         let left = self
             .monitors
             .iter()

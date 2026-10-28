@@ -9,8 +9,14 @@ pub fn motion_progress(elapsed: Duration) -> f32 {
 
 /// A card's size, as a part of its full size, and its opacity. A card whose
 /// window came while the strip was open grows from 90 % and fades in; a
-/// card whose window is gone fades out.
-pub fn card_motion(appeared: Option<Duration>, left: Option<Duration>) -> (f32, f32) {
+/// card whose window was asked to close (`left`, since the ask) shrinks to
+/// 85 % and fades out, and one whose window did not close (`back`, since it
+/// was seen to stay) grows back.
+pub fn card_motion(
+    appeared: Option<Duration>,
+    left: Option<Duration>,
+    back: Option<Duration>,
+) -> (f32, f32) {
     let (mut scale, mut fade) = (1.0, 1.0);
     if let Some(elapsed) = appeared {
         let progress = motion_progress(elapsed);
@@ -18,9 +24,27 @@ pub fn card_motion(appeared: Option<Duration>, left: Option<Duration>) -> (f32, 
         fade = progress;
     }
     if let Some(elapsed) = left {
-        fade *= 1.0 - motion_progress(elapsed);
+        let (shrink, gone) = slide::close_curve(elapsed);
+        scale *= shrink;
+        fade *= gone;
+    }
+    if let Some(elapsed) = back {
+        let (grow, here) = slide::regrow_curve(elapsed);
+        scale *= grow;
+        fade *= here;
     }
     (scale, fade)
+}
+
+/// How long a card has been shrinking: since its window left, else since
+/// the ask to close it. With the Windows setting "Animation effects" off a
+/// card that was only asked does not shrink.
+pub fn shrink_age(
+    gone: Option<Duration>,
+    asked: Option<Duration>,
+    animate: bool,
+) -> Option<Duration> {
+    gone.or(asked.filter(|_| animate))
 }
 
 /// The card ↑ (`down` false) or ↓ picks from window `from`: on the nearest

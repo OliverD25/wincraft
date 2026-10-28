@@ -80,6 +80,9 @@ pub(super) fn card(
         motion: (scale, fade),
         awake,
         edit,
+        slides,
+        animate,
+        waiting,
     } = info;
     let label = window.label.as_str();
     let monitor = window.monitor.as_deref();
@@ -90,7 +93,8 @@ pub(super) fn card(
     } else {
         Sense::click_and_drag()
     };
-    let (rect, response) = ui.allocate_exact_size(vec2(width, CARD_HEIGHT), sense);
+    let (placed, response) = ui.allocate_exact_size(vec2(width, CARD_HEIGHT), sense);
+    let rect = slides.place((window.hwnd, false), placed, Instant::now(), animate);
     let lit = !leaving && ((awake && response.hovered()) || is_cursor);
     let mut faded = ui.painter().clone();
     faded.multiply_opacity(fade);
@@ -114,6 +118,9 @@ pub(super) fn card(
         name_card(painter, picture, label, desktop);
     }
     let mut badge_list = Vec::new();
+    if waiting.is_some() {
+        badge_list.push(Badge::Waiting);
+    }
     if same_title.is_some() && !leaving {
         badge_list.push(Badge::SameTitle);
     }
@@ -124,6 +131,7 @@ pub(super) fn card(
         area,
         &badge_list,
         same_title.unwrap_or(false),
+        waiting.as_deref(),
     );
 
     let name_top = area.bottom() + CARD_INSET;
@@ -169,6 +177,12 @@ pub(super) struct CardInfo<'a> {
     pub(super) is_cursor: bool,
     /// The mouse has moved since the strip opened, so hover counts.
     pub(super) awake: bool,
+    /// Where cards were drawn: a card slides into a gap another left.
+    pub(super) slides: &'a mut Slides,
+    /// The user's Windows setting "Animation effects" is on.
+    pub(super) animate: bool,
+    /// "Waiting for <app>": the window did not close when asked.
+    pub(super) waiting: Option<String>,
 }
 
 /// The gap between the taskbar number and the name after it.
@@ -243,11 +257,13 @@ pub(super) fn paint_look(painter: &egui::Painter, rect: Rect, radius: u8, look: 
     }
 }
 
-/// A badge on a card's picture: "Same title" (amber) or "Moved" (accent).
+/// A badge on a card's picture: "Same title" (amber), "Moved" (accent), or
+/// "Waiting for <app>" (amber) on a card whose window did not close.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Badge {
     SameTitle,
     Moved,
+    Waiting,
 }
 
 impl Badge {
@@ -255,6 +271,7 @@ impl Badge {
         match self {
             Self::SameTitle => "Same title",
             Self::Moved => "Moved",
+            Self::Waiting => "Waiting",
         }
     }
 
@@ -262,12 +279,13 @@ impl Badge {
         match self {
             Self::SameTitle => Icon::Copy,
             Self::Moved => Icon::ArrowRightLeft,
+            Self::Waiting => Icon::Clock,
         }
     }
 
     pub(super) fn colour(self, tokens: &Tokens) -> Color32 {
         match self {
-            Self::SameTitle => tokens.warning,
+            Self::SameTitle | Self::Waiting => tokens.warning,
             Self::Moved => tokens.accent,
         }
     }
@@ -279,6 +297,9 @@ impl Badge {
             Self::SameTitle if can_rename => format!("{SAME_TITLE_HINT} Click to rename."),
             Self::SameTitle => SAME_TITLE_HINT.to_string(),
             Self::Moved => "This window is on another monitor than in your saved layout.".into(),
+            Self::Waiting => {
+                "The app has not closed this window yet. It may be asking you something.".into()
+            }
         };
         if icon_only {
             format!("{}. {hint}", self.text())
@@ -352,16 +373,17 @@ pub(super) fn paint_badges(
     thumb: Rect,
     badges: &[Badge],
     can_rename: bool,
+    waiting: Option<&str>,
 ) -> BadgesShown {
     let tokens = Tokens::get(ui.ctx());
     let galleys: Vec<_> = badges
         .iter()
         .map(|badge| {
-            painter.layout_no_wrap(
-                badge.text().to_string(),
-                theme::regular(12.0),
-                badge.colour(&tokens),
-            )
+            let text = match (badge, waiting) {
+                (Badge::Waiting, Some(words)) => words.to_string(),
+                _ => badge.text().to_string(),
+            };
+            painter.layout_no_wrap(text, theme::regular(12.0), badge.colour(&tokens))
         })
         .collect();
     let widths: Vec<f32> = galleys.iter().map(|galley| galley.size().x).collect();

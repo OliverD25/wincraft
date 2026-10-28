@@ -34,6 +34,10 @@ impl Arrange {
                 known: HashSet::new(),
                 appeared: HashMap::new(),
                 leaving: Vec::new(),
+                closing: HashMap::new(),
+                waiting: HashMap::new(),
+                slides: Slides::default(),
+                animate: true,
                 select: None,
                 select_next: false,
                 wants_keyboard: false,
@@ -93,6 +97,7 @@ impl Arrange {
             .collect();
         shared.appeared.clear();
         shared.leaving.clear();
+        shared.forget_closing();
         shared.select = None;
         shared.wants_keyboard = false;
         shared.select_window = None;
@@ -153,6 +158,7 @@ impl Arrange {
             known,
             appeared,
             leaving,
+            closing,
             ..
         } = &mut *shared;
         note_changes(
@@ -163,6 +169,12 @@ impl Arrange {
             &snapshot.groups,
             now,
         );
+        // A card asked to close has been shrinking since the ask.
+        for gone in leaving.iter_mut() {
+            if let Some(asked) = closing.get(&gone.window.hwnd) {
+                gone.since = gone.since.min(*asked);
+            }
+        }
         keep_leaving(&shared.leaving, &mut snapshot.groups);
         shared.snapshot = Some(snapshot);
     }
@@ -252,6 +264,7 @@ impl Arrange {
             shared.known.clear();
             shared.appeared.clear();
             shared.leaving.clear();
+            shared.forget_closing();
             shared.thumbs.clear();
             shared.ghost_thumbs.clear();
             shared.sources.clear();

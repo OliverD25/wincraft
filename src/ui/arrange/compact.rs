@@ -8,8 +8,8 @@ use egui::text::TextWrapping;
 use egui::{pos2, vec2, Rect, Response, Sense, StrokeKind, Ui, Vec2};
 
 use super::{
-    by_monitor, card_menu, middle_close, name_card, number_chip, only_visible, rows,
-    taskbar_numbers, thumbnail, visible_flags, Frame, Pending, Row, Shared,
+    by_monitor, card_menu, grown, middle_close, name_card, number_chip, only_visible, paint_badges,
+    rows, taskbar_numbers, thumbnail, visible_flags, Badge, Frame, Pending, Row, Shared,
 };
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{
@@ -542,12 +542,23 @@ fn card(
     let Popup { group, snapshot } = popup;
     let tokens = Tokens::get(ui.ctx());
     let window = &group.windows[member];
+    let leaving = shared.is_leaving(window.hwnd);
+    let (scale, fade) = shared.motion(window.hwnd);
+    let waiting = shared.waiting_note(window.hwnd);
+    let rect = grown(shared.slid((window.hwnd, false), rect), scale);
+    let sense = if leaving {
+        Sense::hover()
+    } else {
+        Sense::click()
+    };
     let response = ui.interact(
         rect,
         egui::Id::new(("arrange-compact-card", window.hwnd)),
-        Sense::click(),
+        sense,
     );
-    let painter = ui.painter();
+    let mut faded_painter = ui.painter().clone();
+    faded_painter.multiply_opacity(fade);
+    let painter = &faded_painter;
     if look.picked {
         painter.rect(
             rect,
@@ -574,7 +585,21 @@ fn card(
         StrokeKind::Inside,
     );
     let picture = thumb.shrink(1.0);
-    let opacity = if look.faded { OTHER_OPACITY } else { 1.0 };
+    let opacity = if look.faded { OTHER_OPACITY } else { 1.0 } * fade;
+    let badges: &[Badge] = if waiting.is_some() {
+        &[Badge::Waiting]
+    } else {
+        &[]
+    };
+    let shown = paint_badges(
+        ui,
+        painter,
+        response.id,
+        thumb,
+        badges,
+        false,
+        waiting.as_deref(),
+    );
     let has_picture = !look.menu_open
         && thumbnail(shared, window.hwnd).is_some_and(|thumb| thumb.source_size().is_some());
     if has_picture {
@@ -583,7 +608,7 @@ fn card(
             dest: picture,
             clip: ui.clip_rect(),
             opacity: (255.0 * opacity).round() as u8,
-            clear: Rect::NOTHING,
+            clear: shown.clear,
             ghost: false,
         });
     } else {
@@ -633,6 +658,9 @@ fn card(
     );
     if elided {
         title_tooltip(&response, title_top, &window.label);
+    }
+    if leaving {
+        return;
     }
     interact(shared, frame, group, snapshot, member, &response);
 }

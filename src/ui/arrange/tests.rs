@@ -959,16 +959,28 @@ fn a_card_motion_eases_out_over_150_ms() {
 #[test]
 fn a_new_card_grows_and_fades_in_and_a_gone_one_fades_out() {
     let ms = Duration::from_millis;
-    assert_eq!(card_motion(None, None), (1.0, 1.0));
-    assert_eq!(card_motion(Some(ms(0)), None), (0.9, 0.0));
-    assert_eq!(card_motion(Some(ms(150)), None), (1.0, 1.0));
-    let (scale, fade) = card_motion(Some(ms(75)), None);
+    assert_eq!(card_motion(None, None, None), (1.0, 1.0));
+    assert_eq!(card_motion(Some(ms(0)), None, None), (0.9, 0.0));
+    assert_eq!(card_motion(Some(ms(150)), None, None), (1.0, 1.0));
+    let (scale, fade) = card_motion(Some(ms(75)), None, None);
     assert!(scale > 0.9 && scale < 1.0 && fade > 0.0 && fade < 1.0);
-    assert_eq!(card_motion(None, Some(ms(0))), (1.0, 1.0));
-    assert_eq!(card_motion(None, Some(ms(150))), (1.0, 0.0));
+    assert_eq!(card_motion(None, Some(ms(0)), None), (1.0, 1.0));
+    let (scale, fade) = card_motion(None, Some(ms(180)), None);
+    assert!((scale - 0.85).abs() < 1e-6 && fade == 0.0);
+    assert_eq!(card_motion(None, None, Some(ms(180))), (1.0, 1.0));
+    assert_eq!(card_motion(None, None, Some(ms(0))), (0.85, 0.0));
     let grown_rect = grown(Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 50.0)), 0.9);
     assert_eq!(grown_rect.size(), vec2(90.0, 45.0));
     assert_eq!(grown_rect.center(), pos2(50.0, 25.0));
+}
+
+#[test]
+fn a_card_asked_to_close_shrinks_only_when_animations_are_on() {
+    let ms = Duration::from_millis;
+    assert_eq!(shrink_age(None, Some(ms(40)), true), Some(ms(40)));
+    assert_eq!(shrink_age(None, Some(ms(40)), false), None);
+    assert_eq!(shrink_age(Some(ms(90)), Some(ms(200)), true), Some(ms(90)));
+    assert_eq!(shrink_age(None, None, true), None);
 }
 
 #[test]

@@ -56,6 +56,9 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
     if shared.settle_motion() {
         ui.ctx().request_repaint();
     }
+    if let Some(wait) = shared.next_check() {
+        ui.ctx().request_repaint_after(wait);
+    }
     let tokens = Tokens::get(ui.ctx());
     let panel = ui.max_rect();
     let view = shared.view();
@@ -87,7 +90,7 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
         }
         return;
     };
-    if shared.close_when_empty && group.windows.iter().all(|w| shared.is_leaving(w.hwnd)) {
+    if shared.close_when_empty && group.windows.iter().all(|w| shared.is_gone(w.hwnd)) {
         shared.closed = true;
     }
 
@@ -348,6 +351,8 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
         });
     }
     for hwnd in std::mem::take(&mut frame.close) {
+        shared.ask_close(hwnd);
+        ctx.request_repaint();
         shared.to_host.send(HostRequest::Arrange {
             plugin: snapshot.plugin.clone(),
             action: ArrangeAction::Close(hwnd),
