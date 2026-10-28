@@ -295,11 +295,20 @@ pub fn panel_size(
     limit: Vec2,
 ) -> Vec2 {
     let width = (natural_width(cols) + SLACK).min(limit.x);
-    let tracks: Vec<Vec<f32>> = cols.iter().map(|row| row_tracks(row, &[], width)).collect();
-    let bands_height: f32 = bands
-        .iter()
-        .map(|band| band_height(band, cols, &tracks, widths))
-        .sum();
+    // A drag opens every rail, which takes width from the other columns and
+    // can wrap their cards onto one more line; the panel is tall enough for
+    // both, or that line was cut off while dragging.
+    let height_with = |open: f32| -> f32 {
+        let tracks: Vec<Vec<f32>> = cols
+            .iter()
+            .map(|row| row_tracks(row, &vec![open; row.len()], width))
+            .collect();
+        bands
+            .iter()
+            .map(|band| band_height(band, cols, &tracks, widths))
+            .sum()
+    };
+    let bands_height = height_with(0.0).max(height_with(1.0));
     let link = if link { others::LINK_HEIGHT } else { 0.0 };
     let height = TOOLBAR + bands_height + link + footer_height(hints) + SLACK;
     vec2(width, height.min(limit.y))
