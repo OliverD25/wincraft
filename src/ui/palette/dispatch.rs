@@ -16,6 +16,7 @@ impl Palette {
         // answers itself by cancelling.
         let editing = self.hotkey_dialog.is_some();
         let outcome = self.show_view(ui, snapshot, to_host, appear, interactive && !editing);
+        self.watch_blank_space(ui.ctx(), interactive && !editing);
         self.show_hotkey_dialog(ui.ctx(), snapshot, to_host);
         outcome
     }

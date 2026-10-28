@@ -27,6 +27,7 @@ impl Palette {
 
         let panel_width = self.panel_width();
         let (panel, painter, line) = paint_panel(ui, &tokens, appear, panel_width, self.glass);
+        self.panel = panel;
         let search = Rect::from_min_size(panel.min, vec2(panel_width, SEARCH_HEIGHT));
         let rule = search_rule(ui.ctx(), &tokens, line);
         painter.hline(search.x_range(), search.bottom() - rule.width / 2.0, rule);

@@ -2012,3 +2012,127 @@ fn a_copy_that_cannot_update_or_a_hidden_release_pins_nothing() {
         assert_eq!(palette.selected, 0);
     }
 }
+
+/// Presses at `from`, then moves the pointer 12 px: what the window is told.
+fn press_and_move(palette: &mut Palette, from: egui::Pos2) -> WindowStep {
+    let bridge = crate::core::ui_bridge::create();
+    let ctx = drawing_context();
+    let snapshot = UiSnapshot::default();
+    let button = |pressed| egui::Event::PointerButton {
+        pos: from,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    frame(palette, &ctx, &snapshot, &bridge, Vec::new());
+    frame(
+        palette,
+        &ctx,
+        &snapshot,
+        &bridge,
+        vec![egui::Event::PointerMoved(from)],
+    );
+    frame(palette, &ctx, &snapshot, &bridge, vec![button(true)]);
+    assert_eq!(palette.take_window_step(), WindowStep::None, "not yet");
+    frame(
+        palette,
+        &ctx,
+        &snapshot,
+        &bridge,
+        vec![egui::Event::PointerMoved(from + vec2(12.0, 0.0))],
+    );
+    palette.take_window_step()
+}
+
+#[test]
+fn holding_blank_space_and_moving_starts_a_window_drag() {
+    let mut palette = places_palette(&["x"], &new_store());
+    let list_below_the_row = pos2(MARGIN + 200.0, MARGIN + 300.0);
+    assert_eq!(
+        press_and_move(&mut palette, list_below_the_row),
+        WindowStep::StartDrag
+    );
+    let mut palette = places_palette(&["x"], &new_store());
+    let footer = pos2(MARGIN + 450.0, MARGIN + PANEL_HEIGHT - 6.0);
+    assert_eq!(press_and_move(&mut palette, footer), WindowStep::StartDrag);
+}
+
+#[test]
+fn a_drag_on_the_search_box_or_a_row_does_not_move_the_window() {
+    let mut palette = places_palette(&["x"], &new_store());
+    let search_box = pos2(MARGIN + 100.0, MARGIN + SEARCH_HEIGHT / 2.0);
+    assert_eq!(press_and_move(&mut palette, search_box), WindowStep::None);
+    let mut palette = places_palette(&["x"], &new_store());
+    let row = pos2(MARGIN + 200.0, MARGIN + SEARCH_HEIGHT + GROUP_HEADER + 12.0);
+    assert_eq!(press_and_move(&mut palette, row), WindowStep::None);
+}
+
+#[test]
+fn the_shadow_margin_is_not_blank_space() {
+    let mut palette = places_palette(&["x"], &new_store());
+    assert_eq!(
+        press_and_move(&mut palette, pos2(MARGIN / 2.0, MARGIN + 300.0)),
+        WindowStep::None
+    );
+}
+
+#[test]
+fn a_double_click_on_blank_space_asks_for_the_centre() {
+    let mut palette = places_palette(&["x"], &new_store());
+    let bridge = crate::core::ui_bridge::create();
+    let ctx = drawing_context();
+    let snapshot = UiSnapshot::default();
+    let at = pos2(MARGIN + 200.0, MARGIN + 300.0);
+    let button = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    frame(
+        &mut palette,
+        &ctx,
+        &snapshot,
+        &bridge,
+        vec![egui::Event::PointerMoved(at)],
+    );
+    for pressed in [true, false, true, false] {
+        frame(
+            &mut palette,
+            &ctx,
+            &snapshot,
+            &bridge,
+            vec![button(pressed)],
+        );
+    }
+    assert_eq!(palette.take_window_step(), WindowStep::Centre);
+}
+
+#[test]
+fn the_press_state_machine_needs_a_fresh_press_after_a_drag() {
+    use drag::{BlankPress, Pointer, Step};
+    let mut press = BlankPress::default();
+    let at = pos2(10.0, 10.0);
+    let down = |pos: egui::Pos2, pressed: bool| Pointer {
+        pressed,
+        down: true,
+        pos: Some(pos),
+        in_panel: true,
+        ..Default::default()
+    };
+    assert_eq!(press.step(down(at, true)), Step::None);
+    assert_eq!(press.step(down(at + vec2(2.0, 0.0), false)), Step::None);
+    assert_eq!(
+        press.step(down(at + vec2(9.0, 0.0), false)),
+        Step::StartDrag
+    );
+    // egui never sees the release of a native drag: no second start.
+    assert_eq!(press.step(down(at + vec2(40.0, 0.0), false)), Step::None);
+    // A press that a widget took never starts one.
+    let taken = Pointer {
+        taken: true,
+        ..down(at, true)
+    };
+    assert_eq!(press.step(taken), Step::None);
+    assert_eq!(press.step(down(at + vec2(30.0, 0.0), false)), Step::None);
+}

@@ -116,6 +116,7 @@ impl Host {
             plugins,
             search: self.config.search.clone(),
             tips: self.config.tips.clone(),
+            palette_spots: self.config.palette_spots.clone(),
             update,
         }
     }

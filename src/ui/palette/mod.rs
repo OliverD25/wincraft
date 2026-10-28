@@ -1,5 +1,6 @@
 mod actions;
 mod dispatch;
+mod drag;
 mod inspector;
 mod panel;
 mod pinned;
@@ -7,6 +8,7 @@ mod prompt;
 mod rows;
 mod state;
 mod view;
+pub use drag::Step as WindowStep;
 use panel::*;
 #[cfg(test)]
 use prompt::prompt_row_title;
@@ -168,6 +170,8 @@ pub struct Palette {
     hotkey_dialog: Option<Editor>,
     /// Where the panel was drawn last, for the dialog's backdrop.
     panel: Rect,
+    blank: drag::BlankPress,
+    window_step: drag::Step,
     /// The "Update ready" row as the snapshot had it when the palette
     /// opened; None inside when there is none. Kept for the whole opening,
     /// so the list never changes under the user's eyes.
@@ -255,6 +259,8 @@ impl Palette {
             query_id: None,
             hotkey_dialog: None,
             panel: Rect::NOTHING,
+            blank: Default::default(),
+            window_step: Default::default(),
             pinned: None,
             pin_fresh: false,
         }
