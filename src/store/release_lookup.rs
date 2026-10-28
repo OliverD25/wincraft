@@ -164,6 +164,10 @@ pub fn release_from_tag(tag: &str, page: &str, kept_notes: Option<&str>) -> Rele
 
 /// The notes the last full API answer gave for `tag`, when it was that tag.
 pub fn kept_notes(tag: &str) -> Option<String> {
+    // The tests never read the user's real data folder.
+    if cfg!(test) {
+        return None;
+    }
     let cached = release_cache::load_at(&release_cache::path())?;
     let release = github::parse_release(&cached.body).ok()?;
     (release.tag == tag).then_some(release.notes)

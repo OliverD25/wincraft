@@ -2782,3 +2782,54 @@ fn the_api_budget_stops_automatic_checks_and_sends_the_user_to_the_page() {
     updates.api_budget.spend(now);
     assert_eq!(updates.ask_by(true, now), Some(false), "then the page");
 }
+
+#[test]
+fn a_known_or_downloaded_release_installs_without_asking_github() {
+    let current = "0.20.68";
+    assert_eq!(
+        known_tag(Some("v0.20.70"), Some("v0.20.69"), "v0.20.69", current).as_deref(),
+        Some("v0.20.70"),
+        "the last check's answer first"
+    );
+    assert_eq!(
+        known_tag(None, Some("v0.20.69"), "v0.20.68", current).as_deref(),
+        Some("v0.20.69"),
+        "then the one downloaded ahead"
+    );
+    assert_eq!(
+        known_tag(None, None, "v0.20.69", current).as_deref(),
+        Some("v0.20.69"),
+        "then the newest GitHub named"
+    );
+    assert_eq!(known_tag(None, Some("v0.20.68"), "v0.20.67", current), None);
+    assert_eq!(
+        known_tag(None, None, "", current),
+        None,
+        "a check comes first"
+    );
+}
+
+#[test]
+fn update_now_with_a_known_release_downloads_without_a_check() {
+    let data = Scratch::new("update-known");
+    let (log, keyboard) = (diary(), FakeKeys::default());
+    let (mut host, _ui) = test_host(
+        vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+        &keyboard,
+        &data,
+    );
+    host.updates.blocked = None;
+    host.config.updates.latest = "v0.20.0".to_string();
+    assert_eq!(host.known_release(), None);
+    host.config.updates.latest = "v99.0.0".to_string();
+    let known = host
+        .known_release()
+        .expect("known from the last check's tag");
+    assert_eq!(known.tag, "v99.0.0");
+    assert_eq!(known.assets.len(), 2);
+    host.updates.newer = Some(release("v98.0.0"));
+    assert_eq!(
+        host.known_release().map(|r| r.tag).as_deref(),
+        Some("v98.0.0")
+    );
+}

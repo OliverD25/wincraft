@@ -252,6 +252,22 @@ impl Updates {
     }
 }
 
+/// The tag to install without asking GitHub, when one newer than
+/// `current` is known: the last check's, the one downloaded ahead, or the
+/// newest GitHub named before. None means a check comes first.
+pub(super) fn known_tag(
+    newer: Option<&str>,
+    staged: Option<&str>,
+    latest: &str,
+    current: &str,
+) -> Option<String> {
+    [newer, staged, Some(latest)]
+        .into_iter()
+        .flatten()
+        .find(|tag| github::is_newer(tag, current))
+        .map(str::to_string)
+}
+
 impl Host {
     pub(super) fn update_view(&self) -> UpdateView {
         let tag = self
@@ -391,10 +407,36 @@ Nothing is downloaded."
             self.update_notice(&format!("This WinCraft cannot update itself: {reason}"));
             return;
         }
+        self.updates.reopen = Some(update::Reopen::Palette);
+        if self.known_release().is_some() {
+            self.update_now();
+            return;
+        }
         self.updates.auto_update = true;
         self.updates.report = true;
-        self.updates.reopen = Some(update::Reopen::Palette);
         self.check_for_updates(true);
+    }
+
+    /// A newer release this WinCraft already knows of, so an update can
+    /// start without asking GitHub: the one the last check found, else the
+    /// one downloaded ahead, else the newest tag GitHub named before.
+    pub(super) fn known_release(&self) -> Option<Release> {
+        if let Some(release) = &self.updates.newer {
+            return Some(release.clone());
+        }
+        let tag = known_tag(
+            None,
+            self.updates.staged.as_deref(),
+            &self.config.updates.latest,
+            env!("CARGO_PKG_VERSION"),
+        )?;
+        let page = release_lookup::page_url()?;
+        let notes = release_lookup::kept_notes(&tag);
+        Some(release_lookup::release_from_tag(
+            &tag,
+            &page,
+            notes.as_deref(),
+        ))
     }
 
     /// Downloads on its own thread; the swap and the restart follow in
@@ -407,11 +449,18 @@ Nothing is downloaded."
             self.update_notice(&reason);
             return;
         }
-        let Some(release) = self.updates.newer.clone() else {
+        let Some(release) = self.known_release() else {
             self.updates.auto_update = true;
             self.check_for_updates(true);
             return;
         };
+        if self.updates.newer.is_none() {
+            log::info!(
+                "{} is already known, so the update starts without asking GitHub",
+                release.tag
+            );
+            self.updates.newer = Some(release.clone());
+        }
         log::info!("downloading {}", release.tag);
         self.updates.busy = true;
         self.updates.staged = None;
