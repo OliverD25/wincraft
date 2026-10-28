@@ -151,6 +151,9 @@ const WM_APP_WIN_DOWN: u32 = WM_APP + 28;
 /// The windows read on a thread of their own after a Windows key went down
 /// are ready; see `Host::prepare_deck`.
 const WM_APP_SNAPSHOT: u32 = WM_APP + 29;
+/// Work a plugin did on a thread of its own is ready; see `post_to_plugins`.
+/// Every plugin that is on gets it as `on_windows_message(PLUGIN_POST, id, 0)`.
+pub const PLUGIN_POST: u32 = WM_APP + 30;
 /// How long an opening strip waits for windows that are still being read
 /// on their own thread. They take 10–30 ms; reading them again on the host
 /// takes as long, so waiting is never slower unless the thread is stuck.
