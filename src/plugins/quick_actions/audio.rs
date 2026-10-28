@@ -7,7 +7,7 @@ use std::ffi::c_void;
 use windows_sys::core::{IUnknown_Vtbl, GUID, HRESULT};
 use windows_sys::Win32::Foundation::PROPERTYKEY;
 use windows_sys::Win32::System::Com::StructuredStorage::{PropVariantClear, PROPVARIANT};
-use windows_sys::Win32::System::Com::CLSCTX_ALL;
+use windows_sys::Win32::System::Com::{CoTaskMemFree, CLSCTX_ALL};
 use windows_sys::Win32::System::Variant::VT_LPWSTR;
 
 use crate::core::com::{self, ComPtr};
@@ -28,7 +28,8 @@ const STGM_READ: u32 = 0;
 #[repr(C)]
 struct IMMDeviceEnumeratorVtbl {
     _base: IUnknown_Vtbl,
-    _enum_audio_endpoints: unsafe extern "system" fn(),
+    enum_audio_endpoints:
+        unsafe extern "system" fn(*mut c_void, i32, u32, *mut *mut c_void) -> HRESULT,
     get_default_audio_endpoint:
         unsafe extern "system" fn(*mut c_void, i32, i32, *mut *mut c_void) -> HRESULT,
 }
@@ -44,6 +45,50 @@ struct IMMDeviceVtbl {
         *mut *mut c_void,
     ) -> HRESULT,
     open_property_store: unsafe extern "system" fn(*mut c_void, u32, *mut *mut c_void) -> HRESULT,
+    get_id: unsafe extern "system" fn(*mut c_void, *mut *mut u16) -> HRESULT,
+}
+
+#[repr(C)]
+struct IMMDeviceCollectionVtbl {
+    _base: IUnknown_Vtbl,
+    get_count: unsafe extern "system" fn(*mut c_void, *mut u32) -> HRESULT,
+    item: unsafe extern "system" fn(*mut c_void, u32, *mut *mut c_void) -> HRESULT,
+}
+
+/// Windows' own interface for setting the default sound device, which
+/// Sound settings uses. It is not documented; its layout is the one every
+/// sound switcher has used since Windows 7. Only `set_default_endpoint` is
+/// called.
+#[repr(C)]
+struct IPolicyConfigVtbl {
+    _base: IUnknown_Vtbl,
+    _get_mix_format: unsafe extern "system" fn(),
+    _get_device_format: unsafe extern "system" fn(),
+    _reset_device_format: unsafe extern "system" fn(),
+    _set_device_format: unsafe extern "system" fn(),
+    _get_processing_period: unsafe extern "system" fn(),
+    _set_processing_period: unsafe extern "system" fn(),
+    _get_share_mode: unsafe extern "system" fn(),
+    _set_share_mode: unsafe extern "system" fn(),
+    _get_property_value: unsafe extern "system" fn(),
+    _set_property_value: unsafe extern "system" fn(),
+    set_default_endpoint: unsafe extern "system" fn(*mut c_void, *const u16, i32) -> HRESULT,
+}
+
+const CLSID_POLICY_CONFIG_CLIENT: GUID = GUID::from_u128(0x870af99c_171d_4f9e_af0d_e63df40c2bc9);
+const IID_IPOLICY_CONFIG: GUID = GUID::from_u128(0xf8679f50_850a_41cf_9c72_430f290290c8);
+/// `eRender`, and the three roles a default device has.
+const RENDER: i32 = 0;
+const ROLES: [i32; 3] = [0, 1, 2];
+const DEVICE_STATE_ACTIVE: u32 = 1;
+
+/// A sound output device.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Device {
+    /// Windows' id for it, which Undo and the pick use.
+    pub id: String,
+    pub name: String,
+    pub default: bool,
 }
 
 #[repr(C)]
@@ -75,22 +120,103 @@ struct IAudioEndpointVolumeVtbl {
 
 const NO_MIC: &str = "No microphone is connected";
 
-/// The default microphone.
-fn device() -> Result<ComPtr, String> {
-    let enumerator = ComPtr::create(
+fn enumerator() -> Result<ComPtr, String> {
+    ComPtr::create(
         &CLSID_MM_DEVICE_ENUMERATOR,
         &IID_IMM_DEVICE_ENUMERATOR,
         CLSCTX_ALL,
     )
-    .map_err(|hr| format!("Windows sound is not available ({})", com::hex(hr)))?;
+    .map_err(|hr| format!("Windows sound is not available ({})", com::hex(hr)))
+}
+
+fn default_device(flow: i32) -> Option<ComPtr> {
+    let enumerator = enumerator().ok()?;
     let mut raw = std::ptr::null_mut();
     let hr = unsafe {
         (enumerator
             .vtable::<IMMDeviceEnumeratorVtbl>()
-            .get_default_audio_endpoint)(enumerator.as_raw(), CAPTURE, CONSOLE, &mut raw)
+            .get_default_audio_endpoint)(enumerator.as_raw(), flow, CONSOLE, &mut raw)
     };
-    com::check(hr).map_err(|_| NO_MIC.to_string())?;
-    ComPtr::from_raw(raw).ok_or_else(|| NO_MIC.to_string())
+    com::ok(hr).then(|| ComPtr::from_raw(raw)).flatten()
+}
+
+/// The default microphone.
+fn device() -> Result<ComPtr, String> {
+    enumerator()?;
+    default_device(CAPTURE).ok_or_else(|| NO_MIC.to_string())
+}
+
+fn id_of(device: &ComPtr) -> Option<String> {
+    let mut raw: *mut u16 = std::ptr::null_mut();
+    let hr = unsafe { (device.vtable::<IMMDeviceVtbl>().get_id)(device.as_raw(), &mut raw) };
+    if !com::ok(hr) || raw.is_null() {
+        return None;
+    }
+    let id = unsafe { from_wide_ptr(raw) };
+    unsafe { CoTaskMemFree(raw as *const c_void) };
+    Some(id)
+}
+
+/// The sound output devices that are connected, the default one marked.
+pub fn render_devices() -> Result<Vec<Device>, String> {
+    let enumerator = enumerator()?;
+    let mut raw = std::ptr::null_mut();
+    let hr = unsafe {
+        (enumerator
+            .vtable::<IMMDeviceEnumeratorVtbl>()
+            .enum_audio_endpoints)(
+            enumerator.as_raw(), RENDER, DEVICE_STATE_ACTIVE, &mut raw
+        )
+    };
+    com::check(hr).map_err(|hr| format!("Windows did not list the devices ({})", com::hex(hr)))?;
+    let collection = ComPtr::from_raw(raw).ok_or("Windows did not list the devices")?;
+    let vtable = unsafe { collection.vtable::<IMMDeviceCollectionVtbl>() };
+    let mut count = 0u32;
+    unsafe { (vtable.get_count)(collection.as_raw(), &mut count) };
+    let default = default_device(RENDER).and_then(|device| id_of(&device));
+    let mut devices = Vec::new();
+    for index in 0..count {
+        let mut raw = std::ptr::null_mut();
+        if !com::ok(unsafe { (vtable.item)(collection.as_raw(), index, &mut raw) }) {
+            continue;
+        }
+        let Some(device) = ComPtr::from_raw(raw) else {
+            continue;
+        };
+        let Some(id) = id_of(&device) else {
+            continue;
+        };
+        devices.push(Device {
+            default: default.as_deref() == Some(id.as_str()),
+            name: name_of(&device).unwrap_or_else(|| "Sound device".to_string()),
+            id,
+        });
+    }
+    Ok(devices)
+}
+
+/// Makes the device the default for every role: games and music, films,
+/// and calls.
+pub fn set_default_render(id: &str) -> Result<(), String> {
+    let policy = ComPtr::create(&CLSID_POLICY_CONFIG_CLIENT, &IID_IPOLICY_CONFIG, CLSCTX_ALL)
+        .map_err(|hr| {
+            format!(
+                "this Windows does not let apps switch the sound device ({})",
+                com::hex(hr)
+            )
+        })?;
+    let wide_id = crate::core::wide(id);
+    for role in ROLES {
+        let hr = unsafe {
+            (policy.vtable::<IPolicyConfigVtbl>().set_default_endpoint)(
+                policy.as_raw(),
+                wide_id.as_ptr(),
+                role,
+            )
+        };
+        com::check(hr).map_err(|hr| format!("Windows refused the switch ({})", com::hex(hr)))?;
+    }
+    Ok(())
 }
 
 fn volume() -> Result<ComPtr, String> {
@@ -117,7 +243,8 @@ pub fn state() -> Result<(bool, String), String> {
         (volume.vtable::<IAudioEndpointVolumeVtbl>().get_mute)(volume.as_raw(), &mut muted)
     };
     com::check(hr).map_err(|hr| format!("the microphone did not answer ({})", com::hex(hr)))?;
-    Ok((muted != 0, name().unwrap_or_default()))
+    let name = device().ok().and_then(|device| name_of(&device));
+    Ok((muted != 0, name.unwrap_or_default()))
 }
 
 pub fn set_muted(muted: bool) -> Result<(), String> {
@@ -132,9 +259,8 @@ pub fn set_muted(muted: bool) -> Result<(), String> {
     com::check(hr).map_err(|hr| format!("Windows refused the change ({})", com::hex(hr)))
 }
 
-/// The microphone's name as Sound settings shows it.
-fn name() -> Option<String> {
-    let device = device().ok()?;
+/// A device's name as Sound settings shows it.
+fn name_of(device: &ComPtr) -> Option<String> {
     let mut raw = std::ptr::null_mut();
     let hr = unsafe {
         (device.vtable::<IMMDeviceVtbl>().open_property_store)(device.as_raw(), STGM_READ, &mut raw)

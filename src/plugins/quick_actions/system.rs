@@ -37,8 +37,10 @@ use windows_sys::Win32::UI::Shell::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, SW_SHOWNORMAL};
 
-use super::audio;
+use super::audio::{self, Device};
+use super::drives::{self, Drive, EjectError};
 use super::network::{self, Address};
+use super::ports::{self, Listener};
 use crate::core::monitors::{self, Rect};
 use crate::core::{clipboard, wide, windows_list};
 
@@ -116,6 +118,21 @@ pub trait System {
     /// in the background and `WM_APP_BIN_DONE` reports the end.
     fn empty_recycle_bin(&mut self) -> Result<bool, String>;
     fn open_environment_variables(&mut self) -> Result<(), String>;
+
+    /// Every listening TCP socket, IPv4 and IPv6, with its process.
+    fn listeners(&self) -> Vec<Listener>;
+    /// A process's program name, such as "node.exe"; empty when Windows
+    /// does not say.
+    fn process_name(&self, pid: u32) -> String;
+    /// WinCraft's own process, which is never ended.
+    fn own_pid(&self) -> u32;
+    fn end_process(&mut self, pid: u32) -> Result<(), String>;
+    fn output_devices(&self) -> Result<Vec<Device>, String>;
+    fn set_output_device(&mut self, id: &str) -> Result<(), String>;
+    fn removable_drives(&self) -> Vec<Drive>;
+    fn eject(&mut self, letter: char) -> Result<(), EjectError>;
+    /// The local time now, hours and minutes.
+    fn local_time(&self) -> (u16, u16);
 }
 
 /// Posted to the plugin's window when emptying the Recycle Bin ended:
@@ -130,6 +147,47 @@ pub struct Live {
 }
 
 impl System for Live {
+    fn listeners(&self) -> Vec<Listener> {
+        ports::read()
+    }
+
+    fn process_name(&self, pid: u32) -> String {
+        let path = windows_list::exe_path(pid);
+        path.rsplit('\\').next().unwrap_or_default().to_string()
+    }
+
+    fn own_pid(&self) -> u32 {
+        unsafe { GetCurrentProcessId() }
+    }
+
+    fn end_process(&mut self, pid: u32) -> Result<(), String> {
+        if !ports::may_end(pid, self.own_pid()) {
+            return Err("WinCraft never ends this process".to_string());
+        }
+        ports::end(pid)
+    }
+
+    fn output_devices(&self) -> Result<Vec<Device>, String> {
+        audio::render_devices()
+    }
+
+    fn set_output_device(&mut self, id: &str) -> Result<(), String> {
+        audio::set_default_render(id)
+    }
+
+    fn removable_drives(&self) -> Vec<Drive> {
+        drives::read()
+    }
+
+    fn eject(&mut self, letter: char) -> Result<(), EjectError> {
+        drives::eject(letter)
+    }
+
+    fn local_time(&self) -> (u16, u16) {
+        let mut now: windows_sys::Win32::Foundation::SYSTEMTIME = unsafe { std::mem::zeroed() };
+        unsafe { windows_sys::Win32::System::SystemInformation::GetLocalTime(&mut now) };
+        (now.wHour, now.wMinute)
+    }
     fn read_dword(&self, key: &str, name: &str) -> Option<u32> {
         let (key, name) = (wide(key), wide(name));
         let mut value = 0u32;
@@ -572,6 +630,7 @@ pub struct ReadOnly<S: System> {
     taskbar: Option<u32>,
     icons: Option<bool>,
     microphone: Option<bool>,
+    output: Option<String>,
 }
 
 impl<S: System> ReadOnly<S> {
@@ -582,6 +641,7 @@ impl<S: System> ReadOnly<S> {
             taskbar: None,
             icons: None,
             microphone: None,
+            output: None,
         }
     }
 }
@@ -591,6 +651,51 @@ fn skipped(what: &str) {
 }
 
 impl<S: System> System for ReadOnly<S> {
+    fn listeners(&self) -> Vec<Listener> {
+        self.inner.listeners()
+    }
+
+    fn process_name(&self, pid: u32) -> String {
+        self.inner.process_name(pid)
+    }
+
+    fn own_pid(&self) -> u32 {
+        self.inner.own_pid()
+    }
+
+    fn end_process(&mut self, pid: u32) -> Result<(), String> {
+        skipped(&format!("ending process {pid}"));
+        Ok(())
+    }
+
+    fn output_devices(&self) -> Result<Vec<Device>, String> {
+        let mut devices = self.inner.output_devices()?;
+        if let Some(chosen) = &self.output {
+            for device in &mut devices {
+                device.default = device.id == *chosen;
+            }
+        }
+        Ok(devices)
+    }
+
+    fn set_output_device(&mut self, id: &str) -> Result<(), String> {
+        skipped("switching the sound output device");
+        self.output = Some(id.to_string());
+        Ok(())
+    }
+
+    fn removable_drives(&self) -> Vec<Drive> {
+        self.inner.removable_drives()
+    }
+
+    fn eject(&mut self, letter: char) -> Result<(), EjectError> {
+        skipped(&format!("ejecting drive {letter}:"));
+        Ok(())
+    }
+
+    fn local_time(&self) -> (u16, u16) {
+        self.inner.local_time()
+    }
     fn read_dword(&self, key: &str, name: &str) -> Option<u32> {
         self.registry
             .get(&(key.to_string(), name.to_string()))
@@ -743,6 +848,14 @@ pub mod tests {
         /// None: no microphone.
         pub microphone: Option<bool>,
         pub bin: Option<(u64, u64)>,
+        pub listeners: Vec<Listener>,
+        /// Ending a process is refused, as for one run as administrator.
+        pub deny_end: bool,
+        pub outputs: Vec<Device>,
+        pub refuse_output: bool,
+        pub drives: Vec<Drive>,
+        pub busy_drive: bool,
+        pub time: (u16, u16),
         pub log: Vec<String>,
     }
 
@@ -761,6 +874,13 @@ pub mod tests {
                 clipboard: None,
                 microphone: Some(false),
                 bin: Some((0, 0)),
+                listeners: Vec::new(),
+                deny_end: false,
+                outputs: Vec::new(),
+                refuse_output: false,
+                drives: Vec::new(),
+                busy_drive: false,
+                time: (14, 50),
                 log: Vec::new(),
             }
         }
@@ -812,6 +932,58 @@ pub mod tests {
     }
 
     impl System for Fake {
+        fn listeners(&self) -> Vec<Listener> {
+            self.listeners.clone()
+        }
+
+        fn process_name(&self, pid: u32) -> String {
+            format!("app{pid}.exe")
+        }
+
+        fn own_pid(&self) -> u32 {
+            99
+        }
+
+        fn end_process(&mut self, pid: u32) -> Result<(), String> {
+            if self.deny_end {
+                return Err(super::super::ports::tests_refusal());
+            }
+            self.log.push(format!("end {pid}"));
+            self.listeners.retain(|listener| listener.pid != pid);
+            Ok(())
+        }
+
+        fn output_devices(&self) -> Result<Vec<Device>, String> {
+            Ok(self.outputs.clone())
+        }
+
+        fn set_output_device(&mut self, id: &str) -> Result<(), String> {
+            if self.refuse_output {
+                return Err("Windows refused the switch (0x80004002)".to_string());
+            }
+            self.log.push(format!("output {id}"));
+            for device in &mut self.outputs {
+                device.default = device.id == id;
+            }
+            Ok(())
+        }
+
+        fn removable_drives(&self) -> Vec<Drive> {
+            self.drives.clone()
+        }
+
+        fn eject(&mut self, letter: char) -> Result<(), EjectError> {
+            if self.busy_drive {
+                return Err(EjectError::InUse);
+            }
+            self.log.push(format!("eject {letter}"));
+            self.drives.retain(|drive| drive.letter != letter);
+            Ok(())
+        }
+
+        fn local_time(&self) -> (u16, u16) {
+            self.time
+        }
         fn read_dword(&self, key: &str, name: &str) -> Option<u32> {
             self.registry
                 .get(&(key.to_string(), name.to_string()))
@@ -987,7 +1159,30 @@ pub mod tests {
         assert_eq!(copy.inner.microphone, Some(false));
         assert_eq!(copy.empty_recycle_bin(), Ok(true));
         copy.open_environment_variables().expect("pretend");
+        copy.end_process(50).expect("pretend");
+        copy.eject('E').expect("pretend");
+        copy.inner.outputs = vec![
+            Device {
+                id: "a".to_string(),
+                name: "Speakers".to_string(),
+                default: true,
+            },
+            Device {
+                id: "b".to_string(),
+                name: "Headset".to_string(),
+                default: false,
+            },
+        ];
+        copy.set_output_device("b").expect("pretend");
+        let devices = copy.output_devices().expect("devices");
+        assert!(devices[1].default && !devices[0].default);
+        assert!(copy.inner.outputs[0].default, "the real default stays");
         assert!(copy.inner.log.is_empty(), "{:?}", copy.inner.log);
+        assert!(copy.listeners().is_empty());
+        assert_eq!(copy.process_name(5), "app5.exe");
+        assert_eq!(copy.own_pid(), 99);
+        assert!(copy.removable_drives().is_empty());
+        assert_eq!(copy.local_time(), (14, 50));
         assert!(copy.random().is_ok());
         assert!(copy.local_addresses().is_empty());
         assert!(copy.clipboard_text().is_none());
@@ -1061,6 +1256,23 @@ mod live_reads {
             println!("{name}: {:?}", live.read_dword(key, name));
         }
         println!("random: {}", live.random().is_ok());
+        let listeners = live.listeners();
+        println!(
+            "tcp listeners: {} ({} IPv6), rows offered: {}",
+            listeners.len(),
+            listeners.iter().filter(|l| l.v6).count(),
+            ports::rows(&listeners, live.own_pid(), &|pid| live.process_name(pid)).len()
+        );
+        match live.output_devices() {
+            Ok(devices) => println!(
+                "output devices: {}, defaults marked: {}, every name read: {}",
+                devices.len(),
+                devices.iter().filter(|d| d.default).count(),
+                devices.iter().all(|d| !d.name.is_empty())
+            ),
+            Err(reason) => println!("output devices: error: {reason}"),
+        }
+        println!("removable drives: {}", live.removable_drives().len());
         if com >= 0 {
             unsafe { CoUninitialize() };
         }

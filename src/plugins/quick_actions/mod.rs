@@ -10,9 +10,12 @@
 
 mod actions;
 mod audio;
+mod drives;
 mod geometry;
 mod inspect;
+mod lists;
 mod network;
+mod ports;
 mod system;
 mod toggles;
 mod tools;
@@ -29,9 +32,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::core::notice::{self, Clock, Message, Notice};
 use crate::core::traits::{
-    HostContext, PaletteCommand, PluginMetadata, TrayToggle, WinCraftPlugin,
+    FieldKind, HostContext, PaletteCommand, PluginMetadata, SettingField, TrayToggle,
+    WinCraftPlugin,
 };
-use crate::core::ui_bridge::{ActionKind, CommandDetails};
+use crate::core::ui_bridge::{ActionKind, CommandDetails, SubList};
 use crate::core::{host, instance, wide};
 
 use actions::{Awake, Outcome, Undo, ENTRIES, KEEP_AWAKE};
@@ -48,12 +52,27 @@ const TRAY_KEEP_AWAKE: u32 = 1;
 /// The notice's clock; runs only while a notice shows.
 const TICK_TIMER: usize = 0x5141_0001;
 const TICK_MS: u32 = 100;
+/// Ends a keep awake that was set for a time.
+const AWAKE_TIMER: usize = 0x5141_0002;
+
+const SIZES_KEY: &str = "resize_sizes";
+const DEFAULT_SIZES: &str = "1600x900, 1366x768";
+
+/// Keep awake as the tray, the status line and the palette show it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AwakeView {
+    since: Instant,
+    until: Option<Instant>,
+    ends_at: Option<(u16, u16)>,
+}
+
+type AwakeCell = std::rc::Rc<std::cell::Cell<Option<AwakeView>>>;
 
 #[derive(Default)]
 pub struct QuickActions {
-    /// Whether keep awake is on, for the tray tick and the palette, which
-    /// the host asks without a way into the engine's state.
-    awake_since: std::rc::Rc<std::cell::Cell<Option<Instant>>>,
+    /// Keep awake's state, for the tray tick and the palette, which the
+    /// host asks without a way into the engine's state.
+    awake_since: AwakeCell,
 }
 
 impl QuickActions {
@@ -72,8 +91,10 @@ struct Engine {
     hwnd: HWND,
     system: Box<dyn System>,
     awake: Awake,
-    awake_since: std::rc::Rc<std::cell::Cell<Option<Instant>>>,
+    awake_since: AwakeCell,
     shown: Option<Shown>,
+    /// The user's own sizes for Window: Resize….
+    user_sizes: Vec<(i32, i32)>,
     epoch: Instant,
     /// The UUID the inspector showed, which Copy New UUID copies.
     next_uuid: Option<String>,
@@ -148,6 +169,60 @@ impl Engine {
         ))
     }
 
+    fn list(&mut self, id: u32) -> Option<SubList> {
+        match actions::entry(id)?.command {
+            actions::Command::List(kind) => {
+                Some(lists::rows(kind, self.system.as_ref(), &self.user_sizes))
+            }
+            _ => None,
+        }
+    }
+
+    fn pick(&mut self, id: u32, row: &str) {
+        let Some(actions::Command::List(kind)) = actions::entry(id).map(|entry| entry.command)
+        else {
+            return;
+        };
+        let now = self.now_ms();
+        match lists::pick(kind, row, self.system.as_mut(), &mut self.awake, now) {
+            Some(outcome) => self.after(outcome),
+            None => log::info!("QuickActions: the picked row {row:?} is gone"),
+        }
+    }
+
+    /// The timer for a keep awake set for a time: ends it when it is due.
+    fn awake_due(&mut self) {
+        let now = self.now_ms();
+        match self.awake.until {
+            Some(until) if until <= now => {
+                if let Err(reason) = self.system.keep_awake(false) {
+                    log::warn!("QuickActions: could not end keep awake: {reason}");
+                }
+                self.awake = Awake::default();
+                log::info!("QuickActions: keep awake ended, its time was up");
+                self.after(lists::awake_ended());
+            }
+            Some(_) => self.arm_awake(),
+            None => unsafe {
+                KillTimer(self.hwnd, AWAKE_TIMER);
+            },
+        }
+    }
+
+    fn arm_awake(&self) {
+        match self.awake.until {
+            Some(until) => {
+                let left = until
+                    .saturating_sub(self.now_ms())
+                    .clamp(1, u64::from(u32::MAX));
+                unsafe { SetTimer(self.hwnd, AWAKE_TIMER, left as u32, None) };
+            }
+            None => unsafe {
+                KillTimer(self.hwnd, AWAKE_TIMER);
+            },
+        }
+    }
+
     fn bin_done(&mut self, ok: bool) {
         let what = self.emptying.take().unwrap_or_default();
         self.after(tools::bin_finished(ok, &what));
@@ -163,10 +238,14 @@ impl Engine {
     }
 
     fn after(&mut self, outcome: Outcome) {
-        let was = self.awake_since.get().is_some();
-        if was != self.awake.is_on() {
-            self.awake_since.set(self.awake.is_on().then(Instant::now));
-        }
+        let at = |ms: u64| self.epoch + std::time::Duration::from_millis(ms);
+        self.awake_since
+            .set(self.awake.since.map(|since| AwakeView {
+                since: at(since),
+                until: self.awake.until.map(at),
+                ends_at: self.awake.ends_at,
+            }));
+        self.arm_awake();
         host::plugin_changed();
         self.notify(outcome);
     }
@@ -237,6 +316,7 @@ impl Engine {
             self.awake_since.set(None);
             log::info!("QuickActions: keep awake ended");
         }
+        unsafe { KillTimer(self.hwnd, AWAKE_TIMER) };
         self.close_notice();
     }
 }
@@ -255,6 +335,7 @@ unsafe extern "system" fn engine_proc(
             with_engine(Engine::tick);
             Some(true)
         }
+        WM_TIMER if wparam == AWAKE_TIMER => Some(with_engine(Engine::awake_due)),
         _ => None,
     };
     match handled {
@@ -301,9 +382,14 @@ fn create_window() -> Result<HWND, String> {
 
 impl QuickActions {
     fn awake_line(&self) -> Option<String> {
-        self.awake_since
-            .get()
-            .map(|since| actions::awake_line(since.elapsed().as_millis() as u64))
+        let view = self.awake_since.get()?;
+        let ms = |instant: Instant| instant.duration_since(view.since).as_millis() as u64;
+        let awake = Awake {
+            since: Some(0),
+            until: view.until.map(ms),
+            ends_at: view.ends_at,
+        };
+        awake.line(view.since.elapsed().as_millis() as u64)
     }
 }
 
@@ -323,7 +409,26 @@ impl WinCraftPlugin for QuickActions {
         }
     }
 
-    fn init(&mut self, _ctx: &HostContext) -> Result<(), String> {
+    fn default_settings(&self) -> serde_json::Value {
+        serde_json::json!({ SIZES_KEY: DEFAULT_SIZES })
+    }
+
+    fn settings_fields(&self) -> Vec<SettingField> {
+        vec![SettingField {
+            key: SIZES_KEY,
+            label: "More sizes for Window: Resize\u{2026}",
+            help: "Width x height in screen pixels, split by commas, such as 1600x900, 1366x768.",
+            kind: FieldKind::Text,
+        }]
+    }
+
+    fn on_settings_changed(&mut self, settings: &serde_json::Value) -> bool {
+        let sizes = lists::parse_sizes(settings[SIZES_KEY].as_str().unwrap_or_default());
+        with_engine(|engine| engine.user_sizes = sizes);
+        true
+    }
+
+    fn init(&mut self, ctx: &HostContext) -> Result<(), String> {
         let hwnd = create_window()?;
         let live = Live {
             owner: hwnd as isize,
@@ -343,6 +448,7 @@ impl WinCraftPlugin for QuickActions {
             epoch: Instant::now(),
             next_uuid: None,
             emptying: None,
+            user_sizes: lists::parse_sizes(ctx.settings[SIZES_KEY].as_str().unwrap_or_default()),
         };
         ENGINE.with(|cell| *cell.borrow_mut() = Some(engine));
         Ok(())
@@ -357,13 +463,26 @@ impl WinCraftPlugin for QuickActions {
                 hint: "",
                 words: entry.words,
                 confirm: entry.confirm,
-                list: false,
+                list: entry.list,
             })
             .collect()
     }
 
     fn on_palette_command(&mut self, id: u32) {
         with_engine(|engine| engine.run(id));
+    }
+
+    fn command_list(&mut self, kind: ActionKind, action_id: u32) -> Option<SubList> {
+        if kind != ActionKind::Palette {
+            return None;
+        }
+        ask_engine(|engine| engine.list(action_id)).flatten()
+    }
+
+    fn on_list_pick(&mut self, kind: ActionKind, action_id: u32, row: &str) {
+        if kind == ActionKind::Palette {
+            with_engine(|engine| engine.pick(action_id, row));
+        }
     }
 
     fn command_details(&mut self, kind: ActionKind, action_id: u32) -> Option<CommandDetails> {
@@ -388,7 +507,10 @@ impl WinCraftPlugin for QuickActions {
     fn tray_toggles(&self) -> Vec<TrayToggle> {
         vec![TrayToggle {
             id: TRAY_KEEP_AWAKE,
-            label: "Keep awake".into(),
+            label: match self.awake_since.get().and_then(|view| view.ends_at) {
+                Some((hour, minute)) => format!("Keep awake until {hour:02}:{minute:02}").into(),
+                None => "Keep awake".into(),
+            },
             on: self.awake_since.get().is_some(),
         }]
     }
@@ -452,7 +574,11 @@ mod tests {
             .status()
             .expect("a status")
             .contains("Keep awake is off"));
-        plugin.awake_since.set(Some(Instant::now()));
+        plugin.awake_since.set(Some(AwakeView {
+            since: Instant::now(),
+            until: None,
+            ends_at: None,
+        }));
         assert!(plugin.tray_toggles()[0].on);
         assert_eq!(
             plugin.status().as_deref(),
@@ -473,5 +599,37 @@ mod tests {
         assert_eq!(meta.id, ID);
         assert_eq!(meta.name, "QuickActions");
         assert!(crate::ui::widgets::icons::Icon::named(meta.icon.expect("an icon")).is_some());
+    }
+
+    #[test]
+    fn a_timed_keep_awake_shows_its_end_in_the_tray_and_the_status() {
+        let plugin = QuickActions::new();
+        let now = Instant::now();
+        plugin.awake_since.set(Some(AwakeView {
+            since: now,
+            until: Some(now + std::time::Duration::from_secs(30 * 60)),
+            ends_at: Some((15, 20)),
+        }));
+        assert_eq!(plugin.tray_toggles()[0].label, "Keep awake until 15:20");
+        assert_eq!(
+            plugin.status().as_deref(),
+            Some("Keep awake: on until 15:20, 30 min left")
+        );
+    }
+
+    #[test]
+    fn the_resize_sizes_setting_has_a_default_that_parses() {
+        let plugin = QuickActions::new();
+        let defaults = plugin.default_settings();
+        let text = defaults[SIZES_KEY].as_str().expect("text");
+        assert_eq!(lists::parse_sizes(text), [(1600, 900), (1366, 768)]);
+        assert_eq!(plugin.settings_fields()[0].key, SIZES_KEY);
+        let mut plugin = plugin;
+        assert!(plugin.on_settings_changed(&defaults));
+        assert!(
+            plugin.command_list(ActionKind::Palette, 40).is_none(),
+            "off: no engine"
+        );
+        assert!(plugin.command_list(ActionKind::Hotkey, 40).is_none());
     }
 }

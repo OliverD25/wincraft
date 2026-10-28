@@ -3,6 +3,7 @@
 //! Win32 here, so all of it runs in the tests on a fake PC.
 
 use super::geometry::{self, Goal};
+use super::lists::ListKind;
 use super::system::{Placement, System};
 use super::toggles::{self, Setting, Values};
 use super::tools::{self, Tool};
@@ -15,6 +16,8 @@ pub enum Command {
     KeepAwake,
     Toggle(Setting),
     Tool(Tool),
+    /// Enter shows rows to pick from.
+    List(ListKind),
 }
 
 /// One palette row. The id is what a hotkey bound with Ctrl+K stores, so
@@ -27,11 +30,13 @@ pub struct Entry {
     pub subtitle: &'static str,
     /// Not empty: Enter twice within 5 s, and this before the second.
     pub confirm: &'static str,
+    /// Enter shows rows to pick from.
+    pub list: bool,
 }
 
 pub const KEEP_AWAKE: u32 = 10;
 
-pub const ENTRIES: [Entry; 18] = [
+pub const ENTRIES: [Entry; 23] = [
     Entry {
         id: 1,
         command: Command::Topmost,
@@ -39,6 +44,7 @@ pub const ENTRIES: [Entry; 18] = [
         words: "pin float above topmost front stay",
         subtitle: "Keeps the window you were in above all others, or stops it",
         confirm: "",
+        list: false,
     },
     Entry {
         id: 2,
@@ -47,6 +53,7 @@ pub const ENTRIES: [Entry; 18] = [
         words: "centre middle move",
         subtitle: "Moves the window you were in to the middle of its screen",
         confirm: "",
+        list: false,
     },
     Entry {
         id: 3,
@@ -55,6 +62,7 @@ pub const ENTRIES: [Entry; 18] = [
         words: "size 720p hd small record video",
         subtitle: "Makes the window you were in 1280 by 720 pixels, in the middle",
         confirm: "",
+        list: false,
     },
     Entry {
         id: 4,
@@ -63,6 +71,7 @@ pub const ENTRIES: [Entry; 18] = [
         words: "size 1080p full hd record video",
         subtitle: "Makes the window you were in 1920 by 1080 pixels, in the middle",
         confirm: "",
+        list: false,
     },
     Entry {
         id: 5,
@@ -71,6 +80,7 @@ pub const ENTRIES: [Entry; 18] = [
         words: "size big large screen percent",
         subtitle: "Makes the window you were in 80 % of its screen, in the middle",
         confirm: "",
+        list: false,
     },
     Entry {
         id: KEEP_AWAKE,
@@ -79,6 +89,7 @@ pub const ENTRIES: [Entry; 18] = [
         words: "caffeine coffee sleep screen awake insomnia presentation",
         subtitle: "Keeps the PC and the screen from sleeping until you run it again",
         confirm: "",
+        list: false,
     },
     Entry {
         id: 20,
@@ -87,6 +98,7 @@ pub const ENTRIES: [Entry; 18] = [
         words: "dark night light theme black colour color",
         subtitle: "Switches apps and Windows between dark and light",
         confirm: "",
+        list: false,
     },
     Entry {
         id: 21,
@@ -95,6 +107,7 @@ pub const ENTRIES: [Entry; 18] = [
         words: "icons desktop clean screen share hide show presentation",
         subtitle: "Hides or shows the icons on the desktop",
         confirm: "",
+        list: false,
     },
     Entry {
         id: 22,
@@ -103,6 +116,7 @@ pub const ENTRIES: [Entry; 18] = [
         words: "taskbar autohide hide space room",
         subtitle: "Hides the taskbar until the mouse reaches it, or stops it",
         confirm: "",
+        list: false,
     },
     Entry {
         id: 23,
@@ -111,6 +125,7 @@ pub const ENTRIES: [Entry; 18] = [
         words: "hidden dotfiles show system explorer folder",
         subtitle: "Shows or hides hidden files in File Explorer",
         confirm: "",
+        list: false,
     },
     Entry {
         id: 24,
@@ -119,6 +134,7 @@ pub const ENTRIES: [Entry; 18] = [
         words: "extension ext type suffix explorer names",
         subtitle: "Shows or hides the end of file names, such as .txt",
         confirm: "",
+        list: false,
     },
     Entry {
         id: 30,
@@ -127,6 +143,7 @@ pub const ENTRIES: [Entry; 18] = [
         words: "ip address lan wifi ethernet wsl network local ipv4",
         subtitle: "Copies this PC's address on your network, such as 192.168.1.20",
         confirm: "",
+        list: false,
     },
     Entry {
         id: 31,
@@ -135,6 +152,7 @@ pub const ENTRIES: [Entry; 18] = [
         words: "dns flush cache clear reset internet network",
         subtitle: "Makes Windows look up web addresses afresh, as ipconfig /flushdns does",
         confirm: "",
+        list: false,
     },
     Entry {
         id: 32,
@@ -143,6 +161,7 @@ pub const ENTRIES: [Entry; 18] = [
         words: "clipboard plain text paste formatting strip clean",
         subtitle: "Keeps only the text on the clipboard, without fonts, colours or links",
         confirm: "",
+        list: false,
     },
     Entry {
         id: 33,
@@ -151,6 +170,7 @@ pub const ENTRIES: [Entry; 18] = [
         words: "uuid guid id random unique generate",
         subtitle: "Copies a new random UUID, such as for a database key",
         confirm: "",
+        list: false,
     },
     Entry {
         id: 34,
@@ -159,6 +179,7 @@ pub const ENTRIES: [Entry; 18] = [
         words: "microphone mic mute unmute audio sound call meeting",
         subtitle: "Mutes the default microphone, or turns it on again",
         confirm: "",
+        list: false,
     },
     Entry {
         id: 35,
@@ -167,6 +188,7 @@ pub const ENTRIES: [Entry; 18] = [
         words: "recycle bin trash empty delete clean space",
         subtitle: "Deletes everything in the Recycle Bin for good",
         confirm: "Press Enter again to empty the Recycle Bin. This cannot be undone.",
+        list: false,
     },
     Entry {
         id: 36,
@@ -175,6 +197,52 @@ pub const ENTRIES: [Entry; 18] = [
         words: "environment variables path env system settings developer",
         subtitle: "Opens the window where you edit PATH and other variables",
         confirm: "",
+        list: false,
+    },
+    Entry {
+        id: 40,
+        command: Command::List(ListKind::Ports),
+        label: "Developer: Kill Process on Port",
+        words: "port kill process end stop listen tcp server developer localhost",
+        subtitle: "Lists the programs that listen on a port; Enter twice ends one",
+        confirm: "",
+        list: true,
+    },
+    Entry {
+        id: 41,
+        command: Command::List(ListKind::Output),
+        label: "Audio: Switch Output Device",
+        words: "audio sound output speakers headphones headset device switch",
+        subtitle: "Picks the speakers or headphones that sound plays on",
+        confirm: "",
+        list: true,
+    },
+    Entry {
+        id: 42,
+        command: Command::List(ListKind::Sizes),
+        label: "Window: Resize\u{2026}",
+        words: "size resize dimensions width height pixels",
+        subtitle: "Picks a size for the window you were in, from a list you can extend",
+        confirm: "",
+        list: true,
+    },
+    Entry {
+        id: 43,
+        command: Command::List(ListKind::Drives),
+        label: "System: Eject USB Drive",
+        words: "eject usb drive stick memory card safely remove unplug",
+        subtitle: "Ejects a USB stick or memory card so you can unplug it safely",
+        confirm: "",
+        list: true,
+    },
+    Entry {
+        id: 44,
+        command: Command::List(ListKind::AwakeFor),
+        label: "Display: Keep Awake for\u{2026}",
+        words: "caffeine coffee sleep screen awake timer minutes hour",
+        subtitle: "Keeps the PC and the screen awake for 30 minutes, 1 hour or 2 hours",
+        confirm: "",
+        list: true,
     },
 ];
 
@@ -197,6 +265,8 @@ pub enum Undo {
     Awake(bool),
     /// The microphone was muted before (true) or on.
     Microphone(bool),
+    /// The sound output device in use before, by its id.
+    Output(String),
 }
 
 /// What the notice says after an action, and its Undo.
@@ -269,15 +339,31 @@ fn setting_detail(setting: Setting, on: bool) -> &'static str {
     }
 }
 
-/// Keep awake: on since this many milliseconds on the plugin's clock.
+/// Keep awake: on since this many milliseconds on the plugin's clock,
+/// and, when it was set for a time, when it ends and the local time it
+/// ends at.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Awake {
     pub since: Option<u64>,
+    pub until: Option<u64>,
+    pub ends_at: Option<(u16, u16)>,
 }
 
 impl Awake {
     pub fn is_on(&self) -> bool {
         self.since.is_some()
+    }
+
+    /// "On for 12 min", or "On until 15:20, 28 min left".
+    pub fn line(&self, now: u64) -> Option<String> {
+        let since = self.since?;
+        Some(match (self.until, self.ends_at) {
+            (Some(until), Some((hour, minute))) => {
+                let left = until.saturating_sub(now).div_ceil(60_000);
+                format!("On until {hour:02}:{minute:02}, {left} min left")
+            }
+            _ => awake_line(now.saturating_sub(since)),
+        })
     }
 }
 
@@ -307,6 +393,8 @@ pub fn run(
         Command::KeepAwake => set_awake(system, awake, !awake.is_on(), now),
         Command::Toggle(setting) => toggle(system, setting),
         Command::Tool(tool) => return tools::run(tool, system, uuid),
+        // The palette shows the rows instead of running it.
+        Command::List(_) => return None,
     })
 }
 
@@ -373,6 +461,8 @@ fn set_awake(system: &mut dyn System, awake: &mut Awake, on: bool, now: u64) -> 
         return failed("Keep awake", reason);
     }
     awake.since = on.then_some(awake.since.unwrap_or(now));
+    awake.until = None;
+    awake.ends_at = None;
     log::info!("QuickActions: keep awake {}", on_off(on));
     let detail = if on {
         "The PC and the screen stay awake until you run it again."
@@ -437,10 +527,13 @@ pub fn undo(
             let result = system.keep_awake(was);
             if result.is_ok() {
                 awake.since = was.then_some(awake.since.unwrap_or(now));
+                awake.until = None;
+                awake.ends_at = None;
             }
             result
         }
         Undo::Microphone(was) => system.set_microphone_muted(was),
+        Undo::Output(id) => system.set_output_device(&id),
     };
     match result {
         Ok(()) => {

@@ -2,7 +2,7 @@
 //! selected: the state now and what Enter will do. Read only at that
 //! moment, never in the background, and it never changes anything.
 
-use super::actions::{awake_line, Awake, Command};
+use super::actions::{Awake, Command};
 use super::geometry::{self, Goal};
 use super::system::System;
 use super::toggles::{self, Setting};
@@ -10,6 +10,10 @@ use super::tools::{self, Tool};
 use crate::core::ui_bridge::CommandDetails;
 
 const DOT: &str = " \u{b7} ";
+
+fn line_of(key: &str, value: impl Into<String>) -> (String, String) {
+    line(key, value)
+}
 
 fn line(key: &str, value: impl Into<String>) -> (String, String) {
     (key.to_string(), value.into())
@@ -92,13 +96,18 @@ pub fn details(
             }
         }
         Command::KeepAwake => {
-            details.status = match awake.since {
-                Some(since) => format!(
-                    "{}{DOT}Enter turns it off",
-                    awake_line(now.saturating_sub(since))
-                ),
+            details.status = match awake.line(now) {
+                Some(line) => format!("{line}{DOT}Enter turns it off"),
                 None => format!("Off{DOT}Enter keeps the PC and the screen awake"),
             };
+        }
+        Command::List(kind) => {
+            details.status = kind.hint().to_string();
+            if kind == super::lists::ListKind::AwakeFor {
+                if let Some(line) = awake.line(now) {
+                    details.lines.push(line_of("Now", line));
+                }
+            }
         }
         Command::Toggle(setting) => {
             details.status = match toggles::read(system, setting) {
@@ -275,7 +284,10 @@ mod tests {
     fn keep_awake_says_how_long() {
         let fake = Fake::default();
         let command = entry(10).expect("an entry").command;
-        let on = Awake { since: Some(1000) };
+        let on = Awake {
+            since: Some(1000),
+            ..Awake::default()
+        };
         let shown = details(command, &fake, &on, &mut None, 1000 + 12 * 60_000);
         assert_eq!(shown.status, "On for 12 min \u{b7} Enter turns it off");
         assert!(status(10, &fake).starts_with("Off"));
