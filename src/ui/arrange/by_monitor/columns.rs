@@ -152,12 +152,29 @@ fn capped(col: &Col, cols: &[Col], available: f32) -> f32 {
 /// even that does not fit, the columns add up to more than `available` and
 /// the row scrolls sideways.
 pub fn tracks(cols: &[Col], open: &[f32], available: f32) -> Vec<f32> {
+    // An opening rail takes only width the other columns can spare: taking
+    // more would wrap their cards onto a line the panel has no room for.
+    let folded: f32 = cols
+        .iter()
+        .map(|col| if col.rail { RAIL } else { col.need })
+        .sum();
+    let wanted: f32 = cols
+        .iter()
+        .enumerate()
+        .filter(|(_, col)| col.rail)
+        .map(|(index, _)| rail_width(open.get(index).copied().unwrap_or(0.0)) - RAIL)
+        .sum();
+    let share = if wanted > 0.0 {
+        ((available - folded) / wanted).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     let mut widths: Vec<f32> = cols
         .iter()
         .enumerate()
         .map(|(index, col)| {
             if col.rail {
-                rail_width(open.get(index).copied().unwrap_or(0.0))
+                RAIL + (rail_width(open.get(index).copied().unwrap_or(0.0)) - RAIL) * share
             } else {
                 col.need
             }

@@ -511,7 +511,7 @@ fn rails_leave_the_panel_at_its_minimum_width() {
 }
 
 #[test]
-fn the_panel_has_room_for_the_line_that_open_rails_wrap_onto() {
+fn open_rails_take_only_spare_width_and_never_wrap_a_line() {
     // Reported 2026-10-28: nine cards fitted on one line beside two folded
     // rails; dragging opened the rails, the cards wrapped onto a second line
     // and the panel cut it off.
@@ -521,19 +521,32 @@ fn the_panel_has_room_for_the_line_that_open_rails_wrap_onto() {
         (0..9).map(|_| ("d1", Some(0), None)).collect();
     let bands = bands(&group(&windows), &desktops(), &monitors, &rows);
     let cols = columns(&bands, &rows, &monitors, &SAME);
-    let limit = vec2(5000.0, 5000.0);
-    let size = panel_size(&bands, &cols, &SAME, false, true, limit);
-    let folded = row_tracks(&cols[0], &[], size.x);
-    let open = row_tracks(&cols[0], &[1.0; 3], size.x);
+    let size = panel_size(&bands, &cols, &SAME, false, true, vec2(5000.0, 5000.0));
     let middle = cols[0].iter().position(|col| !col.rail).unwrap();
-    assert_eq!(cell_lines(&SAME[..9], folded[middle]).len(), 1);
-    assert_eq!(cell_lines(&SAME[..9], open[middle]).len(), 2);
-    let tracks = vec![open];
-    let needed: f32 = bands
+    let rails = |tracks: &[f32]| -> Vec<f32> {
+        cols[0]
+            .iter()
+            .zip(tracks)
+            .filter(|(col, _)| col.rail)
+            .map(|(_, width)| *width)
+            .collect()
+    };
+    // Only the panel's SLACK to spare: the rails open by half of it each and
+    // the cards keep one line.
+    let open = row_tracks(&cols[0], &[1.0; 3], size.x);
+    assert_eq!(cell_lines(&SAME[..9], open[middle]).len(), 1);
+    assert!(rails(&open)
         .iter()
-        .map(|band| band_height(band, &cols, &tracks, &SAME))
-        .sum();
-    assert!(size.y >= TOOLBAR + needed + footer_height(true));
+        .all(|width| close(*width, RAIL + SLACK / 2.0)));
+    // Some spare width: shared by the rails, still one line.
+    let wider = row_tracks(&cols[0], &[1.0; 3], size.x + 100.0);
+    assert_eq!(cell_lines(&SAME[..9], wider[middle]).len(), 1);
+    assert!(rails(&wider)
+        .iter()
+        .all(|width| close(*width, RAIL + (SLACK + 100.0) / 2.0)));
+    // Plenty: fully open.
+    let wide = row_tracks(&cols[0], &[1.0; 3], size.x + 1000.0);
+    assert!(rails(&wide).iter().all(|width| close(*width, RAIL_OPEN)));
 }
 
 #[test]
