@@ -1,5 +1,7 @@
 /target
 *.log
+# Sample logs that tests read are part of the source.
+!tools/samples/*.log
 
 # Private working documents (design handouts, notes). Never published.
 /_dev_docs/

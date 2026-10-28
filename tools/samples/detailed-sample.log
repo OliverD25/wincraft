@@ -1,0 +1,35 @@
+2026-10-28 14:00:00.000 [main] === ON by the user
+2026-10-28 14:00:00.150 [detailed header] header: WinCraft 0.20.62
+2026-10-28 14:00:00.151 [detailed header] header: Windows build 26200
+2026-10-28 14:00:00.151 [detailed header] header: plugins on: window_deck, layout_keeper
+2026-10-28 14:00:00.152 [detailed header] header: taskbar: bottom
+2026-10-28 14:00:00.153 [detailed header] header: monitor \.\DISPLAY1 "DELL U2720Q" (primary): [0, 0, 2560, 1440], work area [0, 0, 2560, 1392], DPI 120
+2026-10-28 14:00:00.400 [detailed header] header: keyboard tools running: AutoHotkey64.exe, PowerToys.KeyboardManagerEngine.exe
+2026-10-28 14:00:00.401 [detailed header] header: AutoHotkey script: C:\Tools\keys.ahk
+2026-10-28 14:00:00.402 [detailed header] header: PowerToys modules on: FancyZones, Keyboard Manager
+2026-10-28 14:00:01.000 [main] host: WM_APP_PLUGIN (plugin request) 0.80 ms
+2026-10-28 14:00:05.000 [win-number hook] key win-number: LWin down (vk 0x5b, flags 0x1, injected 0, extra 0x0, waited 0 ms, took 0.05 ms) -> WinDown
+2026-10-28 14:00:05.004 [detailed watch] keystate: LWin
+2026-10-28 14:00:05.010 [main] host: WM_APP_WIN_DOWN (a Windows key went down) 3.20 ms
+2026-10-28 14:00:05.200 [win-number hook] key win-number: 3 down (vk 0x33, flags 0x0, injected 0, extra 0x0, waited 1 ms, took 0.04 ms) -> Take { digit: 3, again: false }
+2026-10-28 14:00:05.201 [win-number side work] call: SendInput (mask key) -> 2
+2026-10-28 14:00:05.230 [main] host: WM_APP_WIN_DIGIT (Win and a digit) 12.00 ms
+2026-10-28 14:00:05.260 [main] deck: open (3 groups, focus group 1, strip already on screen: false)
+2026-10-28 14:00:05.300 [main] front-ask: 0x40a2c (in front before: 0x10010): SetForegroundWindow 1 at once
+2026-10-28 14:00:05.302 [detailed watch] front: 0x40a2c class "eframe" exe "wincraft.exe" pid 4242 thread 9001 title "WindowDeck"; asked by WinCraft 2 ms before (SetForegroundWindow 1 at once)
+2026-10-28 14:00:05.330 [win-number hook] key win-number: 3 up (vk 0x33, flags 0x80, injected 0, extra 0x0, waited 0 ms, took 0.03 ms) -> Hide
+2026-10-28 14:00:05.500 [win-number hook] key win-number: LWin up (vk 0x5b, flags 0x81, injected 0, extra 0x0, waited 0 ms, took 0.04 ms) -> WinUp { alone: false }
+2026-10-28 14:00:05.504 [detailed watch] keystate: none
+2026-10-28 14:00:08.000 [win-number hook] key win-number: LWin down (vk 0x5b, flags 0x1, injected 0, extra 0x0, waited 0 ms, took 0.05 ms) -> WinDown
+2026-10-28 14:00:08.004 [detailed watch] keystate: LWin
+2026-10-28 14:00:08.100 [main] host busy 920 ms in WM_APP_BUTTONS (taskbar buttons read)
+2026-10-28 14:00:08.200 [detailed watch] keystate: LWin+2
+2026-10-28 14:00:08.350 [detailed watch] keystate: LWin
+2026-10-28 14:00:08.380 [detailed watch] front: 0x20334 class "Chrome_WidgetWin_1" exe "chrome.exe" pid 777 thread 778 title "Inbox - Mail"; not asked by WinCraft
+2026-10-28 14:00:08.600 [win-number hook] key win-number: LWin up (vk 0x5b, flags 0x81, injected 0, extra 0x0, waited 0 ms, took 0.04 ms) -> WinUp { alone: false }
+2026-10-28 14:00:08.604 [detailed watch] keystate: none
+2026-10-28 14:00:09.000 [main] ui frame slow 48 ms
+2026-10-28 14:00:09.100 [main] plugin window_deck: WM_TIMER 31.00 ms SLOW
+2026-10-28 14:00:10.000 [main] === MARK 14:00:10 Win+2 opened Chrome instead of the strip
+2026-10-28 14:00:12.000 [main] log INFO host: detailed log: off
+2026-10-28 14:00:12.001 [main] === OFF by the user
