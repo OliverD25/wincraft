@@ -1,7 +1,7 @@
 # WinCraft
 
 ### Windows 11, Crafted for Power Users.
-**One tiny Rust binary. Seven essential desktop utilities. Zero background bloat.**
+**One tiny Rust binary. Eight essential desktop utilities. Zero background bloat.**
 
 Stop running half a dozen background utilities that fight over keyboard hooks, eat RAM, and clutter your system tray. **WinCraft** is a native, modular Windows 11 tray suite that brings an instant command palette, multi-monitor layout recovery, visual window switching, and hardware display controls into a single executable.
 
@@ -14,7 +14,7 @@ Stop running half a dozen background utilities that fight over keyboard hooks, e
 ### Why Power Users Choose WinCraft
 * **Zero-Friction Setup:** No installer wizards, no MSI bloat, no admin rights required. Download `wincraft.exe` and run it portably, or run `wincraft.exe --install` once to register it cleanly in your Start Menu and startup tasks.
 * **Unified Host Architecture:** One lightweight process owns the tray icon, the autostart entry, global hotkeys (including multi-key chords like `Win+Alt+K, S`), the command palette, and the settings UI.
-* **Seven Built-In Power Plugins:** Ships with **ScreenDimmer**, **ShortcutDetector**, **LayoutKeeper**, **WindowDeck**, **LanguageIndicator**, **WindowNamer**, and **QuickJump** out of the box.
+* **Eight Built-In Power Plugins:** Ships with **ScreenDimmer**, **ShortcutDetector**, **LayoutKeeper**, **WindowDeck**, **LanguageIndicator**, **WindowNamer**, **QuickJump**, and **QuickActions** out of the box.
 * **1-Trait Extensibility:** Features are written as plugins that plug into a single Rust trait, so adding a new tool in an afternoon never means touching Win32 plumbing or writing UI code.
 * **100% Local, One File per Plugin:** No telemetry, no accounts, and a separate JSON config file per plugin, so a bad edit costs one plugin, never your whole setup.
 
@@ -72,7 +72,7 @@ WinCraft checks GitHub once a day for a newer release (and **About → Check for
 
 ---
 
-## The Seven Built-In Plugins
+## The Eight Built-In Plugins
 
 ### 1. ScreenDimmer
 
@@ -140,6 +140,21 @@ Shows which global key combinations are already taken on your PC and lets you te
 ### 7. LanguageIndicator
 
 Shows which input language you switched to right in the center of the screen, macOS-style: switch from Ukrainian to English and a translucent panel displays `UK → EN` with `"English (United States) · US"` underneath, then fades out smoothly. It never steals focus and lets clicks straight through. Trigger it on demand via the palette command **Show current input language**. [Full README](src/plugins/language_indicator/README.md)
+
+### 8. QuickActions
+
+The Windows 11 switches that Settings hides several clicks deep, one search away in the palette, VS Code style. Type `dark`, `center` or `awake` and press `Enter`. Every action is named *Area: Verb* and is also found by everyday words: `night` finds dark mode, `caffeine` finds keep awake, `pin` finds always on top. Window actions change the window you were in before the palette opened (never WinCraft's own), restore a maximized window first, and use real screen pixels of the visible window, so `1280 × 720` records as `1280 × 720` at any scale. Every change shows a notice from WinCraft with **Undo**, which puts back exactly what was there before; running a switch again also switches it back. No default hotkeys: select an action in the palette and press `Ctrl+K` to give it one. [Full README](src/plugins/quick_actions/README.md)
+
+| Palette command | What it does |
+| --- | --- |
+| `Window: Toggle Always on Top` | Keeps the window above all others, or stops it |
+| `Window: Center` | Moves the window to the middle of its screen |
+| `Window: Resize to 1280 × 720` / `1920 × 1080` / `80 % of the Monitor` | Resizes the window and centers it, shrinking to fit the screen if needed |
+| `Display: Toggle Keep Awake` | Keeps the PC and the screen awake until run again (also a tick in the tray menu) |
+| `Theme: Toggle Dark Mode` | Switches apps and Windows between dark and light together |
+| `Desktop: Toggle Desktop Icons` | Hides or shows the desktop icons, for a clean screen share |
+| `Taskbar: Toggle Auto-Hide` | Hides the taskbar until the mouse reaches it |
+| `File Explorer: Toggle Hidden Files` / `Toggle File Extensions` | Shows or hides hidden files, or the `.txt` end of file names |
 
 ---
 

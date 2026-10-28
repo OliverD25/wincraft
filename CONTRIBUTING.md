@@ -167,7 +167,7 @@ The About page lists the kinds the build you are running can draw.
 | `tray_actions` | Every time the tray menu opens. Only your **first** tray action goes into the tray menu; every tray action appears in the palette. |
 | `on_tray_action(id)` | When your menu entry or its palette entry is chosen. |
 | `tray_toggles` | Every time the tray menu opens. Ticked on/off entries, shown after your first tray action, for a setting people switch often. Choosing one calls `on_tray_action` with its id, so keep it apart from your tray action ids (and below 100). Call `host::save_setting` to keep the new value. |
-| `palette_commands` | For entries that are neither a hotkey nor a tray item. |
+| `palette_commands` | For entries that are neither a hotkey nor a tray item. `words` holds more words the palette finds the entry by, split by spaces, such as `"night light"` for a dark-mode switch. |
 | `on_palette_command(id)` | When one of those is chosen. |
 | `search_providers` | Once at startup, whether the plugin is on or not. Extra sources of palette results; see below. |
 | `windows` | Once at startup, whether the plugin is on or not. Windows your plugin draws itself with egui; see below. |
@@ -441,8 +441,9 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   connected now, for the strip), `taskbar_order` (a group's thumbnail order
   and the calls that set it), `strip_groups` (the strip's data from windows
   in order), `window_actions` (switch to, close or move one window),
-  `chord` (waiting for the key after a hotkey) and `canvas` (drawing an
-  on-screen panel for `core::layered`).
+  `chord` (waiting for the key after a hotkey), `canvas` (drawing an
+  on-screen panel for `core::layered`) and `notice` (the notice with Undo
+  that QuickJump and QuickActions show after a change).
 - **Clean up in `teardown`.** A plugin can be switched off and on again from
   the settings window, so `init` must work a second time.
 - **`cargo fmt`, `cargo test`, `cargo clippy --all-targets` and a
