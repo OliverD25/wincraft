@@ -19,7 +19,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};
 
-use crate::core::taskbar_popup::{self as popup, keys::WIN_RELEASE_MS, Method};
+use crate::core::taskbar_popup::{self as popup, keys::WIN_RELEASE_MS};
 use crate::core::ui_bridge;
 
 /// "WD" and 4, clear of the plugin's other timers.
@@ -231,7 +231,7 @@ fn inputs(strip_open: bool, keys: Keys) -> Inputs {
 }
 
 fn hide(hwnd: HWND) {
-    popup::hide(hwnd, Method::ShowWindowAsync);
+    popup::hide(hwnd);
     HIDDEN.with(|cell| cell.set(cell.get() + 1));
 }
 

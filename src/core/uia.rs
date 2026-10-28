@@ -192,18 +192,6 @@ pub fn automation_id(element: &ComPtr) -> Option<String> {
     bstr_property(element, element_vtable(element).get_current_automation_id)
 }
 
-pub fn name(element: &ComPtr) -> Option<String> {
-    bstr_property(element, element_vtable(element).get_current_name)
-}
-
-/// A `UIA_*ControlTypeId`, 50000 and up; see [`control_type_name`].
-pub fn control_type(element: &ComPtr) -> Option<i32> {
-    let mut value = 0;
-    let hr =
-        unsafe { (element_vtable(element).get_current_control_type)(element.as_raw(), &mut value) };
-    com::ok(hr).then_some(value)
-}
-
 /// Left, top, right, bottom in physical screen pixels.
 pub fn bounding_rect(element: &ComPtr) -> Option<[i32; 4]> {
     let mut rect = RECT {
@@ -225,87 +213,9 @@ pub fn is_offscreen(element: &ComPtr) -> Option<bool> {
     com::ok(hr).then_some(value != 0)
 }
 
-/// The window the element is, or 0 for an element drawn inside a window,
-/// as every XAML element is.
-pub fn native_window(element: &ComPtr) -> isize {
-    let mut value = std::ptr::null_mut();
-    let hr = unsafe {
-        (element_vtable(element).get_current_native_window_handle)(element.as_raw(), &mut value)
-    };
-    if com::ok(hr) {
-        value as isize
-    } else {
-        0
-    }
-}
-
-const CONTROL_TYPES: [&str; 41] = [
-    "Button",
-    "Calendar",
-    "CheckBox",
-    "ComboBox",
-    "Edit",
-    "Hyperlink",
-    "Image",
-    "ListItem",
-    "List",
-    "Menu",
-    "MenuBar",
-    "MenuItem",
-    "ProgressBar",
-    "RadioButton",
-    "ScrollBar",
-    "Slider",
-    "Spinner",
-    "StatusBar",
-    "Tab",
-    "TabItem",
-    "Text",
-    "ToolBar",
-    "ToolTip",
-    "Tree",
-    "TreeItem",
-    "Custom",
-    "Group",
-    "Thumb",
-    "DataGrid",
-    "DataItem",
-    "Document",
-    "SplitButton",
-    "Window",
-    "Pane",
-    "Header",
-    "HeaderItem",
-    "Table",
-    "TitleBar",
-    "Separator",
-    "SemanticZoom",
-    "AppBar",
-];
-
-/// The name of a `UIA_*ControlTypeId`, or the number for one this list
-/// does not know.
-pub fn control_type_name(id: i32) -> String {
-    usize::try_from(id - 50_000)
-        .ok()
-        .and_then(|index| CONTROL_TYPES.get(index))
-        .map(|name| name.to_string())
-        .unwrap_or_else(|| format!("ControlType({id})"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn control_types_are_named_by_their_id() {
-        assert_eq!(control_type_name(50_000), "Button");
-        assert_eq!(control_type_name(50_007), "ListItem");
-        assert_eq!(control_type_name(50_033), "Pane");
-        assert_eq!(control_type_name(50_040), "AppBar");
-        assert_eq!(control_type_name(50_041), "ControlType(50041)");
-        assert_eq!(control_type_name(0), "ControlType(0)");
-    }
 
     #[test]
     fn nothing_is_created_on_a_thread_without_com() {

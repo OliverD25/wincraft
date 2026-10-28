@@ -11,7 +11,6 @@ mod saving;
 mod settings;
 mod state;
 mod taskbar;
-pub mod thumbnail_probe;
 mod tick;
 mod tracking;
 mod verify;

@@ -1,12 +1,10 @@
 //! When the taskbar's hover popup may be hidden: the key rules that keep
-//! Win+number and Alt+Tab working. Shared by WindowDeck's hover strip and by the
-//! hide-popup test (`--test-hide-popup`), which proved them. Nothing here
-//! calls Windows.
+//! Win+number and Alt+Tab working. Used by WindowDeck's hover strip. Nothing
+//! here calls Windows.
 
 /// Explorer's hover popup. Its title is set only after it is shown, so the
 /// class is what finds it.
 pub const POPUP_CLASS: &str = "XamlExplorerHostIslandWindow";
-pub const POPUP_TITLE: &str = "Task Switching";
 
 /// A popup that opens this soon after Win+key was pressed was opened by
 /// the keyboard. Repeated Win+number presses come well inside it.
@@ -25,18 +23,6 @@ pub enum Reason {
     RecentKey,
     MouseButton,
     NotOnButton,
-}
-
-impl Reason {
-    pub fn text(self) -> &'static str {
-        match self {
-            Reason::WinKey => "left alone (Win+number)",
-            Reason::AltKey => "left alone (Alt is held, maybe Alt+Tab)",
-            Reason::RecentKey => "left alone (a key was pressed just before)",
-            Reason::MouseButton => "left alone (a mouse button is down)",
-            Reason::NotOnButton => "left alone (the cursor is not on a taskbar app button)",
-        }
-    }
 }
 
 /// What the keyboard and mouse were doing when the popup appeared. Times

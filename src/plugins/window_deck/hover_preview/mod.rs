@@ -28,7 +28,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SetTimer,
 };
 
-use crate::core::taskbar_popup::{self as popup, Method};
+use crate::core::taskbar_popup as popup;
 use crate::core::{taskbar, ui_bridge, wide};
 use machine::{contains, Answer, Button, Gate, Look, Machine, Point, Rect};
 pub use machine::{delay_ms, Command, DEFAULT_DELAY_MS, OLD_DEFAULT_DELAY_SECONDS};
@@ -271,7 +271,7 @@ impl HoverPreview {
 }
 
 fn hide(hwnd: HWND) {
-    popup::hide(hwnd, Method::ShowWindowAsync);
+    popup::hide(hwnd);
     HIDDEN.with(|cell| cell.set(cell.get() + 1));
 }
 

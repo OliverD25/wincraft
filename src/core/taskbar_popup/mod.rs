@@ -1,6 +1,5 @@
-//! Finding, reading and hiding Explorer's taskbar hover popup. Shared by
-//! WindowDeck's hover strip and by LayoutKeeper's hide-popup test
-//! (`--test-hide-popup`).
+//! Finding, reading and hiding Explorer's taskbar hover popup, for
+//! WindowDeck's hover strip.
 //!
 //! Only plain hides are used, never a move off-screen: Explorer shows a
 //! hidden popup again on the next hover by itself, so a WinCraft that
@@ -16,10 +15,9 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     VK_RBUTTON, VK_RETURN, VK_RIGHT, VK_RWIN, VK_SPACE, VK_TAB, VK_UP,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    FindWindowExW, FindWindowW, GetWindowThreadProcessId, IsWindowVisible, SetWindowPos,
-    ShowWindowAsync, CHILDID_SELF, EVENT_OBJECT_SHOW, EVENT_OBJECT_UNCLOAKED, OBJID_WINDOW,
-    SWP_ASYNCWINDOWPOS, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-    SW_HIDE, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
+    FindWindowExW, FindWindowW, GetWindowThreadProcessId, IsWindowVisible, ShowWindowAsync,
+    CHILDID_SELF, EVENT_OBJECT_SHOW, EVENT_OBJECT_UNCLOAKED, OBJID_WINDOW, SW_HIDE,
+    WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
 };
 
 pub mod keys;
@@ -28,56 +26,9 @@ use crate::core::wide;
 use crate::core::windows_list::class_name;
 use keys::{KeyState, POPUP_CLASS};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Method {
-    ShowWindowAsync,
-    SetWindowPosHide,
-    MoveOffScreen,
-}
-
-impl Method {
-    pub const ALL: [Method; 3] = [
-        Method::ShowWindowAsync,
-        Method::SetWindowPosHide,
-        Method::MoveOffScreen,
-    ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Method::ShowWindowAsync => "(a) ShowWindowAsync SW_HIDE",
-            Method::SetWindowPosHide => "(b) SetWindowPos SWP_HIDEWINDOW",
-            Method::MoveOffScreen => "(c) SetWindowPos off-screen",
-        }
-    }
-}
-
-/// Hides the popup the way `method` says. `MoveOffScreen` does nothing:
-/// it is only named so the test can report it was never used.
-pub fn hide(hwnd: HWND, method: Method) {
-    match method {
-        Method::ShowWindowAsync => {
-            unsafe { ShowWindowAsync(hwnd, SW_HIDE) };
-        }
-        Method::SetWindowPosHide => {
-            unsafe {
-                SetWindowPos(
-                    hwnd,
-                    std::ptr::null_mut(),
-                    0,
-                    0,
-                    0,
-                    0,
-                    SWP_HIDEWINDOW
-                        | SWP_NOACTIVATE
-                        | SWP_NOMOVE
-                        | SWP_NOSIZE
-                        | SWP_NOZORDER
-                        | SWP_ASYNCWINDOWPOS,
-                )
-            };
-        }
-        Method::MoveOffScreen => {}
-    }
+/// Hides the popup. Explorer shows it again by itself on the next hover.
+pub fn hide(hwnd: HWND) {
+    unsafe { ShowWindowAsync(hwnd, SW_HIDE) };
 }
 
 pub fn find_popups() -> Vec<HWND> {

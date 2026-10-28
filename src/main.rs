@@ -62,44 +62,8 @@ fn main() {
         return;
     }
 
-    // A read-only look at the taskbar's thumbnail popup that runs beside the
-    // user's WinCraft: before the single-instance guard, which would end it,
-    // and before logging::init, which would empty the running one's log.
-    // The same for the hide-popup test, which the user starts by hand.
-    if let Some(options) =
-        plugins::layout_keeper::thumbnail_probe::hide_test::options_from_args(&args)
-    {
-        let code = match options {
-            Ok(options) => {
-                unsafe {
-                    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
-                };
-                plugins::layout_keeper::thumbnail_probe::hide_test::run(options)
-            }
-            Err(reason) => {
-                let _ = writeln!(std::io::stdout(), "{reason}");
-                2
-            }
-        };
-        std::process::exit(code);
-    }
-    if let Some(seconds) = plugins::layout_keeper::thumbnail_probe::seconds_from_args(&args) {
-        let code = match seconds {
-            Ok(seconds) => {
-                unsafe {
-                    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
-                };
-                plugins::layout_keeper::thumbnail_probe::run(seconds)
-            }
-            Err(reason) => {
-                let _ = writeln!(std::io::stdout(), "{reason}");
-                2
-            }
-        };
-        std::process::exit(code);
-    }
-
-    // Also before logging::init, for the same reason as the probe.
+    // Before the single-instance guard and logging::init, which would empty the
+    // running WinCraft's log.
     if has_flag(&args, "--quit") {
         let outcome = quit::run(quit::TIMEOUT);
         // Nobody may be reading: a closed pipe must not turn into a panic.
@@ -496,10 +460,7 @@ mod tests {
         );
         let missing = args(&["wincraft.exe", "--example-value"]);
         assert_eq!(arg_after(&missing, "--example-value"), None);
-        assert_eq!(
-            arg_after(&args(&["wincraft.exe"]), "--example-value"),
-            None
-        );
+        assert_eq!(arg_after(&args(&["wincraft.exe"]), "--example-value"), None);
         assert_eq!(
             arg_after(&args(&["--example-value", "1,2"]), "--example-value"),
             None
