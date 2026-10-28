@@ -27,6 +27,7 @@ use windows_sys::Win32::System::Threading::{
 use crate::core::install::{self, EXE_NAME};
 use crate::core::{config, instance, logging, package, release_notes, sha256, wide};
 use crate::store::github::{self, Release};
+use crate::store::release_lookup::CheckError;
 
 pub const EXE_ASSET: &str = "wincraft.exe";
 pub const SUMS_ASSET: &str = "SHA256SUMS.txt";
@@ -126,14 +127,28 @@ pub fn classify(release: Option<Release>, current: &str) -> Checked {
     }
 }
 
-/// Asks GitHub; slow, so never on the host or UI thread.
-pub fn check(current: &str) -> Result<Checked, String> {
-    github::latest_release().map(|release| {
-        if let Some(release) = &release {
-            keep_notes_if_installed(release, current);
-        }
-        classify(release, current)
-    })
+/// What one update check found, and what it learned about GitHub's limit.
+#[derive(Debug)]
+pub struct Asked {
+    pub result: Result<Checked, CheckError>,
+    /// The API said it is limiting requests: seconds until that lifts, when
+    /// it said.
+    pub limited: Option<Option<u64>>,
+}
+
+/// Asks GitHub; slow, so never on the host or UI thread. `use_api` false
+/// asks only the releases page, which GitHub's API limit does not cover.
+pub fn check(current: &str, use_api: bool) -> Asked {
+    let lookup = github::latest_release(use_api);
+    Asked {
+        result: lookup.result.map(|release| {
+            if let Some(release) = &release {
+                keep_notes_if_installed(release, current);
+            }
+            classify(release, current)
+        }),
+        limited: lookup.limited,
+    }
 }
 
 /// A release that is the running version has the notes About shows under

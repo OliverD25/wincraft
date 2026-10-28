@@ -186,6 +186,7 @@ fn status_line(update: &UpdateView, checked: &str) -> (String, Tone) {
             "Could not check \u{2014} offline".to_string(),
             Tone::Warning,
         ),
+        UpdateStatus::CheckFailed(_) => ("Could not check".to_string(), Tone::Warning),
         UpdateStatus::Downloading(Some(100)) => {
             ("Checking the download\u{2026}".to_string(), Tone::Secondary)
         }
@@ -302,7 +303,7 @@ fn updates_block(
         text::secondary(ui, failed, tokens.warning);
         ui.add_space(8.0);
     }
-    if let UpdateStatus::Error(err) = &update.status {
+    if let UpdateStatus::Error(err) | UpdateStatus::CheckFailed(err) = &update.status {
         ui.add_space(2.0);
         text::secondary(ui, err, tokens.warning);
         ui.add_space(8.0);

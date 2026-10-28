@@ -43,6 +43,46 @@ pub fn due(trigger: Trigger, now: u64, last: u64, automatic: bool, checking: boo
     }
 }
 
+/// The most requests WinCraft sends to GitHub's API in any hour. GitHub
+/// allows 60 an hour without a login, shared by every program and PC
+/// behind the same router, so WinCraft keeps to a tenth of that.
+pub const API_CALLS_PER_HOUR: usize = 6;
+/// Automatic checks stop at this many, so what the user asks for still has
+/// requests left.
+pub const AUTOMATIC_API_CALLS: usize = 4;
+const HOUR: u64 = 60 * 60;
+
+/// The requests sent to GitHub's API in the last hour, in this run.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ApiBudget {
+    calls: Vec<u64>,
+}
+
+impl ApiBudget {
+    /// How many requests went out in the hour before `now`.
+    pub fn used(&mut self, now: u64) -> usize {
+        // A clock that went back keeps nothing: better one request too many
+        // than checks that stop for as long.
+        self.calls.retain(|&at| at <= now && now - at < HOUR);
+        self.calls.len()
+    }
+
+    /// Whether one more request may go now: automatic checks stop earlier
+    /// than what the user asks for.
+    pub fn allows(&mut self, now: u64, asked_by_user: bool) -> bool {
+        let most = if asked_by_user {
+            API_CALLS_PER_HOUR
+        } else {
+            AUTOMATIC_API_CALLS
+        };
+        self.used(now) < most
+    }
+
+    pub fn spend(&mut self, now: u64) {
+        self.calls.push(now);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,5 +132,48 @@ mod tests {
                 "{trigger:?}: one is running"
             );
         }
+    }
+
+    #[test]
+    fn the_api_budget_is_six_an_hour_and_four_for_automatic_checks() {
+        let mut budget = ApiBudget::default();
+        for minute in 0..4 {
+            assert!(budget.allows(NOW + minute * MINUTE, false));
+            budget.spend(NOW + minute * MINUTE);
+        }
+        let later = NOW + 5 * MINUTE;
+        assert!(
+            !budget.allows(later, false),
+            "automatic checks stop at four"
+        );
+        assert!(budget.allows(later, true), "the user still has two");
+        budget.spend(later);
+        budget.spend(later);
+        assert!(!budget.allows(later, true), "six is the most in an hour");
+        assert_eq!(budget.used(later), API_CALLS_PER_HOUR);
+        assert_eq!(
+            budget.used(NOW + 60 * MINUTE),
+            5,
+            "the first one is an hour old"
+        );
+        assert!(budget.allows(NOW + 64 * MINUTE, false));
+        assert_eq!(budget.used(NOW + 66 * MINUTE), 0);
+    }
+
+    #[test]
+    fn a_clock_that_went_back_forgets_the_budget() {
+        let mut budget = ApiBudget::default();
+        for _ in 0..6 {
+            budget.spend(NOW);
+        }
+        assert!(budget.allows(NOW - MINUTE, true));
+    }
+
+    #[test]
+    fn the_hourly_timer_and_fifteen_minute_rechecks_fit_the_automatic_budget() {
+        // The most a quiet hour can ask: the timer once, and a wake or an
+        // opening every fifteen minutes after any check.
+        let most = 1 + (CHECK_EVERY.as_secs() / RECHECK_AFTER.as_secs()) as usize;
+        assert!(most - 1 <= AUTOMATIC_API_CALLS, "{most}");
     }
 }

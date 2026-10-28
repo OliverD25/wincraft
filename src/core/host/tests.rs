@@ -1,4 +1,5 @@
 use super::*;
+use crate::store::release_lookup::CheckError;
 
 // The plugin and hotkey bookkeeping below runs with fake plugins, a fake
 // keyboard instead of RegisterHotKey, and settings files in a scratch
@@ -1059,10 +1060,14 @@ fn update_wincraft_says_every_answer_and_installs_a_newer_one() {
     );
 
     let mut updates = asked();
-    let after = updates.checked(Err("no network".to_string()), &mut config, 100);
+    let after = updates.checked(
+        Err(CheckError::Offline("no network".to_string())),
+        &mut config,
+        100,
+    );
     assert_eq!(
         after.notice.as_deref(),
-        Some("WinCraft could not check for updates. Is the PC online?")
+        Some("WinCraft could not reach GitHub. Is the PC online?")
     );
 
     let mut updates = asked();
@@ -1097,7 +1102,11 @@ fn a_failed_update_check_says_offline_only_when_asked_for() {
     let mut updates = Updates::default();
     let mut config = UpdateConfig::default();
     updates.checking = true;
-    let after = updates.checked(Err("no network".to_string()), &mut config, 100);
+    let after = updates.checked(
+        Err(CheckError::Offline("no network".to_string())),
+        &mut config,
+        100,
+    );
     assert_eq!(after, AfterCheck::default());
     assert_eq!(updates.status, UpdateStatus::Idle);
     assert!(!updates.checking);
@@ -1105,7 +1114,11 @@ fn a_failed_update_check_says_offline_only_when_asked_for() {
 
     updates.manual = true;
     updates.auto_update = true;
-    updates.checked(Err("no network".to_string()), &mut config, 100);
+    updates.checked(
+        Err(CheckError::Offline("no network".to_string())),
+        &mut config,
+        100,
+    );
     assert_eq!(updates.status, UpdateStatus::Offline);
     assert!(!updates.manual && !updates.auto_update);
 }
@@ -2665,4 +2678,107 @@ fn a_plugin_call_line_says_how_long_and_marks_a_slow_one() {
         plugin_line("dimmer", "WM_TIMER", 25.0, 5.0).as_deref(),
         Some("plugin dimmer: WM_TIMER 25.00 ms SLOW")
     );
+}
+
+#[test]
+fn each_failed_check_says_its_true_reason() {
+    let asked = || Updates {
+        manual: true,
+        report: true,
+        ..Updates::default()
+    };
+    let mut config = UpdateConfig::default();
+    let now = 1_800_000_000;
+
+    let mut updates = asked();
+    let after = updates.checked(
+        Err(CheckError::Limited { wait: Some(600) }),
+        &mut config,
+        now,
+    );
+    assert_eq!(
+        after.notice.as_deref(),
+        Some("GitHub is limiting update checks for now. WinCraft tries again in 10 minutes.")
+    );
+    assert!(matches!(updates.status, UpdateStatus::CheckFailed(_)));
+    assert_eq!(updates.checks_paused_until, now + 600);
+    assert_eq!(updates.api_paused_until, now + 600);
+
+    let mut updates = asked();
+    let after = updates.checked(Err(CheckError::Limited { wait: None }), &mut config, now);
+    assert_eq!(
+        after.notice.as_deref(),
+        Some("GitHub is limiting update checks for now. WinCraft tries again in 60 minutes.")
+    );
+
+    let mut updates = asked();
+    let after = updates.checked(
+        Err(CheckError::Other("http status: 500".to_string())),
+        &mut config,
+        now,
+    );
+    assert_eq!(
+        after.notice.as_deref(),
+        Some("WinCraft could not check for updates: http status: 500")
+    );
+    assert_eq!(
+        updates.status,
+        UpdateStatus::CheckFailed(
+            "WinCraft could not check for updates: http status: 500".to_string()
+        )
+    );
+
+    let mut updates = asked();
+    updates.checked(
+        Err(CheckError::Offline("dns".to_string())),
+        &mut config,
+        now,
+    );
+    assert_eq!(updates.status, UpdateStatus::Offline);
+    assert_eq!(updates.checks_paused_until, 0, "offline pauses nothing");
+}
+
+#[test]
+fn github_s_limit_sends_checks_to_the_releases_page_and_pauses_automatic_ones() {
+    let now = 1_800_000_000;
+    let mut updates = Updates::default();
+    assert_eq!(updates.ask_by(false, now), Some(true));
+
+    // The API said 403: the next checks ask the page instead.
+    updates.learn_limit(Some(Some(300)), now);
+    assert_eq!(updates.ask_by(false, now + 10), Some(false));
+    assert_eq!(updates.ask_by(true, now + 10), Some(false));
+    assert_eq!(updates.ask_by(false, now + 300), Some(true), "lifted");
+    updates.learn_limit(None, now + 300);
+    assert_eq!(updates.ask_by(false, now + 300), Some(true), "no news");
+
+    // The page failed too: automatic checks wait, the user may still ask.
+    let mut config = UpdateConfig::default();
+    updates.checked(
+        Err(CheckError::Limited { wait: Some(900) }),
+        &mut config,
+        now,
+    );
+    assert_eq!(updates.ask_by(false, now + 60), None);
+    assert_eq!(updates.ask_by(true, now + 60), Some(false));
+    assert_eq!(updates.ask_by(false, now + 900), Some(true));
+}
+
+#[test]
+fn the_api_budget_stops_automatic_checks_and_sends_the_user_to_the_page() {
+    let now = 1_800_000_000;
+    let mut updates = Updates::default();
+    for _ in 0..update_timing::AUTOMATIC_API_CALLS {
+        assert_eq!(updates.ask_by(false, now), Some(true));
+        updates.api_budget.spend(now);
+    }
+    assert_eq!(updates.ask_by(false, now), None, "automatic checks wait");
+    assert_eq!(
+        updates.ask_by(true, now),
+        Some(true),
+        "the user has two more"
+    );
+    updates.api_budget.spend(now);
+    updates.api_budget.spend(now);
+    assert_eq!(updates.ask_by(true, now), Some(false), "then the page");
 }

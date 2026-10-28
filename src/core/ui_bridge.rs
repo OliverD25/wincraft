@@ -898,6 +898,9 @@ pub enum UpdateStatus {
     UpToDate,
     NoRelease,
     Offline,
+    /// A check failed for another reason than the network, said in full:
+    /// GitHub's request limit, or a short reason.
+    CheckFailed(String),
     /// Percent, when the server said how much there is.
     Downloading(Option<u8>),
     /// Swapping the files and restarting.

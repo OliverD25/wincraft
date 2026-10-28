@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use crate::core::instance;
 use crate::core::release_cache::{self, Answer};
+use crate::store::release_lookup::{self, CheckError};
 
 const RAW_BASE: &str = "https://raw.githubusercontent.com/OliverD25/wincraft/main";
 const RELEASES_LATEST: &str = "https://api.github.com/repos/OliverD25/wincraft/releases/latest";
@@ -57,29 +58,59 @@ pub fn get(url: &str) -> Result<String, String> {
 }
 
 /// A GET that sends `etag` back as `If-None-Match`, so GitHub can answer
-/// "304 Not Modified" when nothing changed.
-pub fn get_if_changed(url: &str, etag: Option<&str>) -> Result<Answer, String> {
-    let mut request = agent().get(url);
+/// "304 Not Modified" when nothing changed. A 403 or 429 is GitHub's limit
+/// for requests without a login; its headers say when it lifts, and they
+/// are logged.
+pub fn get_if_changed(url: &str, etag: Option<&str>) -> Result<Answer, CheckError> {
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(TIMEOUT))
+        .user_agent(concat!("WinCraft/", env!("CARGO_PKG_VERSION")))
+        .http_status_as_error(false)
+        .build()
+        .new_agent();
+    let mut request = agent.get(url);
     if let Some(etag) = etag {
         request = request.header("If-None-Match", etag);
     }
-    let mut response = match request.call() {
-        Ok(response) => response,
-        Err(ureq::Error::StatusCode(404)) => return Ok(Answer::NotFound),
-        Err(err) => return Err(format!("{err}")),
+    let mut response = request.call()?;
+    let header = |name: &str| {
+        response
+            .headers()
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string)
     };
-    if response.status().as_u16() == 304 {
-        return Ok(Answer::NotModified);
+    match response.status().as_u16() {
+        304 => return Ok(Answer::NotModified),
+        404 => return Ok(Answer::NotFound),
+        403 | 429 => {
+            let (remaining, reset, retry) = (
+                header("x-ratelimit-remaining"),
+                header("x-ratelimit-reset"),
+                header("retry-after"),
+            );
+            log::info!(
+                "GitHub's API is limiting requests: status {}, x-ratelimit-remaining {},                  x-ratelimit-reset {}, retry-after {}",
+                response.status().as_u16(),
+                remaining.as_deref().unwrap_or("-"),
+                reset.as_deref().unwrap_or("-"),
+                retry.as_deref().unwrap_or("-"),
+            );
+            let wait = release_lookup::limit_wait(
+                retry.as_deref(),
+                reset.as_deref(),
+                crate::core::update::now_secs(),
+            );
+            return Err(CheckError::Limited { wait });
+        }
+        200..=299 => {}
+        status => return Err(CheckError::Other(format!("http status: {status}"))),
     }
-    let etag = response
-        .headers()
-        .get("etag")
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_string);
+    let etag = header("etag");
     let body = response
         .body_mut()
         .read_to_string()
-        .map_err(|err| format!("{err}"))?;
+        .map_err(|err| CheckError::Offline(format!("{err}")))?;
     Ok(Answer::Fresh { body, etag })
 }
 
@@ -106,11 +137,47 @@ pub struct Asset {
     pub url: String,
 }
 
+/// What one check learned, and whether it used GitHub's API.
+#[derive(Debug)]
+pub struct Lookup {
+    pub result: Result<Option<Release>, CheckError>,
+    /// The API said it is limiting requests: seconds until that lifts, when
+    /// it said.
+    pub limited: Option<Option<u64>>,
+}
+
+/// The newest release. `use_api` false goes straight to the releases page,
+/// which the API's limit does not cover; so does a check whose API request
+/// was limited.
+pub fn latest_release(use_api: bool) -> Lookup {
+    let mut limited = None;
+    if use_api {
+        match latest_by_api() {
+            Err(CheckError::Limited { wait }) => limited = Some(wait),
+            result => {
+                return Lookup {
+                    result,
+                    limited: None,
+                }
+            }
+        }
+    }
+    log::info!("update check: asking the releases page instead of GitHub's API");
+    let result = release_lookup::latest_by_page().map_err(|err| {
+        log::info!("update check: the releases page did not answer either: {err}");
+        match limited {
+            Some(wait) => CheckError::Limited { wait },
+            None => err,
+        }
+    });
+    Lookup { result, limited }
+}
+
 /// None while the repository has no release: GitHub answers 404 until the
 /// first one is published, which is a different fact from being offline.
 /// The last answer is kept with its ETag (see `release_cache`), so an
 /// unchanged release costs GitHub a "304 Not Modified" only.
-pub fn latest_release() -> Result<Option<Release>, String> {
+fn latest_by_api() -> Result<Option<Release>, CheckError> {
     let url = releases_override().unwrap_or_else(|| RELEASES_LATEST.to_string());
     let path = release_cache::path();
     let cached = release_cache::load_at(&path);
@@ -118,7 +185,8 @@ pub fn latest_release() -> Result<Option<Release>, String> {
     if answer == Answer::NotModified {
         log::info!("update check: GitHub says the latest release has not changed");
     }
-    let (release, change) = release_cache::resolve(answer, cached.as_ref(), &url)?;
+    let (release, change) =
+        release_cache::resolve(answer, cached.as_ref(), &url).map_err(CheckError::Other)?;
     release_cache::apply_at(&path, change);
     Ok(release)
 }

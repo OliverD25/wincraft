@@ -1,7 +1,8 @@
 use super::*;
+use crate::store::release_lookup::{self, CheckError};
 
 pub(super) enum UpdateEvent {
-    Checked(Result<Checked, String>),
+    Checked(update::Asked),
     /// Percent downloaded, when the server said how much there is.
     Progress(Option<u8>),
     Downloaded(Result<std::path::PathBuf, String>),
@@ -53,6 +54,14 @@ pub(super) struct Updates {
     /// Where the user started the update that is under way, for the next
     /// start to open again. None for the tray menu and for unattended ones.
     pub(super) reopen: Option<update::Reopen>,
+    /// GitHub's API requests in the last hour, kept to six.
+    pub(super) api_budget: update_timing::ApiBudget,
+    /// GitHub's API said it is limiting requests: until then, in unix
+    /// seconds, checks ask the releases page instead.
+    pub(super) api_paused_until: u64,
+    /// The releases page did not answer either: automatic checks wait
+    /// until then.
+    pub(super) checks_paused_until: u64,
     pub(super) tx: Sender<UpdateEvent>,
     pub(super) rx: Receiver<UpdateEvent>,
 }
@@ -79,6 +88,9 @@ impl Default for Updates {
             report: false,
             installed_notes: None,
             reopen: None,
+            api_budget: update_timing::ApiBudget::default(),
+            api_paused_until: 0,
+            checks_paused_until: 0,
             tx,
             rx,
         }
@@ -101,7 +113,7 @@ pub(super) struct AfterCheck {
 impl Updates {
     pub(super) fn checked(
         &mut self,
-        result: Result<Checked, String>,
+        result: Result<Checked, CheckError>,
         config: &mut UpdateConfig,
         now: u64,
     ) -> AfterCheck {
@@ -114,12 +126,24 @@ impl Updates {
             Ok(checked) => checked,
             Err(err) => {
                 log::info!("update check failed: {err}");
+                if let CheckError::Limited { wait } = &err {
+                    let until = now + wait.unwrap_or(60 * 60);
+                    self.api_paused_until = self.api_paused_until.max(until);
+                    self.checks_paused_until = self.checks_paused_until.max(until);
+                    log::info!(
+                        "automatic update checks wait {} minutes for GitHub's limit",
+                        release_lookup::minutes(Some(self.checks_paused_until - now))
+                    );
+                }
+                let text = self.failure_text(&err, now);
                 if manual {
-                    self.status = UpdateStatus::Offline;
+                    self.status = match &err {
+                        CheckError::Offline(_) => UpdateStatus::Offline,
+                        _ => UpdateStatus::CheckFailed(text.clone()),
+                    };
                 }
                 if report {
-                    after.notice =
-                        Some("WinCraft could not check for updates. Is the PC online?".to_string());
+                    after.notice = Some(text);
                 }
                 return after;
             }
@@ -170,6 +194,53 @@ impl Updates {
             }
         }
         after
+    }
+
+    /// What the user reads when a check failed: the true reason, in plain
+    /// words.
+    pub(super) fn failure_text(&self, err: &CheckError, now: u64) -> String {
+        match err {
+            CheckError::Limited { .. } => format!(
+                "GitHub is limiting update checks for now. WinCraft tries again in {} minutes.",
+                release_lookup::minutes(Some(self.checks_paused_until.saturating_sub(now)))
+            ),
+            CheckError::Offline(_) => {
+                "WinCraft could not reach GitHub. Is the PC online?".to_string()
+            }
+            CheckError::Other(reason) => {
+                format!("WinCraft could not check for updates: {reason}")
+            }
+        }
+    }
+
+    /// The API said it is limiting requests: checks ask the releases page
+    /// until it lifts.
+    pub(super) fn learn_limit(&mut self, limited: Option<Option<u64>>, now: u64) {
+        if let Some(wait) = limited {
+            let until = now + wait.unwrap_or(60 * 60);
+            self.api_paused_until = self.api_paused_until.max(until);
+            log::info!(
+                "GitHub's API is paused for WinCraft for {} minutes; checks ask the releases page",
+                release_lookup::minutes(Some(until - now))
+            );
+        }
+    }
+
+    /// How a check asks GitHub now: Some(true) through the API, Some(false)
+    /// through the releases page only, None not at all. The API is skipped
+    /// while GitHub limits it and once the hour's budget is spent; an
+    /// automatic check then waits, one the user asked for asks the page.
+    pub(super) fn ask_by(&mut self, asked_by_user: bool, now: u64) -> Option<bool> {
+        if !asked_by_user && now < self.checks_paused_until {
+            return None;
+        }
+        if now < self.api_paused_until {
+            return Some(false);
+        }
+        if self.api_budget.allows(now, asked_by_user) {
+            return Some(true);
+        }
+        asked_by_user.then_some(false)
     }
 
     /// The version waiting to hear that this one is healthy, taken so it
@@ -459,15 +530,27 @@ Nothing is downloaded."
         if self.updates.checking {
             return;
         }
+        let now = update::now_secs();
+        let asked_by_user = self.updates.manual;
+        let Some(use_api) = self.updates.ask_by(asked_by_user, now) else {
+            log::info!(
+                "update check skipped: GitHub's limit, or the {} automatic API requests an hour are spent",
+                update_timing::AUTOMATIC_API_CALLS
+            );
+            return;
+        };
+        if use_api {
+            self.updates.api_budget.spend(now);
+        }
         self.updates.checking = true;
-        self.updates.last_try = update::now_secs();
+        self.updates.last_try = now;
         let tx = self.updates.tx.clone();
         let hwnd = self.hwnd as isize;
         let started = std::thread::Builder::new()
             .name("wincraft-update-check".to_string())
             .spawn(move || {
-                let result = update::check(env!("CARGO_PKG_VERSION"));
-                if tx.send(UpdateEvent::Checked(result)).is_ok() {
+                let asked = update::check(env!("CARGO_PKG_VERSION"), use_api);
+                if tx.send(UpdateEvent::Checked(asked)).is_ok() {
                     unsafe { PostMessageW(hwnd as HWND, WM_APP_UPDATE, 0, 0) };
                 }
             });
@@ -552,6 +635,12 @@ Nothing is downloaded."
         if self.updates.installed_notes.is_some() || !update::automatic_checks_allowed() {
             return;
         }
+        let now = update::now_secs();
+        if self.updates.ask_by(false, now) != Some(true) {
+            log::info!("the release notes of v{version} wait: GitHub's API is not asked now");
+            return;
+        }
+        self.updates.api_budget.spend(now);
         let tx = self.updates.tx.clone();
         let hwnd = self.hwnd as isize;
         let started = std::thread::Builder::new()
@@ -590,7 +679,10 @@ Nothing is downloaded."
     pub(super) fn update_events(&mut self) {
         while let Ok(event) = self.updates.rx.try_recv() {
             match event {
-                UpdateEvent::Checked(result) => self.checked(result),
+                UpdateEvent::Checked(asked) => {
+                    self.updates.learn_limit(asked.limited, update::now_secs());
+                    self.checked(asked.result);
+                }
                 UpdateEvent::Progress(percent) => {
                     if self.updates.busy {
                         self.updates.status = UpdateStatus::Downloading(percent);
@@ -604,7 +696,7 @@ Nothing is downloaded."
         self.publish();
     }
 
-    pub(super) fn checked(&mut self, result: Result<Checked, String>) {
+    pub(super) fn checked(&mut self, result: Result<Checked, CheckError>) {
         let after = self
             .updates
             .checked(result, &mut self.config.updates, update::now_secs());
