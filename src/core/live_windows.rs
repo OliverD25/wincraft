@@ -16,6 +16,7 @@ use crate::core::appid;
 use crate::core::taskbar_order::Handle;
 use crate::core::virtual_desktops::{self as desktops, Desktop, DesktopId, Reader};
 use crate::core::window_identity::WindowIdentity;
+use crate::core::window_snapshot;
 use crate::core::windows_list;
 
 pub use crate::core::windows_list::{exe_path, window_text};
@@ -41,29 +42,68 @@ pub fn enumerate(
     let mut path_of_pid: HashMap<u32, String> = HashMap::new();
     let mut windows = Vec::new();
     for hwnd in windows_list::app_windows(on_known_desktop) {
-        let mut pid = 0;
-        unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
-        let exe_path = path_of_pid
-            .entry(pid)
-            .or_insert_with(|| exe_path(pid))
-            .clone();
-        let exe = file_name(&exe_path);
-        if !watched(&exe) {
+        let exe_path = path_of(&mut path_of_pid, hwnd);
+        if !watched(&file_name(&exe_path)) {
             continue;
         }
-        let title = window_text(hwnd);
-        let (rect, maximized) = placement(hwnd);
-        let app = appid::read(hwnd);
-        let group = appid::group_key(app.id.as_deref(), &exe_path);
-        windows.push(LiveWindow {
-            hwnd,
-            identity: WindowIdentity::new(&exe, &title, rect, maximized).in_group(&group),
-            group,
-            app_name: app.name,
-            exe_path,
-        });
+        windows.push(read_one(hwnd, exe_path).live());
     }
     windows
+}
+
+/// What is read about one app window, as plain data that any thread may
+/// hold, so a window snapshot (`core::window_snapshot`) can be read on a
+/// thread of its own.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Read {
+    pub hwnd: isize,
+    pub exe_path: String,
+    pub title: String,
+    pub rect: [i32; 4],
+    pub maximized: bool,
+    pub app: appid::AppId,
+    /// The desktop the window is on, read only for a snapshot.
+    pub desktop: Option<DesktopId>,
+}
+
+impl Read {
+    /// The window as `enumerate` gives it.
+    pub fn live(&self) -> LiveWindow {
+        let exe = file_name(&self.exe_path);
+        let group = appid::group_key(self.app.id.as_deref(), &self.exe_path);
+        LiveWindow {
+            hwnd: self.hwnd as HWND,
+            identity: WindowIdentity::new(&exe, &self.title, self.rect, self.maximized)
+                .in_group(&group),
+            group,
+            app_name: self.app.name.clone(),
+            exe_path: self.exe_path.clone(),
+        }
+    }
+}
+
+/// The program path of the window's process, asked once per process.
+pub(crate) fn path_of(path_of_pid: &mut HashMap<u32, String>, hwnd: HWND) -> String {
+    let mut pid = 0;
+    unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+    path_of_pid
+        .entry(pid)
+        .or_insert_with(|| exe_path(pid))
+        .clone()
+}
+
+/// Reads one window's title, place and app id; its desktop is left out.
+pub(crate) fn read_one(hwnd: HWND, exe_path: String) -> Read {
+    let (rect, maximized) = placement(hwnd);
+    Read {
+        hwnd: hwnd as isize,
+        title: window_text(hwnd),
+        rect,
+        maximized,
+        app: appid::read(hwnd),
+        exe_path,
+        desktop: None,
+    }
 }
 
 /// WinCraft's own windows are never listed: the strip would show itself.
@@ -109,7 +149,14 @@ pub fn known_desktop(id: DesktopId, registry: &[Desktop]) -> bool {
 /// `enumerate` for the programs `watched` accepts, telling a window on
 /// another desktop from one the shell hid with `reader`. Without a reader
 /// a cloaked window cannot be placed, and it is kept.
+/// When a window snapshot is in use (see `core::window_snapshot`), the
+/// windows come from it instead of from Windows.
 pub fn on_desktops(watched: &dyn Fn(&str) -> bool, reader: Option<&Reader>) -> Vec<LiveWindow> {
+    if reader.is_some() {
+        if let Some(live) = window_snapshot::live(watched) {
+            return live;
+        }
+    }
     let registry = desktops::list();
     let on_known_desktop = |hwnd: HWND| match reader {
         Some(reader) => reader

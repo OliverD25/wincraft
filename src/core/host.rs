@@ -49,7 +49,7 @@ use crate::core::update::{self, Checked, Handover};
 use crate::core::update_notice::{self, UpdateNotice};
 use crate::core::{
     autostart, chord, config, hotkeys, install, instance, mask_key, release_notes, taskbar,
-    taskbar_number, theme, update_stage, update_timing, wide,
+    taskbar_number, theme, update_stage, update_timing, wide, window_snapshot,
 };
 use crate::search::{self, Router, SearchProvider};
 use crate::store::github::{self, Release};
@@ -148,6 +148,13 @@ const WM_APP_WIN_UP: u32 = WM_APP + 26;
 const WM_APP_BUTTONS: u32 = WM_APP + 27;
 /// A Windows key went down, from WindowDeck's hook; see `post_win_down`.
 const WM_APP_WIN_DOWN: u32 = WM_APP + 28;
+/// The windows read on a thread of their own after a Windows key went down
+/// are ready; see `Host::prepare_deck`.
+const WM_APP_SNAPSHOT: u32 = WM_APP + 29;
+/// How long an opening strip waits for windows that are still being read
+/// on their own thread. They take 10–30 ms; reading them again on the host
+/// takes as long, so waiting is never slower unless the thread is stuck.
+const SNAPSHOT_WAIT: std::time::Duration = std::time::Duration::from_millis(100);
 /// The strip Win and a digit asked for counts as open this long before the
 /// UI thread has its window, so the same digit again picks the next card
 /// instead of opening the strip a second time.
@@ -198,6 +205,12 @@ struct Host {
     prepared: prepared::Prepared<(&'static str, WindowGroups)>,
     /// The list being read on a thread of its own.
     buttons_coming: Option<std::sync::mpsc::Receiver<Result<Vec<taskbar::Button>, String>>>,
+    /// The windows being read on a thread of their own for `prepared`, and
+    /// when they were asked for.
+    snapshot_coming: Option<(
+        std::sync::mpsc::Receiver<crate::core::window_snapshot::Snapshot>,
+        std::time::Instant,
+    )>,
     clock: std::time::Instant,
     /// The number badges and the line while Win+Alt+A waits for a digit.
     wait_hint: Option<ui::taskbar_badges::WaitHint>,
@@ -423,6 +436,7 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
         buttons_at: None,
         buttons_cache: taskbar_cache::Cache::default(),
         buttons_coming: None,
+        snapshot_coming: None,
         prepared: prepared::Prepared::default(),
         clock: std::time::Instant::now(),
         wait_hint: None,

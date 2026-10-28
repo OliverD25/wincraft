@@ -29,7 +29,12 @@ impl Host {
             (None, false) => None,
         };
         let prepared = if open {
-            self.prepared.take(look_plugin, std::time::Instant::now())
+            let ready = self.prepared.take(look_plugin, std::time::Instant::now());
+            let waited = ready.or_else(|| self.wait_for_snapshot(look_plugin));
+            // A snapshot that comes after this opening would hold the old
+            // front window.
+            self.snapshot_coming = None;
+            waited
         } else {
             None
         };
@@ -169,19 +174,87 @@ impl Host {
     }
 
     /// A Windows key went down with Win+1…9 on: WindowDeck's windows are
-    /// gathered now, while the user still holds Win, so the digit that
-    /// may follow does not wait for them.
+    /// read now, on a thread of their own, while the user still holds Win.
+    /// The digit that may follow does not wait for them, and the host stays
+    /// free for other messages while they are read.
     pub(super) fn prepare_deck(&mut self) {
         let now = std::time::Instant::now();
-        if self.prepared.is_fresh(now) {
+        if self.prepared.is_fresh(now) || self.hwnd.is_null() || !self.strip_plugin_on() {
+            return;
+        }
+        let asked_lately = self
+            .snapshot_coming
+            .as_ref()
+            .is_some_and(|(_, asked)| now.saturating_duration_since(*asked) < prepared::FRESH);
+        if asked_lately {
+            return;
+        }
+        let hwnd = self.hwnd as isize;
+        let coming = window_snapshot::read_later(move || unsafe {
+            PostMessageW(hwnd as HWND, WM_APP_SNAPSHOT, 0, 0);
+        });
+        self.snapshot_coming = Some((coming, now));
+    }
+
+    /// The windows read on their own thread are ready: WindowDeck's groups
+    /// are built from them, which takes the host a few milliseconds.
+    pub(super) fn snapshot_arrived(&mut self) {
+        let Some((coming, asked)) = self.snapshot_coming.take() else {
+            return;
+        };
+        match coming.try_recv() {
+            Ok(snapshot) => self.prepare_from(snapshot),
+            // The message came from an older thread; this one is still
+            // reading.
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                self.snapshot_coming = Some((coming, asked));
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                log::debug!(
+                    "the windows could not be read ahead; the strip reads them when it opens"
+                );
+            }
+        }
+    }
+
+    pub(super) fn prepare_from(&mut self, snapshot: window_snapshot::Snapshot) {
+        if self.prepared.is_fresh(std::time::Instant::now()) {
             return;
         }
         let Some((look_plugin, _)) = self.strip_look() else {
             return;
         };
-        if let Some(groups) = self.plugins.window_groups(look_plugin) {
-            self.prepared.put(look_plugin, groups, now);
+        let taken = snapshot.taken;
+        let count = snapshot.windows.len();
+        let started = std::time::Instant::now();
+        let plugins = &mut self.plugins;
+        if let Some(groups) =
+            window_snapshot::while_used(snapshot, || plugins.window_groups(look_plugin))
+        {
+            self.prepared.put(look_plugin, groups, taken);
         }
+        crate::detailed!(
+            "deck: {count} windows read on their own thread, back {} ms after the Windows key; groups built in {:.1} ms",
+            started.saturating_duration_since(taken).as_millis(),
+            started.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+
+    /// The strip opens before the windows read for it are back. They are
+    /// nearly read, so they are waited for a short while; if they do not
+    /// come, the strip reads the windows itself, as it always did.
+    fn wait_for_snapshot(&mut self, look_plugin: &str) -> Option<(&'static str, WindowGroups)> {
+        let (coming, _) = self.snapshot_coming.take()?;
+        let waited = std::time::Instant::now();
+        let snapshot = coming.recv_timeout(SNAPSHOT_WAIT).ok();
+        crate::detailed!(
+            "deck: the strip waited {} ms for the windows read on their own thread{}",
+            waited.elapsed().as_millis(),
+            if snapshot.is_some() { "" } else { ", in vain" }
+        );
+        let snapshot = snapshot?;
+        let plugins = &mut self.plugins;
+        window_snapshot::while_used(snapshot, || plugins.window_groups(look_plugin))
     }
 
     /// Whether the taskbar's buttons read last still count.
@@ -204,6 +277,7 @@ impl Host {
     /// taskbar buttons is read again once things have settled.
     pub(super) fn buttons_changed(&mut self) {
         self.prepared.forget();
+        self.snapshot_coming = None;
         if self.buttons_cache.changed() && !self.hwnd.is_null() {
             unsafe { SetTimer(self.hwnd, BUTTONS_TIMER, BUTTONS_SETTLE_MS, None) };
         }

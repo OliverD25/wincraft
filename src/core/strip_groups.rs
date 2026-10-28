@@ -12,6 +12,7 @@ use crate::core::ui_bridge::{ArrangeDesktop, ArrangeGroup, ArrangeMonitor, Arran
 use crate::core::virtual_desktops::{Desktop, DesktopId, Reader};
 use crate::core::window_identity::{self as identity, Rect, WindowIdentity};
 use crate::core::window_names;
+use crate::core::window_snapshot;
 
 /// What the strip shows of where a window is: its monitor's place word
 /// (None on the primary monitor) and its place in the monitor list.
@@ -29,9 +30,14 @@ pub fn place_on(monitors: &[Monitor]) -> impl Fn(Rect) -> (Option<String>, Optio
 
 /// The id of the desktop a window is on, as the strip spells it: empty when
 /// it cannot be read or the window is on every desktop.
+/// A window snapshot in use (see `core::window_snapshot`) answers first.
 pub fn desktop_of(reader: Option<&Reader>, hwnd: Handle) -> String {
+    let read = |reader: &Reader| match window_snapshot::desktop_of(hwnd) {
+        Some(known) => known,
+        None => reader.read(hwnd as HWND),
+    };
     reader
-        .and_then(|reader| reader.read(hwnd as HWND))
+        .and_then(read)
         .filter(|id| *id != DesktopId::ALL)
         .map(|id| id.to_string())
         .unwrap_or_default()

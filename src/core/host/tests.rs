@@ -1205,6 +1205,7 @@ fn test_host(
         buttons_at: None,
         buttons_cache: taskbar_cache::Cache::default(),
         buttons_coming: None,
+        snapshot_coming: None,
         prepared: prepared::Prepared::default(),
         clock: std::time::Instant::now(),
         wait_hint: None,
@@ -2110,7 +2111,7 @@ fn windows_gathered_when_win_goes_down_serve_the_next_opening() {
     deck.look = true;
     let (mut host, ui) = test_host(vec![keeper, deck], &keyboard, &data);
     let now = std::time::Instant::now;
-    host.prepare_deck();
+    host.prepare_from(no_windows());
     assert!(host.prepared.is_fresh(now()));
     assert!(host.send_arrange_for(true, false));
     assert!(!host.prepared.is_fresh(now()), "taken by the opening");
@@ -2118,9 +2119,95 @@ fn windows_gathered_when_win_goes_down_serve_the_next_opening() {
         .try_iter()
         .any(|command| matches!(command, UiCommand::ShowArrange(_))));
     // A window that comes or goes throws them away.
-    host.prepare_deck();
+    host.prepare_from(no_windows());
     host.buttons_changed();
     assert!(!host.prepared.is_fresh(now()));
+}
+
+fn no_windows() -> crate::core::window_snapshot::Snapshot {
+    crate::core::window_snapshot::Snapshot {
+        windows: Vec::new(),
+        taken: std::time::Instant::now(),
+    }
+}
+
+fn snapshot_host(
+    data: &Scratch,
+    keyboard: &FakeKeys,
+) -> (Host, std::sync::mpsc::Receiver<UiCommand>) {
+    let log = diary();
+    let mut keeper = fake("fake_keeper", "Keeper", "Win+Alt+F1", &log);
+    keeper.groups = true;
+    let mut deck = fake("fake_deck", "Deck", "Win+Alt+F2", &log);
+    deck.look = true;
+    test_host(vec![keeper, deck], keyboard, data)
+}
+
+#[test]
+fn windows_read_on_their_own_thread_are_built_into_groups_when_they_come() {
+    let data = Scratch::new("strip-snapshot");
+    let keyboard = FakeKeys::default();
+    let (mut host, _ui) = snapshot_host(&data, &keyboard);
+    let now = std::time::Instant::now;
+    // Still being read: the message from an older thread changes nothing.
+    let (send, receive) = std::sync::mpsc::channel();
+    host.snapshot_coming = Some((receive, now()));
+    host.snapshot_arrived();
+    assert!(host.snapshot_coming.is_some() && !host.prepared.is_fresh(now()));
+    // Read: the groups are ready for the digit.
+    send.send(no_windows()).unwrap();
+    host.snapshot_arrived();
+    assert!(host.snapshot_coming.is_none() && host.prepared.is_fresh(now()));
+    // A thread that could not read sends nothing; the strip reads itself.
+    host.prepared.forget();
+    let (send, receive) = std::sync::mpsc::channel();
+    drop(send);
+    host.snapshot_coming = Some((receive, now()));
+    host.snapshot_arrived();
+    assert!(host.snapshot_coming.is_none() && !host.prepared.is_fresh(now()));
+}
+
+#[test]
+fn windows_read_too_long_ago_are_not_built_into_groups() {
+    let data = Scratch::new("strip-snapshot-old");
+    let keyboard = FakeKeys::default();
+    let (mut host, _ui) = snapshot_host(&data, &keyboard);
+    let mut old = no_windows();
+    old.taken = std::time::Instant::now() - prepared::FRESH;
+    host.prepare_from(old);
+    assert!(!host.prepared.is_fresh(std::time::Instant::now()));
+}
+
+#[test]
+fn a_strip_that_opens_before_the_windows_are_back_waits_for_them() {
+    let data = Scratch::new("strip-snapshot-wait");
+    let keyboard = FakeKeys::default();
+    let (mut host, ui) = snapshot_host(&data, &keyboard);
+    let (send, receive) = std::sync::mpsc::channel();
+    host.snapshot_coming = Some((receive, std::time::Instant::now()));
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let _ = send.send(no_windows());
+    });
+    assert!(host.send_arrange_for(true, false));
+    assert!(host.snapshot_coming.is_none());
+    assert!(ui
+        .try_iter()
+        .any(|command| matches!(command, UiCommand::ShowArrange(_))));
+}
+
+#[test]
+fn a_window_that_comes_or_goes_drops_the_windows_being_read() {
+    let data = Scratch::new("strip-snapshot-drop");
+    let keyboard = FakeKeys::default();
+    let (mut host, _ui) = snapshot_host(&data, &keyboard);
+    let (send, receive) = std::sync::mpsc::channel();
+    host.snapshot_coming = Some((receive, std::time::Instant::now()));
+    host.buttons_changed();
+    assert!(host.snapshot_coming.is_none());
+    let _ = send.send(no_windows());
+    host.snapshot_arrived();
+    assert!(!host.prepared.is_fresh(std::time::Instant::now()));
 }
 
 #[test]

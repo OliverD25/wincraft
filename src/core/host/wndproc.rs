@@ -115,6 +115,7 @@ pub(super) fn message_name(msg: u32, wparam: WPARAM) -> String {
         WM_APP_WIN_UP => "WM_APP_WIN_UP (a Windows key let go)".to_string(),
         WM_APP_WAIT_KEY => "WM_APP_WAIT_KEY (key after a hotkey)".to_string(),
         WM_APP_BUTTONS => "WM_APP_BUTTONS (taskbar buttons read)".to_string(),
+        WM_APP_SNAPSHOT => "WM_APP_SNAPSHOT (windows read for WindowDeck)".to_string(),
         WM_SETTINGCHANGE => "WM_SETTINGCHANGE".to_string(),
         WM_POWERBROADCAST => "WM_POWERBROADCAST".to_string(),
         WM_QUERYENDSESSION => "WM_QUERYENDSESSION".to_string(),
@@ -489,6 +490,10 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
         }
         WM_APP_BUTTONS => {
             with_host_or_later(hwnd, msg, wparam, lparam, |host| host.buttons_arrived());
+            0
+        }
+        WM_APP_SNAPSHOT => {
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| host.snapshot_arrived());
             0
         }
         WM_TIMER if wparam == BUTTONS_TIMER => {

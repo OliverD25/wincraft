@@ -57,6 +57,7 @@ pub mod window_census;
 pub mod window_identity;
 pub mod window_info;
 pub mod window_names;
+pub mod window_snapshot;
 pub mod windows_list;
 
 use std::ffi::OsStr;

@@ -456,6 +456,8 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   right), `wide` / `from_wide_ptr` for UTF-16 strings,
   `window_identity` (finding a window again by its program and title),
   `live_windows` (the app windows open now, with their taskbar group),
+  `window_snapshot` (the same windows read on a thread of their own, which
+  `live_windows` answers from while one is in use),
   `app_names` (what to call an app's group), `monitor_list` (the monitors
   connected now, for the strip), `taskbar_order` (a group's thumbnail order
   and the calls that set it), `strip_groups` (the strip's data from windows

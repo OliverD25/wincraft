@@ -2092,4 +2092,41 @@ fn strip_timing_on_the_real_desktop() {
             mons.len(),
         );
     }
+    // After: the windows read on a thread of their own, and what is left
+    // for the host. The groups must be the same as from a read on the host.
+    use crate::core::window_snapshot;
+    for round in 0..4 {
+        let at = Instant::now();
+        let snapshot = std::thread::spawn(|| {
+            let hr = unsafe {
+                CoInitializeEx(
+                    std::ptr::null(),
+                    windows_sys::Win32::System::Com::COINIT_MULTITHREADED as u32,
+                )
+            };
+            let snapshot = window_snapshot::read_now();
+            if hr >= 0 {
+                unsafe { windows_sys::Win32::System::Com::CoUninitialize() };
+            }
+            snapshot
+        })
+        .join()
+        .unwrap()
+        .expect("a desktop reader");
+        let worker_ms = ms(at);
+        let at = Instant::now();
+        let from_snapshot = window_snapshot::while_used(snapshot, || keeper.window_groups());
+        let host_ms = ms(at);
+        let direct = keeper.window_groups();
+        let keys = |groups: &Option<WindowGroups>| {
+            groups.as_ref().map(|g| {
+                g.groups
+                    .iter()
+                    .map(|group| (group.key.clone(), group.windows.len()))
+                    .collect::<Vec<_>>()
+            })
+        };
+        assert_eq!(keys(&from_snapshot), keys(&direct));
+        eprintln!("after, round {round}: worker thread {worker_ms:.1} ms, host {host_ms:.1} ms");
+    }
 }
