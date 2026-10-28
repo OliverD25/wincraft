@@ -1092,4 +1092,60 @@ mod tests {
             "Cannot rename: Windows error 87"
         );
     }
+
+    /// Where the tick's matching costs its time on this PC. Read only: it
+    /// lists the real windows and renames none; the save goes to a temp
+    /// file. Run by hand with
+    /// `cargo test namer_timing -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "reads the real PC; run by hand"]
+    fn namer_timing_on_the_real_desktop() {
+        use std::time::Instant;
+        use windows_sys::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+        unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) };
+        let ms = |at: Instant| at.elapsed().as_secs_f64() * 1000.0;
+        let file = std::env::temp_dir().join("wincraft-namer-timing.json");
+        let rules: Vec<Rule> = (0..20)
+            .map(|n| Rule {
+                name: format!("probe {n}"),
+                app_title: "a title".repeat(10),
+                group: "probe.group".to_string(),
+                rect: [0, 0, 100, 100],
+                created: 1,
+                last_used: 1,
+            })
+            .collect();
+        for round in 0..4 {
+            let at = Instant::now();
+            let desktops = DesktopManager::new().ok();
+            let manager_ms = ms(at);
+            let on_a_desktop = |hwnd: HWND| {
+                desktops
+                    .as_ref()
+                    .and_then(|manager| manager.desktop_of(hwnd))
+                    .is_some_and(|desktop| !desktop_manager::is_null(&desktop))
+            };
+            let at = Instant::now();
+            let records = windows_list::app_window_records(&on_a_desktop);
+            let records_ms = ms(at);
+            let at = Instant::now();
+            for (hwnd, _) in &records {
+                let _ = group_of(*hwnd, pid_of(*hwnd));
+            }
+            let groups_ms = ms(at);
+            let at = Instant::now();
+            for (hwnd, _) in &records {
+                let _ = rect_of(*hwnd);
+            }
+            let rects_ms = ms(at);
+            let at = Instant::now();
+            rules::save(&file, &rules).unwrap();
+            let save_ms = ms(at);
+            eprintln!(
+                "round {round}: {} app windows: manager {manager_ms:.1} ms, records {records_ms:.1}, groups {groups_ms:.1}, rects {rects_ms:.1}, save {save_ms:.1}",
+                records.len()
+            );
+        }
+        let _ = std::fs::remove_file(&file);
+    }
 }

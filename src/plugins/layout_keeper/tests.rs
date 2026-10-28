@@ -1766,6 +1766,7 @@ fn a_tick_saves_on_the_interval() {
 fn a_tick_finishes_a_restore_first_and_saves_nothing_then() {
     let (mut keeper, path) = watching_nothing("tick-finish");
     keeper.read_only = true;
+    keeper.watch = Watch::new("*", "");
     keeper.snapshot_seconds = 1;
     keeper.finishing = Some(finish(Vec::new(), std::ptr::null_mut()));
     keeper.tick();
@@ -1786,6 +1787,7 @@ fn a_tick_finishes_a_restore_first_and_saves_nothing_then() {
 fn a_tick_rebuilds_the_groups_a_desktop_move_changed() {
     let (mut keeper, _) = watching_nothing("tick-reapply");
     keeper.read_only = true;
+    keeper.watch = Watch::new("*", "");
     keeper.reapply = vec!["Chrome".to_string()];
     keeper.arrange_stale = true;
     keeper.tick();
@@ -2002,4 +2004,92 @@ fn init_reads_the_saved_layout_and_teardown_saves_and_forgets() {
         written
     );
     clean_up(&path);
+}
+
+/// Where the strip's windows cost their time on this PC. Read only: it
+/// lists the real windows and changes none. Run by hand with
+/// `cargo test strip_timing -- --ignored --nocapture`.
+#[test]
+#[ignore = "reads the real PC; run by hand"]
+fn strip_timing_on_the_real_desktop() {
+    use crate::core::windows_list;
+    use std::time::Instant;
+    use windows_sys::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+    unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) };
+    let ms = |at: Instant| at.elapsed().as_secs_f64() * 1000.0;
+    let mut keeper = LayoutKeeper::new();
+    keeper.read_only = true;
+    keeper.watch = Watch::new("*", "");
+    keeper.reader = desktops::Reader::new().ok();
+    let own_reader = desktops::Reader::new().ok();
+    for round in 0..4 {
+        let at = Instant::now();
+        let top = windows_list::top_windows();
+        let top_ms = ms(at);
+        let at = Instant::now();
+        let reader = own_reader.as_ref();
+        let registry = desktops::list();
+        let known = |hwnd: HWND| {
+            reader
+                .and_then(|r| r.read(hwnd))
+                .is_some_and(|id| known_desktop(id, &registry))
+        };
+        let records = windows_list::app_window_records(&known);
+        let records_ms = ms(at);
+        let at = Instant::now();
+        for (hwnd, _) in &records {
+            let _ = appid::read(*hwnd);
+        }
+        let appid_ms = ms(at);
+        let at = Instant::now();
+        for (hwnd, _) in &records {
+            let mut pid = 0;
+            unsafe {
+                windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(
+                    *hwnd, &mut pid,
+                )
+            };
+            let _ = windows::exe_path(pid);
+        }
+        let exe_ms = ms(at);
+        let at = Instant::now();
+        let live = keeper.live_windows();
+        let live_ms = ms(at);
+        let at = Instant::now();
+        keeper.track(&live);
+        let track_ms = ms(at);
+        // In the app the Start menu index is ready after a moment, so each
+        // label is looked up once; here it never is, so pretend it is.
+        keeper.unresolved.clear();
+        let at = Instant::now();
+        let _ = desktops::list();
+        let _ = desktops::current();
+        let desk_ms = ms(at);
+        let at = Instant::now();
+        let mons = monitors::list();
+        let mons_ms = ms(at);
+        let at = Instant::now();
+        for window in &live {
+            let _ = strip_groups::desktop_of(reader, window.hwnd as Handle);
+        }
+        let desktop_of_ms = ms(at);
+        let at = Instant::now();
+        let _ = windows::describe(unsafe { GetForegroundWindow() });
+        let front_ms = ms(at);
+        let at = Instant::now();
+        let groups = keeper.window_groups();
+        let whole_ms = ms(at);
+        eprintln!(
+            "round {round}: {} top, {} app windows, {} watched, {} groups, {} monitors\n  \
+             top {top_ms:.1} ms, records {records_ms:.1}, appid {appid_ms:.1}, exe {exe_ms:.1}, \
+             live_windows {live_ms:.1}, track {track_ms:.1}, desktops {desk_ms:.1}, \
+             monitors {mons_ms:.1}, desktop_of {desktop_of_ms:.1}, front {front_ms:.1}, \
+             whole window_groups {whole_ms:.1}",
+            top.len(),
+            records.len(),
+            live.len(),
+            groups.map_or(0, |g| g.groups.len()),
+            mons.len(),
+        );
+    }
 }
