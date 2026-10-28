@@ -235,6 +235,29 @@ impl KeyEvent<'_> {
     }
 }
 
+/// A Windows call that can fail, made on window `hwnd` (0 for none), and
+/// what it returned. With `failed`, the thread's last error is added, so
+/// call it right after the call. Formats only while the log is on.
+pub fn call(what: &str, hwnd: isize, result: i64, failed: bool) {
+    if !on() {
+        return;
+    }
+    let error = failed.then(|| unsafe { windows_sys::Win32::Foundation::GetLastError() });
+    write(call_line(what, hwnd, result, error));
+}
+
+pub(crate) fn call_line(what: &str, hwnd: isize, result: i64, error: Option<u32>) -> String {
+    let mut line = format!("call: {what}");
+    if hwnd != 0 {
+        line.push_str(&format!(" on {hwnd:#x}"));
+    }
+    line.push_str(&format!(" -> {result}"));
+    if let Some(error) = error {
+        line.push_str(&format!(" FAILED (error {error})"));
+    }
+    line
+}
+
 /// "<what> slow N ms" when `ms` reached `limit_ms`.
 pub fn slow_line(what: &str, ms: f64, limit_ms: f64) -> Option<String> {
     (ms >= limit_ms).then(|| format!("{what} slow {ms:.0} ms"))

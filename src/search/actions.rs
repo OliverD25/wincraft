@@ -162,6 +162,12 @@ fn paste(owner: HWND, text: &str) {
             std::mem::size_of::<INPUT>() as i32,
         )
     };
+    crate::core::detailed::call(
+        "SendInput (Ctrl+V)",
+        0,
+        i64::from(sent),
+        sent as usize != inputs.len(),
+    );
     if sent as usize != inputs.len() {
         log::warn!("Ctrl+V could not be sent; the answer is on the clipboard");
     }
@@ -205,7 +211,13 @@ fn reveal(path: &Path) {
 
 fn activate(hwnd: HWND) {
     if unsafe { IsIconic(hwnd) } != 0 {
-        unsafe { ShowWindow(hwnd, SW_RESTORE) };
+        let before = unsafe { ShowWindow(hwnd, SW_RESTORE) };
+        crate::core::detailed::call(
+            "ShowWindow SW_RESTORE (was visible)",
+            hwnd as isize,
+            i64::from(before),
+            false,
+        );
     }
     host::bring_to_front(hwnd);
 }

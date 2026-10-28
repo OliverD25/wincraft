@@ -16,7 +16,13 @@ use crate::core::{host, window_names};
 /// Brings a window to the front, restoring it first when it is minimized.
 pub fn activate(hwnd: HWND) {
     if unsafe { IsIconic(hwnd) } != 0 {
-        unsafe { ShowWindow(hwnd, SW_RESTORE) };
+        let before = unsafe { ShowWindow(hwnd, SW_RESTORE) };
+        crate::core::detailed::call(
+            "ShowWindow SW_RESTORE (was visible)",
+            hwnd as isize,
+            i64::from(before),
+            false,
+        );
     }
     host::bring_to_front(hwnd);
 }

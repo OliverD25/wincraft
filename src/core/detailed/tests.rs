@@ -243,3 +243,15 @@ fn only_a_slow_step_gets_a_slow_line() {
     );
     assert!(slow_line("ui frame", 33.0, 33.0).is_some());
 }
+
+#[test]
+fn a_call_line_names_the_call_its_window_and_a_failure() {
+    assert_eq!(
+        call_line("ShowWindow SW_HIDE", 0x1234, 1, None),
+        "call: ShowWindow SW_HIDE on 0x1234 -> 1"
+    );
+    assert_eq!(
+        call_line("SendInput (mask key)", 0, 0, Some(5)),
+        "call: SendInput (mask key) -> 0 FAILED (error 5)"
+    );
+}

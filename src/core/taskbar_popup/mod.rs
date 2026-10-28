@@ -28,7 +28,13 @@ use keys::{KeyState, POPUP_CLASS};
 
 /// Hides the popup. Explorer shows it again by itself on the next hover.
 pub fn hide(hwnd: HWND) {
-    unsafe { ShowWindowAsync(hwnd, SW_HIDE) };
+    let ok = unsafe { ShowWindowAsync(hwnd, SW_HIDE) };
+    crate::core::detailed::call(
+        "ShowWindowAsync SW_HIDE (taskbar preview)",
+        hwnd as isize,
+        i64::from(ok),
+        ok == 0,
+    );
 }
 
 pub fn find_popups() -> Vec<HWND> {

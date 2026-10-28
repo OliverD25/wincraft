@@ -138,27 +138,36 @@ pub fn visible_frame(window: HWND) -> Option<Rect> {
 /// its own rounded panel and shadow the way the palette does.
 pub fn round_corners(window: HWND, border: u32) {
     let corners = DWMWCP_ROUND;
-    unsafe {
-        DwmSetWindowAttribute(
-            window,
-            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
-            &corners as *const _ as *const core::ffi::c_void,
-            std::mem::size_of_val(&corners) as u32,
-        );
-        DwmSetWindowAttribute(
-            window,
-            DWMWA_BORDER_COLOR as u32,
-            &border as *const u32 as *const core::ffi::c_void,
-            std::mem::size_of::<u32>() as u32,
-        );
-    }
+    let (round, colour) = unsafe {
+        (
+            DwmSetWindowAttribute(
+                window,
+                DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+                &corners as *const _ as *const core::ffi::c_void,
+                std::mem::size_of_val(&corners) as u32,
+            ),
+            DwmSetWindowAttribute(
+                window,
+                DWMWA_BORDER_COLOR as u32,
+                &border as *const u32 as *const core::ffi::c_void,
+                std::mem::size_of::<u32>() as u32,
+            ),
+        )
+    };
+    let hr = if round < 0 { round } else { colour };
+    crate::core::detailed::call(
+        "DwmSetWindowAttribute corners and border",
+        window as isize,
+        i64::from(hr),
+        hr < 0,
+    );
 }
 
 /// Keeps one of WinCraft's own windows off the screen while it still draws
 /// (`on`), or puts it back.
 pub fn cloak(window: HWND, on: bool) {
     let value: i32 = on.into();
-    unsafe {
+    let hr = unsafe {
         DwmSetWindowAttribute(
             window,
             DWMWA_CLOAK as u32,
@@ -166,6 +175,16 @@ pub fn cloak(window: HWND, on: bool) {
             std::mem::size_of::<i32>() as u32,
         )
     };
+    crate::core::detailed::call(
+        if on {
+            "DwmSetWindowAttribute DWMWA_CLOAK on"
+        } else {
+            "DwmSetWindowAttribute DWMWA_CLOAK off"
+        },
+        window as isize,
+        i64::from(hr),
+        hr < 0,
+    );
 }
 
 fn rect(r: [i32; 4]) -> RECT {

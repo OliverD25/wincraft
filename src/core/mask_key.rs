@@ -50,7 +50,9 @@ fn send_all(inputs: &[INPUT]) -> bool {
             std::mem::size_of::<INPUT>() as i32,
         )
     };
-    sent as usize == inputs.len()
+    let ok = sent as usize == inputs.len();
+    crate::core::detailed::call("SendInput (mask key)", 0, i64::from(sent), !ok);
+    ok
 }
 
 /// Sends the mask key down and up. `who` names the caller for the log

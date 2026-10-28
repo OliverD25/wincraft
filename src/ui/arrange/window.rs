@@ -225,7 +225,13 @@ impl Arrange {
             // user was in, as when the window was destroyed.
             let window = settings::find_window(TITLE, self.palette_hwnd);
             if window != 0 {
-                unsafe { ShowWindow(window as HWND, SW_HIDE) };
+                let before = unsafe { ShowWindow(window as HWND, SW_HIDE) };
+                crate::core::detailed::call(
+                    "ShowWindow SW_HIDE (strip, was visible)",
+                    window,
+                    i64::from(before),
+                    false,
+                );
             }
             shared.parked = true;
             shared.asked_at = None;
@@ -282,7 +288,13 @@ impl Arrange {
             // shows a second time: a hover strip must leave the keyboard
             // where it is, and the strip asks for it itself when it wants
             // it. egui keeps the window's own flag at hidden throughout.
-            unsafe { ShowWindow(found as HWND, SW_SHOWNOACTIVATE) };
+            let before = unsafe { ShowWindow(found as HWND, SW_SHOWNOACTIVATE) };
+            crate::core::detailed::call(
+                "ShowWindow SW_SHOWNOACTIVATE (strip, was visible)",
+                found,
+                i64::from(before),
+                false,
+            );
             ctx.request_repaint_of(viewport_id());
         }
         let cloaked = matches!(shared.reveal, reveal::Reveal::Cloaked { .. });
