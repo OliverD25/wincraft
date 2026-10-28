@@ -90,7 +90,7 @@ pub fn get_if_changed(url: &str, etag: Option<&str>) -> Result<Answer, CheckErro
                 header("retry-after"),
             );
             log::info!(
-                "GitHub's API is limiting requests: status {}, x-ratelimit-remaining {},                  x-ratelimit-reset {}, retry-after {}",
+                "GitHub's API is limiting requests: status {}, x-ratelimit-remaining {}, x-ratelimit-reset {}, retry-after {}",
                 response.status().as_u16(),
                 remaining.as_deref().unwrap_or("-"),
                 reset.as_deref().unwrap_or("-"),

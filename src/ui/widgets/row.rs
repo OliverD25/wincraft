@@ -47,8 +47,29 @@ fn left_column(ui: &mut Ui, row: &RowText) {
     );
     text::wrapped(ui, job);
     if let Some((desc, colour)) = row.desc {
-        text::secondary(ui, desc, colour);
+        let desc = one_paragraph(desc);
+        let shown = text::secondary(ui, &desc, colour);
+        #[cfg(test)]
+        ui.data_mut(|data| data.insert_temp(egui::Id::new("row-desc"), shown.rect));
+        #[cfg(not(test))]
+        let _ = shown;
     }
+}
+
+/// The help text as one paragraph: a run of spaces or tabs is one space,
+/// so a long string split in the source never leaves a wide gap that
+/// wraps like a second column. Line breaks stay.
+fn one_paragraph(text: &str) -> String {
+    text.lines()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The width the label and the help text wrap within: the row less the
+/// controls and the gap before them.
+fn text_width(row_width: f32, controls_width: f32) -> f32 {
+    (row_width - controls_width - GAP).max(80.0)
 }
 
 /// A settings row: label and optional description on the left,
@@ -106,7 +127,7 @@ pub fn settings_row_ruled(
             ui.add_space(8.0);
             ui.horizontal(controls);
         } else {
-            let left_width = (width - remembered.controls_width - GAP).max(80.0);
+            let left_width = text_width(width, remembered.controls_width);
             let content_height = remembered.left_height.max(CONTROL_HEIGHT);
             let left_top = top.y + (content_height - remembered.left_height) / 2.0;
             let left = ui.scope_builder(
@@ -279,6 +300,64 @@ mod tests {
             output.textures_delta.clear();
         }
         boxes
+    }
+
+    /// The help text's box after a row with a switch is drawn at `width`,
+    /// with the row's box.
+    fn help_beside_a_switch(width: f32, desc: &str) -> (Rect, Rect, Rect) {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx, ThemeName::Classic, ThemeChoice::Dark);
+        let mut boxes = (Rect::NOTHING, Rect::NOTHING, Rect::NOTHING);
+        for _ in 0..4 {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(width, 600.0))),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| {
+                let mut switch = Rect::NOTHING;
+                let row = settings_row(
+                    ui,
+                    "switch",
+                    RowText::new("Download updates ahead").desc(desc, Color32::WHITE),
+                    false,
+                    |ui| {
+                        let mut on = true;
+                        switch = crate::ui::widgets::toggle::toggle(ui, &mut on).rect;
+                    },
+                );
+                let help = ui.data(|data| data.get_temp::<Rect>(egui::Id::new("row-desc")));
+                boxes = (row.rect, help.unwrap_or(Rect::NOTHING), switch);
+            });
+            output.textures_delta.clear();
+        }
+        boxes
+    }
+
+    #[test]
+    fn help_text_wraps_as_one_block_left_of_the_switch() {
+        // The About text as it was in 0.20.66: a long gap in the middle.
+        let gapped = "Downloads and checks a new version in the background, so Update takes a                      few seconds. It never installs on its own.";
+        let clean = "Downloads and checks a new version in the background, so Update takes a few seconds. It never installs on its own.";
+        assert_eq!(one_paragraph(gapped), clean);
+        assert_eq!(one_paragraph("one\ntwo  three"), "one\ntwo three");
+        for width in [480.0, 640.0, 820.0] {
+            let (row, help, switch) = help_beside_a_switch(width, gapped);
+            let (_, clean_help, _) = help_beside_a_switch(width, clean);
+            assert_eq!(help, clean_help, "{width}: the gap changed the wrap");
+            let room = text_width(row.width(), switch.width());
+            assert!(
+                help.width() <= room + 0.5,
+                "{width}: {help:?} wider than {room}"
+            );
+            assert!(
+                help.right() + GAP <= switch.left() + 0.5,
+                "{width}: {help:?} {switch:?}"
+            );
+            assert!(help.left() >= row.left(), "{width}");
+        }
+        assert_eq!(text_width(640.0, 40.0), 640.0 - 40.0 - GAP);
+        assert_eq!(text_width(100.0, 90.0), 80.0, "never narrower than 80");
     }
 
     #[test]

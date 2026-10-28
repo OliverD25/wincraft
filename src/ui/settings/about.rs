@@ -75,7 +75,8 @@ pub fn show(
                 ui,
                 "download-ahead",
                 RowText::new("Download updates ahead").desc(
-                    "Downloads and checks a new version in the background, so Update takes a                      few seconds. It never installs on its own.",
+                    "Downloads and checks a new version in the background, so Update takes \
+                     a few seconds. It never installs on its own.",
                     tokens.text_secondary,
                 ),
                 false,
