@@ -31,6 +31,40 @@ dark mode, `caffeine` finds keep awake, `pin` finds always on top.
 | **Audio: Toggle Microphone Mute** | Mutes the default microphone, or turns it on again. |
 | **System: Empty Recycle Bin** | Deletes everything in the Recycle Bin for good. Asks for **Enter** twice. |
 | **Settings: Open Environment Variables** | Opens the window where you edit `PATH` and other variables. |
+| **Developer: Kill Process on Port** | Lists the programs that listen on a TCP port; ends the one you pick. Asks for **Enter** twice. |
+| **Audio: Switch Output Device** | Lists the speakers and headphones; sound plays on the one you pick. |
+| **Window: Resize…** | Lists the window sizes, with your own sizes from the plugin's page. |
+| **System: Eject USB Drive** | Lists the USB drives and memory cards; ejects the one you pick so you can unplug it. |
+| **Display: Keep Awake for…** | Keeps the PC awake for 30 minutes, 1 hour, 2 hours, or until you turn it off. |
+
+## Actions with a list
+
+The last five actions show a list in the palette instead of running at
+once. Type to filter it, press **Enter** to pick a row, or **Esc** to go
+back to your search.
+
+- **Kill Process on Port** shows each port with the program and its
+  process number (PID). Typing a number such as `3000` finds the program
+  on that port. Ending a program cannot be undone, so it asks for
+  **Enter** twice. WinCraft never offers itself or the Windows system
+  processes. If Windows refuses, for example because the program runs as
+  administrator, the notice says so.
+- **Switch Output Device** marks the device in use. Windows has no public
+  way for apps to switch it, so WinCraft uses the same hidden interface as
+  Sound settings. If that fails, the notice says so; switch it in Sound
+  settings then. **Undo** puts the old device back.
+- **Resize…** offers 1280 × 720, 1920 × 1080, 80 % of the monitor, and
+  the sizes in **More sizes for Window: Resize…** on the plugin's page,
+  such as `1600x900, 1366x768`.
+- **Eject USB Drive** first makes sure no program has a file open on the
+  drive. If one has, the notice says the drive is in use and nothing
+  happens.
+- **Keep Awake for…** shows when each choice ends. While it runs, the
+  tray item says "Keep awake until 15:20", and a notice tells you when the
+  time is up.
+
+A hotkey on one of these actions opens the palette on its list, because
+picking a row needs the palette.
 
 ## What the palette shows before you press Enter
 

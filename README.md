@@ -161,6 +161,13 @@ The Windows 11 switches that Settings hides several clicks deep, one search away
 | `Audio: Toggle Microphone Mute` | Mutes or unmutes the default microphone |
 | `System: Empty Recycle Bin` | Empties the Recycle Bin after a second `Enter` within 5 s |
 | `Settings: Open Environment Variables` | Opens the window for editing `PATH` and other variables |
+| `Developer: Kill Process on Port` | Lists the programs listening on TCP ports (type a port number to filter); ends the one you pick after a second `Enter` |
+| `Audio: Switch Output Device` | Lists the sound devices with the current one marked; switches to the one you pick, with **Undo** |
+| `Window: Resize…` | The built-in sizes plus your own from the plugin's page, such as `1600x900, 1366x768` |
+| `System: Eject USB Drive` | Ejects a USB drive or memory card safely, or says it is still in use |
+| `Display: Keep Awake for…` | 30 min, 1 h, 2 h or until off; the tray shows the end time |
+
+Actions that end in `…`, and Kill Process on Port, Switch Output Device and Eject USB Drive, show a list in the palette: type to filter, `Enter` picks, `Esc` goes back.
 
 While an action is selected, the palette's inspector shows its live state and what `Enter` will do: *Now: Dark · Enter switches to Light*, the window's current and new size, how long keep awake has been on, the addresses Copy Local IP would copy, the UUID it will copy, or what the Recycle Bin holds.
 
