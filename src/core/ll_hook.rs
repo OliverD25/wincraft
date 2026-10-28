@@ -11,14 +11,43 @@
 //! The hooks are put in and taken out on their own thread, which runs the
 //! message loop Windows calls them from.
 
+use std::cell::Cell;
 use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
+use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, GetMessageW, PeekMessageW, PostThreadMessageW, SetWindowsHookExW,
-    UnhookWindowsHookEx, HOOKPROC, MSG, PM_NOREMOVE, WINDOWS_HOOK_ID, WM_QUIT,
+    DispatchMessageW, GetMessageW, KillTimer, PeekMessageW, PostThreadMessageW, SetTimer,
+    SetWindowsHookExW, UnhookWindowsHookEx, HOOKPROC, MSG, PM_NOREMOVE, WINDOWS_HOOK_ID, WM_QUIT,
 };
+
+/// How often the watchdog timer should run on a hook thread.
+const WATCHDOG_EVERY: Duration = Duration::from_millis(50);
+/// A gap between two timer ticks this long means the thread could not run:
+/// a key that came meanwhile may have gone on without the hook.
+const WATCHDOG_LATE: Duration = Duration::from_millis(150);
+
+thread_local! {
+    static LAST_TICK: Cell<Option<Instant>> = const { Cell::new(None) };
+    static THREAD_NAME: Cell<&'static str> = const { Cell::new("hook") };
+}
+
+unsafe extern "system" fn watchdog(_: HWND, _: u32, _: usize, _: u32) {
+    let now = Instant::now();
+    let last = LAST_TICK.with(|cell| cell.replace(Some(now)));
+    if let Some(last) = last {
+        let gap = now.saturating_duration_since(last);
+        if gap >= WATCHDOG_LATE {
+            log::warn!(
+                "{}: the hook thread could not run for {} ms; keys in that time may have gone on without the hook",
+                THREAD_NAME.with(|name| name.get()),
+                gap.as_millis()
+            );
+        }
+    }
+}
 
 /// A running hook thread. `stop` ends it; dropping it without `stop` ends
 /// it too.
@@ -32,11 +61,14 @@ impl HookThread {
     /// (`WH_KEYBOARD_LL`, `WH_MOUSE_LL`) and its procedure. The first must go
     /// in; the others are put in when Windows allows. None when the thread
     /// could not start or Windows refused the first hook.
-    pub fn start(name: &str, hooks: Vec<(WINDOWS_HOOK_ID, HOOKPROC)>) -> Option<HookThread> {
+    pub fn start(
+        name: &'static str,
+        hooks: Vec<(WINDOWS_HOOK_ID, HOOKPROC)>,
+    ) -> Option<HookThread> {
         let (ready, answer) = mpsc::channel();
         let thread = std::thread::Builder::new()
             .name(name.to_string())
-            .spawn(move || run(hooks, ready))
+            .spawn(move || run(name, hooks, ready))
             .ok()?;
         match answer.recv() {
             Ok(Some(thread_id)) => Some(HookThread {
@@ -71,10 +103,23 @@ impl Drop for HookThread {
     }
 }
 
-fn run(hooks: Vec<(WINDOWS_HOOK_ID, HOOKPROC)>, ready: mpsc::Sender<Option<u32>>) {
+fn run(
+    name: &'static str,
+    hooks: Vec<(WINDOWS_HOOK_ID, HOOKPROC)>,
+    ready: mpsc::Sender<Option<u32>>,
+) {
     let mut msg: MSG = unsafe { std::mem::zeroed() };
     // Makes the thread's message queue, so `stop` can always reach it.
     unsafe { PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE) };
+    THREAD_NAME.with(|cell| cell.set(name));
+    let timer = unsafe {
+        SetTimer(
+            std::ptr::null_mut(),
+            0,
+            WATCHDOG_EVERY.as_millis() as u32,
+            Some(watchdog),
+        )
+    };
     let module = unsafe { GetModuleHandleW(std::ptr::null()) };
     let mut handles = Vec::new();
     for (index, (kind, procedure)) in hooks.into_iter().enumerate() {
@@ -94,6 +139,9 @@ fn run(hooks: Vec<(WINDOWS_HOOK_ID, HOOKPROC)>, ready: mpsc::Sender<Option<u32>>
     }
     for handle in handles {
         unsafe { UnhookWindowsHookEx(handle) };
+    }
+    if timer != 0 {
+        unsafe { KillTimer(std::ptr::null_mut(), timer) };
     }
 }
 

@@ -203,7 +203,10 @@ pub fn bring_to_front(hwnd: HWND) {
     if hwnd.is_null() {
         return;
     }
+    let began = std::time::Instant::now();
+    let ms = |began: std::time::Instant| began.elapsed().as_millis();
     if unsafe { SetForegroundWindow(hwnd) } != 0 {
+        log::info!("took the keyboard for {hwnd:?} at once ({} ms)", ms(began));
         return;
     }
     // Without a hotkey, as when the palette reopens after an update, Windows
@@ -211,6 +214,10 @@ pub fn bring_to_front(hwnd: HWND) {
     // sent the last input, so send an empty mouse event: no move, no click.
     send_empty_input();
     if unsafe { SetForegroundWindow(hwnd) } != 0 {
+        log::info!(
+            "took the keyboard for {hwnd:?} after an empty input ({} ms)",
+            ms(began)
+        );
         return;
     }
     log::warn!("Windows did not let WinCraft take the keyboard");
@@ -220,12 +227,14 @@ pub fn bring_to_front(hwnd: HWND) {
     }
     let other = unsafe { GetWindowThreadProcessId(foreground, std::ptr::null_mut()) };
     let mine = unsafe { GetCurrentThreadId() };
-    unsafe {
-        AttachThreadInput(mine, other, 1);
-        SetForegroundWindow(hwnd);
-        SetFocus(hwnd);
-        AttachThreadInput(mine, other, 0);
-    }
+    let attached = unsafe { AttachThreadInput(mine, other, 1) };
+    let set = unsafe { SetForegroundWindow(hwnd) };
+    unsafe { SetFocus(hwnd) };
+    unsafe { AttachThreadInput(mine, other, 0) };
+    log::info!(
+        "took the keyboard for {hwnd:?} through the other thread's input (attached {attached}, set {set}, {} ms)",
+        ms(began)
+    );
 }
 
 fn send_empty_input() {

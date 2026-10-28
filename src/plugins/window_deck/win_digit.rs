@@ -269,8 +269,12 @@ fn modifiers_now() -> u32 {
 fn worth_logging(vk: u32, modifiers: u32, win: bool) -> bool {
     let win_key = vk == u32::from(VK_LWIN) || vk == u32::from(VK_RWIN);
     let digit = taskbar_number::digit_of(vk).is_some();
-    win_key || (digit && (win || modifiers & MOD_WIN != 0))
+    win_key || vk == mask_key::VK || (digit && (win || modifiers & MOD_WIN != 0))
 }
+
+/// A callback this slow, or a key that waited this long, is worth a line
+/// whatever the key: Windows skips a hook that answers late.
+const SLOW_MS: f64 = 20.0;
 
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code < 0 {
@@ -330,11 +334,18 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
             unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
         }
     };
+    let took = began.elapsed().as_secs_f64() * 1000.0;
+    let line = line.or_else(|| {
+        (took >= SLOW_MS || f64::from(lag) >= SLOW_MS).then(|| {
+            format!(
+                "win-number hook: slow for key {:#04x} {} (waited {lag} ms)",
+                info.vkCode,
+                if is_down { "down" } else { "up" }
+            )
+        })
+    });
     if let Some(mut line) = line {
-        line.push_str(&format!(
-            ", took {:.2} ms",
-            began.elapsed().as_secs_f64() * 1000.0
-        ));
+        line.push_str(&format!(", took {took:.2} ms"));
         if !hand_off(Job::Log(line.clone())) {
             log::info!("{line}");
         }
