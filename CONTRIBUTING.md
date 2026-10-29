@@ -586,13 +586,31 @@ change before a release: a test instance (`WINCRAFT_INSTANCE=sceneshot`, its
 own `LOCALAPPDATA` under `%LOCALAPPDATA%\Temp`, every plugin off unless
 `-Plugins` names it) opens the scene, its largest window is captured from the
 screen, and the instance quits. It uses the newest of `target\debug`,
-`targeterify
-elease` and `target
-elease`.
+`target\verify\release` and `target\release`. Each run starts from an empty
+scratch folder and a safe `config.json` (no start with Windows, and a palette
+hotkey that no one presses, so the test copy never takes yours).
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\scene-shot.ps1 -Scene '--open-palette=toggle' -Plugins quick_actions -Theme fluent
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\scene-shot.ps1 -Scene '--open-palette=toggle' -Plugins quick_actions -Theme fluent -Mode light
 ```
+
+- `-Theme` is the theme name (`classic`, `fluent`, `terminal`, `paper`,
+  `high-contrast`) and goes into the test `config.json`. `-Mode` is `light` or
+  `dark` (default `dark`) and goes on the command line as `--theme=<mode>`.
+- `-Scene` takes several flags as one comma list:
+  `'--show-update-available,--select-update,--open-palette=9.9.9'`.
+- `-Demo` shows a plain full-screen backdrop behind the scene, so glass
+  themes show nothing of your desktop. With `--open-arrange=demo` it also
+  opens four demo windows (a small program the script builds as `Notes.exe`)
+  and the scene opens WindowDeck on their group. It also puts a demo window in
+  front, so rows such as "Always on top" name a demo window and not yours.
+  The script closes everything it opened, also after an error, and touches no
+  window of yours.
+- A palette search lists your own windows, files and folders. For a picture
+  you will share, use a query that matches none of them, such as `=2+2*3`.
+
+`tools\take-readme-shots.ps1` and `tools\compose-readme-shots.ps1` use it to
+make the pictures in `docs\screenshots\` (light and dark) for the README.
 
 It does not wait for you to be away: the scene shows for a few seconds and
 may take the keyboard, and the window that was in front gets it back at the
