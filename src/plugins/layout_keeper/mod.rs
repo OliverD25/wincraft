@@ -60,6 +60,9 @@ const TICK_MS: u32 = 1000;
 /// The restore notice fades with its own short timer, only while it fades.
 const FADE_TIMER_ID: usize = 0x4C4B_0001;
 const FADE_STEP_MS: u32 = 16;
+/// The `host::post_to_plugins` id of the windows a timer save read on a
+/// thread of its own.
+const TIMER_READ_ID: usize = 0x4C4B_0002;
 const FADE_MS: u64 = 250;
 
 const ACTION_RESTORE: u32 = 1;
@@ -135,6 +138,11 @@ pub struct LayoutKeeper {
     ticks: u64,
     started_once: bool,
     reader: Option<desktops::Reader>,
+    /// The windows the timer save is reading on a thread of its own.
+    timer_read: Option<TimerRead>,
+    /// Counts the restores started, so a timer read asked for before one
+    /// is dropped.
+    restores_started: u64,
     /// The layout file `init` reads and the writer writes.
     state_path: std::path::PathBuf,
     writer: state::Writer,
@@ -210,6 +218,8 @@ impl Default for LayoutKeeper {
             ticks: 0,
             started_once: false,
             reader: None,
+            timer_read: None,
+            restores_started: 0,
             state_path: state::path(),
             writer: state::Writer::default(),
             groups: BTreeMap::new(),

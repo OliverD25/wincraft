@@ -82,8 +82,10 @@ impl LayoutKeeper {
             }
             self.update_progress(&counts);
         }
+        // A read whose message the host has not delivered yet.
+        self.timer_read_arrived();
         if save_due(self.ticks, self.snapshot_seconds) {
-            self.save("timer");
+            self.timer_save();
         }
     }
 

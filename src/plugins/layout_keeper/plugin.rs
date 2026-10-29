@@ -599,6 +599,7 @@ impl WinCraftPlugin for LayoutKeeper {
         match msg {
             WM_TIMER if wparam == TIMER_ID => self.tick(),
             WM_TIMER if wparam == FADE_TIMER_ID => self.fade_step(),
+            host::PLUGIN_POST if wparam == TIMER_READ_ID => self.timer_read_arrived(),
             WM_QUERYENDSESSION | WM_ENDSESSION if closes_app => self.save("shutdown"),
             WM_QUERYENDSESSION => self.save_at_end("shutdown"),
             WM_ENDSESSION if wparam != 0 => self.save_at_end("shutdown"),
@@ -607,6 +608,8 @@ impl WinCraftPlugin for LayoutKeeper {
     }
 
     fn teardown(&mut self) {
+        // Windows still being read for a timer save are never saved now.
+        self.timer_read = None;
         if let Some(hwnd) = self.host_hwnd.take() {
             unsafe { KillTimer(hwnd, TIMER_ID) };
             self.save_at_end("teardown");

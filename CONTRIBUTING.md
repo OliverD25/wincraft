@@ -383,7 +383,9 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   a plugin from the UI thread. The two sides exchange messages
   (`src/core/ui_bridge.rs`) and a read-only snapshot.
 - If you spawn a thread, do not touch plugin state from it — post a message to
-  the host window instead.
+  the host window instead. `host::post_to_plugins(id)` does that: your plugin
+  gets `on_windows_message(host::PLUGIN_POST, id, 0)` on the host thread.
+  Pick an id as unlikely to clash as a timer id.
 - Never block in a callback. `on_hotkey` and the rest run inside the message
   loop; anything slow freezes the tray menu and the palette.
 
