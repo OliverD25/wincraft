@@ -1,6 +1,6 @@
 # US-006: Update WinCraft and see what happens
 
-Status: draft
+Status: active
 Area: updates
 Source: proposed by Claude from the features built, next-steps review 2026-10-29 (not the user's own draft)
 
@@ -23,3 +23,4 @@ Source: proposed by Claude from the features built, next-steps review 2026-10-29
 ## History
 
 - 2026-10-29 — created as draft from the features built — approved by user: no
+- 2026-10-29 — approved by the user in chat ("approve the stories") — Status: active

@@ -1,6 +1,6 @@
 # US-001: Open the palette and run anything from the keyboard
 
-Status: draft
+Status: active
 Area: palette
 Source: proposed by Claude from the features built, next-steps review 2026-10-29 (not the user's own draft)
 
@@ -17,3 +17,4 @@ Source: proposed by Claude from the features built, next-steps review 2026-10-29
 ## History
 
 - 2026-10-29 — created as draft from the features built — approved by user: no
+- 2026-10-29 — approved by the user in chat ("approve the stories") — Status: active
