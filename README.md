@@ -58,7 +58,19 @@ The result is `target\release\wincraft.exe`.
 * **Settings Window** — Clean navigation across *General*, *Themes*, *Plugins*, *Hotkeys*, *Layout*, *Bookmarks*, *Plugin Store*, and *About*, plus a dedicated page per plugin with its options, hotkeys, config file, and README.
 * **Single & Chord Hotkeys** — Every command the palette lists can be bound to a single key press or two presses in a row (a chord, such as `Win+Alt+K`, then `S`). See [Hotkeys](#global-hotkeys--chords).
 * **5 Native Themes with Live Hover Preview** — *Classic* (default), *Fluent*, *Terminal*, *Paper*, and *High contrast*, each in Dark, Light, or System mode. In *Fluent*, the palette uses Windows 11 glass (automatically turning solid on battery saver or when transparency effects are off). Point at any tile in **Settings → Themes** and every open WinCraft window previews that theme live; click to keep it. Automatically switches to *High contrast* when Windows high contrast is enabled.
+
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/themes-dark.png">
+    <img alt="The five WinCraft themes side by side: Classic, Fluent, Terminal, Paper and High contrast" src="docs/screenshots/themes-light.png" width="720">
+  </picture>
+
+  *The same search in all five themes.*
 * **Plugin Store** — Browse what exists, what your copy has, and what needs a newer WinCraft. Search tiles with `Ctrl+F`, filter by category, navigate with arrow keys, press `Enter` to open, and hit `Space` on the Plugins page to toggle a plugin on or off.
+
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/store-dark.png">
+    <img alt="The Plugin Store page in the settings window, with a search box, category filters and one tile per plugin" src="docs/screenshots/store-light.png" width="720">
+  </picture>
 * **Minimal Tray Icon** — Open the palette, open settings, trigger one main action per enabled plugin, or quit. Everything else stays neatly inside the settings window.
 
 ---
@@ -66,6 +78,13 @@ The result is `target\release\wincraft.exe`.
 ## Self-Healing Updates
 
 WinCraft checks GitHub for a newer release every hour, about 30 seconds after the PC wakes from sleep, and when you open the palette after 15 quiet minutes (and **About → Check for updates** checks immediately). A check that the palette starts shows its answer the next time you open the palette, so the list never changes while you look at it. When a new version arrives, you get a single tray notification, an **"Update to …"** item in the tray menu, full release notes in the Updates block at the top of the About page, and an **"Update ready"** row at the top of the palette when nothing is typed. That row is not selected, so `Enter` still opens your top recent item; `↑` selects it, `Enter` updates, `Ctrl+O` opens the release page, and `Ctrl+Del` hides it until the next version (typing **Update WinCraft** still finds it). Nothing changes until you click **Update now** or run the palette command **Update WinCraft**.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/updates-dark.png">
+  <img alt="The palette row that says an update is ready, and the small panel that shows the download progress" src="docs/screenshots/updates-light.png" width="640">
+</picture>
+
+*The "Update ready" row in the palette, and the progress panel while it installs.*
 
 1. **Verified Download:** Downloads `wincraft.exe` and `SHA256SUMS.txt` from the release, verifies the checksum, swaps the executable in place, and restarts WinCraft. A 2-step progress bar in the Updates block shows how far it is. While it downloads, **Cancel** stops it, deletes the partial file, and keeps the version you have.
 2. **Automatic 30-Second Rollback:** If the new version does not run for 30 seconds without crashing, WinCraft ends it, restores your previous executable, restarts the old version, and tells you: *"Update to … failed, kept …"*.
@@ -105,6 +124,13 @@ Remembers which virtual desktop and which monitor each window belongs on, the ex
 
 Shows all windows of an app in a row above the taskbar with a live picture of each, laid out by monitor like your desk (press `D` or click the link to view other desktops). Pick, move, and close windows from the keyboard, or drag them into order, to another desktop, or to another monitor. When **LayoutKeeper** is enabled, the order you set is saved with your layout. *(Formerly LayoutKeeper's "Arrange strip" before v0.20.25; existing settings and hotkeys migrate automatically.)* [Full README](src/plugins/window_deck/README.md)
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/windowdeck-dark.png">
+  <img alt="WindowDeck showing four windows of one app as live cards above the taskbar" src="docs/screenshots/windowdeck-light.png" width="720">
+</picture>
+
+*WindowDeck with four demo windows.*
+
 | Hotkey | What it does |
 | --- | --- |
 | `Win+Alt+A` | Wait 3 seconds for a taskbar number and open WindowDeck for that button; press `Win+Alt+A` again for the app in front. If no number comes within 0.7 s, numbers appear over each taskbar button. |
@@ -135,6 +161,13 @@ Give any window a persistent custom name: turn three identical browser windows i
 
 Shows which global key combinations are already taken on your PC and lets you test any combination by pressing it before you assign it. [Full README](src/plugins/shortcut_detector/README.md)
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/shortcut-detector-dark.png">
+  <img alt="ShortcutDetector telling you that Win+L is a Windows shortcut that locks the PC" src="docs/screenshots/shortcut-detector-light.png" width="420">
+</picture>
+
+*Trying Win+L: Windows keeps it for itself.*
+
 | Hotkey | What it does |
 | --- | --- |
 | `Win+Alt+S` | Open the shortcut detector |
@@ -160,6 +193,13 @@ Actions that end in `…`, and Kill Process on Port, Switch Output Device and Ej
 
 While an action is selected, the palette's inspector shows its live state and what `Enter` will do: *Now: Dark · Enter switches to Light*, the window's current and new size, how long keep awake has been on, the addresses Copy Local IP would copy, the UUID it will copy, or what the Recycle Bin holds.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/quickactions-dark.png">
+  <img alt="The palette showing QuickActions switches with live on and off states, and the details of the selected one" src="docs/screenshots/quickactions-light.png" width="720">
+</picture>
+
+*QuickActions: switches show their real state.*
+
 ---
 
 ## Command Palette (`Win+Alt+P`)
@@ -184,6 +224,13 @@ The palette combines a fast search list with a live **inspector** beside it. As 
 | `?` | Alone: the list of prefixes. With words: **Ask AI**, then web search (or click the *Ask AI* pill) | Pick the prefix, or open the chosen AI site with your question (`Ctrl+Enter` searches the web) | — | Pick the prefix |
 
 In the calculator, `%` after a number is a percentage (`200 * 15%` is `30`) and between two numbers is the remainder (`10 % 3` is `1`).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/palette-tricks-dark.png">
+  <img alt="Three palette searches: a calculation, a folder listing and a terminal command" src="docs/screenshots/palette-tricks-light.png" width="640">
+</picture>
+
+*Palette tricks: `=` calculates, `/` browses folders, `>` runs a command.*
 
 ### Smart Ranking & Intent Memory
 
