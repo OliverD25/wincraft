@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::identity::{Matching, Rect, WindowIdentity};
-use crate::core::config;
+use crate::core::{config, write_later};
 
 /// 3 added each window's monitor and counts `z_index` across all programs;
 /// 2 added each window's taskbar group; 1 kept one order per program.
@@ -252,6 +252,17 @@ pub fn keep_groups(
     merged
 }
 
+/// When a save reaches the disk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum When {
+    /// Before the call returns: for saves the user asked for and the end of
+    /// a session, when the process may end right after.
+    Now,
+    /// On a thread of its own (`core::write_later`), newest text wins: for
+    /// the timer save, so the host never waits for the disk.
+    Later,
+}
+
 /// Remembers what it last wrote so an unchanged layout costs no disk write.
 pub struct Writer {
     path: PathBuf,
@@ -281,6 +292,8 @@ impl Writer {
     /// Copies the state file to `prev_path` before a crash or restart burst
     /// is written over it. Returns false when there is no file yet.
     pub fn keep_previous(&self) -> Result<bool, String> {
+        // A timer save may still be on its way to the file.
+        write_later::finish(&self.path)?;
         if !self.path.exists() {
             return Ok(false);
         }
@@ -325,6 +338,19 @@ impl Writer {
         saved: String,
         force: bool,
     ) -> Result<bool, String> {
+        self.write_when(programs, reason, saved, force, When::Now)
+    }
+
+    /// `write`, with the disk reached `when`. The text is made here either
+    /// way; a later write that fails is logged, not returned.
+    pub fn write_when(
+        &mut self,
+        programs: Programs,
+        reason: &str,
+        saved: String,
+        force: bool,
+        when: When,
+    ) -> Result<bool, String> {
         if !force && self.last.as_ref() == Some(&programs) {
             return Ok(false);
         }
@@ -336,7 +362,12 @@ impl Writer {
         };
         let text = serde_json::to_string_pretty(&file)
             .map_err(|e| format!("cannot serialise the layout: {e}"))?;
-        config::write_atomic(&self.path, &text)?;
+        match when {
+            // `write_now` also drops an older timer save still waiting, so
+            // it never lands after this one.
+            When::Now => write_later::write_now(&self.path, &text)?,
+            When::Later => write_later::write_later(self.path.clone(), text, "the window layout"),
+        }
         self.last = Some(file.programs);
         Ok(true)
     }

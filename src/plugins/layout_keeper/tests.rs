@@ -1,6 +1,7 @@
 use super::*;
 use crate::core::live_windows::{is_system_helper, known_desktop, SYSTEM_HELPERS};
 use crate::core::window_identity::program_name;
+use crate::core::write_later;
 
 #[test]
 fn every_app_is_watched_except_the_excluded_ones_and_wincraft() {
@@ -909,7 +910,9 @@ fn programs(entries: Vec<(&str, Vec<SavedWindow>)>) -> Programs {
         .collect()
 }
 
+/// The file as it is once any timer save on its way has reached it.
 fn read_file(path: &std::path::Path) -> state::StateFile {
+    write_later::finish(path).unwrap();
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
@@ -951,6 +954,7 @@ fn save_seen(
 }
 
 fn clean_up(path: &std::path::Path) {
+    let _ = write_later::finish(path);
     let _ = std::fs::remove_file(path);
     let _ = std::fs::remove_file(path.with_extension("prev.json"));
     let _ = std::fs::remove_file(state::snapshot_path(path));
@@ -1779,7 +1783,165 @@ fn a_tick_finishes_a_restore_first_and_saves_nothing_then() {
     assert!(!path.exists());
     keeper.finishing = None;
     keeper.tick();
+    write_later::finish(&path).unwrap();
     assert!(path.exists());
+    clean_up(&path);
+}
+
+/// Windows as a thread of their own reads them: Chrome on desktop 7,
+/// Notepad on a desktop not known.
+fn read_on_a_thread() -> crate::core::window_snapshot::Snapshot {
+    let window = |hwnd: isize, exe_path: &str, title: &str, desktop: Option<u128>| {
+        crate::core::live_windows::Read {
+            hwnd,
+            exe_path: exe_path.to_string(),
+            title: title.to_string(),
+            rect: [0, 0, 800, 600],
+            maximized: false,
+            app: appid::AppId::default(),
+            desktop: desktop.map(DesktopId),
+        }
+    };
+    crate::core::window_snapshot::Snapshot {
+        windows: vec![
+            window(11, r"C:\Apps\Chrome.exe", "Mail", Some(7)),
+            window(12, r"C:\Windows\notepad.exe", "notes.txt", None),
+        ],
+        taken: std::time::Instant::now(),
+    }
+}
+
+/// A keeper switched on, with a timer read out that `send` answers. The
+/// host window is a stand-in that nothing here hands to Windows.
+fn reading_on_a_thread(
+    name: &str,
+) -> (
+    LayoutKeeper,
+    std::path::PathBuf,
+    std::sync::mpsc::Sender<crate::core::window_snapshot::Snapshot>,
+) {
+    let (mut keeper, path) = keeper_with(Programs::new(), name);
+    keeper.host_hwnd = Some(std::ptr::NonNull::<std::ffi::c_void>::dangling().as_ptr());
+    let (send, coming) = std::sync::mpsc::channel();
+    keeper.timer_read = Some(TimerRead {
+        coming,
+        asked: std::time::Instant::now(),
+        restores: keeper.restores_started,
+    });
+    (keeper, path, send)
+}
+
+#[test]
+fn windows_read_on_a_thread_of_their_own_are_saved_with_their_desktops() {
+    let (mut keeper, path, send) = reading_on_a_thread("thread-read");
+    // The host's message may come before the windows do: nothing yet.
+    keeper.timer_read_arrived();
+    assert!(keeper.timer_read.is_some(), "still waiting");
+    send.send(read_on_a_thread()).unwrap();
+    keeper.timer_read_arrived();
+    keeper.host_hwnd = None;
+    assert!(keeper.timer_read.is_none());
+    let file = read_file(&path);
+    assert_eq!(file.reason, "timer");
+    let chrome = &file.programs["chrome.exe"].windows[0];
+    assert_eq!(chrome.title, "Mail");
+    assert_eq!(chrome.desktop, Some(DesktopId(7).to_string()));
+    assert_eq!(file.programs["notepad.exe"].windows[0].desktop, None);
+    assert!(keeper.last_saved.is_some());
+    clean_up(&path);
+}
+
+#[test]
+fn windows_read_before_a_restore_started_are_not_saved() {
+    let (mut keeper, path, send) = reading_on_a_thread("thread-read-restore");
+    keeper.restores_started += 1;
+    send.send(read_on_a_thread()).unwrap();
+    keeper.timer_read_arrived();
+    keeper.host_hwnd = None;
+    assert!(keeper.timer_read.is_none(), "dropped");
+    write_later::finish(&path).unwrap();
+    assert!(!path.exists());
+}
+
+#[test]
+fn windows_read_for_a_keeper_switched_off_since_are_not_saved() {
+    let (mut keeper, path, send) = reading_on_a_thread("thread-read-off");
+    keeper.host_hwnd = None;
+    send.send(read_on_a_thread()).unwrap();
+    keeper.timer_read_arrived();
+    write_later::finish(&path).unwrap();
+    assert!(!path.exists());
+    // Teardown lets go of a read still out, so it can never come back.
+    let (mut keeper, path, send) = reading_on_a_thread("thread-read-teardown");
+    keeper.read_only = true;
+    keeper.teardown();
+    assert!(keeper.timer_read.is_none());
+    assert!(send.send(read_on_a_thread()).is_err());
+    clean_up(&path);
+}
+
+#[test]
+fn a_read_that_found_no_desktop_reader_is_saved_by_the_host_instead() {
+    let (mut keeper, path, send) = reading_on_a_thread("thread-read-none");
+    keeper.watch = Watch::new("wincraft-test-nothing.exe", "");
+    keeper.writer = state::Writer::new(
+        path.clone(),
+        Some(programs(vec![(
+            "viber.exe",
+            vec![kept("Viber", None, None, 0)],
+        )])),
+    );
+    drop(send);
+    keeper.timer_read_arrived();
+    keeper.host_hwnd = None;
+    assert_eq!(read_file(&path).reason, "timer");
+    clean_up(&path);
+}
+
+#[test]
+fn a_timer_save_reads_on_a_thread_only_outside_a_restore_and_once_at_a_time() {
+    let second = Duration::from_secs(1);
+    assert_eq!(timer_step(false, None), TimerStep::OnHost);
+    assert_eq!(timer_step(false, Some(second)), TimerStep::OnHost);
+    assert_eq!(timer_step(true, None), TimerStep::Read);
+    assert_eq!(timer_step(true, Some(second)), TimerStep::Wait);
+    // A read stuck this long is given up and asked again.
+    assert_eq!(timer_step(true, Some(30 * second)), TimerStep::Read);
+}
+
+#[test]
+fn a_stale_read_says_why() {
+    assert_eq!(stale_read(true, 2, 2, false), None);
+    assert!(stale_read(false, 2, 2, false)
+        .unwrap()
+        .contains("switched off"));
+    assert!(stale_read(true, 2, 3, false).unwrap().contains("started"));
+    assert!(stale_read(true, 2, 2, true).unwrap().contains("under way"));
+}
+
+#[test]
+fn only_the_timer_save_writes_on_a_thread_of_its_own() {
+    assert_eq!(write_when("timer"), state::When::Later);
+    for reason in ["manual", "shutdown", "teardown", "layout page"] {
+        assert_eq!(write_when(reason), state::When::Now, "{reason}");
+    }
+}
+
+#[test]
+fn the_save_at_the_end_is_in_the_file_when_it_returns_over_a_timer_save() {
+    let (mut keeper, path) = keeper_with(Programs::new(), "end-over-timer");
+    save_seen(&mut keeper, &four_tabs(), "timer");
+    save_seen(&mut keeper, &after_restart(), "teardown");
+    // Read straight from the disk: no waiting for a write on its way.
+    let file: state::StateFile =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(file.reason, "teardown");
+    write_later::finish(&path).unwrap();
+    assert_eq!(
+        read_file(&path).reason,
+        "teardown",
+        "the timer save never lands after"
+    );
     clean_up(&path);
 }
 
@@ -2129,4 +2291,124 @@ fn strip_timing_on_the_real_desktop() {
         assert_eq!(keys(&from_snapshot), keys(&direct));
         eprintln!("after, round {round}: worker thread {worker_ms:.1} ms, host {host_ms:.1} ms");
     }
+}
+
+/// Where the 30-second timer save costs its time on this PC. Read only: it
+/// lists the real windows and changes none, and writes only a temp file.
+/// Run by hand with `cargo test layout_save_timing -- --ignored --nocapture`.
+#[test]
+#[ignore = "reads the real PC; run by hand"]
+fn layout_save_timing_on_the_real_desktop() {
+    use std::time::Instant;
+    use windows_sys::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+    unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) };
+    let ms = |at: Instant| at.elapsed().as_secs_f64() * 1000.0;
+    let (mut keeper, path) = keeper_with(Programs::new(), "save-timing");
+    keeper.read_only = true;
+    keeper.reader = desktops::Reader::new().ok();
+    for round in 0..4 {
+        let at = Instant::now();
+        let live = keeper.live_windows();
+        let live_ms = ms(at);
+        let at = Instant::now();
+        let registry = desktops::list();
+        let desk_ms = ms(at);
+        let at = Instant::now();
+        let mons = monitors::list();
+        let connected = monitors::saved_names(&mons);
+        let mons_ms = ms(at);
+        let at = Instant::now();
+        let on_desktop: BTreeMap<Handle, DesktopId> = live
+            .iter()
+            .filter_map(|window| {
+                let desktop = keeper.reader.as_ref()?.read(window.hwnd)?;
+                Some((window.hwnd as Handle, desktop))
+            })
+            .collect();
+        let read_ms = ms(at);
+        let world = World {
+            desktops: &registry,
+            monitors: &connected,
+            desktop_of: &|hwnd| on_desktop.get(&(hwnd as Handle)).copied(),
+            monitor_of: &|rect| monitors::index_of(rect, &mons),
+            today: Some("2026-10-29".to_string()),
+        };
+        let at = Instant::now();
+        for window in &live {
+            keeper.remember_label(window);
+        }
+        let labels_ms = ms(at);
+        let at = Instant::now();
+        publish_census(&keeper.groups);
+        let census_ms = ms(at);
+        eprintln!(
+            "  labels {labels_ms:.1} ms ({} unresolved), census {census_ms:.1}",
+            keeper.unresolved.len()
+        );
+        // A test has no apps index, so labels never become final here; in
+        // WinCraft they do once the palette has built it, and are not asked
+        // again.
+        keeper.unresolved.clear();
+        let at = Instant::now();
+        keeper.track(&live);
+        let track_ms = ms(at);
+        let at = Instant::now();
+        keeper.note_shared_titles(&live);
+        let titles_ms = ms(at);
+        let at = Instant::now();
+        keeper.watch_bursts(&live);
+        let bursts_ms = ms(at);
+        eprintln!("  track {track_ms:.1} ms, shared titles {titles_ms:.1}, bursts {bursts_ms:.1}");
+        let at = Instant::now();
+        let reason = if round == 0 { "manual" } else { "timer" };
+        let (wrote, count) = keeper
+            .write_seen(&live, &world, reason, round == 0)
+            .unwrap();
+        let write_ms = ms(at);
+        eprintln!(
+            "round {round}: {count} windows, wrote {wrote}\n  live_windows {live_ms:.1} ms, \
+             desktops {desk_ms:.1}, monitors {mons_ms:.1}, desktop reads {read_ms:.1}, \
+             build and write {write_ms:.1}"
+        );
+    }
+    // After: the windows read on a thread of their own, and what is left
+    // for the host. The layout must be the one a read on the host gives.
+    use crate::core::window_snapshot;
+    let (mut direct, direct_path) = keeper_with(Programs::new(), "save-timing-direct");
+    direct.read_only = true;
+    direct.reader = desktops::Reader::new().ok();
+    for round in 0..4 {
+        let at = Instant::now();
+        let snapshot = std::thread::spawn(|| {
+            let hr = unsafe {
+                CoInitializeEx(
+                    std::ptr::null(),
+                    windows_sys::Win32::System::Com::COINIT_MULTITHREADED as u32,
+                )
+            };
+            let snapshot = window_snapshot::read_now();
+            if hr >= 0 {
+                unsafe { windows_sys::Win32::System::Com::CoUninitialize() };
+            }
+            snapshot
+        })
+        .join()
+        .unwrap()
+        .expect("a desktop reader");
+        let worker_ms = ms(at);
+        let at = Instant::now();
+        let seen = keeper.seen_in(snapshot);
+        let (wrote, count) = keeper.write_from(&seen, "timer", round == 0).unwrap();
+        let host_ms = ms(at);
+        let seen = direct.seen_now();
+        direct.write_from(&seen, "timer", round == 0).unwrap();
+        direct.unresolved.clear();
+        assert_eq!(keeper.writer.last(), direct.writer.last(), "round {round}");
+        eprintln!(
+            "after, round {round}: {count} windows, wrote {wrote}; worker thread {worker_ms:.1} ms, \
+             host {host_ms:.1} ms"
+        );
+    }
+    clean_up(&path);
+    clean_up(&direct_path);
 }

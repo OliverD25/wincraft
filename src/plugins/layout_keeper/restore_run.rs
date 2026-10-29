@@ -32,6 +32,7 @@ impl LayoutKeeper {
         self.bar_floor = 0;
         self.panel_closed = false;
         self.restore.start(self.ticks, groups);
+        self.restores_started += 1;
         self.restore.expect(self.expected.clone());
         if sign_in {
             self.restore.after_sign_in();

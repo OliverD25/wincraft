@@ -106,6 +106,17 @@ pub fn post_win_down() {
     }
 }
 
+/// Wakes the plugins on the host thread from a thread of their own: every
+/// plugin that is on gets `on_windows_message(PLUGIN_POST, id, 0)` soon.
+/// `id` says whose work is ready; pick one as unlikely to clash as a timer
+/// id. Safe to call from any thread; does nothing before the host is up.
+pub fn post_to_plugins(id: usize) {
+    let hwnd = HOST_HWND.load(Ordering::Relaxed);
+    if hwnd != 0 {
+        unsafe { PostMessageW(hwnd as HWND, PLUGIN_POST, id, 0) };
+    }
+}
+
 /// A Windows key let go, from a keyboard hook on a thread of its own:
 /// `alone` when no other key went down while it was held. Win pressed and
 /// let go alone closes an open WindowDeck, and Start opens as usual.

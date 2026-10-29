@@ -43,6 +43,13 @@ pub fn write_now(path: &Path, text: &str) -> Result<(), String> {
     config::write_atomic(path, text)
 }
 
+/// Writes now any text still waiting for `path`, and waits for a write
+/// under way, so the file holds the newest text before it is read or
+/// copied.
+pub fn finish(path: &Path) -> Result<(), String> {
+    flush(path)
+}
+
 /// Writes the newest text waiting for `path`, if a newer thread has not
 /// written it already.
 fn flush(path: &Path) -> Result<(), String> {
@@ -106,6 +113,19 @@ mod tests {
         }
         settle(&path);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "text 4");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn finish_puts_the_waiting_text_in_the_file_at_once() {
+        let path = scratch("finish");
+        {
+            let _busy = WRITING.lock().unwrap_or_else(|p| p.into_inner());
+            write_later(path.clone(), "waiting".to_string(), "a test file");
+        }
+        finish(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "waiting");
+        assert!(!PENDING.lock().unwrap().contains_key(&path));
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 

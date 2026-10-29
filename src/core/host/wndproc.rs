@@ -116,6 +116,7 @@ pub(super) fn message_name(msg: u32, wparam: WPARAM) -> String {
         WM_APP_WAIT_KEY => "WM_APP_WAIT_KEY (key after a hotkey)".to_string(),
         WM_APP_BUTTONS => "WM_APP_BUTTONS (taskbar buttons read)".to_string(),
         WM_APP_SNAPSHOT => "WM_APP_SNAPSHOT (windows read for WindowDeck)".to_string(),
+        PLUGIN_POST => format!("PLUGIN_POST 0x{wparam:X} (a plugin's thread is done)"),
         WM_SETTINGCHANGE => "WM_SETTINGCHANGE".to_string(),
         WM_POWERBROADCAST => "WM_POWERBROADCAST".to_string(),
         WM_QUERYENDSESSION => "WM_QUERYENDSESSION".to_string(),
@@ -574,6 +575,19 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
                         } else {
                             0.0
                         },
+                        |plugin| plugin.on_windows_message(msg, wparam, lparam),
+                    );
+                }
+            });
+            0
+        }
+        PLUGIN_POST => {
+            with_host_or_later(hwnd, msg, wparam, lparam, |host| {
+                for slot in host.plugins.slots.iter_mut().filter(|slot| slot.enabled) {
+                    detailed_log::plugin_call(
+                        slot.plugin.as_mut(),
+                        || message_name(msg, wparam),
+                        detailed_log::QUIET_PLUGIN_TIMER_MS,
                         |plugin| plugin.on_windows_message(msg, wparam, lparam),
                     );
                 }

@@ -44,6 +44,13 @@ or restarts, and when you press **Save layout now**. It lives in
 offset from UTC, such as `2026-09-25T02:48:11+03:00`. Files written before
 WinCraft 0.6.1 have UTC time (`...Z`) there and are still read.
 
+The 30-second save reads the windows on a thread of its own and writes the
+file on another, so the hotkeys and the tray never wait for it. During a
+restore it reads them as before, and a read that comes back after a restore
+started is not saved. The saves at shutdown, when LayoutKeeper is switched
+off and when you press **Save layout now** write the file before they
+return.
+
 If an app is closed, its last saved windows are kept, so closing Chrome or
 Telegram before a restart loses nothing. At shutdown, programs close their windows
 while the layout is being saved, so a list that got shorter at that moment
