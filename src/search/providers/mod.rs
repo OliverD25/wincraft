@@ -16,7 +16,7 @@ mod process;
 pub mod shell;
 mod terminal;
 pub mod web;
-mod windows;
+pub mod windows;
 mod windows_index;
 
 use crate::search::SearchProvider;

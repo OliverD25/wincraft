@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use windows_sys::Win32::Foundation::HWND;
@@ -34,6 +35,21 @@ pub struct OpenWindow {
 }
 
 const EXPLORER_CLASS: &str = "CabinetWClass";
+
+/// The windows read when the palette last opened, for the palette's own use:
+/// the open windows it nests under the best-match app.
+static LISTED: Mutex<Option<Arc<Vec<OpenWindow>>>> = Mutex::new(None);
+
+/// The windows read when the palette last opened, top of the z-order (the
+/// one used last) first; empty before the first opening.
+pub fn listed() -> Arc<Vec<OpenWindow>> {
+    LISTED
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone())
+        .unwrap_or_default()
+}
+
 const BROWSE: &str = "browse";
 const BOOKMARK: &str = "bookmark";
 
@@ -113,6 +129,9 @@ impl SearchProvider for Windows {
         let started = Instant::now();
         self.folders.clear();
         self.windows = enumerate();
+        if let Ok(mut listed) = LISTED.lock() {
+            *listed = Some(Arc::new(self.windows.clone()));
+        }
         log::debug!(
             "listed {} open windows in {:.2} ms",
             self.windows.len(),

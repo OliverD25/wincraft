@@ -10,6 +10,8 @@ use crate::core::window_info::{self, WindowDetails};
 use crate::search::{PickInfo, ResultItem};
 use crate::ui::palette::actions::{Marks, RowAction};
 use crate::ui::palette::pinned::PinnedUpdate;
+use crate::ui::palette::running::DeskSummary;
+use crate::ui::palette::Badge;
 use crate::ui::palette::{badge, row_badges};
 use crate::ui::widgets::icons::{self, Icon};
 use crate::ui::widgets::toggle;
@@ -42,6 +44,9 @@ pub struct Inspected<'a> {
     /// The best match's picks: what was typed, and how often and when.
     pub pick: Option<(String, PickInfo)>,
     pub best: bool,
+    /// The app row of a running app: how many windows are open, and on
+    /// which desktops.
+    pub running: Option<(usize, &'a DeskSummary)>,
     pub source: String,
     pub interactive: bool,
 }
@@ -94,7 +99,8 @@ pub fn show(ui: &mut egui::Ui, rect: Rect, inspected: &Inspected) -> Clicked {
             clicked.preview = Some(preview.shrink(1.0));
             y = preview.bottom() + gap;
         }
-        y = title_block(ui, inner, y, item, inspected.best, &tokens);
+        let open = inspected.running.map(|(count, _)| count);
+        y = title_block(ui, inner, y, item, inspected.best, open, &tokens);
         if window.is_none() && !item.subtitle.is_empty() {
             y += 4.0;
             let job = crate::ui::widgets::text::job(
@@ -283,6 +289,10 @@ pub fn show(ui: &mut egui::Ui, rect: Rect, inspected: &Inspected) -> Clicked {
         }
     }
 
+    if let Some((_, summary)) = inspected.running {
+        desk_block(ui, inner, y + gap, bottom, summary, &tokens);
+    }
+
     if !inspected.source.is_empty() {
         let mut job = crate::ui::widgets::text::job(
             &inspected.source,
@@ -304,6 +314,106 @@ pub fn show(ui: &mut egui::Ui, rect: Rect, inspected: &Inspected) -> Clicked {
         );
     }
     clicked
+}
+
+/// "15 windows on 6 desktops" with a Ctrl D keycap, then one line per
+/// desktop: its name, a small bar as long as its share of the largest
+/// count (accent for this desktop), and the count. Lines that do not fit
+/// are left out.
+fn desk_block(
+    ui: &egui::Ui,
+    inner: Rect,
+    y: f32,
+    bottom: f32,
+    summary: &DeskSummary,
+    tokens: &Tokens,
+) {
+    const LINE: f32 = 20.0;
+    if y + LINE * 2.0 > bottom || summary.lines.is_empty() {
+        return;
+    }
+    let painter = ui.painter();
+    painter.text(
+        pos2(inner.left(), y + LINE / 2.0),
+        Align2::LEFT_CENTER,
+        summary.title(),
+        theme::semibold(12.0),
+        tokens.text_secondary,
+    );
+    let cap = painter.layout_no_wrap(
+        "Ctrl D".to_string(),
+        theme::regular(12.0),
+        tokens.text_secondary,
+    );
+    let cap_rect = Rect::from_min_size(
+        pos2(inner.right() - cap.size().x - 12.0, y + LINE / 2.0 - 9.0),
+        vec2(cap.size().x + 12.0, 18.0),
+    );
+    painter.rect(
+        cap_rect,
+        tokens.radius_row,
+        tokens.panel_bg,
+        theme::line(ui.ctx(), tokens.border),
+        StrokeKind::Inside,
+    );
+    painter.galley(
+        cap_rect.center() - cap.size() / 2.0,
+        cap,
+        tokens.text_secondary,
+    );
+    let most = summary
+        .lines
+        .iter()
+        .map(|line| line.count)
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let name_width = inner.width() * 0.5;
+    let bar_left = inner.left() + name_width + 8.0;
+    let bar_room = (inner.right() - 28.0 - bar_left).max(0.0);
+    let mut y = y + LINE;
+    for line in &summary.lines {
+        if y + LINE > bottom {
+            break;
+        }
+        let colour = if line.current {
+            tokens.text_primary
+        } else {
+            tokens.text_secondary
+        };
+        let mut job = crate::ui::widgets::text::job(&line.name, theme::regular(12.0), colour, None);
+        job.wrap = egui::text::TextWrapping {
+            max_width: name_width,
+            max_rows: 1,
+            break_anywhere: true,
+            overflow_character: Some('\u{2026}'),
+        };
+        let name = painter.layout_job(job);
+        painter.galley(
+            pos2(inner.left(), y + LINE / 2.0 - name.size().y / 2.0),
+            name,
+            colour,
+        );
+        let width = bar_room * line.count as f32 / most as f32;
+        let bar = Rect::from_min_size(
+            pos2(bar_left, y + LINE / 2.0 - 2.0),
+            vec2(width.max(2.0), 4.0),
+        );
+        let fill = if line.current {
+            tokens.accent
+        } else {
+            tokens.text_disabled
+        };
+        painter.rect_filled(bar, 2, fill);
+        painter.text(
+            pos2(inner.right(), y + LINE / 2.0),
+            Align2::RIGHT_CENTER,
+            line.count.to_string(),
+            theme::regular(12.0),
+            colour,
+        );
+        y += LINE;
+    }
 }
 
 /// "3 windows marked", then each window's title and place.
@@ -370,6 +480,7 @@ fn title_block(
     y: f32,
     item: &ResultItem,
     best: bool,
+    open: Option<usize>,
     tokens: &Tokens,
 ) -> f32 {
     let painter = ui.painter();
@@ -390,7 +501,10 @@ fn title_block(
     let height = galley.size().y;
     painter.galley(pos2(inner.left(), y), galley, tokens.text_primary);
     let mut y = y + height;
-    let badges = row_badges(item, best);
+    let mut badges = row_badges(item, best);
+    if let Some(count) = open {
+        badges.push(Badge::OpenCount(count));
+    }
     if !badges.is_empty() {
         y += 6.0;
         let mut x = inner.left();

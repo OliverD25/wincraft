@@ -33,6 +33,9 @@ impl Palette {
                 let plain = ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, key));
                 plain || pressed(key)
             };
+            if let Some(alt) = self.running_keys(&ctx) {
+                run = Some((alt, Via::Other));
+            }
             // The confirmation goes at the first key, so typing starts on a
             // clean palette.
             if self.saved.is_some()
@@ -108,14 +111,11 @@ impl Palette {
                     }
                 }
             } else if !self.results.items.is_empty() {
-                let count = self.results.items.len();
                 if take_arrow(egui::Key::ArrowDown) {
-                    self.selected = (self.selected + 1) % count;
-                    self.follow_selection = true;
+                    self.step_selection(true);
                 }
                 if take_arrow(egui::Key::ArrowUp) {
-                    self.selected = (self.selected + count - 1) % count;
-                    self.follow_selection = true;
+                    self.step_selection(false);
                 }
             }
             match key_modifiers(&ctx, egui::Key::ArrowRight) {
@@ -253,12 +253,16 @@ impl Palette {
                 self.cursor_to_end = true;
             }
         }
-        let sub_list = self.sub_list.as_ref().map(|view| {
-            view.list
-                .as_ref()
-                .map(|list| list.title.clone())
-                .unwrap_or_default()
-        });
+        let sub_list = self
+            .sub_list
+            .as_ref()
+            .map(|view| {
+                view.list
+                    .as_ref()
+                    .map(|list| list.title.clone())
+                    .unwrap_or_default()
+            })
+            .or_else(|| self.by_desktop_chip());
         let placeholder = match (&self.prefix, sub_list) {
             (_, Some(title)) => {
                 let chip = prefix_chip(
@@ -331,7 +335,7 @@ impl Palette {
             self.pin_fresh = true;
             self.follow_selection = true;
             self.action_cursor = None;
-            if self.prefix.is_none() {
+            if self.prefix.is_none() && self.running.by_desktop.is_none() {
                 if let Some((prefix, rest)) = self.router.split(&self.query) {
                     let rest = rest.to_string();
                     self.prefix = Some(prefix);
@@ -358,11 +362,14 @@ impl Palette {
             "Clear marks"
         } else if self.action_cursor.is_some() || self.overlay {
             "Back"
+        } else if self.expanded() {
+            "Collapse"
         } else {
             self.results.escape_label.unwrap_or("Close")
         };
         let clear_scope = self.prefix.is_some() && self.query.is_empty();
         let hints = actions::pinned_hints(&actions, self.pinned_spot(), escape)
+            .or_else(|| self.running_hints(escape))
             .unwrap_or_else(|| actions::footer_hints(&actions, clear_scope, escape));
         if paint_footer(
             ui,
@@ -424,6 +431,7 @@ impl Palette {
         );
         let waiting = self.prefix.is_some() && self.query.trim().is_empty();
         let mut clicked_row: Option<(usize, bool)> = None;
+        let expanded = self.expanded();
         let verb = actions
             .first()
             .filter(|action| action.key == Key::Enter)
@@ -453,15 +461,25 @@ impl Palette {
                         let icons = self.icons.get_or_insert_with(|| IconCache::new(&ctx));
                         let needle = self.results.needle.as_str();
                         let column = !self.marks.is_empty();
+                        let nested_needle = self
+                            .running
+                            .app
+                            .as_ref()
+                            .map_or("", |app| app.filter.as_str());
                         let mut last_group: Option<&str> = None;
-                        for (position, item) in self.results.items.iter().enumerate() {
+                        let items = &self.results.items;
+                        let last_nested = items.iter().rposition(|item| item.nested.is_some());
+                        let is_window =
+                            |item: &ResultItem| matches!(item.nested, Some(Nested::Window { .. }));
+                        let mut one = |ui: &mut egui::Ui, position: usize| {
+                            let item = &items[position];
                             let best = position == 0 && self.results.best_match && !self.trying;
                             let group = if best {
                                 "Best match"
                             } else {
                                 item.group.as_str()
                             };
-                            if last_group != Some(group) {
+                            if item.nested.is_none() && last_group != Some(group) {
                                 last_group = Some(group);
                                 group_header(ui, group, group == UPDATE_GROUP);
                             }
@@ -480,13 +498,49 @@ impl Palette {
                                 },
                                 toggle: rows::row_toggle(item, snapshot, &self.toggle_states),
                             };
-                            let row = result_row(ui, item, &look, icons);
+                            let row = if item.nested.is_some() {
+                                let look = RowLook {
+                                    needle: nested_needle,
+                                    ..look
+                                };
+                                nested_row(ui, item, &look, Some(position) == last_nested)
+                            } else {
+                                result_row(ui, item, &look, icons)
+                            };
                             if selected && std::mem::take(&mut self.follow_selection) {
                                 ui.scroll_to_rect(row.rect, None);
                             }
                             if row.clicked {
                                 clicked_row = Some((position, row.shift));
                             }
+                        };
+                        let mut position = 0;
+                        while position < items.len() {
+                            if expanded && is_window(&items[position]) {
+                                // The expanded list scrolls inside itself
+                                // past eight rows.
+                                let end = items[position..]
+                                    .iter()
+                                    .position(|item| !is_window(item))
+                                    .map_or(items.len(), |count| position + count);
+                                let rows = (end - position).min(running::EXPANDED_ROWS);
+                                let first = position;
+                                egui::ScrollArea::vertical()
+                                    .id_salt("palette-nested-windows")
+                                    .max_height(rows as f32 * NESTED_HEIGHT)
+                                    .auto_shrink([false, true])
+                                    .show(ui, |ui| {
+                                        ui.spacing_mut().item_spacing.y = 0.0;
+                                        ui.spacing_mut().scroll.bar_width = 3.0;
+                                        for at in first..end {
+                                            one(ui, at);
+                                        }
+                                    });
+                                position = end;
+                                continue;
+                            }
+                            one(ui, position);
+                            position += 1;
                         }
                     });
             },
@@ -498,6 +552,10 @@ impl Palette {
                 let item = item.clone();
                 self.marks.toggle(&item, || place);
                 actions = self.current_actions();
+            } else if matches!(item.nested, Some(Nested::More { .. })) {
+                self.selected = position;
+                self.action_cursor = None;
+                run = Some((Run::Expand, Via::Other));
             } else {
                 self.selected = position;
                 self.action_cursor = None;
@@ -576,6 +634,7 @@ impl Palette {
                 details,
                 pick,
                 best: self.on_best_match(),
+                running: self.running_summary(),
                 source,
                 interactive,
             };

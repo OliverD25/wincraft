@@ -119,6 +119,10 @@ impl Palette {
                 self.hide_pinned(tag, to_host);
                 Outcome::Stay
             }
+            Run::Expand => {
+                self.expand();
+                Outcome::Stay
+            }
         }
     }
 

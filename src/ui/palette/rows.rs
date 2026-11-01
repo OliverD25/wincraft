@@ -3,7 +3,7 @@ use super::*;
 /// A label with only the main run of the match in the accent colour, as the
 /// design handout asks; the semibold weight is kept for headings, so the
 /// match is not shown in bold.
-fn label_job(
+pub(super) fn label_job(
     label: &str,
     query: &str,
     font: FontId,
@@ -36,6 +36,8 @@ pub(crate) enum Badge {
     OftenPicked,
     /// A text such as "0.20.20 available", with an accent dot.
     Update(String),
+    /// "3 open", with a success dot: an app's open windows.
+    OpenCount(usize),
 }
 
 /// The badges a row carries: "open" on a window beside other rows, "often
@@ -60,9 +62,10 @@ pub(crate) fn row_badges(item: &ResultItem, best: bool) -> Vec<Badge> {
 pub(crate) fn badge(ui: &egui::Ui, at: egui::Pos2, kind: &Badge, tokens: &Tokens) -> Rect {
     let painter = ui.painter();
     let (text, lead) = match kind {
-        Badge::Open => ("open", 6.0),
-        Badge::OftenPicked => ("often picked", 12.0),
-        Badge::Update(text) => (text.as_str(), 6.0),
+        Badge::Open => ("open".to_string(), 6.0),
+        Badge::OftenPicked => ("often picked".to_string(), 12.0),
+        Badge::Update(text) => (text.clone(), 6.0),
+        Badge::OpenCount(count) => (format!("{count} open"), 6.0),
     };
     let ink = match kind {
         Badge::Update(_) => tokens.accent,
@@ -72,7 +75,7 @@ pub(crate) fn badge(ui: &egui::Ui, at: egui::Pos2, kind: &Badge, tokens: &Tokens
         Badge::Update(_) => tokens.accent,
         _ => tokens.border,
     };
-    let galley = painter.layout_no_wrap(text.to_string(), theme::regular(12.0), ink);
+    let galley = painter.layout_no_wrap(text, theme::regular(12.0), ink);
     let rect = Rect::from_min_size(at, vec2(8.0 + lead + 4.0 + galley.size().x + 8.0, 18.0));
     painter.rect(
         rect,
@@ -83,7 +86,7 @@ pub(crate) fn badge(ui: &egui::Ui, at: egui::Pos2, kind: &Badge, tokens: &Tokens
     );
     let mark = pos2(rect.left() + 8.0 + lead / 2.0, rect.center().y);
     match kind {
-        Badge::Open => {
+        Badge::Open | Badge::OpenCount(_) => {
             painter.circle_filled(mark, 3.0, tokens.success);
         }
         Badge::Update(_) => {
@@ -337,6 +340,7 @@ pub(super) fn result_row(
         .iter()
         .map(|kind| match kind {
             Badge::Open => 52.0,
+            Badge::OpenCount(_) => 64.0,
             Badge::OftenPicked => 104.0,
             Badge::Update(text) => {
                 let width = painter
@@ -416,7 +420,7 @@ pub(super) fn result_row(
 
 /// The selected row's Enter pill: the verb in accent 12 px and a small ↵
 /// keycap, in a 24 high outline of the accent colour.
-fn enter_pill(ui: &mut egui::Ui, verb: &str) -> Rect {
+pub(super) fn enter_pill(ui: &mut egui::Ui, verb: &str) -> Rect {
     let tokens = Tokens::get(ui.ctx());
     let painter = ui.painter();
     let word = painter.layout_no_wrap(verb.to_string(), theme::regular(12.0), tokens.accent);
@@ -492,7 +496,7 @@ fn paint_update_tile(painter: &egui::Painter, slot: Rect, tokens: &Tokens) {
 
 /// Long window titles and paths end in an ellipsis instead of running under
 /// the keycaps.
-fn one_line(width: f32) -> egui::text::TextWrapping {
+pub(super) fn one_line(width: f32) -> egui::text::TextWrapping {
     egui::text::TextWrapping {
         max_width: width.max(0.0),
         max_rows: 1,
