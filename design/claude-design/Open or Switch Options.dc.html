@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="stylesheet" href="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/styles.css">
+  <script src="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/_ds_bundle.js"></script>
+  <style>
+    body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:'Segoe UI Variable Text','Segoe UI',Selawik,'Noto Sans',sans-serif}
+    a{color:var(--color-accent)} a:hover{color:var(--color-accent-700)}
+  </style>
+</helmet>
+<section style="padding:48px;display:flex;flex-direction:column;gap:32px">
+  <header style="display:flex;flex-direction:column;gap:6px;max-width:960px">
+    <div style="font-size:12px;font-weight:600;color:var(--color-accent)">WinCraft · Command palette · Open new or switch to a running app</div>
+    <h1 style="margin:0;font-family:inherit;font-size:28px;font-weight:600;line-height:1.15">The app is already running: Enter still opens a new instance, switching is the second choice</h1>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">Three ways to offer the running windows. In all three, Enter keeps its current meaning (Open, new instance) and Shift+↵ switches to the most recently used window of that app. They differ in where the list of open windows lives and how you reach a specific one. Each option shows the default state and the state after choosing to switch. Turn 2 (<a href="#2a">2a</a>, <a href="#2b">2b</a>, <a href="#2c">2c</a>) takes <a href="#1a">1a</a> and handles an app with 15 open windows.</p>
+  </header>
+
+  <div style="display:flex;flex-wrap:wrap;gap:56px;align-items:flex-start">
+    <sc-for list="{{ options }}" as="o" hint-placeholder-count="3">
+      <div id="{{ o.id }}" style="flex:none;width:998px;display:flex;flex-direction:column;gap:16px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="height:24px;padding:0 8px;display:inline-flex;align-items:center;border:1px solid var(--color-accent);border-radius:4px;font-size:13px;font-weight:600;color:var(--color-accent-700)">{{ o.id }}</span>
+          <span style="font-size:20px;font-weight:600">{{ o.name }}</span>
+        </div>
+        <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-800);text-wrap:pretty;max-width:900px">{{ o.desc }}</p>
+
+        <sc-for list="{{ o.frames }}" as="s" hint-placeholder-count="2">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <span style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">{{ s.cap }}</span>
+            <div style="position:relative;padding:48px;border-radius:12px;background:{{ desk }}">
+              <div style="{{ vars }}">
+                <div style="width:900px;height:520px;background:var(--glass);backdrop-filter:blur(48px) saturate(1.8);-webkit-backdrop-filter:blur(48px) saturate(1.8);color:var(--text);border:1px solid var(--rim);border-radius:8px;box-shadow:0 32px 64px var(--shadow), 0 2px 8px var(--shadow), inset 0 1px 0 var(--hi);overflow:hidden;display:flex;flex-direction:column;font-size:14px">
+
+                  <div style="height:56px;flex:none;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--border);box-shadow:inset 0 -2px 0 var(--accent)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+                    <span style="flex:1;display:flex;align-items:center;gap:8px;font-size:16px;min-width:0">
+                      <sc-if value="{{ s.chip }}" hint-placeholder-val="{{ false }}"><span style="height:24px;padding:0 8px;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent);background:var(--accentSoft);border-radius:6px;font-size:12px;color:var(--accent)">{{ s.chip }}<span style="font-size:11px">›</span></span></sc-if>
+                      <span style="white-space:nowrap">{{ s.query }}</span>
+                      <span style="width:1px;height:20px;background:var(--accent);margin-left:-7px"></span>
+                    </span>
+                    <span style="height:28px;padding:0 10px;flex:none;display:inline-flex;align-items:center;gap:8px;border:1px solid var(--rim);background:var(--layer);border-radius:14px;font-size:13px;color:var(--text2)">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.75" stroke-linejoin="round"><path d="M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z"></path><path d="M19 3v4M17 5h4"></path></svg>Ask AI<span style="font-size:11px;padding:0 5px;border:1px solid var(--border);border-radius:4px;color:var(--text3)">?</span>
+                    </span>
+                  </div>
+
+                  <div style="flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;grid-template-rows:minmax(0,1fr);overflow:hidden">
+                    <div style="display:flex;flex-direction:column;padding:4px 8px 8px;min-width:0;overflow:hidden">
+                      <sc-for list="{{ s.groups }}" as="g" hint-placeholder-count="2">
+                        <div style="display:flex;flex-direction:column">
+                          <div style="height:28px;display:flex;align-items:flex-end;padding:0 12px 4px;font-size:12px;color:var(--text3)">{{ g.name }}</div>
+                          <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="3">
+                            <div style="display:flex;flex-direction:column">
+                              <div style="position:relative;min-height:48px;display:flex;align-items:center;gap:12px;padding:0 12px;border-radius:6px;background:{{ r.bg }}">
+                                <span style="position:absolute;left:0;top:50%;margin-top:-8px;width:3px;height:16px;border-radius:2px;background:{{ r.pill }}"></span>
+                                <sc-if value="{{ r.newIcon }}" hint-placeholder-val="{{ false }}"><span style="width:28px;height:28px;flex:none;border-radius:7px;border:1px dashed var(--text3);box-sizing:border-box;display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:16px">+</span></sc-if>
+                                <sc-if value="{{ r.mono }}" hint-placeholder-val="{{ false }}"><span style="width:28px;height:28px;flex:none;border-radius:7px;background:{{ r.tile }};box-shadow:inset 0 0 0 1px rgba(255,255,255,0.14);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;text-shadow:0 1px 1px rgba(0,0,0,0.25)">{{ r.mono }}</span></sc-if>
+                                <div style="display:flex;flex-direction:column;gap:1px;min-width:0;padding:5px 0">
+                                  <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                                    <span style="font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="color:var(--accent)">{{ r.m }}</span>{{ r.rest }}</span>
+                                    <sc-for list="{{ r.badges }}" as="b" hint-placeholder-count="0">
+                                      <span style="height:18px;padding:0 6px;flex:none;display:inline-flex;align-items:center;gap:4px;border:1px solid var(--border);border-radius:9px;font-size:11px;color:{{ b.color }}"><sc-if value="{{ b.dot }}" hint-placeholder-val="{{ false }}"><span style="width:6px;height:6px;border-radius:3px;background:var(--success)"></span></sc-if>{{ b.icon }}{{ b.label }}</span>
+                                    </sc-for>
+                                  </div>
+                                  <sc-if value="{{ r.sub }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.sub }}</span></sc-if>
+                                </div>
+                                <span style="margin-left:auto;display:flex;align-items:center;gap:6px;flex:none">
+                                  <sc-if value="{{ r.alt }}" hint-placeholder-val="{{ false }}"><span style="height:24px;padding:0 4px 0 8px;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text2)"><span style="width:6px;height:6px;border-radius:3px;background:var(--success)"></span>{{ r.alt }}<span style="height:16px;min-width:16px;padding:0 3px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:3px;font-size:10px">{{ r.altKey }}</span></span></sc-if>
+                                  <sc-for list="{{ r.keys }}" as="k" hint-placeholder-count="0"><span style="height:20px;min-width:20px;padding:0 5px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:11px;color:var(--text2)">{{ k }}</span></sc-for>
+                                  <sc-if value="{{ r.enter }}" hint-placeholder-val="{{ false }}"><span style="height:24px;padding:0 4px 0 8px;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent);background:var(--accentSoft);border-radius:6px;font-size:12px;color:var(--accent)">{{ r.enter }}<span style="height:16px;min-width:16px;padding:0 3px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--accent);border-radius:3px;font-size:10px">↵</span></span></sc-if>
+                                </span>
+                              </div>
+                              <div style="position:relative;max-height:{{ r.winsH }};overflow:hidden">
+                              <sc-if value="{{ r.scroll }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;right:2px;top:2px;bottom:2px;width:3px;border-radius:2px;background:var(--border);z-index:1"><span style="position:absolute;left:0;right:0;top:{{ r.thumbTop }};height:{{ r.thumbH }};border-radius:2px;background:var(--text3)"></span></span></sc-if>
+                              <sc-for list="{{ r.wins }}" as="w" hint-placeholder-count="0">
+                                <div style="position:relative;height:32px;margin-left:40px;display:flex;align-items:center;gap:10px;padding:0 12px;border-radius:6px;background:{{ w.bg }};font-size:13px;color:{{ w.color }}">
+                                  <span style="position:absolute;left:0;top:50%;margin-top:-7px;width:3px;height:14px;border-radius:2px;background:{{ w.pill }}"></span>
+                                  <span style="position:absolute;left:-16px;top:0;bottom:{{ w.lineBottom }};width:1px;background:var(--border)"></span>
+                                  <sc-if value="{{ w.more }}" hint-placeholder-val="{{ false }}"><span style="width:18px;flex:none;text-align:center;color:var(--text3);letter-spacing:1px">···</span></sc-if>
+                                  <sc-if value="{{ w.glyph }}" hint-placeholder-val="{{ true }}"><span style="width:18px;height:12px;flex:none;box-sizing:border-box;border:1px solid var(--text3);border-top-width:3px;border-radius:2px"></span></sc-if>
+                                  <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="color:var(--accent)">{{ w.m }}</span>{{ w.t }}</span>
+                                  <span style="font-size:12px;color:var(--text3);white-space:nowrap">{{ w.s }}</span>
+                                  <span style="margin-left:auto;display:flex;align-items:center;gap:4px;flex:none">
+                                    <sc-if value="{{ w.enter }}" hint-placeholder-val="{{ false }}"><span style="height:22px;padding:0 4px 0 8px;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent);background:var(--accentSoft);border-radius:6px;font-size:12px;color:var(--accent)">{{ w.enter }}<span style="height:14px;min-width:14px;padding:0 3px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--accent);border-radius:3px;font-size:10px">↵</span></span></sc-if>
+                                    <sc-if value="{{ w.k }}" hint-placeholder-val="{{ false }}"><span style="height:20px;padding:0 5px;box-sizing:border-box;display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:4px;font-size:11px;color:var(--text2)">{{ w.k }}</span></sc-if>
+                                  </span>
+                                </div>
+                              </sc-for>
+                              </div>
+                            </div>
+                          </sc-for>
+                        </div>
+                      </sc-for>
+                    </div>
+
+                    <div style="border-left:1px solid var(--border);background:var(--layer);padding:16px;display:flex;flex-direction:column;gap:14px;min-width:0">
+                      <div style="display:flex;flex-direction:column;gap:6px">
+                        <span style="font-size:18px;font-weight:600">{{ s.ins.title }}</span>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap">
+                          <sc-for list="{{ s.ins.badges }}" as="b" hint-placeholder-count="1">
+                            <span style="height:20px;padding:0 7px;display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:10px;font-size:12px;color:{{ b.color }}"><sc-if value="{{ b.dot }}" hint-placeholder-val="{{ false }}"><span style="width:6px;height:6px;border-radius:3px;background:var(--success)"></span></sc-if>{{ b.icon }}{{ b.label }}</span>
+                          </sc-for>
+                        </div>
+                        <span style="font-size:13px;color:var(--text2)">{{ s.ins.sub }}</span>
+                      </div>
+                      <div style="display:flex;flex-direction:column;border-top:1px solid var(--border)">
+                        <sc-for list="{{ s.ins.actions }}" as="a" hint-placeholder-count="2">
+                          <div style="position:relative;height:36px;display:flex;align-items:center;gap:8px;padding:0 8px;margin:0 -8px;border-bottom:1px solid var(--border);border-radius:{{ a.radius }};background:{{ a.bg }};font-size:13px;color:{{ a.color }}">{{ a.label }}<span style="margin-left:auto;display:flex;gap:3px"><sc-for list="{{ a.keys }}" as="k" hint-placeholder-count="1"><span style="height:20px;min-width:20px;padding:0 5px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:11px;color:var(--text2)">{{ k }}</span></sc-for></span></div>
+                        </sc-for>
+                      </div>
+                      <sc-if value="{{ s.ins.hasDesk }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;flex-direction:column;gap:6px">
+                          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;color:var(--text3)">{{ s.ins.deskTitle }}<span style="display:flex;gap:3px"><span style="height:18px;padding:0 5px;display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:4px;font-size:11px;color:var(--text2)">Ctrl</span><span style="height:18px;padding:0 5px;display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:4px;font-size:11px;color:var(--text2)">D</span></span></div>
+                          <div style="display:flex;flex-direction:column;gap:3px">
+                            <sc-for list="{{ s.ins.desks }}" as="d" hint-placeholder-count="3">
+                              <div style="display:flex;align-items:center;gap:8px;font-size:12px;line-height:16px">
+                                <span style="color:{{ d.color }};white-space:nowrap">{{ d.n }}</span>
+                                <span style="flex:1;height:4px;border-radius:2px;background:var(--border);position:relative;overflow:hidden"><span style="position:absolute;left:0;top:0;bottom:0;width:{{ d.w }};border-radius:2px;background:{{ d.bar }}"></span></span>
+                                <span style="width:16px;text-align:right;color:var(--text2);font-variant-numeric:tabular-nums">{{ d.c }}</span>
+                              </div>
+                            </sc-for>
+                          </div>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ s.ins.hasOpen }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;flex-direction:column;gap:6px">
+                          <div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--text3)">{{ s.ins.openTitle }}<span style="height:18px;padding:0 5px;display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:4px;font-size:11px;color:var(--text2)">Tab</span></div>
+                          <sc-for list="{{ s.ins.open }}" as="w" hint-placeholder-count="2">
+                            <div style="position:relative;display:flex;align-items:center;gap:10px;padding:6px 8px;margin:0 -8px;border-radius:6px;background:{{ w.bg }};border:1px solid {{ w.border }}">
+                              <span style="width:48px;height:30px;flex:none;border:1px solid var(--rim);border-radius:4px;background:var(--thumb);position:relative;overflow:hidden"><span style="position:absolute;top:6px;left:6px;right:10px;height:2px;background:rgba(255,255,255,0.18)"></span><span style="position:absolute;top:12px;left:6px;right:18px;height:2px;background:rgba(255,255,255,0.1)"></span><span style="position:absolute;top:18px;left:6px;right:14px;height:2px;background:rgba(255,255,255,0.1)"></span></span>
+                              <div style="display:flex;flex-direction:column;min-width:0;gap:1px"><span style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:{{ w.color }}">{{ w.t }}</span><span style="font-size:11px;color:var(--text3);white-space:nowrap">{{ w.s }}</span></div>
+                              <span style="margin-left:auto;height:20px;padding:0 5px;flex:none;box-sizing:border-box;display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:4px;font-size:11px;color:var(--text2)">{{ w.k }}</span>
+                            </div>
+                          </sc-for>
+                        </div>
+                      </sc-if>
+                      <span style="margin-top:auto;font-size:12px;color:var(--text3)">{{ s.ins.source }}</span>
+                    </div>
+                  </div>
+
+                  <div style="height:40px;flex:none;display:flex;align-items:center;gap:16px;padding:0 16px 0 8px;border-top:1px solid var(--border);background:var(--glass2);font-size:12px;color:var(--text2)">
+                    <span style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;color:var(--text2)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg></span>
+                    <span style="width:1px;height:18px;background:var(--border)"></span>
+                    <sc-for list="{{ s.foot }}" as="f" hint-placeholder-count="5">
+                      <span style="display:inline-flex;align-items:center;gap:6px;color:{{ f.c }}"><span style="height:20px;min-width:20px;padding:0 5px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid {{ f.b }};border-radius:4px;font-size:11px">{{ f.k }}</span>{{ f.l }}</span>
+                    </sc-for>
+                    <span style="margin-left:auto;font-size:12px;font-weight:600;color:var(--text3)">WinCraft <span style="font:11px Consolas,'Cascadia Mono',monospace">v0.20.70</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+
+        <ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:1.55;color:var(--color-neutral-800);max-width:900px">
+          <sc-for list="{{ o.rules }}" as="t" hint-placeholder-count="3"><li>{{ t }}</li></sc-for>
+        </ul>
+      </div>
+    </sc-for>
+  </div>
+
+  <section style="max-width:900px;display:flex;flex-direction:column;gap:8px;font-size:13px;line-height:1.55;color:var(--color-neutral-800)">
+    <h2 style="margin:0;font-family:inherit;font-size:18px;font-weight:600">Shared rules, all three options</h2>
+    <ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px">
+      <li>An app counts as running when it has at least one visible top-level window on any monitor or desktop. Tray-only processes do not count.</li>
+      <li>Enter always opens a new instance, the same as today. Nothing about the primary path changes when the app is running.</li>
+      <li>Shift+↵ switches to the most recently used window of that app, from any of the three options.</li>
+      <li>Windows are listed most recently used first, by window title only. Desktop, monitor and process details appear in the right-hand inspector when a window row is selected, never in the result list. Alt+1 to Alt+9 switch to a listed window directly.</li>
+      <li>Desktop summary: with the app row selected, the inspector shows "N windows on M desktops" and one line per desktop with a count and a small bar; the current desktop is labelled "this one" and its bar is accent. Ctrl+D opens the windows grouped by desktop, current desktop first; Ctrl+D or Backspace returns. The summary stays out of the result list.</li>
+      <li>Apps that only allow one instance (Settings, Store apps that reuse their window) show the switch action first, because a new instance is not possible.</li>
+    </ul>
+  </section>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const h = React.createElement;
+    const clock = h('svg', { width: 11, height: 11, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.25, strokeLinecap: 'round' }, h('circle', { cx: 12, cy: 12, r: 10 }), h('path', { d: 'M12 6v6l4 2' }));
+    const freq = { label: 'often picked', icon: clock, dot: false, color: 'var(--text3)' };
+    const openB = n => ({ label: n + ' open', icon: '', dot: true, color: 'var(--text2)' });
+    const g2 = (a, b) => 'linear-gradient(145deg, ' + a + ', ' + b + ')';
+    const T = { N: g2('#5fb6f0', '#2a78c8'), 'N+': g2('#8fd06a', '#4a9a35'), S: g2('#f6d24a', '#d9a514'), R: g2('#9aa3ad', '#646d78'), O: g2('#b57be8', '#7a3fc4'), C: g2('#6b7480', '#3b424c') };
+    const row = (m, rest, o = {}) => ({ m, rest, sub: o.sub ?? '', mono: o.mono ?? '', newIcon: !!o.newIcon, tile: T[o.mono] || T.R, badges: o.badges ?? [], keys: o.keys ?? [],
+      enter: o.sel ? (o.enter ?? '') : '', alt: o.alt ?? '', altKey: o.altKey ?? '', wins: o.wins ?? [], winsH: o.winsH ?? 'none', scroll: !!o.scroll, thumbTop: o.thumbTop ?? '0', thumbH: o.thumbH ?? '0',
+      bg: o.sel ? 'var(--selection)' : 'transparent', pill: o.sel ? 'var(--accent)' : 'transparent' });
+    const W = [['Untitled – Notepad', 'Desktop 1 · Left'], ['todo.txt – Notepad', 'Desktop 2 · Centre'], ['release-notes.md – Notepad', 'Desktop 2 · Right']];
+    const win = (i, sel, last, enter) => ({ m: '', glyph: true, more: false, t: W[i][0], s: '', k: sel ? '' : 'Alt+' + (i + 1), enter: sel ? (enter || 'Switch') : '', bg: sel ? 'var(--selection)' : 'transparent', pill: sel ? 'var(--accent)' : 'transparent', color: sel ? 'var(--text)' : 'var(--text2)', lineBottom: last ? '50%' : '0' });
+    const others = [
+      row('Note', 'pad++', { mono: 'N+', sub: 'Start menu' }),
+      row('', 'Sticky ', { mono: 'S', sub: 'Store app' }),
+      row('One', 'Note', { mono: 'O', sub: 'Start menu' }),
+    ];
+    others[1].m = ''; others[1].rest = 'Sticky Notes';
+    others[2].m = ''; others[2].rest = 'OneNote';
+    const A = (label, keys, o = {}) => ({ label, keys, color: o.accent ? 'var(--accent)' : 'var(--text)', bg: o.sel ? 'var(--selection)' : 'transparent', radius: o.sel ? '6px' : '0' });
+    const F = (k, l, hi) => ({ k, l, c: hi ? 'var(--accent)' : 'var(--text2)', b: hi ? 'var(--accent)' : 'var(--border)' });
+    const ow = (i, sel) => ({ t: W[i][0], s: W[i][1], k: 'Alt+' + (i + 1), bg: sel ? 'var(--selection)' : 'transparent', border: sel ? 'var(--accent)' : 'transparent', color: sel ? 'var(--text)' : 'var(--text2)' });
+    const ins = (o = {}) => ({ title: 'Notepad', badges: [freq, openB(3)], sub: 'Store app', actions: [], hasOpen: false, openTitle: '', open: [], hasDesk: false, deskTitle: '', desks: [], source: 'App from the Start menu', ...o });
+
+    const deskSum = (list, here) => { const max = Math.max(...list.map(x => x[1])); return list.map(([n, c]) => ({ n: n === here ? n + ' · this one' : n, c, w: Math.round(c / max * 100) + '%', color: n === here ? 'var(--text)' : 'var(--text2)', bar: n === here ? 'var(--accent)' : 'var(--text3)' })); };
+    const d3 = { hasDesk: true, deskTitle: '3 windows on 2 desktops', desks: deskSum([['Desktop 1', 1], ['Desktop 2', 2]], 'Desktop 1') };
+    const d15 = { hasDesk: true, deskTitle: '15 windows on 6 desktops', desks: deskSum([['Desktop 1', 4], ['Desktop 2', 5], ['Desktop 3', 3], ['Desktop 4', 1], ['Desktop 5', 1], ['Desktop 6', 1]], 'Desktop 1') };
+    const options = [
+      { id: '1a', name: 'Running windows nested under the result',
+        desc: 'The Notepad row stays first and selected with Open on Enter. Its running windows sit underneath as short indented rows, so they are visible without any extra step. ↓ moves from the app row into its windows; Enter on a window switches to it.',
+        frames: [
+          { cap: 'Default: app row selected, Enter opens a new Notepad', query: 'note',
+            groups: [{ name: 'Best match', rows: [row('Note', 'pad', { mono: 'N', sub: 'Store app', badges: [freq], sel: true, enter: 'Open', wins: [win(0, false), win(1, false), win(2, false, true)] })] }, { name: 'Apps', rows: others.slice(0, 2) }],
+            ins: ins({ badges: [freq, openB(3)], actions: [A('Open new window', ['↵'], { accent: true }), A('Switch to Untitled – Notepad', ['Shift', '↵'])], ...d3 }),
+            foot: [F('↵', 'Open new'), F('Shift+↵', 'Switch'), F('↓', 'Open windows'), F('Ctrl+D', 'By desktop'), F('Esc', 'Close')] },
+          { cap: 'After ↓: a running window is selected, Enter switches to it', query: 'note',
+            groups: [{ name: 'Best match', rows: [row('Note', 'pad', { mono: 'N', sub: 'Store app', badges: [freq], wins: [win(0, false), win(1, true), win(2, false, true)] })] }, { name: 'Apps', rows: others.slice(0, 2) }],
+            ins: ins({ title: 'todo.txt – Notepad', badges: [openB(1).label && { label: 'open', icon: '', dot: true, color: 'var(--text2)' }], sub: 'Desktop 2 · Centre monitor', source: 'Open window · notepad.exe',
+              actions: [A('Switch to window', ['↵'], { accent: true }), A('Move to next monitor', ['Shift', '→']), A('Close window', ['Ctrl', 'W'])] }),
+            foot: [F('↵', 'Switch'), F('↑', 'Back to app'), F('Shift+→', 'Next monitor'), F('Ctrl+W', 'Close window'), F('Esc', 'Close')] },
+        ],
+        rules: ['Nested rows: 32 px high, indented 40 px under the app row, with a 1 px guide line. Show at most 3; a fourth line "2 more windows" opens the full list in the inspector.', 'Nested rows appear only for the best match, so the result list does not grow for every running app further down.', 'With the app row selected, ↓ enters its windows; ↓ past the last window continues to the next result.'] },
+
+      { id: '1b', name: 'Running windows in the inspector',
+        desc: 'The result list is unchanged apart from a "3 open" badge. The inspector, which already holds the actions, gets an "Already open" list under them. Tab moves focus into that list. The list never competes with the results.',
+        frames: [
+          { cap: 'Default: the row carries a "3 open" badge, Enter opens a new Notepad', query: 'note',
+            groups: [{ name: 'Best match', rows: [row('Note', 'pad', { mono: 'N', sub: 'Store app', badges: [freq, openB(3)], sel: true, enter: 'Open' })] }, { name: 'Apps', rows: others }],
+            ins: ins({ actions: [A('Open new window', ['↵'], { accent: true }), A('Forget this pick', ['Ctrl', 'Del'])], hasOpen: true, openTitle: 'Already open', open: [ow(0), ow(1), ow(2)] }),
+            foot: [F('↵', 'Open new'), F('Shift+↵', 'Switch'), F('Tab', 'Open windows'), F('→', 'Actions'), F('Esc', 'Close')] },
+          { cap: 'After Tab: focus is in the inspector list, Enter switches to the window', query: 'note',
+            groups: [{ name: 'Best match', rows: [row('Note', 'pad', { mono: 'N', sub: 'Store app', badges: [freq, openB(3)] })] }, { name: 'Apps', rows: others }],
+            ins: ins({ actions: [A('Open new window', ['↵']), A('Forget this pick', ['Ctrl', 'Del'])], hasOpen: true, openTitle: 'Already open', open: [ow(0), ow(1, true), ow(2)] }),
+            foot: [F('↵', 'Switch'), F('↑↓', 'Move'), F('Shift+Tab', 'Back to results'), F('Ctrl+W', 'Close window'), F('Esc', 'Close')] },
+        ],
+        rules: ['The "N open" badge uses the green dot already used for open windows. It appears on any app row with running windows, not only the best match.', 'Inspector list: 48 × 30 thumbnail, window title, desktop and monitor, Alt+N keycap. Selected item gets the warm tint and a 1 px accent border.', 'Tab from the results moves into the list; Shift+Tab or Esc returns to the results without closing the palette.'] },
+
+      { id: '1c', name: 'Second button on the row, drill in for windows',
+        desc: 'The selected row shows two buttons: the accent Open (Enter) and a quiet "3 open" button (→). → drills into Notepad: the query gets a Notepad chip and the list shows "Open new window" first, then the running windows.',
+        frames: [
+          { cap: 'Default: Open is the accent button, the "3 open" button is secondary', query: 'note',
+            groups: [{ name: 'Best match', rows: [row('Note', 'pad', { mono: 'N', sub: 'Store app', badges: [freq], sel: true, enter: 'Open', alt: '3 open', altKey: '→' })] }, { name: 'Apps', rows: others }],
+            ins: ins({ actions: [A('Open new window', ['↵'], { accent: true }), A('Show open windows', ['→']), A('Forget this pick', ['Ctrl', 'Del'])] }),
+            foot: [F('↵', 'Open new'), F('Shift+↵', 'Switch'), F('→', '3 open'), F('Esc', 'Close')] },
+          { cap: 'After →: drilled into Notepad, new window still first, a running window selected', query: '', chip: 'Notepad',
+            groups: [{ name: 'New', rows: [row('', 'Open new window', { newIcon: true, sub: 'Start another Notepad', keys: ['Ctrl', '↵'] })] },
+              { name: 'Already open', rows: [
+                row('', W[0][0], { mono: 'N', sub: 'Used 2 min ago', sel: true, enter: 'Switch' }),
+                row('', W[1][0], { mono: 'N', sub: 'Used 1 h ago', keys: ['Alt+2'] }),
+                row('', W[2][0], { mono: 'N', sub: 'Used yesterday', keys: ['Alt+3'] }),
+              ] }],
+            ins: ins({ title: 'Untitled – Notepad', badges: [{ label: 'open', icon: '', dot: true, color: 'var(--text2)' }], sub: 'Desktop 1 · Left monitor', source: 'Open window · notepad.exe',
+              actions: [A('Switch to window', ['↵'], { accent: true }), A('Open new window', ['Ctrl', '↵']), A('Close window', ['Ctrl', 'W'])] }),
+            foot: [F('Backspace', 'Back', true), F('↵', 'Switch'), F('Ctrl+↵', 'Open new'), F('Ctrl+W', 'Close window'), F('Esc', 'Close')] },
+        ],
+        rules: ['The secondary button uses a neutral border and the green open dot, never the accent, so Open stays the obvious choice.', 'Drilled view reuses the scope chip from the command scope ("Notepad ›"). Backspace on an empty query goes back to the results with "note" restored.', 'Inside the drilled view the selection starts on the most recent window, since the user already chose to switch; Ctrl+↵ still opens a new one.'] },
+    ];
+    options[0].frames[1].ins.badges = [{ label: 'open', icon: '', dot: true, color: 'var(--text2)' }];
+
+    const X = [['Untitled – Notepad', 'Desktop 1 · Left'], ['todo.txt – Notepad', 'Desktop 2 · Centre'], ['release-notes.md – Notepad', 'Desktop 2 · Right'], ['hosts – Notepad', 'Desktop 1 · Left'], ['meeting-14-oct.txt – Notepad', 'Desktop 3 · Centre'], ['config.toml – Notepad', 'Desktop 2 · Centre'], ['groceries.txt – Notepad', 'Desktop 1 · Left'], ['release-plan.txt – Notepad', 'Desktop 4 · Right'], ['error.log – Notepad', 'Desktop 2 · Centre'], ['draft-email.txt – Notepad', 'Desktop 3 · Left'], ['passwords-old.txt – Notepad', 'Desktop 1 · Right'], ['ideas.md – Notepad', 'Desktop 5 · Centre'], ['notes-call.txt – Notepad', 'Desktop 3 · Centre'], ['readme.txt – Notepad', 'Desktop 6 · Left'], ['Untitled 2 – Notepad', 'Desktop 2 · Right']];
+    const xw = (i, o = {}) => ({ m: o.m ?? '', glyph: true, more: false, t: o.m ? X[i][0].slice(o.m.length) : X[i][0], s: '', k: o.sel ? '' : (i < 9 ? 'Alt+' + (i + 1) : ''), enter: o.sel ? 'Switch' : '',
+      bg: o.sel ? 'var(--selection)' : 'transparent', pill: o.sel ? 'var(--accent)' : 'transparent', color: o.sel ? 'var(--text)' : 'var(--text2)', lineBottom: o.last ? '50%' : '0' });
+    const more = (t, s, k, sel) => ({ m: '', glyph: false, more: true, t, s, k: sel ? '' : k, enter: sel ? 'Show' : '', bg: sel ? 'var(--selection)' : 'transparent', pill: sel ? 'var(--accent)' : 'transparent', color: sel ? 'var(--text)' : 'var(--text2)', lineBottom: '50%' });
+    const np = o => row('Note', 'pad', { mono: 'N', sub: 'Store app · 15 windows open', badges: [freq], ...o });
+    const top3 = [xw(0), xw(1), xw(2)];
+    const nInsSel = i => ins({ title: X[i][0], badges: [{ label: 'open', icon: '', dot: true, color: 'var(--text2)' }], sub: X[i][1].replace(' · ', ' · ') + ' monitor · notepad.exe', source: 'Open window · notepad.exe',
+      actions: [A('Switch to window', ['↵'], { accent: true }), A('Move to next monitor', ['Shift', '→']), A('Close window', ['Ctrl', 'W'])] });
+    const nIns = ins({ badges: [freq, openB(15)], actions: [A('Open new window', ['↵'], { accent: true }), A('Switch to Untitled – Notepad', ['Shift', '↵'])], ...d15 });
+    const dRow = (i, o = {}) => row('', X[i][0], { mono: 'N', sub: '', keys: o.sel ? [] : (i < 9 ? ['Alt+' + (i + 1)] : []), sel: o.sel, enter: 'Switch' });
+
+    const many = [
+      { id: '2a', name: '1a with 15 windows: expand in place',
+        desc: 'The 3 most recent windows stay visible, then a "12 more windows" row. Enter on it expands the nested list in place to a scrolling list of 8 rows. Everything else in the palette stays where it is.',
+        frames: [
+          { cap: 'Collapsed: 3 recent windows and a "12 more" row', query: 'note',
+            groups: [{ name: 'Best match', rows: [np({ sel: true, enter: 'Open', wins: [...top3, more('12 more windows', '', '', false)] })] }, { name: 'Apps', rows: others.slice(0, 1) }],
+            ins: nIns, foot: [F('↵', 'Open new'), F('Shift+↵', 'Switch'), F('↓', 'Open windows'), F('Ctrl+D', 'By desktop'), F('Esc', 'Close')] },
+          { cap: 'Expanded: 8 rows visible, the list scrolls, Alt+1–9 on the first nine', query: 'note',
+            groups: [{ name: 'Best match', rows: [np({ winsH: '256px', scroll: true, thumbTop: '28%', thumbH: '50%', wins: [3, 4, 5, 6, 7, 8, 9, 10, 11].map(i => xw(i, { sel: i === 7 })) })] }],
+            ins: nInsSel(7), foot: [F('↵', 'Switch'), F('↑↓', 'Move'), F('PgUp/PgDn', 'Page'), F('←', 'Collapse'), F('Esc', 'Close')] },
+          { cap: 'After Ctrl+D (from any state): windows grouped by desktop, the current desktop first', query: '', chip: 'Notepad · by desktop',
+            groups: [{ name: 'Desktop 1 · this one · 4', rows: [dRow(0, { sel: true }), dRow(3)] }, { name: 'Desktop 2 · 5', rows: [dRow(1), dRow(5)] }],
+            ins: nInsSel(0), foot: [F('Backspace', 'Back', true), F('↵', 'Switch'), F('Ctrl+↵', 'Open new'), F('Ctrl+D', 'Back'), F('Esc', 'Close')] },
+        ],
+        rules: ['Collapsed: up to 3 windows, then one "N more windows" row. Under 5 windows in total, show them all and skip the row.', 'Expanded: the nested list is capped at 8 rows (256 px) and scrolls inside itself with a 3 px scrollbar; results below are pushed down, not covered.', 'Alt+1 to Alt+9 go to the 9 most recent windows; windows 10 and up have no keycap. ← or Esc collapses the list before Esc closes the palette.'] },
+
+      { id: '2b', name: '1a with 15 windows: "Show all" opens a full list',
+        desc: 'Same 3 recent windows inline, but the last row is "Show all 15 windows". It opens a Notepad-only view, most recent first, with "Open new window" kept first. Typing in that view filters by window title.',
+        frames: [
+          { cap: 'Inline: 3 recent windows and "Show all 15 windows"', query: 'note',
+            groups: [{ name: 'Best match', rows: [np({ sel: true, enter: 'Open', wins: [...top3, more('Show all 15 windows', '', '→', false)] })] }, { name: 'Apps', rows: others.slice(0, 1) }],
+            ins: nIns, foot: [F('↵', 'Open new'), F('Shift+↵', 'Switch'), F('→', 'All windows'), F('Ctrl+D', 'By desktop'), F('Esc', 'Close')] },
+          { cap: 'Full list: most recent first, type to filter, Backspace returns', query: '', chip: 'Notepad · 15',
+            groups: [{ name: 'New', rows: [row('', 'Open new window', { newIcon: true, sub: 'Start another Notepad', keys: ['Ctrl', '↵'] })] },
+              { name: 'Used today · 6 windows', rows: [dRow(0, { sel: true }), dRow(1), dRow(2)] },
+              { name: 'Earlier · 9 windows', rows: [dRow(3), dRow(4)] }],
+            ins: nInsSel(0), foot: [F('Backspace', 'Back', true), F('↵', 'Switch'), F('Ctrl+↵', 'Open new'), F('Ctrl+W', 'Close window'), F('Esc', 'Close')] },
+        ],
+        rules: ['Inline part is identical to 1a; only the last nested row changes to "Show all N windows" (→ or Enter).', 'The full view lists windows most recent first in two groups, Used today and Earlier, with the count in each header.', 'Typing filters by window title across all groups. Ctrl+W closes the selected window without leaving the view, useful for clearing out old ones.'] },
+
+      { id: '2c', name: '1a with 15 windows: keep typing to narrow',
+        desc: 'Nothing expands. After the app name, the next word filters the nested rows by window title, so "note rel" shows the release files. The app row stays selected, so Enter still opens a new Notepad.',
+        frames: [
+          { cap: '"note": 3 recent windows and a hint to keep typing', query: 'note',
+            groups: [{ name: 'Best match', rows: [np({ sel: true, enter: 'Open', wins: [...top3, more('12 more · type a word to filter', 'e.g. "note rel"', '', false)] })] }, { name: 'Apps', rows: others.slice(0, 1) }],
+            ins: nIns, foot: [F('↵', 'Open new'), F('Shift+↵', 'Switch'), F('↓', 'Open windows'), F('Ctrl+D', 'By desktop'), F('Esc', 'Close')] },
+          { cap: '"note rel": nested rows filtered by window title', query: 'note rel',
+            groups: [{ name: 'Best match', rows: [np({ sel: true, enter: 'Open', sub: 'Store app · 2 of 15 windows match "rel"', wins: [xw(2, { m: 'rel' }), xw(7, { m: 'rel' }), more('13 other windows hidden', 'Clear "rel" to show', '', false)] })] }, { name: 'Apps', rows: others.slice(0, 1) }],
+            ins: ins({ badges: [freq, openB(15)], actions: [A('Open new window', ['↵'], { accent: true }), A('Switch to release-notes.md', ['Shift', '↵'])], ...d15 }),
+            foot: [F('↵', 'Open new'), F('Shift+↵', 'Switch to match'), F('↓', 'Matches'), F('Esc', 'Close')] },
+        ],
+        rules: ['The first word matches the app; any further words match window titles of that app only. If no title matches, the nested rows show "No Notepad window matches "rel"" and the normal results take over.', 'Shift+↵ switches to the top filtered window rather than the most recent one.', 'Works with any number of windows and needs no extra view, but the user has to know to keep typing; the hint row teaches it.'] },
+    ];
+    options.unshift(...many);
+
+    const D = { glass:'rgba(36,33,32,0.88)', glass2:'rgba(26,24,23,0.55)', rim:'rgba(255,255,255,0.09)', hi:'rgba(255,255,255,0.07)', layer:'rgba(255,255,255,0.035)', accentSoft:'rgba(225,173,102,0.12)', border:'rgba(255,255,255,0.08)', text:'#f3f2f2', text2:'#bab6b6', text3:'#7d7979', accent:'#e1ad66', selection:'rgba(225,173,102,0.14)', success:'#8fbf7f', shadow:'rgba(0,0,0,0.38)', thumb:'#23262c' };
+    const vars = Object.fromEntries(Object.entries(D).map(([k, v]) => ['--' + k, v]));
+    const desk = 'radial-gradient(55% 75% at 18% 28%, #b8692a 0%, rgba(184,105,42,0) 70%), radial-gradient(50% 70% at 82% 72%, #2b4f94 0%, rgba(43,79,148,0) 70%), radial-gradient(40% 50% at 60% 10%, #6b3a5e 0%, rgba(107,58,94,0) 70%), #12151c';
+    return { options, vars, desk };
+  }
+}
+</script>
+</body>
+</html>
