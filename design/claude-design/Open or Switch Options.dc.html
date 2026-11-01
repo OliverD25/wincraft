@@ -20,7 +20,7 @@
   <header style="display:flex;flex-direction:column;gap:6px;max-width:960px">
     <div style="font-size:12px;font-weight:600;color:var(--color-accent)">WinCraft · Command palette · Open new or switch to a running app</div>
     <h1 style="margin:0;font-family:inherit;font-size:28px;font-weight:600;line-height:1.15">The app is already running: Enter still opens a new instance, switching is the second choice</h1>
-    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">Three ways to offer the running windows. In all three, Enter keeps its current meaning (Open, new instance) and Shift+↵ switches to the most recently used window of that app. They differ in where the list of open windows lives and how you reach a specific one. Each option shows the default state and the state after choosing to switch. Turn 2 (<a href="#2a">2a</a>, <a href="#2b">2b</a>, <a href="#2c">2c</a>) takes <a href="#1a">1a</a> and handles an app with 15 open windows.</p>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">Three ways to offer the running windows. In all three, Enter keeps its current meaning (Open, new instance) and Shift+↵ switches to the most recently used window of that app. They differ in where the list of open windows lives and how you reach a specific one. Each option shows the default state and the state after choosing to switch. Turn 2 (<a href="#2a">2a</a>, <a href="#2b">2b</a>, <a href="#2c">2c</a>) takes <a href="#1a">1a</a> and handles an app with 15 open windows. <a href="#3a">3a</a> is the chosen direction: 2a and 2c combined.</p>
   </header>
 
   <div style="display:flex;flex-wrap:wrap;gap:56px;align-items:flex-start">
@@ -315,6 +315,17 @@ class Component extends DCLogic {
         rules: ['The first word matches the app; any further words match window titles of that app only. If no title matches, the nested rows show "No Notepad window matches "rel"" and the normal results take over.', 'Shift+↵ switches to the top filtered window rather than the most recent one.', 'Works with any number of windows and needs no extra view, but the user has to know to keep typing; the hint row teaches it.'] },
     ];
     options.unshift(...many);
+    const [a1, a2, a3] = many[0].frames, c2 = many[2].frames[1];
+    options.unshift({ id: '3a', name: 'Final: expand in place + keep typing to narrow (2a + 2c)',
+      desc: 'Under the app row: the 3 most recent windows, then one row that offers both paths. Enter on it expands the list in place (2a); typing another word filters the windows by title (2c), whether the list is collapsed or expanded. The app row stays selected by default, so Enter still opens a new instance.',
+      frames: [
+        { ...a1, cap: '"note": 3 recent windows, one row for the rest that hints at both paths',
+          groups: [{ name: 'Best match', rows: [np({ sel: true, enter: 'Open', wins: [...top3, more('12 more windows', 'Enter to expand · or keep typing to filter', '', false)] })] }, { name: 'Apps', rows: others.slice(0, 1) }] },
+        { ...a2, cap: 'Enter on "12 more": expands in place, 8 rows visible, scrolls' },
+        { ...c2, cap: '"note rel": the next word filters the windows, collapsed or expanded' },
+        { ...a3, cap: 'Ctrl+D from any state: windows grouped by desktop' },
+      ],
+      rules: ['Collapsed: up to 3 windows plus one "N more windows" row whose subtitle reads "Enter to expand · or keep typing to filter". Under 5 windows in total, show them all and skip the row.', 'Expanded: capped at 8 rows (256 px), scrolls inside itself; PgUp/PgDn page; ← or Esc collapses before Esc closes the palette.', 'Filtering: words after the app name match window titles of that app only. It applies to the collapsed and the expanded list; if more than 8 match, the expanded list scrolls. If none match, show "No Notepad window matches "rel"" and the normal results take over.', 'Shift+↵ switches to the most recent window, or to the top match while a filter is active. Alt+1–9 follow the order on screen after filtering.', 'The desktop summary and Ctrl+D (see shared rules) work in every state.'] });
 
     const D = { glass:'rgba(36,33,32,0.88)', glass2:'rgba(26,24,23,0.55)', rim:'rgba(255,255,255,0.09)', hi:'rgba(255,255,255,0.07)', layer:'rgba(255,255,255,0.035)', accentSoft:'rgba(225,173,102,0.12)', border:'rgba(255,255,255,0.08)', text:'#f3f2f2', text2:'#bab6b6', text3:'#7d7979', accent:'#e1ad66', selection:'rgba(225,173,102,0.14)', success:'#8fbf7f', shadow:'rgba(0,0,0,0.38)', thumb:'#23262c' };
     const vars = Object.fromEntries(Object.entries(D).map(([k, v]) => ['--' + k, v]));

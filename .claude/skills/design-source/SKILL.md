@@ -43,7 +43,7 @@ user's decisions.
 | `Keyboard Shortcuts.dc.html` | `src/ui/settings/shortcuts.rs`, `src/ui/settings/hotkey_status.rs` |
 | `Palette Main View*.dc.html`, `Palette Suggestions.dc.html`, `Match Highlight Options.dc.html` | `src/ui/palette/`, `src/search/` |
 | `Plugins Grid v2.dc.html` (1a), `design_handoff_plugins_grid/README.md` | `src/ui/settings/plugins.rs`, `src/ui/settings/store.rs`, `src/ui/settings/catalog.rs`, `src/ui/widgets/tile.rs` |
-| `Open or Switch Options.dc.html` (1a; 2a/2b/2c still open) | not built yet; will live in `src/ui/palette/` and `src/search/` |
+| `Open or Switch Options.dc.html` (1a, then 3a = 2a + 2c) | not built yet; will live in `src/ui/palette/` and `src/search/` |
 | `QuickJump.dc.html` | `src/plugins/quick_jump/` |
 | `Shortcut Detector.dc.html` | `src/plugins/shortcut_detector/window.rs` (Win32 controls today; being rebuilt in egui) |
 | `WinCraft Themes.dc.html` | `src/core/theme.rs`, `src/ui/settings/themes.rs`, `src/ui/widgets/theme_tile.rs` |
