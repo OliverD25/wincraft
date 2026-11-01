@@ -166,11 +166,19 @@ impl Palette {
             return;
         };
         let shown = app.rows_shown(false);
+        let folded = shown + usize::from(app.shown.len() > shown);
+        let unfolded = app.shown.len();
+        let on_nested = self
+            .selected_item()
+            .is_some_and(|item| item.nested.is_some());
         self.running.expanded = None;
         self.searched = None;
-        if self.selected > shown {
+        if on_nested && self.selected > shown {
             // Back on the "N more" row the list was opened from.
             self.selected = shown + 1;
+        } else if !on_nested && self.selected > unfolded {
+            // A result under the list keeps the cursor.
+            self.selected -= unfolded - folded;
         }
         self.follow_selection = true;
     }
@@ -201,8 +209,15 @@ impl Palette {
         if self.action_cursor.is_some() || !self.marks.is_empty() {
             return None;
         }
-        let spot = self.spot()?;
         let take = |modifiers, key| ctx.input_mut(|input| input.consume_key(modifiers, key));
+        let Some(spot) = self.spot() else {
+            // The cursor is on a result under the expanded list: Esc still
+            // folds the list first.
+            if self.expanded() && take(egui::Modifiers::NONE, egui::Key::Escape) {
+                self.collapse();
+            }
+            return None;
+        };
         if take(egui::Modifiers::COMMAND, egui::Key::D) {
             if spot == Spot::ByDesktop {
                 self.close_by_desktop();

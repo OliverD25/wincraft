@@ -209,3 +209,21 @@ fn shift_enter_and_alt_digits_pick_the_windows_in_screen_order() {
         crate::core::ui_bridge::HostRequest::RunAction(Action::Activate(101))
     )));
 }
+
+#[test]
+fn esc_on_a_result_under_the_expanded_list_folds_it_and_keeps_the_cursor() {
+    let ctx = context();
+    let mut palette = palette_with(many(15));
+    frame(&mut palette, &ctx, Vec::new());
+    palette.selected = 4;
+    frame(&mut palette, &ctx, vec![press(egui::Key::Enter, NONE)]);
+    frame(&mut palette, &ctx, Vec::new());
+    // App, 15 windows, Next.
+    palette.selected = 16;
+    assert_eq!(palette.results.items[16].title, "Next");
+    let outcome = frame(&mut palette, &ctx, vec![press(egui::Key::Escape, NONE)]);
+    assert!(matches!(outcome, Outcome::Stay));
+    frame(&mut palette, &ctx, Vec::new());
+    assert!(!palette.expanded());
+    assert_eq!(palette.results.items[palette.selected].title, "Next");
+}

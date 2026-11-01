@@ -362,6 +362,8 @@ impl Palette {
             "Clear marks"
         } else if self.action_cursor.is_some() || self.overlay {
             "Back"
+        } else if self.expanded() {
+            "Collapse"
         } else {
             self.results.escape_label.unwrap_or("Close")
         };
