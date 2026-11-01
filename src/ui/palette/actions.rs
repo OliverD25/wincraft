@@ -67,6 +67,8 @@ pub enum Run {
     Mark,
     /// Ctrl+Del on the "Update ready" row: hides that release tag.
     HideUpdate(String),
+    /// Enter on "N more windows": the nested list shows them all.
+    Expand,
 }
 
 #[derive(Clone, Debug, PartialEq)]

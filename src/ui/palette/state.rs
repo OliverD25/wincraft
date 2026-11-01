@@ -166,6 +166,9 @@ impl Palette {
             }
             return;
         }
+        if self.refresh_by_desktop() {
+            return;
+        }
         let (news, waiting) = self.router.poll();
         let index_news = self.router.take_index_news();
         // The empty view was built before the app index was ready: build it
@@ -197,6 +200,7 @@ impl Palette {
             if self.trying {
                 self.results.items = actions::try_instead(&self.query, &snapshot.search);
             }
+            self.nest_running();
             self.pin_update();
             // Output streaming in keeps the newest line in view, unless the
             // user moved the cursor up to read something.
@@ -355,7 +359,8 @@ impl Palette {
             best_match,
             marked: item.window().is_some_and(|hwnd| self.marks.contains(hwnd)),
         };
-        actions::row_actions(item, &situation)
+        let actions = actions::row_actions(item, &situation);
+        self.running_actions(actions)
     }
 
     /// The text cursor is at the end of the box with nothing selected, so →

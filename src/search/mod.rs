@@ -300,6 +300,22 @@ pub struct ResultItem {
     /// The id of the provider that made the row; the router fills it in.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub provider: String,
+    /// A row the palette nests under the best-match app; None for every
+    /// row a provider makes.
+    #[serde(skip)]
+    pub nested: Option<Nested>,
+}
+
+/// What a row nested under the best-match app stands for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Nested {
+    /// One of the app's open windows; `order` is its place on screen, from
+    /// 0, which Alt+1 to Alt+9 follow.
+    Window { order: usize },
+    /// "12 more windows": Enter shows them all in place.
+    More { hidden: usize },
+    /// No window title matches the words after the app's name.
+    NoMatch,
 }
 
 impl ResultItem {

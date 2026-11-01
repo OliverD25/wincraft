@@ -2,13 +2,17 @@ mod actions;
 mod dispatch;
 mod drag;
 mod inspector;
+mod nested_row;
+mod nesting;
 mod panel;
 mod pinned;
 mod prompt;
 mod rows;
+mod running;
 mod state;
 mod view;
 pub use drag::Step as WindowStep;
+use nested_row::*;
 use panel::*;
 #[cfg(test)]
 use prompt::prompt_row_title;
@@ -37,7 +41,7 @@ use crate::search::bookmarks as bookmark_store;
 use crate::search::icons::IconCache;
 use crate::search::providers::bookmarks as bookmark_rows;
 use crate::search::{
-    Action, Ask, Choice, Context, Glyph, IconRef, Reply, ResultItem, Results, Router, Tone,
+    Action, Ask, Choice, Context, Glyph, IconRef, Nested, Reply, ResultItem, Results, Router, Tone,
     SUGGESTED_GROUP,
 };
 use crate::ui::dwm_thumbs::{self, Placement, Thumbnail};
@@ -181,6 +185,9 @@ pub struct Palette {
     /// The cursor was put back to the top (an opening, a new query), so the
     /// next list with the pinned row starts on the row under it.
     pin_fresh: bool,
+    /// The best-match app's open windows, nested under it, and Ctrl+D's
+    /// view of them.
+    running: running::Running,
 }
 
 /// A command's rows, shown in place of the search results until Enter
@@ -266,6 +273,7 @@ impl Palette {
             window_step: Default::default(),
             pinned: None,
             pin_fresh: false,
+            running: Default::default(),
         }
     }
 
@@ -298,6 +306,7 @@ impl Palette {
         self.thumbnail = None;
         self.pinned = None;
         self.pin_fresh = true;
+        self.running = Default::default();
         if let Some(icons) = &mut self.icons {
             icons.forget_windows();
         }
