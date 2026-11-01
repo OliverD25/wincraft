@@ -232,6 +232,12 @@ In the calculator, `%` after a number is a percentage (`200 * 15%` is `30`) and 
 
 *Palette tricks: `=` calculates, `/` browses folders, `>` runs a command.*
 
+### Open New or Switch to a Running App
+
+When the best match is an app that already has windows open, its three most recent windows show under it. `Enter` still opens a new window; `Shift+Enter` switches to the one you used last, `↓` walks into the list, and `Alt+1`…`Alt+9` switch to a listed window directly. With five or more windows, `Enter` on **N more windows** shows them all in place (`←` or `Esc` folds the list again).
+
+Keep typing to narrow the list: `note rel` shows only the Notepad windows with "rel" in the title, and `Shift+Enter` then switches to the top match. `Ctrl+D` lists the app's windows by virtual desktop, the current one first; `Ctrl+D` or `Backspace` goes back. The inspector shows how many windows are open and on which desktops.
+
 ### Smart Ranking & Intent Memory
 
 * **Frequency Decay:** Every time you run an app, command, window, file, or folder with `Enter`, it gains a point that halves every 14 days, promoting your favorites when matches are otherwise equal. A clearly better match stays ahead, and a result named exactly what you typed stays first.
