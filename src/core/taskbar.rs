@@ -248,7 +248,7 @@ fn same_app_with(
 /// The package family name (`name_publisher`, lowercased) of a program
 /// inside a Store app's folder:
 /// `...\WindowsApps\<name>_<version>_<arch>_<resource>_<publisher>\...`.
-fn package_family(path: &str) -> Option<String> {
+pub fn package_family(path: &str) -> Option<String> {
     let mut parts = path.split(['\\', '/']);
     parts.find(|part| part.eq_ignore_ascii_case("windowsapps"))?;
     let folder = parts.next()?;

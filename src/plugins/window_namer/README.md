@@ -52,6 +52,9 @@ window opens, a saved name goes back on:
 2. for a browser window, the window showing the same page;
 3. else the app's only window, when the app has exactly one saved name.
 
+An app update does not lose the names. A Store app (Claude, Windows
+Terminal) is known by its package, not by the folder of its version.
+
 A name is never guessed: when two windows fit it equally, neither gets it.
 A name that has not been on any window for 30 days is forgotten. When you
 close a renamed window its name is kept, but in the same session only a

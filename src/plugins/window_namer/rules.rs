@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::config;
 use crate::core::window_identity::page_title;
+use crate::core::{config, taskbar};
 
 pub type Rect = [i32; 4];
 
@@ -80,6 +80,60 @@ pub fn expire(rules: &mut Vec<Rule>, now: u64) -> usize {
     let before = rules.len();
     rules.retain(|rule| now.saturating_sub(rule.last_used) <= KEEP_SECONDS);
     before - rules.len()
+}
+
+/// A Store app's program path holds its version, and every update of the
+/// app moves it: `...\windowsapps\claude_4.4212.0.0_x64__pzs8sxrjxfjjc\app\claude.exe`.
+/// A name keyed by that path is lost on the next update, so the key keeps
+/// only the package family and the path inside the package:
+/// `windowsapps\claude_pzs8sxrjxfjjc\app\claude.exe`. Other keys stay as
+/// they are.
+pub fn stable_group(group: &str) -> String {
+    let lower = group.to_lowercase();
+    let marker = r"\windowsapps\";
+    let Some(at) = lower.find(marker) else {
+        return group.to_string();
+    };
+    let rest = &lower[at + marker.len()..];
+    let (folder, inside) = rest.split_once('\\').unwrap_or((rest, ""));
+    match taskbar::package_family(&format!(r"windowsapps\{folder}")) {
+        Some(family) => format!(r"windowsapps\{family}\{inside}"),
+        None => group.to_string(),
+    }
+}
+
+/// Brings saved names written by older versions up to date: Store app keys
+/// lose their version (`stable_group`), and of two names that want the same
+/// window (same app, same title) only the newer one stays, since the two
+/// would block each other and neither would come back. Returns how many
+/// names changed or went.
+pub fn tidy(rules: &mut Vec<Rule>) -> usize {
+    let mut changed = 0;
+    for rule in rules.iter_mut() {
+        let group = stable_group(&rule.group);
+        if group != rule.group {
+            rule.group = group;
+            changed += 1;
+        }
+    }
+    let newest = |rule: &Rule| rule.created.max(rule.last_used);
+    let mut keep = vec![true; rules.len()];
+    for a in 0..rules.len() {
+        for b in 0..rules.len() {
+            let same = a != b
+                && rules[a].group == rules[b].group
+                && rules[a].app_title == rules[b].app_title;
+            if same && (newest(&rules[b]), b) > (newest(&rules[a]), a) {
+                keep[a] = false;
+            }
+        }
+    }
+    let mut at = 0;
+    rules.retain(|_| {
+        at += 1;
+        keep[at - 1]
+    });
+    changed + keep.iter().filter(|kept| !**kept).count()
 }
 
 /// What a renamed window's title bar says.
@@ -294,6 +348,61 @@ mod tests {
                 state: RuleState::Free,
             })
             .collect()
+    }
+
+    const CLAUDE_OLD: &str = r"d:\windowsapps\claude_4.4212.0.0_x64__pzs8sxrjxfjjc\app\claude.exe";
+    const CLAUDE_NEW: &str =
+        r"c:\program files\windowsapps\claude_4.16336.0.0_x64__pzs8sxrjxfjjc\app\claude.exe";
+
+    #[test]
+    fn a_store_app_keeps_its_key_across_an_update() {
+        let key = stable_group(CLAUDE_OLD);
+        assert_eq!(key, r"windowsapps\claude_pzs8sxrjxfjjc\app\claude.exe");
+        assert_eq!(stable_group(CLAUDE_NEW), key);
+        assert_eq!(stable_group(&key), key, "safe to run twice");
+    }
+
+    #[test]
+    fn keys_that_are_not_store_paths_stay_as_they_are() {
+        for key in [
+            NOTEPAD,
+            CHROME,
+            "Claude_pzs8sxrjxfjjc!Claude",
+            r"d:\windowsapps\odd\app.exe",
+            r"d:\windowsapps",
+        ] {
+            assert_eq!(stable_group(key), key);
+        }
+    }
+
+    #[test]
+    fn a_name_saved_before_an_app_update_finds_the_updated_window() {
+        let mut rules = vec![rule("F1-Desk", CLAUDE_OLD, "UNICOMOS - ECOM")];
+        assert_eq!(tidy(&mut rules), 1);
+        let windows = [window(7, &stable_group(CLAUDE_NEW), "UNICOMOS - ECOM")];
+        let pairs = match_rules(&free(&rules), &windows, false);
+        assert_eq!(pairs, vec![(0, 0, Reason::Title)]);
+    }
+
+    #[test]
+    fn of_two_names_for_one_window_the_newer_stays() {
+        let mut old = rule("F1-Desk", CLAUDE_OLD, "UNICOMOS - ECOM");
+        old.last_used = 5_000;
+        let mut new = rule("F-1 Desk", CLAUDE_NEW, "UNICOMOS - ECOM");
+        new.created = 9_000;
+        let other = rule("NewsHQ", CLAUDE_OLD, "Law news");
+        let mut rules = vec![old, new, other];
+        assert_eq!(tidy(&mut rules), 4, "three keys moved, one name went");
+        let names: Vec<&str> = rules.iter().map(|rule| rule.name.as_str()).collect();
+        assert_eq!(names, ["F-1 Desk", "NewsHQ"]);
+        assert_eq!(tidy(&mut rules), 0, "safe to run twice");
+    }
+
+    #[test]
+    fn names_with_equal_times_for_one_window_keep_exactly_one() {
+        let mut rules = vec![rule("A", NOTEPAD, "x"), rule("B", NOTEPAD, "x")];
+        assert_eq!(tidy(&mut rules), 1);
+        assert_eq!(rules.len(), 1);
     }
 
     #[test]

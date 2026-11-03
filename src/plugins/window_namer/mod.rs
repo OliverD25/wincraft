@@ -173,10 +173,10 @@ fn rect_of(hwnd: HWND) -> rules::Rect {
 }
 
 fn group_of(hwnd: HWND, pid: u32) -> String {
-    appid::group_key(
+    rules::stable_group(&appid::group_key(
         appid::read(hwnd).id.as_deref(),
         &windows_list::exe_path(pid),
-    )
+    ))
 }
 
 /// The window still exists and belongs to the same process, so its handle
@@ -394,8 +394,12 @@ impl WindowNamer {
         // A saved name of this app that found no window is what the user
         // just gave by hand; kept, it would later compete with the new one
         // and neither would be put back.
+        // The same holds for a saved name that wants this window by its
+        // title, as when an app update lost the old name.
         self.saved.retain(|saved| {
-            saved.window.is_some() || saved.rule.group != target.group || saved.rule.name != name
+            saved.window.is_some()
+                || saved.rule.group != target.group
+                || (saved.rule.name != name && saved.rule.app_title != target.app_title)
         });
         let now = unix_now();
         self.saved.push(Saved {
@@ -881,6 +885,9 @@ impl WinCraftPlugin for WindowNamer {
         } else {
             Vec::new()
         };
+        if rules::tidy(&mut loaded) > 0 {
+            self.dirty = true;
+        }
         let expired = rules::expire(&mut loaded, unix_now());
         if expired > 0 {
             log::info!(
