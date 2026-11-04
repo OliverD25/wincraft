@@ -1,4 +1,7 @@
 pub mod known;
+mod known_apps;
+mod lnk;
+mod owners;
 pub mod probe;
 mod rows;
 mod shared;
@@ -96,7 +99,7 @@ fn run_scan(hwnd: HWND) {
     // Safe here: this runs straight from the message loop, so no host borrow is
     // on the stack and the read-only accessor cannot panic.
     let mine = host::registered_hotkeys();
-    let result = probe::scan(hwnd, &mine);
+    let result = probe::scan(hwnd, &mine, owners::Owners::collect());
     log::info!("shortcut scan: {}", result.status_line());
     if let Ok(mut shared) = handle.lock() {
         shared.scan = Some(Arc::new(result));

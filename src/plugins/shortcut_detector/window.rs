@@ -795,7 +795,7 @@ fn empty_line(painter: &egui::Painter, body: Rect, line: &str, tokens: &Tokens) 
 }
 
 /// One row; true when it was clicked.
-fn row(ui: &mut Ui, entry: &Entry, selected: bool, columns: &[egui::Rangef; 4]) -> bool {
+fn row(ui: &mut Ui, entry: &Entry, selected: bool, columns: &[egui::Rangef; 5]) -> bool {
     let tokens = Tokens::get(ui.ctx());
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::click());
     if !ui.is_rect_visible(rect) {
@@ -835,19 +835,28 @@ fn row(ui: &mut Ui, entry: &Entry, selected: bool, columns: &[egui::Rangef; 4]) 
     painter.rect_stroke(pill, 10, theme::line(ui.ctx(), colour), StrokeKind::Inside);
     painter.galley(pill.center() - galley.size() / 2.0, galley, colour);
 
-    let meaning = painter.layout_job(one_line(
-        rows::meaning(entry),
-        theme::regular(13.0),
-        tokens.text_secondary,
-        columns[2].span(),
-    ));
-    painter.galley(
-        pos2(columns[2].min, rect.center().y - meaning.size().y / 2.0),
-        meaning,
-        tokens.text_secondary,
-    );
+    let mut cut = false;
+    for (text, at) in [(rows::meaning(entry), 2), (rows::owner(entry), 3)] {
+        let galley = painter.layout_job(one_line(
+            text,
+            theme::regular(13.0),
+            tokens.text_secondary,
+            columns[at].span(),
+        ));
+        cut |= galley.elided;
+        painter.galley(
+            pos2(columns[at].min, rect.center().y - galley.size().y / 2.0),
+            galley,
+            tokens.text_secondary,
+        );
+    }
+    let response = if cut {
+        response.on_hover_text(format!("{}\n{}", rows::meaning(entry), rows::owner(entry)))
+    } else {
+        response
+    };
     painter.text(
-        pos2(columns[3].min, rect.center().y),
+        pos2(columns[4].min, rect.center().y),
         Align2::LEFT_CENTER,
         entry.source,
         theme::mono(12.0),

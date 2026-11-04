@@ -279,7 +279,7 @@ fn expand_with(id: &str, folder: &dyn Fn(&str) -> Option<String>) -> String {
     }
 }
 
-fn known_folder(guid: &str) -> Option<String> {
+pub(crate) fn known_folder(guid: &str) -> Option<String> {
     let mut id = GUID::from_u128(0);
     let hr = unsafe { CLSIDFromString(wide(guid).as_ptr(), &mut id) };
     if hr < 0 {

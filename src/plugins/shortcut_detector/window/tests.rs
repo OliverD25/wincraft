@@ -16,6 +16,7 @@ fn scan() -> Arc<ScanResult> {
         ],
         probed: 1_575,
         elapsed_ms: 57,
+        owners: Default::default(),
     })
 }
 
@@ -101,7 +102,7 @@ fn keys_select_copy_scan_and_close() {
     let [Outcome::Copy(text)] = out.as_slice() else {
         panic!("{out:?}");
     };
-    assert!(text.starts_with("Shortcut\tStatus\tMeaning\tSource\r\n"));
+    assert!(text.starts_with("Shortcut\tStatus\tMeaning\tOwner\tSource\r\n"));
     assert_eq!(text.lines().count(), 4, "the three taken rows and a header");
 
     let out = frames(

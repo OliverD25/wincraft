@@ -8,6 +8,7 @@ use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM};
 use windows_sys::Win32::Graphics::Dwm::{
     DwmGetWindowAttribute, DWMWA_CLOAKED, DWM_CLOAKED_APP, DWM_CLOAKED_SHELL,
 };
+use windows_sys::Win32::System::ProcessStatus::K32EnumProcesses;
 use windows_sys::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
@@ -118,6 +119,24 @@ pub fn exe_path(pid: u32) -> String {
         return String::new();
     }
     String::from_utf16_lossy(&buffer[..len as usize])
+}
+
+/// The file names of the running processes Windows lets WinCraft read,
+/// such as "explorer.exe".
+pub fn process_names() -> Vec<String> {
+    let mut ids = vec![0u32; 4096];
+    let mut bytes = 0u32;
+    let size = (ids.len() * std::mem::size_of::<u32>()) as u32;
+    if unsafe { K32EnumProcesses(ids.as_mut_ptr(), size, &mut bytes) } == 0 {
+        return Vec::new();
+    }
+    ids.truncate(bytes as usize / std::mem::size_of::<u32>());
+    ids.into_iter()
+        .filter(|pid| *pid != 0)
+        .map(exe_path)
+        .filter(|path| !path.is_empty())
+        .map(|path| path.rsplit('\\').next().unwrap_or("").to_string())
+        .collect()
 }
 
 /// The window's title as the app set it. For a window WinCraft renamed that
