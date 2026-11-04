@@ -74,14 +74,6 @@ impl WaitHint {
         windows.extend(line_on(primary, line));
         Self { windows }
     }
-
-    /// Only `line`, at the bottom of the monitor of the window in front:
-    /// what shows while a chord waits for its second key.
-    pub fn line_only(line: &str) -> Self {
-        Self {
-            windows: line_on(front_monitor(), line).into_iter().collect(),
-        }
-    }
 }
 
 /// The monitor of the window in front, where a panel about it belongs.

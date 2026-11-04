@@ -307,7 +307,11 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
     let event = wparam as u32;
     let is_down = event == WM_KEYDOWN || event == WM_SYSKEYDOWN;
     let is_up = event == WM_KEYUP || event == WM_SYSKEYUP;
-    let step = if is_down || is_up {
+    // The mask key a waiting plugin sends after Alt and a kept key is not
+    // a key the user pressed.
+    let ours = crate::core::mask_key::is_ours(info.dwExtraInfo)
+        || info.vkCode == crate::core::mask_key::VK;
+    let step = if (is_down || is_up) && !ours {
         let mut slot = wait_slot();
         match slot.as_mut() {
             Some(wait) => {

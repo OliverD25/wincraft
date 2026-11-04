@@ -35,6 +35,18 @@ pub struct Hotkey {
     pub vk: u32,
 }
 
+impl Hotkey {
+    /// No keys: the default of an action that starts without a shortcut.
+    pub const NONE: Hotkey = Hotkey {
+        modifiers: 0,
+        vk: 0,
+    };
+
+    pub fn is_none(self) -> bool {
+        self.vk == 0
+    }
+}
+
 pub struct HotkeyAction {
     pub id: u32,
     pub name: &'static str,

@@ -97,8 +97,14 @@ fn default_hotkeys_are_a_family_that_starts_with_win_alt() {
             assert!(!names.contains(&action.name), "{id}.{} twice", action.name);
             names.push(action.name);
             let hotkey = action.default;
+            if hotkey.is_none() {
+                continue;
+            }
+            // Principle 4 names QuickJump's Win+` as the one exception.
+            let exception =
+                (id, action.name) == ("quick_jump", "jump") && hotkeys::format(hotkey) == "Win+`";
             assert!(
-                hotkey.modifiers & MOD_WIN != 0 && hotkey.modifiers & MOD_ALT != 0,
+                exception || (hotkey.modifiers & MOD_WIN != 0 && hotkey.modifiers & MOD_ALT != 0),
                 "{id}.{} is {}",
                 action.name,
                 hotkeys::format(hotkey)

@@ -66,6 +66,9 @@ impl FakeKeys {
 }
 
 fn keys(text: &str) -> Hotkey {
+    if text.is_empty() {
+        return Hotkey::NONE;
+    }
     hotkeys::parse(text).unwrap()
 }
 
@@ -1636,8 +1639,7 @@ fn a_plugin_chord_waits_for_its_second_key_and_runs_the_hotkey() {
     assert_eq!(press.seconds.len(), 1);
     read(&log);
 
-    // What the hook would have taken: a key that is not the second
-    // press is never taken, so only the matching one comes here.
+    // What the hook took: every key but the first press again.
     host.chord_wait = Some(press.clone());
     host.wait_news(chord::News {
         taken: vec![chord::Stroke {
@@ -1658,6 +1660,18 @@ fn a_plugin_chord_waits_for_its_second_key_and_runs_the_hotkey() {
         ended: false,
     });
     assert!(read(&log).is_empty(), "Esc runs nothing");
+    assert!(host.chord_wait.is_none());
+
+    // A key with nothing assigned is kept from the app and ends the wait.
+    host.chord_wait = Some(press.clone());
+    host.wait_news(chord::News {
+        taken: vec![chord::Stroke {
+            vk: 0x58,
+            modifiers: 0,
+        }],
+        ended: false,
+    });
+    assert!(read(&log).is_empty(), "X runs nothing");
     assert!(host.chord_wait.is_none());
 
     host.chord_wait = Some(press);
@@ -1687,6 +1701,44 @@ fn an_old_config_without_shortcuts_keeps_every_default_hotkey() {
     assert_eq!(keyboard.held(), ["Win+Alt+F1"]);
     assert!(host.shortcut_keys.is_empty());
     assert!(host.config.shortcuts.is_empty());
+}
+
+#[test]
+fn an_action_without_default_keys_registers_nothing_until_the_user_gives_it_some() {
+    let data = Scratch::new("shortcut-none");
+    let (log, keyboard) = (diary(), FakeKeys::default());
+    let (mut host, _ui) = test_host(vec![fake("fake_a", "Fake A", "", &log)], &keyboard, &data);
+    assert!(keyboard.held().is_empty());
+    let info = &host.plugins.hotkey_infos(0)[0];
+    assert_eq!(info.binding, "");
+    assert_eq!(info.default_binding, "", "no keys to go back to either");
+    host.handle_request(HostRequest::SetShortcuts(vec![change(
+        "fake_a.go",
+        Some("Win+Alt+F2"),
+    )]));
+    assert_eq!(keyboard.held(), ["Win+Alt+F2"]);
+}
+
+#[test]
+fn the_chord_tip_lists_the_second_keys_with_their_commands() {
+    let data = Scratch::new("shortcut-tip");
+    let (log, keyboard) = (diary(), FakeKeys::default());
+    let (mut host, _ui) = test_host(
+        vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+        &keyboard,
+        &data,
+    );
+    host.handle_request(HostRequest::SetShortcuts(vec![change(
+        "fake_a.go",
+        Some("Win+Alt+K, G"),
+    )]));
+    let press = host.shortcut_keys[0].1.clone();
+    let rows = host.chord_rows(&press);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].key, "G");
+    assert_eq!(rows[0].text, "Go");
+    let (_, command) = press.seconds[0];
+    assert_eq!(host.command_name(command), "Go");
 }
 
 #[test]

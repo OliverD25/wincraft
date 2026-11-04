@@ -481,18 +481,27 @@ pub fn chord_key(press: &FirstPress, stroke: Stroke) -> ChordKey {
         .map_or(ChordKey::Other, |(_, command)| ChordKey::Run(*command))
 }
 
-/// A matching key and Esc are kept from the app in front; any other key
-/// goes through and ends the wait.
+/// Every key is kept from the app in front while a chord waits: a
+/// matching one runs its command, Esc cancels, and any other key ends the
+/// wait with "Nothing assigned" on the chord tip.
 pub fn chord_verdict(key: ChordKey) -> Verdict {
     match key {
-        ChordKey::Run(_) | ChordKey::Cancel => Verdict::Take,
-        ChordKey::Other => Verdict::End,
+        ChordKey::Run(_) | ChordKey::Cancel | ChordKey::Other => Verdict::Take,
     }
 }
 
-/// The line on screen while a chord waits (Principle 1: it names WinCraft).
-pub fn wait_line(keys: &str) -> String {
-    format!("WinCraft: {keys}, waiting for the next key")
+/// The hook's rule while the chord of `press` waits: the first press once
+/// more goes on to Windows, which hands it back as the hotkey and starts
+/// the wait again; every other key as `chord_verdict` says.
+pub fn chord_rule_verdict(press: &FirstPress, stroke: Stroke) -> Verdict {
+    let again = Hotkey {
+        modifiers: stroke.modifiers,
+        vk: stroke.vk,
+    };
+    if hotkeys::same(again, press.hotkey) {
+        return Verdict::Pass;
+    }
+    chord_verdict(chord_key(press, stroke))
 }
 
 #[cfg(test)]
@@ -799,6 +808,7 @@ mod tests {
 
     #[test]
     fn a_chord_runs_on_its_second_key_and_ends_on_any_other_key_esc_or_time() {
+        // Any other key is kept, and the tip says nothing is assigned to it.
         let save = CommandId::Host(HostCommand::OpenLayout);
         let press = &plan(&[(keys("Win+Alt+K, S"), save)])[0];
         let s = Stroke {
@@ -818,7 +828,13 @@ mod tests {
         assert_eq!(chord_key(press, escape), ChordKey::Cancel);
         assert_eq!(chord_verdict(ChordKey::Run(save)), Verdict::Take);
         assert_eq!(chord_verdict(ChordKey::Cancel), Verdict::Take);
-        assert_eq!(chord_verdict(ChordKey::Other), Verdict::End);
+        assert_eq!(chord_verdict(ChordKey::Other), Verdict::Take, "kept");
+        assert_eq!(chord_rule_verdict(press, l), Verdict::Take);
+        let again = Stroke {
+            vk: 0x4B,
+            modifiers: MOD_WIN | MOD_ALT,
+        };
+        assert_eq!(chord_rule_verdict(press, again), Verdict::Pass, "K again");
         // With Shift held, S is another key.
         let shifted = Stroke {
             vk: 0x53,
@@ -844,14 +860,6 @@ mod tests {
         assert_eq!(
             chord::verdict(s, start, CHORD_WAIT, start + CHORD_WAIT, take),
             Verdict::Take
-        );
-    }
-
-    #[test]
-    fn the_wait_line_names_wincraft_and_the_keys() {
-        assert_eq!(
-            wait_line("Win+Alt+K"),
-            "WinCraft: Win+Alt+K, waiting for the next key"
         );
     }
 
