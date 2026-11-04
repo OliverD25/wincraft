@@ -385,7 +385,7 @@ mod tests {
         let entries = vec![
             classify(key("Win+E"), false, None),
             classify(key("Ctrl+Alt+F9"), true, None),
-            classify(key("Win+Alt+S"), false, Some(("ShortcutDetector", "Open"))),
+            classify(key("Win+Alt+S"), false, Some(("ShortcutManager", "Open"))),
         ];
         let scan = ScanResult {
             entries,

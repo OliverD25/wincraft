@@ -45,7 +45,7 @@ user's decisions.
 | `Plugins Grid v2.dc.html` (1a), `design_handoff_plugins_grid/README.md` | `src/ui/settings/plugins.rs`, `src/ui/settings/store.rs`, `src/ui/settings/catalog.rs`, `src/ui/widgets/tile.rs` |
 | `Open or Switch Options.dc.html` (1a, then 3a = 2a + 2c) | `src/ui/palette/running.rs`, `running/desks.rs`, `nesting.rs`, `nested_row.rs`, `inspector.rs`; window list from `src/search/providers/windows.rs` |
 | `QuickJump.dc.html` | `src/plugins/quick_jump/` |
-| `Shortcut Detector.dc.html` | `src/plugins/shortcut_detector/window.rs` (Win32 controls today; being rebuilt in egui) |
+| `Shortcut Detector.dc.html` | `src/plugins/shortcut_detector/window.rs` (ShortcutManager since 0.20.73; the plugin was called ShortcutDetector, its folder and id keep that name) |
 | `WinCraft Themes.dc.html` | `src/core/theme.rs`, `src/ui/settings/themes.rs`, `src/ui/widgets/theme_tile.rs` |
 | `WinCraft Handout.dc.html`, `design_handoff_wincraft_ui/README.md` | `src/core/theme.rs`, `src/ui/widgets/` |
 

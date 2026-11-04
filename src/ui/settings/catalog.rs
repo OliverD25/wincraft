@@ -650,7 +650,7 @@ mod tests {
             ),
             card(
                 "keys",
-                "ShortcutDetector",
+                "ShortcutManager",
                 "Keyboard",
                 "Find taken key combinations.",
             ),
@@ -686,7 +686,7 @@ mod tests {
         };
         assert_eq!(find("").len(), 5);
         assert_eq!(find("dimmer"), ["ScreenDimmer"]);
-        assert_eq!(find("KEYBOARD"), ["ShortcutDetector"]);
+        assert_eq!(find("KEYBOARD"), ["ShortcutManager"]);
         assert_eq!(find("window"), ["LayoutKeeper", "WindowNamer"]);
         assert_eq!(find("window name"), ["WindowNamer"]);
         assert_eq!(find("input language"), ["LanguageIndicator"]);
@@ -765,7 +765,7 @@ mod tests {
                 "LanguageIndicator",
                 "LayoutKeeper",
                 "ScreenDimmer",
-                "ShortcutDetector",
+                "ShortcutManager",
                 "WindowNamer"
             ]
         );
@@ -774,7 +774,7 @@ mod tests {
             names(&cards, &visible(&cards, &view)),
             [
                 "LanguageIndicator",
-                "ShortcutDetector",
+                "ShortcutManager",
                 "ScreenDimmer",
                 "LayoutKeeper",
                 "WindowNamer"

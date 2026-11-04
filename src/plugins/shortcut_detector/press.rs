@@ -180,11 +180,11 @@ fn watch(hotkey: Hotkey, own_window: isize) -> Option<Seen> {
     let before = visible_windows();
     let front_before = unsafe { GetForegroundWindow() } as isize;
     log::info!(
-        "shortcut detector: pressing {} for real, as the user asked",
+        "shortcut manager: pressing {} for real, as the user asked",
         hotkeys::format(hotkey)
     );
     if !mask_key::send_keys(&keys(hotkey)) {
-        log::warn!("shortcut detector: Windows did not take all the keys of the press");
+        log::warn!("shortcut manager: Windows did not take all the keys of the press");
     }
     let start = Instant::now();
     while start.elapsed() < WATCH {
@@ -194,7 +194,7 @@ fn watch(hotkey: Hotkey, own_window: isize) -> Option<Seen> {
         if let Some(found) = pick(front_before, front_now, own_window, &before, &now) {
             let seen = seen(found);
             if !seen.app.is_empty() || !seen.title.is_empty() {
-                log::info!("shortcut detector: the press brought {}", seen.app);
+                log::info!("shortcut manager: the press brought {}", seen.app);
                 return Some(seen);
             }
         }

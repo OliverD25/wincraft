@@ -26,6 +26,7 @@ use crate::core::traits::{
     FieldKind, HostContext, Hotkey, HotkeyAction, PluginMetadata, PluginWindow, SettingField,
     TrayAction, WinCraftPlugin,
 };
+use crate::core::ui_bridge::ActionKind;
 use crate::core::{host, instance, shortcuts, wide};
 
 use shared::{Handle, WM_APP_SCAN};
@@ -65,12 +66,12 @@ thread_local! {
 }
 
 #[derive(Default)]
-pub struct ShortcutDetector {
+pub struct ShortcutManager {
     shared: Handle,
     show_free_by_default: bool,
 }
 
-impl ShortcutDetector {
+impl ShortcutManager {
     pub fn new() -> Self {
         Self::default()
     }
@@ -139,7 +140,7 @@ fn create_window() -> Result<HWND, String> {
         CreateWindowExW(
             0,
             name.as_ptr(),
-            wide("ShortcutDetector").as_ptr(),
+            wide("ShortcutManager").as_ptr(),
             0,
             0,
             0,
@@ -157,12 +158,12 @@ fn create_window() -> Result<HWND, String> {
     Ok(hwnd)
 }
 
-impl WinCraftPlugin for ShortcutDetector {
+impl WinCraftPlugin for ShortcutManager {
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             id: "shortcut_detector",
-            name: "ShortcutDetector",
-            description: "Find taken and free global key combinations, and test a shortcut before you assign it.",
+            name: "ShortcutManager",
+            description: "See which global key combinations are taken and by whom, test a shortcut before you assign it, and change it.",
             author: "community",
             version: "1.1.0",
             readme: include_str!("README.md"),
@@ -214,7 +215,7 @@ impl WinCraftPlugin for ShortcutDetector {
         vec![HotkeyAction {
             id: ACTION_OPEN,
             name: OPEN_ACTION,
-            label: "Open shortcut detector",
+            label: "Open shortcut manager",
             default: Hotkey {
                 modifiers: MOD_NOREPEAT | MOD_WIN | MOD_ALT,
                 vk: u32::from(b'S'),
@@ -236,10 +237,19 @@ impl WinCraftPlugin for ShortcutDetector {
         }
     }
 
+    /// Called ShortcutDetector before 0.20.73: the old word still finds it.
+    fn search_words(&self, _kind: ActionKind, action_id: u32) -> &'static str {
+        if action_id == ACTION_OPEN {
+            "detector"
+        } else {
+            ""
+        }
+    }
+
     fn tray_actions(&self) -> Vec<TrayAction> {
         vec![TrayAction {
             id: ACTION_OPEN,
-            label: "Shortcut detector",
+            label: "Shortcut manager",
         }]
     }
 
@@ -292,8 +302,23 @@ mod tests {
     }
 
     #[test]
+    fn the_old_name_still_finds_the_open_command() {
+        let plugin = ShortcutManager::new();
+        assert_eq!(plugin.metadata().name, "ShortcutManager");
+        assert_eq!(
+            plugin.metadata().id,
+            "shortcut_detector",
+            "saved settings keep working"
+        );
+        let words = plugin.search_words(ActionKind::Hotkey, ACTION_OPEN);
+        assert!(words.split(' ').any(|word| word == "detector"));
+        assert!(crate::ui::fuzzy::score_words("detector", words).is_some());
+        assert_eq!(plugin.search_words(ActionKind::Hotkey, 99), "");
+    }
+
+    #[test]
     fn the_default_is_win_alt_s() {
-        let action = &ShortcutDetector::new().hotkey_actions()[0];
+        let action = &ShortcutManager::new().hotkey_actions()[0];
         assert_eq!(crate::core::hotkeys::format(action.default), OPEN_KEYS);
     }
 }

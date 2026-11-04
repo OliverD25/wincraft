@@ -14,7 +14,7 @@ Stop running half a dozen background utilities that fight over keyboard hooks, e
 ### Why Power Users Choose WinCraft
 * **Zero-Friction Setup:** No installer wizards, no MSI bloat, no admin rights required. Download `wincraft.exe` and run it portably, or run `wincraft.exe --install` once to register it cleanly in your Start Menu and startup tasks.
 * **Unified Host Architecture:** One lightweight process owns the tray icon, the autostart entry, global hotkeys (including multi-key chords like `Win+Alt+K, S`), the command palette, and the settings UI.
-* **Eight Built-In Power Plugins:** Ships with **ScreenDimmer**, **ShortcutDetector**, **LayoutKeeper**, **WindowDeck**, **LanguageIndicator**, **WindowNamer**, **QuickJump**, and **QuickActions** out of the box.
+* **Eight Built-In Power Plugins:** Ships with **ScreenDimmer**, **ShortcutManager**, **LayoutKeeper**, **WindowDeck**, **LanguageIndicator**, **WindowNamer**, **QuickJump**, and **QuickActions** out of the box.
 * **1-Trait Extensibility:** Features are written as plugins that plug into a single Rust trait, so adding a new tool in an afternoon never means touching Win32 plumbing or writing UI code.
 * **100% Local, One File per Plugin:** No telemetry, no accounts, and a separate JSON config file per plugin, so a bad edit costs one plugin, never your whole setup.
 
@@ -157,20 +157,20 @@ Give any window a persistent custom name: turn three identical browser windows i
 | --- | --- |
 | `Win+Alt+E` | Rename the active window (opens the palette with the current name selected; `Enter` saves, `Enter` on an empty box clears) |
 
-### 6. ShortcutDetector
+### 6. ShortcutManager
 
-Shows which global key combinations are already taken on your PC and lets you test any combination by pressing it before you assign it. [Full README](src/plugins/shortcut_detector/README.md)
+Shows which global key combinations are already taken on your PC and by which app, lets you test any combination by pressing it before you assign it, and helps you change it. [Full README](src/plugins/shortcut_detector/README.md)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/shortcut-detector-dark.png">
-  <img alt="ShortcutDetector telling you that Win+L is a Windows shortcut that locks the PC" src="docs/screenshots/shortcut-detector-light.png" width="420">
+  <img alt="ShortcutManager telling you that Win+L is a Windows shortcut that locks the PC" src="docs/screenshots/shortcut-detector-light.png" width="420">
 </picture>
 
 *Trying Win+L: Windows keeps it for itself.*
 
 | Hotkey | What it does |
 | --- | --- |
-| `Win+Alt+S` | Open the shortcut detector |
+| `Win+Alt+S` | Open the shortcut manager |
 
 *(Note: No outside program can see programs that read keys through low-level keyboard hooks, like AutoHotkey scripts, short of injecting code into every running process, and the window clearly states this.)*
 
@@ -426,7 +426,7 @@ WinCraft fills in every missing key on startup: start it once, then open the fil
 | `--open-palette` | Opens the command palette at startup. |
 | `--open-arrange` | Opens WindowDeck at startup. |
 | `--open-settings` | Opens the settings window at startup. |
-| `--open-detector` | Opens the ShortcutDetector window at startup. |
+| `--open-detector` | Opens the ShortcutManager window at startup. |
 | `--quit` | Asks the running WinCraft to shut down cleanly and waits up to 10 s (exit codes: `0` closed, `1` none running, `2` still running). |
 | `--install` | Copies this exe to `%LOCALAPPDATA%\Programs\WinCraft`, adds the Start menu shortcut, points the logon task at it, and starts it (`0` done, `1` failed, `2` refused inside another app's package). |
 | `--uninstall` | Closes WinCraft and removes the shortcut and logon task while keeping the program and settings. |

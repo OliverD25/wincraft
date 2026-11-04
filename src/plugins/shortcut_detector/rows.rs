@@ -226,7 +226,7 @@ mod tests {
                 app.holder = "ShareX, probably".to_string();
                 app
             },
-            classify(key("Win+Alt+S"), false, Some(("ShortcutDetector", "Open"))),
+            classify(key("Win+Alt+S"), false, Some(("ShortcutManager", "Open"))),
             classify(key("Ctrl+Shift+F7"), false, None),
         ]
     }
@@ -303,7 +303,7 @@ mod tests {
             text,
             "Shortcut\tStatus\tMeaning\tOwner\tSource\r\n\
              Win+E\tWindows\tOpen File Explorer\tWindows\twindows list\r\n\
-             Win+Alt+S\tWinCraft\tShortcutDetector: Open\tWinCraft\tWinCraft\r\n"
+             Win+Alt+S\tWinCraft\tShortcutManager: Open\tWinCraft\tWinCraft\r\n"
         );
         assert_eq!(meaning(&rows[3]), "\u{2014}");
         assert_eq!(owner(&rows[3]), "\u{2014}");

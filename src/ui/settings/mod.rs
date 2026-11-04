@@ -740,7 +740,7 @@ mod tests {
         state.close_hotkey();
         assert!(state.hotkey_dialog.is_none());
 
-        // ShortcutDetector's Change finds the command by its first press.
+        // ShortcutManager's Change finds the command by its first press.
         let palette = hotkeys::parse("Win+Alt+P").unwrap();
         assert_eq!(
             command_of(&snapshot.shortcuts, palette),

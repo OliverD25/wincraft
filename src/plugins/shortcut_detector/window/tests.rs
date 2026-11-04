@@ -11,7 +11,7 @@ fn scan() -> Arc<ScanResult> {
         entries: vec![
             classify(key("Win+E"), false, None),
             classify(key("Ctrl+Alt+F9"), true, None),
-            classify(key("Win+Alt+S"), false, Some(("ShortcutDetector", "Open"))),
+            classify(key("Win+Alt+S"), false, Some(("ShortcutManager", "Open"))),
             classify(key("Ctrl+Shift+F7"), false, None),
         ],
         probed: 1_575,

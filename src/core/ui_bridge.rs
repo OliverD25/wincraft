@@ -570,7 +570,7 @@ pub enum UiCommand {
     /// The palette forgets every pick it recorded.
     ClearPaletteUsage,
     /// Settings → Hotkeys with the hotkey dialog on the command whose first
-    /// key press is this one, as ShortcutDetector's Change asks.
+    /// key press is this one, as ShortcutManager's Change asks.
     ChangeHotkeyOf(crate::core::traits::Hotkey),
     /// The palette forgets where it was dragged to and moves back to the centre.
     CentrePalette,

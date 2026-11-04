@@ -1,7 +1,12 @@
-# ShortcutDetector
+# ShortcutManager
 
-Shows which global key combinations are already taken on this PC, and tells you
-about any combination you press before you assign it to anything.
+Shows which global key combinations are already taken on this PC and by whom,
+tells you about any combination you press before you assign it to anything,
+and helps you change it.
+
+Called ShortcutDetector before 0.20.73; its id stays `shortcut_detector`, so
+its settings file (`shortcut_detector.json`) and your hotkey keep working.
+Typing "detector" in the palette still finds it.
 
 ## What it does
 
@@ -79,7 +84,7 @@ they were.
 
 | Action | Default |
 |---|---|
-| Open shortcut detector | `Win+Alt+S` |
+| Open shortcut manager | `Win+Alt+S` |
 
 Before WinCraft 0.20.16 the default was `Win+Alt+Q`, which QuickJump uses
 now. A stored `Win+Alt+Q` is moved to `Win+Alt+S` once, at the first start;

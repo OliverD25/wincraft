@@ -421,9 +421,9 @@ mod tests {
 
     #[test]
     fn wincraft_windows_and_free_answers() {
-        let mine = classify(key("Win+Alt+S"), true, Some(("ShortcutDetector", "Open")));
+        let mine = classify(key("Win+Alt+S"), true, Some(("ShortcutManager", "Open")));
         let answer = plan(&mine, None, false, &AnswerUi::default());
-        assert_eq!(answer.line, "WinCraft uses it: ShortcutDetector: Open.");
+        assert_eq!(answer.line, "WinCraft uses it: ShortcutManager: Open.");
         assert_eq!(actions(&answer), [Action::Change]);
 
         let windows = classify(key("Win+E"), true, None);

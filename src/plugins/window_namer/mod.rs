@@ -51,7 +51,7 @@ const ID: &str = "window_namer";
 const ACTION_RENAME_ACTIVE: u32 = 1;
 const COMMAND_CLEAR_ALL: u32 = 1;
 const PROMPT_RENAME: u32 = 1;
-/// Win+Alt+N was taken on the PC this was built on (ShortcutDetector said
+/// Win+Alt+N was taken on the PC this was built on (ShortcutManager said
 /// "Taken by another app"); E, for editing the title, was free.
 const VK_E: u32 = b'E' as u32;
 

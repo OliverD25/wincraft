@@ -37,7 +37,7 @@ fn main() {
         return;
     }
 
-    // ShortcutDetector's verdict on key combinations, for choosing a
+    // ShortcutManager's verdict on key combinations, for choosing a
     // default; also before logging::init. Each is registered and freed at
     // once.
     if let Some(list) = args

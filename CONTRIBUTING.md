@@ -369,7 +369,7 @@ fn open(&mut self) {
 
 By the time `WM_APP_MY_WORK` comes back through the message loop the host is no
 longer borrowed. The same applies to `WM_CREATE`, which `CreateWindowExW`
-delivers before it has even returned. ShortcutDetector does exactly this; copy
+delivers before it has even returned. ShortcutManager does exactly this; copy
 it if you need a window.
 
 ## Threads
@@ -394,11 +394,11 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
 - **`core::hotkeys` knows the whole keyboard.** Letters, digits, `F1`–`F24`,
   the navigation and editing keys, the numeric keypad and the punctuation keys
   all parse and format. `hotkeys::all_keys()` returns every one, and it is the
-  same list ShortcutDetector probes.
+  same list ShortcutManager probes.
 - **Hotkey defaults must start with `Win+Alt`.** That combination is nearly
   free on Windows, which keeps clashes rare and makes every WinCraft hotkey
   feel like one family. `wincraft --hotkey-verdict=Win+Alt+Shift+F1,Win+Alt+K`
-  prints ShortcutDetector's verdict on each combination before you pick one;
+  prints ShortcutManager's verdict on each combination before you pick one;
   a key your own running WinCraft holds shows as taken by another app.
 - **Record hotkeys only through `ui::widgets::hotkey_capture`.** Its hook
   sends an unassigned mask key (`0xE8`) when it hides a key while Alt or Win

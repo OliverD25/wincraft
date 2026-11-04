@@ -35,7 +35,7 @@ pub(super) struct PluginSet {
     pub(super) palette_hotkey: Option<(Hotkey, bool)>,
     /// The folder of config.json and the plugin files.
     pub(super) data: PathBuf,
-    /// Balloons for the host to show; a click on one opens ShortcutDetector.
+    /// Balloons for the host to show; a click on one opens ShortcutManager.
     pub(super) warnings: Vec<String>,
 }
 
@@ -677,7 +677,10 @@ impl PluginSet {
                     group: group.clone(),
                     label: action.label.to_string(),
                     hint,
-                    words: String::new(),
+                    words: slot
+                        .plugin
+                        .search_words(ActionKind::Hotkey, action.id)
+                        .to_string(),
                     confirm: String::new(),
                     list: false,
                     disabled,
@@ -706,7 +709,10 @@ impl PluginSet {
                     group: group.clone(),
                     label: action.label.to_string(),
                     hint: String::new(),
-                    words: String::new(),
+                    words: slot
+                        .plugin
+                        .search_words(ActionKind::Tray, action.id)
+                        .to_string(),
                     confirm: String::new(),
                     list: false,
                     disabled,

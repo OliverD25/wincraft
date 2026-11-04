@@ -41,7 +41,7 @@ use super::shared::{Handle, Shared};
 use super::{lnk, nearby, press};
 
 pub const WINDOW_ID: &str = "detector";
-const TITLE: &str = "WinCraft \u{b7} Shortcut detector";
+const TITLE: &str = "WinCraft \u{b7} Shortcut manager";
 const SIZE: [f32; 2] = [760.0, 560.0];
 const MIN_SIZE: [f32; 2] = [560.0, 400.0];
 
@@ -328,7 +328,7 @@ fn answer_action(action: Action, shared: &mut Shared, state: &mut WindowUi, to_h
                 Err(why) => why,
             });
             log::info!(
-                "shortcut detector: {} the key of {}",
+                "shortcut manager: {} the key of {}",
                 if keys.is_some() { "changed" } else { "removed" },
                 path.display()
             );

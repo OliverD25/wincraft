@@ -367,6 +367,14 @@ pub trait WinCraftPlugin {
         None
     }
 
+    /// More words the palette finds a hotkey or tray command by, split by
+    /// spaces, such as a plugin's old name. Palette commands carry their
+    /// own `words`.
+    fn search_words(&self, kind: ActionKind, action_id: u32) -> &'static str {
+        let _ = (kind, action_id);
+        ""
+    }
+
     /// One of the plugin's hotkey actions, or failing that one of its
     /// palette commands, shown as a button on its page.
     fn page_action(&self) -> Option<u32> {
