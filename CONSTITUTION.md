@@ -72,7 +72,9 @@ required.
 In practice:
 
 - Default hotkeys start with `Win+Alt`. This combination is nearly free on
-  Windows, and it makes every WinCraft hotkey feel like one family.
+  Windows, and it makes every WinCraft hotkey feel like one family. One
+  exception: QuickJump starts with `` Win+` ``, because it is pressed many
+  times a day and must be easy to reach with one hand.
 - The command palette (`Win+Alt+P`) reaches every command, setting and plugin.
 - Every hotkey can be changed, and WinCraft warns when another app already
   holds it.
