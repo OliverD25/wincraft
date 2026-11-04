@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="stylesheet" href="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/styles.css">
+  <script src="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/_ds_bundle.js"></script>
+  <style>
+    body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:'Segoe UI Variable Text','Segoe UI',Selawik,'Noto Sans',sans-serif}
+    a{color:var(--color-accent)} a:hover{color:var(--color-accent-700)}
+    @keyframes chordDot{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
+    @keyframes chordSlot{0%,100%{border-color:rgba(225,173,102,.35)}50%{border-color:rgba(225,173,102,.9)}}
+  </style>
+</helmet>
+<section style="padding:48px;display:flex;flex-direction:column;gap:32px">
+  <header style="display:flex;flex-direction:column;gap:6px;max-width:960px">
+    <div style="font-size:12px;font-weight:600;color:var(--color-accent)">WinCraft · Chord tip · Win+` pressed, waiting for the next key</div>
+    <h1 style="margin:0;font-family:inherit;font-size:28px;font-weight:600;line-height:1.15">Chord tip options</h1>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">When Win+` is pressed, a small tip appears so the user knows WinCraft is holding the keyboard and waiting for one more key. It does not take focus. <a href="#5a">5a</a> only says that it is waiting, <a href="#5b">5b</a> also lists the keys that can follow. The states below apply to both.</p>
+  </header>
+
+  <div style="display:flex;flex-wrap:wrap;gap:56px;align-items:flex-start;padding-bottom:32px;border-bottom:1px solid var(--color-divider)">
+    <sc-for list="{{ opts }}" as="o" hint-placeholder-count="2">
+      <div id="{{ o.id }}" style="flex:none;width:760px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="height:24px;padding:0 8px;display:inline-flex;align-items:center;border:1px solid var(--color-accent);border-radius:4px;font-size:13px;font-weight:600;color:var(--color-accent-700)">{{ o.id }}</span>
+          <span style="font-size:20px;font-weight:600">{{ o.name }}</span>
+        </div>
+        <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-800);text-wrap:pretty">{{ o.desc }}</p>
+        <div style="height:440px;position:relative;border-radius:12px;overflow:hidden;background:radial-gradient(55% 75% at 18% 28%, #b8692a 0%, rgba(184,105,42,0) 70%), radial-gradient(50% 70% at 82% 72%, #2b4f94 0%, rgba(43,79,148,0) 70%), #12151c">
+          <div style="position:absolute;left:40px;top:36px;right:40px;bottom:96px;border-radius:8px;background:#0c0c0c;border:1px solid rgba(255,255,255,0.1);opacity:0.85;display:flex;flex-direction:column">
+            <div style="height:30px;background:#1e1e1e;border-radius:8px 8px 0 0"></div>
+            <div style="padding:16px;display:flex;flex-direction:column;gap:8px"><span style="height:3px;width:40%;background:#5fb35a"></span><span style="height:3px;width:56%;background:#5fb35a"></span><span style="height:3px;width:30%;background:rgba(255,255,255,0.35)"></span></div>
+          </div>
+          <div style="position:absolute;left:0;right:0;bottom:24px;display:flex;justify-content:center">
+            <div style="width:{{ o.w }};background:rgba(36,33,32,0.97);border:1px solid rgba(255,255,255,0.12);border-radius:10px;box-shadow:0 16px 40px rgba(0,0,0,0.4);color:#f3f2f2;overflow:hidden">
+              <div style="display:flex;align-items:center;gap:14px;padding:14px 18px">
+                <span style="display:inline-flex;align-items:center;gap:5px">
+                  <span style="height:30px;min-width:30px;padding:0 9px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid #e1ad66;border-bottom-width:3px;border-radius:6px;font-size:15px;font-weight:600;color:#e1ad66">Win</span>
+                  <span style="font-size:14px;color:#7d7979">+</span>
+                  <span style="height:30px;min-width:30px;padding:0 9px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid #e1ad66;border-bottom-width:3px;border-radius:6px;font-size:15px;font-weight:600;color:#e1ad66">`</span>
+                </span>
+                <sc-if value="{{ o.list }}" hint-placeholder-val="{{ false }}"><span style="display:inline-flex;align-items:center;gap:5px"><span style="font-size:14px;color:#7d7979">+</span>{{ slot }}</span></sc-if>
+                <sc-if value="{{ o.text }}" hint-placeholder-val="{{ true }}"><span style="font-size:16px">Waiting for the next key…</span></sc-if>
+                <span style="margin-left:auto;display:inline-flex;align-items:center;gap:7px;font-size:14px;color:#bab6b6"><span style="height:24px;padding:0 7px;box-sizing:border-box;display:inline-flex;align-items:center;border:1px solid rgba(255,255,255,0.14);border-radius:5px;font-size:13px">Esc</span>Cancel</span>
+              </div>
+              <sc-if value="{{ o.list }}" hint-placeholder-val="{{ false }}">
+                <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 24px;padding:10px 18px 14px;border-top:1px solid rgba(255,255,255,0.08)">
+                  <sc-for list="{{ next }}" as="k" hint-placeholder-count="4">
+                    <div style="height:34px;display:flex;align-items:center;gap:12px;font-size:15px;color:#f3f2f2"><span style="height:26px;min-width:26px;padding:0 7px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.2);border-bottom-width:2px;border-radius:5px;font-size:13px;font-weight:600">{{ k.k }}</span>{{ k.l }}</div>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <div style="height:3px;background:rgba(255,255,255,0.06)"><div style="height:3px;width:62%;background:#e1ad66"></div></div>
+            </div>
+          </div>
+        </div>
+        <ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:1.55;color:var(--color-neutral-800)">
+          <sc-for list="{{ o.rules }}" as="t" hint-placeholder-count="2"><li>{{ t }}</li></sc-for>
+        </ul>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <h2 style="margin:0;font-family:inherit;font-size:22px;font-weight:600">What happens next</h2>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-700);max-width:960px;text-wrap:pretty">The tip always ends with a short closing message so the user sees how the chord finished. The bar at the bottom counts down the wait.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:20px;padding:32px;border-radius:12px;background:#12151c">
+      <sc-for list="{{ states }}" as="s" hint-placeholder-count="4">
+        <div style="width:420px;display:flex;flex-direction:column;gap:10px">
+          <span style="font-size:13px;color:#bab6b6">{{ s.label }}</span>
+          <div style="background:rgba(36,33,32,0.97);border:1px solid {{ s.bd }};border-radius:10px;color:#f3f2f2;overflow:hidden">
+            <div style="display:flex;align-items:center;gap:12px;padding:14px 18px">
+              <span style="display:inline-flex;align-items:center;gap:5px">
+                <sc-for list="{{ s.keys }}" as="k" hint-placeholder-count="2"><span style="height:30px;min-width:30px;padding:0 9px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid {{ s.kc }};border-bottom-width:3px;border-radius:6px;font-size:15px;font-weight:600;color:{{ s.kc }}">{{ k }}</span></sc-for>
+              </span>
+              <sc-if value="{{ s.wait }}" hint-placeholder-val="{{ false }}"><span style="display:inline-flex;align-items:center;gap:5px"><span style="font-size:14px;color:#7d7979">+</span>{{ slot }}</span></sc-if>
+              <span style="font-size:15px;color:{{ s.tc }};min-width:0">{{ s.text }}</span>
+            </div>
+            <div style="height:3px;background:rgba(255,255,255,0.06)"><div style="height:3px;width:{{ s.bar }};background:{{ s.barC }}"></div></div>
+          </div>
+          <span style="font-size:13px;line-height:1.5;color:#7d7979">{{ s.note }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const next = [
+      { k: '1–9', l: 'Quick access window' },
+      { k: 'Q', l: 'Open quick access' },
+      { k: 'P', l: 'Pin this window' },
+      { k: 'U', l: 'Unpin this window' },
+    ];
+    const opts = [
+      { id: '5a', name: 'Waiting line only', w: '560px', list: false, text: true,
+        desc: 'One line: the keys pressed so far, "Waiting for the next key…" and Esc to cancel. Enough to show that something is happening, without teaching the keys.',
+        rules: ['560 × 58, bottom centre of the monitor with the mouse pointer, 24 px above the taskbar.', 'Appears 150 ms after Win+`, so a fast second key never flashes it.', 'Does not take focus; the window underneath stays active.'] },
+      { id: '5b', name: 'Next keys, empty keycap (chosen)', w: '620px', list: true, text: false,
+        desc: 'No waiting text. After Win + ` comes an empty dashed keycap with three moving dots, showing that one more key goes there. Below it, the keys that can follow and what each does.',
+        rules: ['620 wide, rows 34 high, two columns. The list comes from the registered chord commands, so plugins show up too.', 'Same timing and position as 5a. The wait is a little longer (3 s) since users read the list.', 'The key list in this sketch is a placeholder until the real commands are decided.'] },
+    ];
+    const W = '#e1ad66', N = 'rgba(255,255,255,0.12)';
+    const states = [
+      { label: '1 · Waiting', keys: ['Win', '`'], text: '', wait: true, kc: W, tc: '#f3f2f2', bd: N, bar: '62%', barC: W, note: 'Empty dashed keycap with three moving dots marks where the next key goes. Bar empties over 3 s.' },
+      { label: '2 · Matched', keys: ['Win', '`', '1'], text: 'Wincraft', kc: W, tc: '#f3f2f2', bd: W, bar: '100%', barC: W, note: 'Shows the command result for 600 ms, then fades over 150 ms.' },
+      { label: '3 · Key not in the chord', keys: ['Win', '`', 'X'], text: 'Nothing assigned to X', kc: '#e08a6a', tc: '#e08a6a', bd: 'rgba(224,138,106,0.5)', bar: '0%', barC: W, note: 'The key is swallowed, not passed to the app. Stays 1.2 s.' },
+      { label: '4 · Timed out or Esc', keys: ['Win', '`'], text: 'Cancelled', kc: '#7d7979', tc: '#bab6b6', bd: N, bar: '0%', barC: W, note: 'Fades out after 600 ms. Keys are back to normal.' },
+    ];
+    const e = React.createElement;
+    const dot = d => e('span', { key: d, style: { width: 5, height: 5, borderRadius: '50%', background: '#e1ad66', animation: `chordDot 1.2s ${d}s infinite ease-in-out` } });
+    const slot = e('span', { style: { height: 30, minWidth: 46, boxSizing: 'border-box', padding: '0 9px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, border: '1px dashed rgba(225,173,102,.6)', borderBottomWidth: 3, borderRadius: 6, animation: 'chordSlot 1.6s infinite ease-in-out' } }, [0, 0.15, 0.3].map(dot));
+    return { opts, next, states, slot };
+  }
+}
+</script>
+</body>
+</html>

@@ -45,6 +45,8 @@ user's decisions.
 | `Plugins Grid v2.dc.html` (1a), `design_handoff_plugins_grid/README.md` | `src/ui/settings/plugins.rs`, `src/ui/settings/store.rs`, `src/ui/settings/catalog.rs`, `src/ui/widgets/tile.rs` |
 | `Open or Switch Options.dc.html` (1a, then 3a = 2a + 2c) | `src/ui/palette/running.rs`, `running/desks.rs`, `nesting.rs`, `nested_row.rs`, `inspector.rs`; window list from `src/search/providers/windows.rs` |
 | `QuickJump.dc.html` | `src/plugins/quick_jump/` |
+| `Chord Tip Options.dc.html` (5b chosen) | not built yet; will live in the host chord code (`src/core/chord.rs`) and a tip window in `src/ui/` |
+| `Quick Access Options.dc.html` (4a, the user's pick 2026-11-05) | not built yet; will replace the pin list in `src/plugins/quick_jump/list.rs` |
 | `Shortcut Detector.dc.html` | `src/plugins/shortcut_detector/window.rs` (ShortcutManager since 0.20.73; the plugin was called ShortcutDetector, its folder and id keep that name) |
 | `WinCraft Themes.dc.html` | `src/core/theme.rs`, `src/ui/settings/themes.rs`, `src/ui/widgets/theme_tile.rs` |
 | `WinCraft Handout.dc.html`, `design_handoff_wincraft_ui/README.md` | `src/core/theme.rs`, `src/ui/widgets/` |
@@ -92,3 +94,4 @@ rule, and send the user a prompt so the design page is fixed too.
 | Plugins Grid v2.dc.html (option 1a, horizontal compact cards) | 2026-10-26, via DesignSync (page, no README) | plan `wincraft-plugins-grid-1a.md` |
 | design_handoff_hotkey_editor (option 1c, one hotkey editor dialog) | 2026-10-26, via DesignSync (README) | plan `wincraft-hotkey-editor.md` |
 | Shortcut Detector.dc.html (window redesign in the WinCraft look; first pull with copies in git) | 2026-10-27, via DesignSync (page, no README) | plan `wincraft-shortcut-detector.md` |
+| Chord Tip Options.dc.html (5b) + Quick Access Options.dc.html (4a, user's pick) | 2026-11-05, via DesignSync (pages, no README) | plan `wincraft-quickjump-chord.md` |
