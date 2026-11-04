@@ -1,4 +1,4 @@
-//! Live pictures of windows in the pin list and the picker, drawn by DWM
+//! Live pictures of windows in Quick access and the picker, drawn by DWM
 //! on top of the egui window, as the Arrange strip's are. They belong to
 //! the UI thread, which owns the window they are drawn on.
 

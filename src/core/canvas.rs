@@ -1,5 +1,5 @@
 //! A picture for a `core::layered` panel that holds more than one line of
-//! text: rounded boxes, outlines, dashed outlines, Lucide icons, app icons
+//! text: rounded boxes, outlines, dashed outlines, Lucide icons
 //! and text runs in their own colours, drawn one over the other. Sizes are
 //! physical pixels; the caller scales by the monitor's DPI.
 
@@ -10,7 +10,6 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 
 use crate::core::layered::{faces, font, text_mask, utf16, Image, Run};
-use crate::search::icons::Pixels;
 use crate::ui::widgets::icons::{self, Icon};
 
 /// A box: left, top, width and height.
@@ -228,20 +227,6 @@ impl Canvas {
         }
     }
 
-    /// An app's icon scaled into a square of `side` at (x, y).
-    pub fn icon(&mut self, icon: &Pixels, x: f32, y: f32, side: f32, alpha: f32) {
-        let source = icon.side as f32;
-        let (left, top, right, bottom) = self.span(Area::new(x, y, side, side), 0.0);
-        for py in top..bottom {
-            for px in left..right {
-                let u = ((px as f32 + 0.5 - x) / side * source - 0.5).clamp(0.0, source - 1.0);
-                let v = ((py as f32 + 0.5 - y) / side * source - 0.5).clamp(0.0, source - 1.0);
-                let sample = bilinear(icon, u, v);
-                self.blend(px, py, sample, alpha);
-            }
-        }
-    }
-
     /// Text runs drawn with GDI, each in its own colour.
     pub fn text(&mut self, runs: &[Run], fonts: &[HFONT], alpha: f32) {
         let dc = unsafe { CreateCompatibleDC(std::ptr::null_mut()) };
@@ -268,39 +253,6 @@ impl Canvas {
         }
         unsafe { DeleteDC(dc) };
     }
-}
-
-fn bilinear(icon: &Pixels, u: f32, v: f32) -> Color32 {
-    let side = icon.side;
-    let (x0, y0) = (u.floor() as usize, v.floor() as usize);
-    let (x1, y1) = ((x0 + 1).min(side - 1), (y0 + 1).min(side - 1));
-    let (fx, fy) = (u - x0 as f32, v - y0 as f32);
-    let at = |x: usize, y: usize| {
-        let i = (y * side + x) * 4;
-        let a = f32::from(icon.rgba[i + 3]) / 255.0;
-        [
-            f32::from(icon.rgba[i]) * a,
-            f32::from(icon.rgba[i + 1]) * a,
-            f32::from(icon.rgba[i + 2]) * a,
-            a,
-        ]
-    };
-    let mix = |a: [f32; 4], b: [f32; 4], t: f32| {
-        [
-            a[0] + (b[0] - a[0]) * t,
-            a[1] + (b[1] - a[1]) * t,
-            a[2] + (b[2] - a[2]) * t,
-            a[3] + (b[3] - a[3]) * t,
-        ]
-    };
-    let top = mix(at(x0, y0), at(x1, y0), fx);
-    let bottom = mix(at(x0, y1), at(x1, y1), fx);
-    let [r, g, b, a] = mix(top, bottom, fy);
-    if a <= 0.0 {
-        return Color32::TRANSPARENT;
-    }
-    let byte = |value: f32| (value / a).round().clamp(0.0, 255.0) as u8;
-    Color32::from_rgba_unmultiplied(byte(r), byte(g), byte(b), (a * 255.0).round() as u8)
 }
 
 fn segment_distance(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
@@ -444,15 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn an_icon_is_scaled_into_its_square_and_a_shadow_fades() {
-        let icon = Pixels {
-            side: 2,
-            rgba: vec![0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 0],
-        };
-        let mut canvas = Canvas::new(10, 10);
-        canvas.icon(&icon, 0.0, 0.0, 8.0, 1.0);
-        assert_eq!(canvas.pixel(1, 1) & 0xFF, 255, "blue at the top left");
-        assert_eq!(alpha(canvas.pixel(9, 9)), 0, "outside the square");
+    fn a_shadow_fades() {
         let mut shadowed = Canvas::new(30, 30);
         shadowed.shadow(Area::new(10.0, 10.0, 10.0, 10.0), 2.0, 8.0, RED);
         assert!(alpha(shadowed.pixel(9, 15)) > alpha(shadowed.pixel(4, 15)));

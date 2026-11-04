@@ -141,13 +141,17 @@ Shows all windows of an app in a row above the taskbar with a live picture of ea
 
 ### 4. QuickJump
 
-Pins up to ten windows to digits `0–9`, like **Harpoon in Neovim**, so you can jump back to any of them from anywhere, across any virtual desktop. While waiting for a digit, a strip at the bottom of the screen displays all ten slots. Jumping switches virtual desktops automatically and restores minimized windows without moving them. Pins find their window again by app and title even after a restart (and launch the app if closed). Every change shows a notice with **Undo**, and the pin list lets you view live thumbnails, reorder, rename, and tune pins. [Full README](src/plugins/quick_jump/README.md)
+Keeps up to ten windows in a numbered list, like **Harpoon in Neovim**, so you can jump back to any of them from anywhere, across any virtual desktop. While it waits for the next key, the chord tip at the bottom of the screen lists the windows by number and what the other keys do. Jumping switches virtual desktops automatically and restores minimized windows without moving them. Pins find their window again by app and title even after a restart (and launch the app if closed). Unpinning closes the gap, so the numbers always run 1, 2, 3. Every change shows a notice with **Undo**, and the **Quick access** window shows the pinned windows as cards with live pictures, to reorder, rename and tune them. [Full README](src/plugins/quick_jump/README.md)
 
 | Hotkey | What it does |
 | --- | --- |
-| `Win+Alt+Q`, then a digit | Jump to the window in that slot |
-| `Win+Alt+Shift+Q`, then a digit | Pin the window in front to that slot |
-| `Win+Alt+Q` twice | Open the pin list |
+| `` Win+` ``, then a digit | Jump to the window with that number |
+| `` Win+` ``, then `A` | Add the window in front to the end of the list |
+| `` Win+` ``, then `Alt`+a digit | Put the window in front at that number |
+| `` Win+` ``, then `U` | Unpin the window in front |
+| `` Win+` `` twice | Open Quick access |
+
+`` Win+` `` is the one WinCraft default that does not start with `Win+Alt`. Windows Terminal often holds it for its quake window; the [QuickJump README](src/plugins/quick_jump/README.md#when-win-does-nothing) shows how to free it, or pick other keys in Settings, Hotkeys.
 
 ### 5. WindowNamer
 
@@ -281,7 +285,7 @@ Run commands in **WSL bash**, **PowerShell 7**, **Windows PowerShell**, **Comman
 
 Click any row (or press `Ctrl+K` on a command in the palette) to record a shortcut:
 
-* **Single Press or 2-Step Chords:** Use `Win`, `Ctrl`, or `Alt` (optionally with `Shift`) with any key, or `F13–F24` alone. Press a second key within 3 seconds to create a chord like `Win+Alt+K, S`; while WinCraft waits for the second key, a small line at the bottom of your screen says so.
+* **Single Press or 2-Step Chords:** Use `Win`, `Ctrl`, or `Alt` (optionally with `Shift`) with any key, or `F13–F24` alone. Press a second key within 3 seconds to create a chord like `Win+Alt+K, S`; while WinCraft waits for the second key, a tip at the bottom of your screen lists the keys that can follow and what each does, then says how the chord ended. A key with nothing assigned does not reach the app.
 * **Conflict Protection:** Keys Windows keeps (`Win+L`, `Ctrl+Alt+Delete`, `Alt+Tab`, etc.) and shortcuts owned by other apps are refused before saving, while a key another WinCraft command has offers a one-click **Move here** reassignment. `Enter` saves, `Esc` cancels, `Backspace` clears; `Backspace` again removes the hotkey.
 
 ### Hotkey format

@@ -1,12 +1,21 @@
-//! The ten slots and every change to them, with what Undo needs to put a
-//! change back. Nothing here calls Windows, so all of it is tested.
+//! The pinned windows as an ordered list of at most ten, and every change
+//! to it, with what Undo needs to put a change back. A pin's number is its
+//! place in the list: unpinning closes the gap. Nothing here calls Windows,
+//! so all of it is tested.
+
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+/// The most windows the list holds: one per digit.
 pub const SLOTS: usize = 10;
 
-/// The slot a digit reaches: 1 to 9 are slots 1 to 9, and 0 is slot 10, as
-/// with Win+number. Slots are counted from 0 in the code.
+/// Where the file before 0.20.74 (ten fixed slots) is kept once it was
+/// turned into the list.
+pub const BACKUP_NAME: &str = "quick_jump.state.before-0.20.74.json";
+
+/// The place a digit reaches: 1 to 9 are numbers 1 to 9, and 0 is number
+/// 10, as with Win+number. Places are counted from 0 in the code.
 pub fn slot_of_digit(digit: u8) -> Option<usize> {
     match digit {
         0 => Some(9),
@@ -15,13 +24,18 @@ pub fn slot_of_digit(digit: u8) -> Option<usize> {
     }
 }
 
-/// The digit that reaches a slot.
+/// The digit that reaches a place.
 pub fn digit_of_slot(slot: usize) -> u8 {
     if slot == 9 {
         0
     } else {
         slot as u8 + 1
     }
+}
+
+/// The number the user reads for a place: 1 to 10.
+pub fn number_of_slot(slot: usize) -> usize {
+    slot + 1
 }
 
 fn yes() -> bool {
@@ -42,7 +56,8 @@ pub struct Pin {
     /// The window's title must hold this; empty for any window of the app.
     #[serde(default)]
     pub title: String,
-    /// Shown in the strip and the list instead of the app name.
+    /// Shown in the tip and the Quick access window instead of the app
+    /// name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     /// A jump to a pin with no open window starts the app.
@@ -64,156 +79,221 @@ impl Pin {
     }
 }
 
-/// What was in the slots a change touched, so Undo can put it back.
+/// The list as it was before a change, so Undo can put it back.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Undo {
-    before: Vec<(usize, Option<Pin>)>,
+    before: Option<Vec<Pin>>,
 }
 
-impl Undo {
-    pub fn is_empty(&self) -> bool {
-        self.before.is_empty()
-    }
-}
-
-/// What a pin did, for the notice.
+/// What adding or placing a window did, for the notice and the tip.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Pinned {
-    /// Into an empty slot.
-    New,
-    /// Over another pin, which is gone now.
-    Replaced(Pin),
-    /// The window was in another slot and moved.
-    Moved { from: usize },
-    /// The window is in that slot already; nothing changed.
-    Same,
+    /// The window is new in the list, at this place.
+    New { at: usize },
+    /// The window was in the list and moved.
+    Moved { from: usize, to: usize },
+    /// The window is at that place already; nothing changed.
+    Same { at: usize },
+    /// Ten windows are in the list; nothing changed.
+    Full,
+}
+
+impl Pinned {
+    pub fn changed(&self) -> bool {
+        matches!(self, Pinned::New { .. } | Pinned::Moved { .. })
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Slots {
-    slots: [Option<Pin>; SLOTS],
+    pins: Vec<Pin>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct Saved {
-    #[serde(default)]
-    slots: Vec<Option<Pin>>,
+    /// The list, in order (0.20.74 on).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pins: Option<Vec<Pin>>,
+    /// The ten fixed slots of the versions before, empty ones as null.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    slots: Option<Vec<Option<Pin>>>,
 }
 
 impl Slots {
     pub fn get(&self, slot: usize) -> Option<&Pin> {
-        self.slots.get(slot).and_then(Option::as_ref)
+        self.pins.get(slot)
     }
 
     pub fn get_mut(&mut self, slot: usize) -> Option<&mut Pin> {
-        self.slots.get_mut(slot).and_then(Option::as_mut)
+        self.pins.get_mut(slot)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (usize, &Pin)> {
-        self.slots
-            .iter()
-            .enumerate()
-            .filter_map(|(slot, pin)| pin.as_ref().map(|pin| (slot, pin)))
+        self.pins.iter().enumerate()
     }
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (usize, &mut Pin)> {
-        self.slots
-            .iter_mut()
-            .enumerate()
-            .filter_map(|(slot, pin)| pin.as_mut().map(|pin| (slot, pin)))
+        self.pins.iter_mut().enumerate()
     }
 
     pub fn count(&self) -> usize {
-        self.iter().count()
+        self.pins.len()
     }
 
-    /// The slot that holds this live window.
+    pub fn is_full(&self) -> bool {
+        self.pins.len() >= SLOTS
+    }
+
+    /// The place of this live window in the list.
     pub fn slot_of_window(&self, hwnd: isize) -> Option<usize> {
-        self.iter()
-            .find(|(_, pin)| pin.hwnd == Some(hwnd))
-            .map(|(slot, _)| slot)
+        self.pins.iter().position(|pin| pin.hwnd == Some(hwnd))
     }
 
-    fn record(&self, touched: &[usize]) -> Undo {
-        let mut before: Vec<(usize, Option<Pin>)> = Vec::new();
-        for slot in touched {
-            if !before.iter().any(|(seen, _)| seen == slot) {
-                before.push((*slot, self.slots[*slot].clone()));
-            }
+    fn record(&self) -> Undo {
+        Undo {
+            before: Some(self.pins.clone()),
         }
-        Undo { before }
     }
 
-    /// Pins `pin` to `slot`. A window that is in another slot already moves
-    /// there with what the user set for it, and its old slot empties.
+    /// Adds `pin` to the end of the list. A window that is in the list
+    /// already stays where it is, and a full list takes nothing.
+    pub fn add(&mut self, pin: Pin) -> (Pinned, Undo) {
+        if let Some(at) = pin.hwnd.and_then(|hwnd| self.slot_of_window(hwnd)) {
+            return (Pinned::Same { at }, Undo::default());
+        }
+        if self.is_full() {
+            return (Pinned::Full, Undo::default());
+        }
+        let undo = self.record();
+        self.pins.push(pin);
+        (
+            Pinned::New {
+                at: self.pins.len() - 1,
+            },
+            undo,
+        )
+    }
+
+    /// Puts `pin` at place `slot`: the pin there and the ones after it move
+    /// down one. A window that is in the list already moves from its old
+    /// place, with what the user set for it. A place past the end is the
+    /// end. A full list takes no new window.
     pub fn pin(&mut self, slot: usize, pin: Pin) -> (Pinned, Undo) {
         let from = pin.hwnd.and_then(|hwnd| self.slot_of_window(hwnd));
-        if from == Some(slot) {
-            return (Pinned::Same, Undo::default());
-        }
-        let undo = self.record(&[slot, from.unwrap_or(slot)]);
-        let old = self.slots[slot].take();
-        let done = match from {
+        match from {
             Some(from) => {
-                self.slots[slot] = Some(self.slots[from].take().unwrap_or(pin));
-                Pinned::Moved { from }
-            }
-            None => {
-                self.slots[slot] = Some(pin);
-                match old {
-                    Some(old) => Pinned::Replaced(old),
-                    None => Pinned::New,
+                let to = slot.min(self.pins.len() - 1);
+                if from == to {
+                    return (Pinned::Same { at: to }, Undo::default());
                 }
+                let undo = self.record();
+                let moving = self.pins.remove(from);
+                self.pins.insert(to, moving);
+                (Pinned::Moved { from, to }, undo)
             }
-        };
-        (done, undo)
+            None if self.is_full() => (Pinned::Full, Undo::default()),
+            None => {
+                let to = slot.min(self.pins.len());
+                let undo = self.record();
+                self.pins.insert(to, pin);
+                (Pinned::New { at: to }, undo)
+            }
+        }
     }
 
-    /// Empties a slot; None when it was empty.
+    /// Takes a pin out; the ones after it move up one. None when there is
+    /// no pin at that place.
     pub fn remove(&mut self, slot: usize) -> Option<(Pin, Undo)> {
-        let undo = self.record(&[slot]);
-        self.slots.get_mut(slot)?.take().map(|pin| (pin, undo))
-    }
-
-    /// Moves a slot's pin to another slot, swapping with the pin there.
-    /// None when nothing moved.
-    pub fn move_to(&mut self, from: usize, to: usize) -> Option<Undo> {
-        if from == to || from >= SLOTS || to >= SLOTS || self.slots[from].is_none() {
+        if slot >= self.pins.len() {
             return None;
         }
-        let undo = self.record(&[from, to]);
-        self.slots.swap(from, to);
+        let undo = self.record();
+        Some((self.pins.remove(slot), undo))
+    }
+
+    /// Moves a pin to another place, the others closing up around it. A
+    /// place past the end is the end. None when nothing moved.
+    pub fn move_to(&mut self, from: usize, to: usize) -> Option<Undo> {
+        if from >= self.pins.len() {
+            return None;
+        }
+        let to = to.min(self.pins.len() - 1);
+        if from == to {
+            return None;
+        }
+        let undo = self.record();
+        let moving = self.pins.remove(from);
+        self.pins.insert(to, moving);
         Some(undo)
     }
 
     /// Changes a pin with `change`; the Undo puts the old one back.
     pub fn update(&mut self, slot: usize, change: impl FnOnce(&mut Pin)) -> Option<Undo> {
-        let undo = self.record(&[slot]);
+        let undo = self.record();
         change(self.get_mut(slot)?);
         Some(undo)
     }
 
-    /// Puts back what a change replaced.
+    /// Puts back the list as it was before a change.
     pub fn undo(&mut self, undo: Undo) {
-        for (slot, pin) in undo.before {
-            self.slots[slot] = pin;
+        if let Some(before) = undo.before {
+            self.pins = before;
         }
     }
 
     pub fn to_json(&self) -> String {
         let saved = Saved {
-            slots: self.slots.to_vec(),
+            pins: Some(self.pins.clone()),
+            slots: None,
         };
         serde_json::to_string_pretty(&saved).unwrap_or_default()
     }
 
-    /// Slots from a saved file; anything it cannot read gives no pins.
-    pub fn from_json(text: &str) -> Self {
-        let saved: Saved = serde_json::from_str(crate::core::config::strip_bom(text))
-            .unwrap_or(Saved { slots: Vec::new() });
-        let mut slots = Self::default();
-        for (slot, pin) in saved.slots.into_iter().take(SLOTS).enumerate() {
-            slots.slots[slot] = pin.filter(|pin| !pin.exe.is_empty());
+    /// The list from a saved file, and whether the file was the old ten
+    /// fixed slots: those keep their order and the empty ones drop out.
+    /// Anything it cannot read gives no pins.
+    pub fn read(text: &str) -> (Self, bool) {
+        let saved: Saved =
+            serde_json::from_str(crate::core::config::strip_bom(text)).unwrap_or(Saved {
+                pins: None,
+                slots: None,
+            });
+        let (pins, old): (Vec<Pin>, bool) = match (saved.pins, saved.slots) {
+            (Some(pins), _) => (pins, false),
+            (None, Some(slots)) => (slots.into_iter().flatten().collect(), true),
+            (None, None) => (Vec::new(), false),
+        };
+        let pins = pins
+            .into_iter()
+            .filter(|pin| !pin.exe.is_empty())
+            .take(SLOTS)
+            .collect();
+        (Self { pins }, old)
+    }
+
+    /// Reads the saved list at `path`. A file of the old ten slots is
+    /// copied to `backup` first (once: a backup already there stays) and
+    /// written again as the list.
+    pub fn load(path: &Path, backup: &Path) -> Self {
+        let Ok(text) = std::fs::read_to_string(path) else {
+            return Self::default();
+        };
+        let (slots, old) = Self::read(&text);
+        if old {
+            if !backup.exists() {
+                if let Err(err) = std::fs::write(backup, &text) {
+                    log::warn!("QuickJump: could not keep a copy of the old pins: {err}");
+                    return slots;
+                }
+            }
+            match crate::core::config::write_atomic(path, &slots.to_json()) {
+                Ok(()) => log::info!(
+                    "QuickJump: the ten slots are a list now ({} pins); the old file is kept as {}",
+                    slots.count(),
+                    backup.display()
+                ),
+                Err(err) => log::warn!("QuickJump: could not save the pins as a list: {err}"),
+            }
         }
         slots
     }
@@ -235,8 +315,21 @@ pub mod tests {
         }
     }
 
+    /// A list of these apps, each with a window handle from 1 on.
+    pub fn list(apps: &[&str]) -> Slots {
+        let mut slots = Slots::default();
+        for (index, app) in apps.iter().enumerate() {
+            slots.add(pin(app, Some(index as isize + 1)));
+        }
+        slots
+    }
+
+    fn names(slots: &Slots) -> Vec<&str> {
+        slots.iter().map(|(_, pin)| pin.name()).collect()
+    }
+
     #[test]
-    fn digit_0_is_slot_10_and_the_others_their_own_number() {
+    fn digit_0_is_number_10_and_the_others_their_own_number() {
         assert_eq!(slot_of_digit(1), Some(0));
         assert_eq!(slot_of_digit(9), Some(8));
         assert_eq!(slot_of_digit(0), Some(9));
@@ -244,93 +337,116 @@ pub mod tests {
         for slot in 0..SLOTS {
             assert_eq!(slot_of_digit(digit_of_slot(slot)), Some(slot));
         }
+        assert_eq!(number_of_slot(9), 10);
     }
 
     #[test]
-    fn a_pin_into_an_empty_slot_undoes_to_empty() {
-        let mut slots = Slots::default();
-        let (done, undo) = slots.pin(2, pin("Claude", Some(7)));
-        assert_eq!(done, Pinned::New);
-        assert_eq!(slots.get(2).map(Pin::name), Some("Claude"));
-        assert_eq!(slots.count(), 1);
-        slots.undo(undo);
-        assert_eq!(slots, Slots::default());
-    }
-
-    #[test]
-    fn a_pin_into_a_full_slot_replaces_and_undo_brings_the_old_one_back() {
-        let mut slots = Slots::default();
-        slots.pin(2, pin("Chrome", Some(5)));
+    fn add_goes_to_the_end_and_undo_takes_it_away() {
+        let mut slots = list(&["A", "B"]);
         let before = slots.clone();
-        let (done, undo) = slots.pin(2, pin("Claude", Some(7)));
-        assert_eq!(done, Pinned::Replaced(pin("Chrome", Some(5))));
-        assert_eq!(slots.get(2).map(Pin::name), Some("Claude"));
+        let (done, undo) = slots.add(pin("C", Some(30)));
+        assert_eq!(done, Pinned::New { at: 2 });
+        assert_eq!(names(&slots), ["A", "B", "C"]);
         slots.undo(undo);
         assert_eq!(slots, before);
     }
 
     #[test]
-    fn a_window_pinned_elsewhere_moves_with_its_label() {
-        let mut slots = Slots::default();
-        let mut labelled = pin("Claude", Some(7));
-        labelled.label = Some("Work chat".to_string());
-        slots.pin(5, labelled);
-        slots.pin(2, pin("Chrome", Some(9)));
+    fn add_of_a_window_in_the_list_says_its_number_and_changes_nothing() {
+        let mut slots = list(&["A", "B"]);
+        let (done, undo) = slots.add(pin("B", Some(2)));
+        assert_eq!(done, Pinned::Same { at: 1 });
+        assert_eq!(undo, Undo::default());
+        assert_eq!(slots.count(), 2);
+    }
+
+    #[test]
+    fn a_full_list_takes_nothing_more() {
+        let apps = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
+        let mut slots = list(&apps);
+        assert!(slots.is_full());
         let before = slots.clone();
-        let (done, undo) = slots.pin(2, pin("Claude", Some(7)));
-        assert_eq!(done, Pinned::Moved { from: 5 });
-        assert!(slots.get(5).is_none());
-        assert_eq!(slots.get(2).map(Pin::name), Some("Work chat"));
-        assert_eq!(slots.count(), 1);
+        let (done, undo) = slots.add(pin("K", Some(99)));
+        assert_eq!(done, Pinned::Full);
+        assert_eq!(undo, Undo::default());
+        let (done, _) = slots.pin(0, pin("K", Some(99)));
+        assert_eq!(done, Pinned::Full);
+        assert_eq!(slots, before);
+        // A window already in a full list can still move.
+        let (done, _) = slots.pin(0, pin("J", Some(10)));
+        assert_eq!(done, Pinned::Moved { from: 9, to: 0 });
+        assert_eq!(slots.count(), SLOTS);
+    }
+
+    #[test]
+    fn put_at_a_number_pushes_that_pin_and_the_later_ones_down() {
+        let mut slots = list(&["A", "B", "C"]);
+        let before = slots.clone();
+        let (done, undo) = slots.pin(1, pin("N", Some(40)));
+        assert_eq!(done, Pinned::New { at: 1 });
+        assert_eq!(names(&slots), ["A", "N", "B", "C"]);
         slots.undo(undo);
         assert_eq!(slots, before);
     }
 
     #[test]
-    fn pinning_a_window_to_its_own_slot_changes_nothing() {
-        let mut slots = Slots::default();
-        slots.pin(3, pin("Claude", Some(7)));
-        let (done, undo) = slots.pin(3, pin("Claude", Some(7)));
-        assert_eq!(done, Pinned::Same);
-        assert!(undo.is_empty());
+    fn put_past_the_end_goes_to_the_end() {
+        let mut slots = list(&["A", "B", "C"]);
+        let (done, _) = slots.pin(6, pin("N", Some(40)));
+        assert_eq!(done, Pinned::New { at: 3 });
+        assert_eq!(names(&slots), ["A", "B", "C", "N"]);
     }
 
     #[test]
-    fn a_move_swaps_with_a_full_slot_and_undo_swaps_back() {
-        let mut slots = Slots::default();
-        slots.pin(0, pin("A", None));
-        slots.pin(1, pin("B", None));
+    fn put_of_a_window_in_the_list_moves_it_with_its_label() {
+        let mut slots = list(&["A", "B", "C", "D"]);
+        if let Some(pin) = slots.get_mut(3) {
+            pin.label = Some("Work".to_string());
+        }
         let before = slots.clone();
-        let undo = slots.move_to(0, 1).expect("moved");
-        assert_eq!(slots.get(0).map(Pin::name), Some("B"));
-        assert_eq!(slots.get(1).map(Pin::name), Some("A"));
+        let (done, undo) = slots.pin(0, pin("D", Some(4)));
+        assert_eq!(done, Pinned::Moved { from: 3, to: 0 });
+        assert_eq!(names(&slots), ["Work", "A", "B", "C"]);
         slots.undo(undo);
         assert_eq!(slots, before);
-        // Into an empty slot it is a plain move.
-        slots.move_to(1, 9).expect("moved");
-        assert!(slots.get(1).is_none());
-        assert_eq!(slots.get(9).map(Pin::name), Some("B"));
-        assert!(slots.move_to(4, 5).is_none(), "an empty slot does not move");
-        assert!(slots.move_to(9, 9).is_none());
-        assert!(slots.move_to(9, 10).is_none());
+        // Down the list, and past its end.
+        let (done, _) = slots.pin(8, pin("A", Some(1)));
+        assert_eq!(done, Pinned::Moved { from: 0, to: 3 });
+        assert_eq!(names(&slots), ["B", "C", "Work", "A"]);
+        let (done, undo) = slots.pin(3, pin("A", Some(1)));
+        assert_eq!(done, Pinned::Same { at: 3 });
+        assert_eq!(undo, Undo::default());
     }
 
     #[test]
-    fn remove_empties_the_slot_and_undo_fills_it_again() {
-        let mut slots = Slots::default();
-        slots.pin(4, pin("Code", None));
-        let (gone, undo) = slots.remove(4).expect("removed");
-        assert_eq!(gone.name(), "Code");
-        assert!(slots.get(4).is_none());
-        assert!(slots.remove(4).is_none());
+    fn unpin_closes_the_gap_and_undo_opens_it_again() {
+        let mut slots = list(&["A", "B", "C"]);
+        let before = slots.clone();
+        let (gone, undo) = slots.remove(1).expect("removed");
+        assert_eq!(gone.name(), "B");
+        assert_eq!(names(&slots), ["A", "C"]);
+        assert!(slots.remove(2).is_none());
         slots.undo(undo);
-        assert_eq!(slots.get(4).map(Pin::name), Some("Code"));
+        assert_eq!(slots, before);
+    }
+
+    #[test]
+    fn a_move_reorders_and_undo_puts_the_order_back() {
+        let mut slots = list(&["A", "B", "C"]);
+        let before = slots.clone();
+        let undo = slots.move_to(0, 2).expect("moved");
+        assert_eq!(names(&slots), ["B", "C", "A"]);
+        slots.undo(undo);
+        assert_eq!(slots, before);
+        assert!(slots.move_to(1, 1).is_none());
+        assert!(slots.move_to(5, 0).is_none(), "no pin there");
+        slots.move_to(0, 9).expect("past the end is the end");
+        assert_eq!(names(&slots), ["B", "C", "A"]);
     }
 
     #[test]
     fn an_update_can_be_undone_and_a_blank_label_shows_the_app() {
-        let mut slots = Slots::default();
-        slots.pin(0, pin("Code", None));
+        let mut slots = list(&["Code"]);
         let undo = slots
             .update(0, |pin| pin.label = Some("  ".to_string()))
             .expect("updated");
@@ -347,29 +463,72 @@ pub mod tests {
         claude.title = "Project".to_string();
         claude.app_id = Some("Claude.App".to_string());
         claude.start = false;
-        slots.pin(1, claude);
-        slots.pin(9, pin("Chrome", Some(8)));
-        let back = Slots::from_json(&slots.to_json());
+        slots.add(claude);
+        slots.add(pin("Chrome", Some(8)));
+        let (back, old) = Slots::read(&slots.to_json());
+        assert!(!old);
         assert_eq!(back.count(), 2);
-        let first = back.get(1).expect("slot 2");
+        let first = back.get(0).expect("number 1");
         assert_eq!(first.title, "Project");
         assert_eq!(first.app_id.as_deref(), Some("Claude.App"));
         assert!(!first.start);
         assert_eq!(first.hwnd, None);
-        assert_eq!(back.get(9).map(Pin::name), Some("Chrome"));
+        assert_eq!(back.get(1).map(Pin::name), Some("Chrome"));
+        assert!(!slots.to_json().contains("\"slots\""));
+    }
+
+    #[test]
+    fn the_old_ten_slots_become_the_list_in_their_order() {
+        let text = r#"{"slots":[null,{"exe":"C:\\b.exe","app_name":"B"},null,null,
+            {"exe":"C:\\e.exe","app_name":"E","label":"Mail"},null,null,null,null,
+            {"exe":"C:\\z.exe","app_name":"Z"}]}"#;
+        let (slots, old) = Slots::read(text);
+        assert!(old);
+        assert_eq!(names(&slots), ["B", "Mail", "Z"]);
     }
 
     #[test]
     fn a_broken_or_odd_file_reads_as_what_it_can() {
-        assert_eq!(Slots::from_json("not json"), Slots::default());
-        assert_eq!(Slots::from_json("{}"), Slots::default());
+        assert_eq!(Slots::read("not json").0, Slots::default());
+        assert_eq!(Slots::read("{}").0, Slots::default());
         let text =
             r#"{"slots":[{"exe":"C:\\a.exe","app_name":"A"},null,{"exe":"","app_name":"B"}]}"#;
-        let slots = Slots::from_json(&format!("\u{feff}{text}"));
+        let (slots, old) = Slots::read(&format!("\u{feff}{text}"));
+        assert!(old);
         assert_eq!(slots.count(), 1);
-        assert!(
-            slots.get(0).expect("slot 1").start,
-            "start is on by default"
+        assert!(slots.get(0).expect("number 1").start, "on by default");
+    }
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "wincraft-quick-jump-test-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    #[test]
+    fn loading_an_old_file_keeps_a_copy_and_saves_the_list() {
+        let dir = temp_dir("migrate");
+        let path = dir.join("quick_jump.state.json");
+        let backup = dir.join(BACKUP_NAME);
+        let old = r#"{"slots":[null,{"exe":"C:\\b.exe","app_name":"B"},null]}"#;
+        std::fs::write(&path, old).expect("write");
+        let slots = Slots::load(&path, &backup);
+        assert_eq!(names(&slots), ["B"]);
+        assert_eq!(std::fs::read_to_string(&backup).expect("backup"), old);
+        let now = std::fs::read_to_string(&path).expect("saved");
+        assert!(now.contains("\"pins\"") && !now.contains("\"slots\""));
+        // Loading again changes nothing and keeps the first copy.
+        std::fs::write(&backup, "first copy").expect("write");
+        assert_eq!(Slots::load(&path, &backup), slots);
+        assert_eq!(
+            std::fs::read_to_string(&backup).expect("backup"),
+            "first copy"
         );
+        assert_eq!(Slots::load(&dir.join("none.json"), &backup).count(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -1,12 +1,11 @@
-//! QuickJump: pin up to ten windows to the digits and jump back to one
-//! from anywhere, like Harpoon in Neovim. Win+Alt+Q, then a digit, jumps;
-//! Win+Alt+Shift+Q, then a digit, pins the window in front; Win+Alt+Q twice
-//! opens the pin list.
+//! QuickJump: keep up to ten windows in a numbered list and jump back to
+//! one from anywhere, like Harpoon in Neovim. Win+`, then a digit, jumps;
+//! Win+`, then A, adds the window in front; Win+` twice opens Quick access.
 //!
 //! The plugin keeps a hidden window of its own: the next-key wait posts to
-//! it, its timers run the strip's countdown and the notice, and the pin
-//! list on the UI thread wakes it with requests. Everything else it gets
-//! from the host.
+//! it, its timer runs the notice's clock, and the Quick access window on
+//! the UI thread wakes it with requests. Everything else, the chord tip
+//! among it, it gets from the host.
 
 mod keys;
 mod list;
@@ -18,36 +17,36 @@ mod pictures;
 mod pins;
 mod provider;
 mod shared;
-mod strip;
+mod wait;
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_SHIFT, MOD_WIN};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::MOD_WIN;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GetForegroundWindow, KillTimer, PostMessageW,
     RegisterClassW, SetTimer, HWND_MESSAGE, WM_APP, WM_TIMER, WNDCLASSW,
 };
 
 use crate::core::traits::{
-    HostContext, Hotkey, HotkeyAction, PluginMetadata, PluginWindow, TrayAction, WinCraftPlugin,
+    HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata, PluginWindow, TrayAction,
+    WinCraftPlugin,
 };
 use crate::core::ui_bridge::ActionKind;
-use crate::core::{chord, config, host, instance, shortcuts, wide};
+use crate::core::{chord, chord_tip, config, host, instance, shortcuts, wide};
 use crate::search::actions;
-use crate::search::icons::{self, Pixels};
-use crate::search::{Action, IconRef, SearchProvider};
+use crate::search::{Action, SearchProvider};
+use serde_json::Value;
 
-use keys::Key;
-use matching::{find, slot_views, Live, SlotView, State};
+use matching::{find, slot_views, SlotView, State};
 use notice::{Clock, Message, Notice};
-use pins::{Pin, Pinned, Slots, Undo};
+use pins::{Pin, Slots, Undo};
 use shared::{App, Handle, Request};
-use strip::{Mode, Strip};
+use wait::Mode;
 
 pub const ID: &str = "quick_jump";
 const NAME: &str = "QuickJump";
@@ -55,19 +54,31 @@ const CLASS_NAME: &str = "WinCraftQuickJump";
 
 const ACTION_JUMP: u32 = 1;
 const ACTION_PIN: u32 = 2;
+const JUMP_ACTION: &str = "jump";
+const PIN_ACTION: &str = "pin";
+/// The defaults before 0.20.74. Win+` took the jump's place, and the pin
+/// shortcut has no keys by default now: Win+` then Alt and a digit does it.
+const OLD_JUMP_KEYS: &str = "Win+Alt+Q";
+const JUMP_KEYS: &str = "Win+`";
+const OLD_PIN_KEYS: &str = "Win+Alt+Shift+Q";
+/// Written once the old defaults were looked at, so keys the user picks
+/// later stay.
+const MOVED_NOTE: &str = "keys_moved_0_20_74";
 const TRAY_LIST: u32 = 1;
+const PALETTE_ADD: u32 = 1;
 
 /// Posted by the next-key wait.
 const WM_APP_KEY: u32 = WM_APP + 40;
-/// The strip's countdown and the notice's clock; only runs while one shows
-/// or an app is starting.
+/// The notice's clock; only runs while a notice shows or an app is
+/// starting.
 const TICK_TIMER: usize = 0x514A_0001;
 const TICK_MS: u32 = 50;
 /// How long to wait for an app QuickJump started to open a window.
 const START_WAIT: Duration = Duration::from_secs(15);
 const START_POLL: Duration = Duration::from_millis(500);
-/// A second jump press this soon after the strip closed on it still opens
-/// the list; longer when the shortcut is a chord, whose own wait comes first.
+/// A second jump press this soon after another key ended the wait still
+/// opens Quick access; longer when the shortcut is a chord, whose own wait
+/// comes first.
 const AGAIN_PLAIN: Duration = Duration::from_millis(600);
 const AGAIN_CHORD: Duration = Duration::from_secs(4);
 
@@ -93,15 +104,39 @@ fn state_path() -> PathBuf {
     config::plugins_dir().join("quick_jump.state.json")
 }
 
-/// What the strip waits for, and for which window.
+/// The stored jump key equal to the old default was never a choice, so it
+/// takes the new default, and the old pin default goes; once. Returns
+/// whether anything moved.
+fn move_old_defaults(hotkeys: &mut BTreeMap<String, String>, settings: &mut Value) -> bool {
+    if settings.get(MOVED_NOTE).and_then(Value::as_bool) == Some(true) {
+        return false;
+    }
+    if let Some(object) = settings.as_object_mut() {
+        object.insert(MOVED_NOTE.to_string(), Value::Bool(true));
+    }
+    let mut moved = false;
+    for (action, old, new) in [
+        (JUMP_ACTION, OLD_JUMP_KEYS, JUMP_KEYS),
+        (PIN_ACTION, OLD_PIN_KEYS, ""),
+    ] {
+        if hotkeys
+            .get(action)
+            .is_some_and(|keys| shortcuts::same_text(keys, old))
+        {
+            hotkeys.insert(action.to_string(), new.to_string());
+            moved = true;
+        }
+    }
+    moved
+}
+
+/// What the wait after the shortcut is for, and the window it acts on.
 struct Waiting {
     mode: Mode,
-    strip: Option<Strip>,
-    started: Instant,
-    /// The window in front when the strip opened.
+    /// The window in front when the wait began.
     front: isize,
-    /// The window the pin strip pins.
-    target: Option<Live>,
+    /// The window A, U and Alt with a digit act on.
+    target: Option<matching::Live>,
 }
 
 struct Shown {
@@ -125,14 +160,13 @@ struct Engine {
     jump_keys: String,
     pin_keys: String,
     waiting: Option<Waiting>,
-    /// When and how the strip last closed because another key came.
+    /// When and how the wait last ended because another key came.
     closed_by_key: Option<(Instant, Mode)>,
     shown: Option<Shown>,
     /// The Ctrl+Z wait runs for the notice.
     undo_keys: bool,
     starting: Option<Starting>,
-    icons: HashMap<String, Option<Pixels>>,
-    live: Vec<Live>,
+    live: Vec<matching::Live>,
     epoch: Instant,
 }
 
@@ -207,9 +241,7 @@ impl Engine {
         if let Ok(mut shared) = self.shared.lock() {
             shared.view = shared::View {
                 slots,
-                pins: (0..pins::SLOTS)
-                    .map(|slot| self.slots.get(slot).cloned())
-                    .collect(),
+                pins: self.slots.iter().map(|(_, pin)| pin.clone()).collect(),
                 windows: self.live.clone(),
                 apps,
                 jump_keys: self.jump_keys.clone(),
@@ -217,34 +249,6 @@ impl Engine {
             };
         }
         host::plugin_changed();
-    }
-
-    fn icon_key(view_exe: &str, app_id: Option<&str>) -> String {
-        format!("{}|{}", view_exe.to_lowercase(), app_id.unwrap_or_default())
-    }
-
-    /// The app's icon, read once per app and kept.
-    fn load_icon(&mut self, exe: &str, app_id: Option<&str>, hwnd: Option<isize>) {
-        let key = Self::icon_key(exe, app_id);
-        if self.icons.contains_key(&key) {
-            return;
-        }
-        let packaged = app_id.filter(|id| id.contains('!'));
-        let reference = match (hwnd, packaged) {
-            (Some(hwnd), _) => IconRef::Window {
-                hwnd,
-                exe: PathBuf::from(exe),
-            },
-            (None, Some(id)) => IconRef::Path(PathBuf::from(format!(r"shell:AppsFolder\{id}"))),
-            (None, None) => IconRef::Path(PathBuf::from(exe)),
-        };
-        self.icons.insert(key, icons::load(&reference));
-    }
-
-    fn icon(&self, exe: &str, app_id: Option<&str>) -> Option<&Pixels> {
-        self.icons
-            .get(&Self::icon_key(exe, app_id))
-            .and_then(Option::as_ref)
     }
 
     fn start_ticks(&self) {
@@ -257,194 +261,19 @@ impl Engine {
         }
     }
 
-    // ---- The strip ---------------------------------------------------
+    // ---- The wait after the shortcut ------------------------------------
 
     fn jump_pressed(&mut self) {
-        let again = match (&self.waiting, self.closed_by_key) {
-            (Some(waiting), _) => waiting.mode == Mode::Jump,
-            (None, Some((at, Mode::Jump))) => {
-                let chord = shortcuts::parse(&self.jump_keys).is_some_and(|keys| keys.is_chord());
-                at.elapsed() <= if chord { AGAIN_CHORD } else { AGAIN_PLAIN }
-            }
-            _ => false,
-        };
-        if again {
-            log::info!("QuickJump: the jump shortcut twice opens the pin list");
-            self.close_strip(false);
-            self.closed_by_key = None;
-            self.open_list(None);
-            return;
+        if !self.twice() {
+            self.open_wait(Mode::Jump);
         }
-        self.open_strip(Mode::Jump);
     }
 
     fn pin_pressed(&mut self) {
-        self.open_strip(Mode::Pin);
-    }
-
-    fn open_strip(&mut self, mode: Mode) {
-        self.close_strip(false);
-        self.close_notice();
-        let foreground = unsafe { GetForegroundWindow() };
-        self.refresh();
-        let front = foreground as isize;
-        let target = match mode {
-            Mode::Jump => None,
-            Mode::Pin => {
-                // From the palette the window in front is WinCraft's own, so
-                // the one under it is meant.
-                let own = live::is_own(foreground);
-                let found = self
-                    .live
-                    .iter()
-                    .find(|window| window.hwnd == front)
-                    .or_else(|| own.then(|| self.live.first()).flatten())
-                    .cloned();
-                if found.is_none() {
-                    self.notify(notice::nothing_to_pin(), None);
-                    return;
-                }
-                found
-            }
-        };
-        let listening = chord::listen(
-            self.hwnd as isize,
-            WM_APP_KEY,
-            shortcuts::CHORD_WAIT,
-            keys::rule(&self.jump_keys, &self.pin_keys),
-        );
-        if !listening {
-            self.notify(notice::no_keys(), None);
-            self.open_list(None);
-            return;
-        }
-        let views = self.views(target.as_ref().map_or(front, |window| window.hwnd));
-        for view in views.iter().filter(|view| view.is_pinned()) {
-            self.load_icon(&view.exe, view.app_id.as_deref(), view.hwnd);
-        }
-        if let Some(window) = &target {
-            self.load_icon(&window.exe, window.app_id.as_deref(), Some(window.hwnd));
-        }
-        let strip = {
-            let icons_list = views
-                .iter()
-                .map(|view| {
-                    view.is_pinned()
-                        .then(|| self.icon(&view.exe, view.app_id.as_deref()))
-                        .flatten()
-                })
-                .collect();
-            let target_view = target.as_ref().map(|window| strip::Target {
-                name: self
-                    .slots
-                    .slot_of_window(window.hwnd)
-                    .and_then(|slot| self.slots.get(slot))
-                    .map_or_else(|| window.app_name(), |pin| pin.name().to_string()),
-                place: match window.place() {
-                    place if place.is_empty() => window.shown.clone(),
-                    place => place,
-                },
-                icon: self.icon(&window.exe, window.app_id.as_deref()),
-                slot: self.slots.slot_of_window(window.hwnd),
-            });
-            let target_name = target_view
-                .as_ref()
-                .map(|target| target.name.clone())
-                .unwrap_or_default();
-            let content = strip::Content {
-                mode,
-                slots: &views,
-                icons: icons_list,
-                target: target_view,
-                hint: strip::hint(mode, &self.jump_keys, &target_name),
-            };
-            Strip::show(&content)
-        };
-        log::info!(
-            "QuickJump: {} strip open, waiting 3 s for a digit",
-            match mode {
-                Mode::Jump => "jump",
-                Mode::Pin => "pin",
-            }
-        );
-        self.waiting = Some(Waiting {
-            mode,
-            strip,
-            started: Instant::now(),
-            front,
-            target,
-        });
-        self.undo_keys = false;
-        self.start_ticks();
-    }
-
-    /// Takes the strip away. `by_key` says another key closed it, which a
-    /// second jump press right after still counts as "twice".
-    fn close_strip(&mut self, by_key: bool) {
-        if let Some(waiting) = self.waiting.take() {
-            chord::stop_for(self.hwnd as isize);
-            if by_key {
-                self.closed_by_key = Some((Instant::now(), waiting.mode));
-            }
-        }
-        self.stop_ticks_if_idle();
-    }
-
-    fn on_keys(&mut self) {
-        let news = chord::take_for(self.hwnd as isize);
-        if self.undo_keys {
-            if !news.taken.is_empty() {
-                self.undo();
-            }
-            if news.ended || !news.taken.is_empty() {
-                self.undo_keys = false;
-                chord::stop_for(self.hwnd as isize);
-            }
-            return;
-        }
-        let Some(mode) = self.waiting.as_ref().map(|waiting| waiting.mode) else {
-            return;
-        };
-        for stroke in news.taken {
-            match keys::kind(stroke, &[]) {
-                Key::Digit(digit) => {
-                    let Some(slot) = pins::slot_of_digit(digit) else {
-                        continue;
-                    };
-                    let waiting = self.waiting.take();
-                    chord::stop_for(self.hwnd as isize);
-                    match (mode, waiting) {
-                        (Mode::Jump, Some(waiting)) => self.jump(slot, waiting.front),
-                        (Mode::Pin, Some(waiting)) => {
-                            if let Some(target) = waiting.target {
-                                self.pin_window(slot, &target);
-                            }
-                        }
-                        _ => {}
-                    }
-                    self.stop_ticks_if_idle();
-                    return;
-                }
-                Key::Cancel => {
-                    self.close_strip(false);
-                    return;
-                }
-                Key::Again | Key::Other => {}
-            }
-        }
-        if news.ended {
-            self.close_strip(true);
-        }
+        self.open_wait(Mode::Pin);
     }
 
     fn tick(&mut self) {
-        if let Some(waiting) = &mut self.waiting {
-            let wait = shortcuts::CHORD_WAIT.as_secs_f32();
-            let left = 1.0 - waiting.started.elapsed().as_secs_f32() / wait;
-            if let Some(strip) = &mut waiting.strip {
-                strip.tick(left);
-            }
-        }
         let now = self.now_ms();
         if self
             .shown
@@ -490,22 +319,32 @@ impl Engine {
         actions::perform(&Action::Activate(hwnd), self.hwnd);
     }
 
-    fn jump(&mut self, slot: usize, front: isize) {
+    /// Jumps to the pin at `slot`. Returns its name when the window is in
+    /// front now; None when a notice says what happened instead.
+    fn jump(&mut self, slot: usize, front: isize) -> Option<String> {
         let Some(pin) = self.slots.get(slot).cloned() else {
-            log::info!("QuickJump: slot {} is empty", pins::digit_of_slot(slot));
-            self.notify(notice::empty(slot, &self.pin_keys), None);
-            return;
+            log::info!("QuickJump: number {} is empty", pins::number_of_slot(slot));
+            self.notify(notice::empty(slot, &self.jump_keys), None);
+            return None;
         };
         match find(&pin, &self.live).map(|window| window.hwnd) {
             Some(hwnd) if hwnd == front => {
                 log::info!("QuickJump: {} is in front already", pin.name());
+                Some(pin.name().to_string())
             }
             Some(hwnd) => {
-                log::info!("QuickJump: jump to slot {}", pins::digit_of_slot(slot));
+                log::info!("QuickJump: jump to number {}", pins::number_of_slot(slot));
                 self.activate(hwnd);
+                Some(pin.name().to_string())
             }
-            None if pin.start => self.start(slot, &pin),
-            None => self.notify(notice::not_open(pin.name(), slot), None),
+            None if pin.start => {
+                self.start(slot, &pin);
+                None
+            }
+            None => {
+                self.notify(notice::not_open(pin.name(), slot), None);
+                None
+            }
         }
     }
 
@@ -520,8 +359,8 @@ impl Engine {
             return;
         }
         log::info!(
-            "QuickJump: starting {target} for slot {}",
-            pins::digit_of_slot(slot)
+            "QuickJump: starting {target} for number {}",
+            pins::number_of_slot(slot)
         );
         actions::perform(&Action::Open(PathBuf::from(&target)), self.hwnd);
         self.starting = Some(Starting {
@@ -531,22 +370,6 @@ impl Engine {
             next: Instant::now() + START_POLL,
         });
         self.start_ticks();
-    }
-
-    fn pin_window(&mut self, slot: usize, window: &Live) {
-        let (done, undo) = self.slots.pin(slot, window.to_pin());
-        let name = self
-            .slots
-            .get(slot)
-            .map_or_else(|| window.app_name(), |pin| pin.name().to_string());
-        let message = notice::pinned(&name, slot, &done);
-        log::info!("QuickJump: {}", message.text);
-        if done != Pinned::Same {
-            self.save();
-            self.publish();
-        }
-        let undo = (!undo.is_empty()).then(|| (undo, message.text.clone()));
-        self.notify(message, undo);
     }
 
     fn undo(&mut self) {
@@ -611,7 +434,7 @@ impl Engine {
         }
     }
 
-    // ---- The pin list ----------------------------------------------------
+    // ---- Quick access ----------------------------------------------------
 
     fn open_list(&mut self, select: Option<usize>) {
         self.refresh();
@@ -640,11 +463,11 @@ impl Engine {
                 let front = unsafe { GetForegroundWindow() } as isize;
                 self.jump(slot, front);
             }
-            Request::Pin { slot, hwnd } => {
+            Request::Add(hwnd) => {
                 self.refresh();
                 match self.live.iter().find(|window| window.hwnd == hwnd).cloned() {
-                    Some(window) => self.pin_window(slot, &window),
-                    None => log::info!("QuickJump: the window to pin has closed"),
+                    Some(window) => self.add_window(&window),
+                    None => log::info!("QuickJump: the window to add has closed"),
                 }
             }
             Request::Move { from, to } => {
@@ -661,15 +484,7 @@ impl Engine {
                     self.notify(message, Some((undo, text)));
                 }
             }
-            Request::Remove(slot) => {
-                if let Some((_, undo)) = self.slots.remove(slot) {
-                    let message = notice::removed(slot);
-                    self.save();
-                    self.publish();
-                    let text = message.text.clone();
-                    self.notify(message, Some((undo, text)));
-                }
-            }
+            Request::Remove(slot) => self.unpin(slot),
             Request::Update { slot, pin } => {
                 let changed = self.slots.get(slot).is_some_and(|old| *old != pin);
                 if !changed {
@@ -704,11 +519,8 @@ unsafe extern "system" fn engine_proc(
         notice::WM_APP_NOTICE_CLICK => Some(with_engine(|engine| engine.notice_click(lparam))),
         WM_TIMER if wparam == chord::TIMER_ID => Some(with_engine(|engine| {
             chord::on_timer(engine.hwnd as isize);
-            if engine.waiting.is_some() {
-                log::info!("QuickJump: no digit came, the strip closed");
-            }
             engine.undo_keys = false;
-            engine.close_strip(false);
+            engine.wait_timed_out();
         })),
         WM_TIMER if wparam == TICK_TIMER => {
             with_engine(Engine::tick);
@@ -763,7 +575,8 @@ impl WinCraftPlugin for QuickJump {
         PluginMetadata {
             id: ID,
             name: NAME,
-            description: "Pin windows to the digits and jump back to one from anywhere.",
+            description:
+                "Keep up to ten windows in a numbered list and jump back to one from anywhere.",
             author: "community",
             version: "1.0.0",
             readme: include_str!("README.md"),
@@ -776,9 +589,7 @@ impl WinCraftPlugin for QuickJump {
     fn init(&mut self, _ctx: &HostContext) -> Result<(), String> {
         let hwnd = create_window()?;
         let path = state_path();
-        let slots = std::fs::read_to_string(&path)
-            .map(|text| Slots::from_json(&text))
-            .unwrap_or_default();
+        let slots = Slots::load(&path, &config::plugins_dir().join(pins::BACKUP_NAME));
         log::info!("QuickJump: {} pins read", slots.count());
         if let Ok(mut shared) = self.shared.lock() {
             shared.plugin_window = hwnd as isize;
@@ -795,7 +606,6 @@ impl WinCraftPlugin for QuickJump {
             shown: None,
             undo_keys: false,
             starting: None,
-            icons: HashMap::new(),
             live: Vec::new(),
             epoch: Instant::now(),
         };
@@ -804,27 +614,31 @@ impl WinCraftPlugin for QuickJump {
     }
 
     fn hotkey_actions(&self) -> Vec<HotkeyAction> {
-        let q = 0x51;
         vec![
             HotkeyAction {
                 id: ACTION_JUMP,
-                name: "jump",
+                name: JUMP_ACTION,
                 label: "Jump to a pinned window",
                 default: Hotkey {
-                    modifiers: MOD_WIN | MOD_ALT,
-                    vk: q,
+                    modifiers: MOD_WIN,
+                    vk: keys::BACKTICK,
                 },
             },
             HotkeyAction {
                 id: ACTION_PIN,
-                name: "pin",
+                name: PIN_ACTION,
                 label: "Pin this window\u{2026}",
-                default: Hotkey {
-                    modifiers: MOD_WIN | MOD_ALT | MOD_SHIFT,
-                    vk: q,
-                },
+                default: Hotkey::NONE,
             },
         ]
+    }
+
+    fn migrate_hotkeys(&self, hotkeys: &mut BTreeMap<String, String>, settings: &mut Value) {
+        if move_old_defaults(hotkeys, settings) {
+            log::info!(
+                "QuickJump: the old default {OLD_JUMP_KEYS} is now {JUMP_KEYS}; {OLD_PIN_KEYS} is free"
+            );
+        }
     }
 
     fn on_hotkeys_bound(&mut self, keys: &[(u32, String)]) {
@@ -849,10 +663,29 @@ impl WinCraftPlugin for QuickJump {
         });
     }
 
+    fn palette_commands(&self) -> Vec<PaletteCommand> {
+        vec![PaletteCommand {
+            id: PALETTE_ADD,
+            label: "Add a window to Quick access\u{2026}",
+            hint: "",
+            words: "pin quickjump",
+            confirm: "",
+            list: false,
+            toggle: None,
+        }]
+    }
+
+    fn on_palette_command(&mut self, id: u32) {
+        if id == PALETTE_ADD {
+            with_engine(|engine| engine.refresh());
+            host::show_window(ID, picker::WINDOW_ID);
+        }
+    }
+
     fn tray_actions(&self) -> Vec<TrayAction> {
         vec![TrayAction {
             id: TRAY_LIST,
-            label: "Open pin list",
+            label: "Open quick access",
         }]
     }
 
@@ -866,21 +699,24 @@ impl WinCraftPlugin for QuickJump {
         let count = self
             .shared
             .lock()
-            .map(|shared| shared.view.slots.iter().filter(|v| v.is_pinned()).count())
+            .map(|shared| shared.view.slots.len())
             .unwrap_or(0);
         match (kind, action_id) {
             (ActionKind::Hotkey, ACTION_PIN) => {
-                Some("Choose a slot for the window in front".to_string())
+                Some("Choose a number for the window in front".to_string())
             }
-            (ActionKind::Hotkey, ACTION_JUMP) => Some("Then press the slot's number".to_string()),
+            (ActionKind::Hotkey, ACTION_JUMP) => Some("Then press the window's number".to_string()),
             (ActionKind::Tray, TRAY_LIST) => Some(matching::pinned_line(count)),
+            (ActionKind::Palette, PALETTE_ADD) => {
+                Some("Choose an open window for the end of the list".to_string())
+            }
             _ => None,
         }
     }
 
     fn status(&self) -> Option<String> {
         let shared = self.shared.lock().ok()?;
-        let count = shared.view.slots.iter().filter(|v| v.is_pinned()).count();
+        let count = shared.view.slots.len();
         let open = shared
             .view
             .slots
@@ -909,7 +745,8 @@ impl WinCraftPlugin for QuickJump {
     fn teardown(&mut self) {
         let engine = ENGINE.with(|cell| cell.borrow_mut().take());
         if let Some(mut engine) = engine {
-            engine.close_strip(false);
+            engine.close_wait(false);
+            chord_tip::hide(engine.hwnd as isize);
             engine.close_notice();
             engine.starting = None;
             chord::stop_for(engine.hwnd as isize);
@@ -926,3 +763,6 @@ impl WinCraftPlugin for QuickJump {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

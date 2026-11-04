@@ -5,7 +5,7 @@ use crate::core::notice::Glyph;
 pub use crate::core::notice::{click_point, Clock, Message, Notice, UNDO_MS};
 pub use crate::core::notice::{WM_APP_NOTICE_CLICK, WM_APP_NOTICE_HOVER};
 
-use super::pins::{digit_of_slot, Pinned};
+use super::pins::{number_of_slot, Pinned};
 
 /// QuickJump's own class for its notice window.
 pub const CLASS_NAME: &str = "WinCraftQuickJumpNotice";
@@ -14,22 +14,28 @@ fn message(glyph: Glyph, text: String) -> Message {
     Message::new("QuickJump", glyph, text)
 }
 
-/// After a pin. A pin of the window into the slot it already has says so
-/// without Undo, since nothing changed.
-pub fn pinned(name: &str, slot: usize, done: &Pinned) -> Message {
-    let digit = digit_of_slot(slot);
+/// After adding or placing a window. One that is where it was asked to go
+/// already, or a full list, says so without Undo, since nothing changed.
+pub fn pinned(name: &str, done: &Pinned) -> Message {
     match done {
-        Pinned::New => {
-            message(Glyph::Pin, format!("Pinned {name} to {digit}")).with_undo_key("Ctrl+Z")
-        }
-        Pinned::Replaced(old) => message(
+        Pinned::New { at } => message(
             Glyph::Pin,
-            format!("Pinned {name} to {digit} (was {})", old.name()),
+            format!("Added {name} as number {}", number_of_slot(*at)),
         )
         .with_undo_key("Ctrl+Z"),
-        Pinned::Moved { from } => moved(name, *from, slot),
-        Pinned::Same => message(Glyph::Info, format!("{name} is already in {digit}")),
+        Pinned::Moved { from, to } => moved(name, *from, *to),
+        Pinned::Same { at } => message(Glyph::Info, already(*at)),
+        Pinned::Full => message(Glyph::Info, FULL.to_string())
+            .detail("Unpin a window in Quick access first.".to_string()),
     }
+}
+
+/// What the tip and a notice say when Quick access holds ten windows.
+pub const FULL: &str = "Quick access is full";
+
+/// What the tip and a notice say when the window is in the list already.
+pub fn already(at: usize) -> String {
+    format!("Already number {}", number_of_slot(at))
 }
 
 pub fn moved(name: &str, from: usize, to: usize) -> Message {
@@ -37,17 +43,17 @@ pub fn moved(name: &str, from: usize, to: usize) -> Message {
         Glyph::Pin,
         format!(
             "Moved {name} from {} to {}",
-            digit_of_slot(from),
-            digit_of_slot(to)
+            number_of_slot(from),
+            number_of_slot(to)
         ),
     )
     .with_undo_key("Ctrl+Z")
 }
 
-pub fn removed(slot: usize) -> Message {
+pub fn removed(name: &str, slot: usize) -> Message {
     message(
         Glyph::Trash,
-        format!("Removed slot {}", digit_of_slot(slot)),
+        format!("Unpinned {name} (was number {})", number_of_slot(slot)),
     )
     .with_undo_key("Ctrl+Z")
 }
@@ -55,35 +61,38 @@ pub fn removed(slot: usize) -> Message {
 pub fn changed(name: &str, slot: usize) -> Message {
     message(
         Glyph::Pin,
-        format!("Changed how {} finds {name}", digit_of_slot(slot)),
+        format!("Changed how number {} finds {name}", number_of_slot(slot)),
     )
     .with_undo_key("Ctrl+Z")
 }
 
-/// `pin_keys` is the pin shortcut as the user set it, or empty for none.
-pub fn empty(slot: usize, pin_keys: &str) -> Message {
-    let digit = digit_of_slot(slot);
-    let message = message(Glyph::Info, format!("Slot {digit} is empty"));
-    if pin_keys.is_empty() {
-        message.detail("Open the pin list to pin a window.".to_string())
+/// `jump_keys` is the jump shortcut as the user set it, or empty for none.
+pub fn empty(slot: usize, jump_keys: &str) -> Message {
+    let message = message(
+        Glyph::Info,
+        format!("Number {} is empty", number_of_slot(slot)),
+    );
+    if jump_keys.is_empty() {
+        message.detail("Open Quick access to see the pinned windows.".to_string())
     } else {
-        message.detail(format!(
-            "{pin_keys}, then {digit} pins the window in front."
-        ))
+        message.detail(format!("{jump_keys}, then A adds the window in front."))
     }
 }
 
 pub fn starting(name: &str, slot: usize) -> Message {
     message(
         Glyph::Loader,
-        format!("Starting {name} for slot {}\u{2026}", digit_of_slot(slot)),
+        format!(
+            "Starting {name} for number {}\u{2026}",
+            number_of_slot(slot)
+        ),
     )
 }
 
 pub fn not_open(name: &str, slot: usize) -> Message {
     message(
         Glyph::Info,
-        format!("{name} in slot {} is not open", digit_of_slot(slot)),
+        format!("{name} at number {} is not open", number_of_slot(slot)),
     )
     .detail("Its pin is set not to start the app.".to_string())
 }
@@ -93,17 +102,12 @@ pub fn not_started(name: &str) -> Message {
         .detail("QuickJump stopped waiting for it.".to_string())
 }
 
-pub fn nothing_to_pin() -> Message {
-    message(Glyph::Info, "There is no window to pin".to_string())
-        .detail("Click the window you want, then try again.".to_string())
-}
-
 pub fn no_keys() -> Message {
     message(
         Glyph::Info,
         "QuickJump cannot read the next key".to_string(),
     )
-    .detail("Windows refused it, so the pin list opens instead.".to_string())
+    .detail("Windows refused it, so Quick access opens instead.".to_string())
 }
 
 pub fn undone(what: &str) -> Message {
@@ -112,41 +116,38 @@ pub fn undone(what: &str) -> Message {
 
 #[cfg(test)]
 mod tests {
-    use super::super::pins::tests::pin;
     use super::*;
 
     #[test]
-    fn the_messages_name_the_app_and_the_digits() {
-        assert_eq!(pinned("Claude", 2, &Pinned::New).text, "Pinned Claude to 3");
-        let was = pinned("Claude", 2, &Pinned::Replaced(pin("Chrome", None)));
-        assert_eq!(was.text, "Pinned Claude to 3 (was Chrome)");
-        assert!(was.undo);
-        let moved = pinned("Claude", 2, &Pinned::Moved { from: 5 });
+    fn the_messages_name_the_app_and_the_numbers() {
+        let added = pinned("Claude", &Pinned::New { at: 2 });
+        assert_eq!(added.text, "Added Claude as number 3");
+        assert!(added.undo);
+        let moved = pinned("Claude", &Pinned::Moved { from: 5, to: 2 });
         assert_eq!(moved.text, "Moved Claude from 6 to 3");
         assert!(moved.undo);
-        assert!(!pinned("Claude", 9, &Pinned::Same).undo);
-        assert_eq!(
-            pinned("Claude", 9, &Pinned::Same).text,
-            "Claude is already in 0"
-        );
-        assert_eq!(removed(3).text, "Removed slot 4");
-        let empty = empty(4, "Win+Alt+Shift+Q");
-        assert_eq!(empty.text, "Slot 5 is empty");
+        let same = pinned("Claude", &Pinned::Same { at: 9 });
+        assert!(!same.undo);
+        assert_eq!(same.text, "Already number 10");
+        assert_eq!(pinned("Claude", &Pinned::Full).text, FULL);
+        assert!(!pinned("Claude", &Pinned::Full).undo);
+        assert_eq!(removed("Code", 3).text, "Unpinned Code (was number 4)");
+        let empty = empty(4, "Win+`");
+        assert_eq!(empty.text, "Number 5 is empty");
         assert_eq!(
             empty.detail.as_deref(),
-            Some("Win+Alt+Shift+Q, then 5 pins the window in front.")
+            Some("Win+`, then A adds the window in front.")
         );
         assert_eq!(
             starting("Claude", 1).text,
-            "Starting Claude for slot 2\u{2026}"
+            "Starting Claude for number 2\u{2026}"
         );
         assert!(super::empty(4, "").detail.is_some());
         for message in [
             not_open("Code", 0),
             not_started("Code"),
-            nothing_to_pin(),
             no_keys(),
-            undone("Pinned Claude to 3"),
+            undone("Added Claude as number 3"),
             changed("Code", 0),
         ] {
             assert!(!message.text.is_empty());

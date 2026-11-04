@@ -1,5 +1,5 @@
 //! What the plugin and its windows on the UI thread share: a view of the
-//! slots and the open windows, and the requests the windows make. A request
+//! pins and the open windows, and the requests the windows make. A request
 //! is handed over with a message to the plugin's window, since only the
 //! host thread may touch the plugin.
 
@@ -17,12 +17,9 @@ pub const WM_APP_REQUEST: u32 = WM_APP + 43;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
     Jump(usize),
-    /// Pin this window to the slot.
-    Pin {
-        slot: usize,
-        hwnd: isize,
-    },
-    /// Move a slot's pin to another slot, swapping with what is there.
+    /// Add this window to the end of the list.
+    Add(isize),
+    /// Move a pin to another place; the others close up around it.
     Move {
         from: usize,
         to: usize,
@@ -48,8 +45,8 @@ pub struct App {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct View {
     pub slots: Vec<SlotView>,
-    /// The pins themselves, for the details panel.
-    pub pins: Vec<Option<Pin>>,
+    /// The pins themselves, in order, for the details panel.
+    pub pins: Vec<Pin>,
     /// The open app windows, top of the z-order first.
     pub windows: Vec<Live>,
     /// Running apps, then the pinned ones that are not running.
@@ -65,11 +62,11 @@ pub struct Shared {
     requests: Vec<Request>,
     /// The plugin's own window while the plugin is on; 0 when off.
     pub plugin_window: isize,
-    /// The list is on screen, or was asked for.
+    /// Quick access is on screen, or was asked for.
     pub list_open: bool,
-    /// The picker is on screen for this slot.
+    /// The picker is on screen (the value is not used).
     pub picker: Option<usize>,
-    /// The list should select this slot when it next draws.
+    /// Quick access should select this pin when it next draws.
     pub select: Option<usize>,
 }
 

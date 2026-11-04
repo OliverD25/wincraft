@@ -1,5 +1,5 @@
-//! The palette's rows for the pinned slots: "Jump to 3 · Claude", with the
-//! keys that do the same from anywhere.
+//! The palette's rows for the pinned windows: "Jump to 3 · Claude", with
+//! the keys that do the same from anywhere.
 
 use std::path::PathBuf;
 
@@ -85,7 +85,6 @@ impl SearchProvider for Slots {
             .view
             .slots
             .iter()
-            .filter(|view| view.is_pinned())
             .filter_map(|view| {
                 let mut row = row(view, &shared.view.jump_keys);
                 row.score = fuzzy::score_command(&query.text, GROUP, &row.title)?;
@@ -118,8 +117,8 @@ mod tests {
 
     fn provider() -> Slots {
         let mut pins = Pins::default();
-        pins.pin(2, pin("Claude", None));
-        pins.pin(4, pin("Code", None));
+        pins.add(pin("Claude", None));
+        pins.add(pin("Code", None));
         let views = slot_views(&pins, &[window(1, "Claude", "Claude")], 0);
         let shared = shared::new();
         if let Ok(mut state) = shared.lock() {
@@ -139,8 +138,8 @@ mod tests {
         };
         let rows = slots.query(&query, &crate::search::test_context());
         let titles: Vec<&str> = rows.iter().map(|row| row.title.as_str()).collect();
-        assert_eq!(titles, ["Jump to 3 \u{b7} Claude", "Jump to 5 \u{b7} Code"]);
-        assert_eq!(rows[0].keys, "Win+Alt+Q, 3");
+        assert_eq!(titles, ["Jump to 1 \u{b7} Claude", "Jump to 2 \u{b7} Code"]);
+        assert_eq!(rows[0].keys, "Win+Alt+Q, 1");
         assert_eq!(rows[1].subtitle, "not open");
         assert!(matches!(rows[0].icon, IconRef::Window { hwnd: 1, .. }));
         let empty = Query {
