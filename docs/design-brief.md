@@ -21,7 +21,7 @@ hotkeys and a settings window. Features are **plugins**. Two exist today:
 - **ScreenDimmer** — blacks out chosen monitors with click-through overlays.
   The overlay turns slightly see-through when the mouse is over that monitor.
   Hotkeys `Win+Alt+F1/F2/F3` toggle monitors 1–3, `Win+Alt+F12` wakes all.
-- **ShortcutDetector** — scans about 1,500 key combinations and shows which
+- **ShortcutManager** — scans about 1,500 key combinations and shows which
   are taken by other apps, by Windows, or by WinCraft, and lets the user press
   a combination to get an instant verdict. Hotkey `Win+Alt+Q`.
 
@@ -81,7 +81,7 @@ Other facts that shape the design:
 - **Keyboard first.** The palette is used without a mouse: ↑/↓, Enter, Esc.
   Focus and selection states must be visible without hover.
 - **No network for assets.** Everything ships inside an 8 MB exe.
-- **ShortcutDetector's own window is native Win32** (a classic list view), not
+- **ShortcutManager's own window is native Win32** (a classic list view), not
   egui. Do not design it now; note only what it should inherit (colours, type)
   when it is moved to egui later.
 
@@ -93,7 +93,7 @@ that apply, dark and light versions, and the keyboard focus state.
 ### 4.1 Command palette (`Win+Alt+P`)
 
 - Search field on top, results below, grouped by plugin ("WinCraft",
-  "ScreenDimmer", "ShortcutDetector") with a small group header.
+  "ScreenDimmer", "ShortcutManager") with a small group header.
 - Each row: command label left, hotkey hint right (e.g. `Win+Alt+F1`), a
   selected state for the row under the keyboard cursor.
 - Empty query shows all commands grouped. A query shows fuzzy matches; the

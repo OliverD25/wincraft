@@ -256,7 +256,7 @@ mod tests {
             ("ScreenDimmer", "Toggle monitor 1"),
             ("ScreenDimmer", "Toggle monitor 2"),
             ("ScreenDimmer", "Wake all monitors"),
-            ("ShortcutDetector", "Open shortcut detector"),
+            ("ShortcutManager", "Open shortcut manager"),
         ];
         let mut ranked: Vec<(i32, &str)> = commands
             .iter()

@@ -337,6 +337,20 @@ impl App {
                     log::info!("palette query set to \"{text}\"");
                 }
                 UiCommand::ClearPaletteUsage => self.palette.clear_usage(),
+                UiCommand::ChangeHotkeyOf(hotkey) => {
+                    match settings::command_of(&self.snapshot.shortcuts, hotkey) {
+                        Some(id) => {
+                            self.settings.change_hotkey(&id);
+                            self.settings_open = true;
+                            ctx.request_repaint();
+                            log::info!("settings shown with the hotkey dialog on {id}");
+                        }
+                        None => log::warn!(
+                            "no command holds {}, so there is no hotkey to change",
+                            crate::core::hotkeys::format(hotkey)
+                        ),
+                    }
+                }
                 UiCommand::CentrePalette => self.centre_palette(ctx),
                 UiCommand::CommandList { id, list } => {
                     self.palette.set_command_list(id, list);

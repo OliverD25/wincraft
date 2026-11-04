@@ -12,10 +12,10 @@
     },
     {
       "id": "shortcut_detector",
-      "name": "ShortcutDetector",
+      "name": "ShortcutManager",
       "version": "1.1.0",
       "author": "community",
-      "description": "Find taken and free global key combinations, and test a shortcut before you assign it.",
+      "description": "See which global key combinations are taken and by whom, test a shortcut before you assign it, and change it.",
       "readme": "src/plugins/shortcut_detector/README.md",
       "category": "Keyboard"
     },

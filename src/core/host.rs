@@ -249,7 +249,7 @@ enum WinDigit {
 }
 
 /// What clicking the last balloon opens: a "hotkey is taken" balloon opens
-/// ShortcutDetector, an "update available" one the About page, and a
+/// ShortcutManager, an "update available" one the About page, and a
 /// plugin's own notice nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BalloonClick {

@@ -8,6 +8,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 use crate::core::hotkeys;
 use crate::core::traits::Hotkey;
 use crate::plugins::shortcut_detector::known;
+use crate::plugins::shortcut_detector::owners::Owners;
 
 /// Probe ids live far away from the host's sequential hotkey ids so a scan can
 /// never unregister a hotkey a plugin is relying on.
@@ -36,14 +37,41 @@ impl Status {
 pub struct Entry {
     pub hotkey: Hotkey,
     pub status: Status,
-    pub owner: String,
+    /// What the combination does, when that is known.
+    pub meaning: String,
+    /// Who holds it: "Windows", "WinCraft", an app, or empty when nobody
+    /// does or nobody knows.
+    pub holder: String,
     pub source: &'static str,
+    /// Windows refused to give it to WinCraft, or keeps it for itself.
+    pub taken: bool,
 }
 
+/// The Owner cell for a taken combination nobody could name.
+pub const UNKNOWN_APP: &str = "unknown app";
+
+/// The Owner cell of a combination Windows itself uses.
+pub const WINDOWS: &str = "Windows";
+
+impl Entry {
+    /// The Owner cell: the holder, "unknown app" for a taken combination
+    /// with none, and empty for a free one.
+    pub fn owner(&self) -> &str {
+        if self.holder.is_empty() && self.status == Status::TakenByApp {
+            UNKNOWN_APP
+        } else {
+            &self.holder
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct ScanResult {
     pub entries: Vec<Entry>,
     pub probed: usize,
     pub elapsed_ms: u32,
+    /// Where the owners of taken combinations were looked up.
+    pub owners: Owners,
 }
 
 impl ScanResult {
@@ -106,7 +134,7 @@ pub fn modifier_sets() -> Vec<u32> {
     ]
 }
 
-pub fn scan(probe_hwnd: HWND, wincraft: &[(String, String, Hotkey)]) -> ScanResult {
+pub fn scan(probe_hwnd: HWND, wincraft: &[(String, String, Hotkey)], owners: Owners) -> ScanResult {
     let start = Instant::now();
     let keys = hotkeys::all_keys();
     let sets = modifier_sets();
@@ -121,7 +149,9 @@ pub fn scan(probe_hwnd: HWND, wincraft: &[(String, String, Hotkey)]) -> ScanResu
                 modifiers: modifiers | MOD_NOREPEAT,
                 vk: *vk,
             };
-            entries.push(classify(hotkey, taken, owner_in(wincraft, hotkey)));
+            let mut entry = classify(hotkey, taken, owner_in(wincraft, hotkey));
+            owners.apply(&mut entry);
+            entries.push(entry);
         }
     }
 
@@ -130,6 +160,7 @@ pub fn scan(probe_hwnd: HWND, wincraft: &[(String, String, Hotkey)]) -> ScanResu
         entries,
         probed,
         elapsed_ms: start.elapsed().as_millis() as u32,
+        owners,
     }
 }
 
@@ -139,8 +170,10 @@ pub fn verdict(probe_hwnd: HWND, hotkey: Hotkey, wincraft: &[(String, String, Ho
         return Entry {
             hotkey,
             status: Status::Windows,
-            owner: meaning.to_string(),
+            meaning: meaning.to_string(),
+            holder: WINDOWS.to_string(),
             source: "windows list",
+            taken: true,
         };
     }
     let taken = probe_taken(
@@ -157,50 +190,52 @@ pub fn verdict(probe_hwnd: HWND, hotkey: Hotkey, wincraft: &[(String, String, Ho
 pub fn verdict_text(entry: &Entry) -> String {
     let detail = match entry.status {
         Status::Free => "no app or Windows shortcut uses it".to_string(),
-        Status::TakenByApp if entry.owner.is_empty() => "taken by another app".to_string(),
-        Status::TakenByApp => format!("taken by another app {}", entry.owner),
+        Status::TakenByApp if entry.meaning.is_empty() => entry.owner().to_string(),
+        Status::TakenByApp => format!("{} \u{2014} {}", entry.owner(), entry.meaning),
         Status::Windows if known::is_reserved(entry.hotkey) => {
-            format!("reserved, no app can have it: {}", entry.owner)
+            format!("reserved, no app can have it: {}", entry.meaning)
         }
-        Status::Windows => entry.owner.clone(),
-        Status::WinCraft => entry.owner.replacen(": ", " \u{2014} ", 1),
+        Status::Windows => entry.meaning.clone(),
+        Status::WinCraft => entry.meaning.replacen(": ", " \u{2014} ", 1),
     };
     format!("{} \u{b7} {detail}", entry.status.label())
 }
 
 /// Pure decision table, kept apart from the Win32 probe so it can be tested.
+/// A combination on the Windows list is Windows' whether or not the probe
+/// failed: the shell holds most of them. `Owners::apply` names an app in
+/// its place only when that is certain.
 pub fn classify(hotkey: Hotkey, probe_failed: bool, wincraft: Option<(&str, &str)>) -> Entry {
     if let Some((plugin, label)) = wincraft {
         return Entry {
             hotkey,
             status: Status::WinCraft,
-            owner: format!("{plugin}: {label}"),
+            meaning: format!("{plugin}: {label}"),
+            holder: "WinCraft".to_string(),
             source: "WinCraft",
+            taken: true,
         };
     }
-    let meaning = known::meaning(hotkey);
-    if probe_failed {
-        return Entry {
-            hotkey,
-            status: Status::TakenByApp,
-            owner: meaning
-                .map(|m| format!("(Windows: {m})"))
-                .unwrap_or_default(),
-            source: "probe",
-        };
-    }
-    match meaning {
+    match known::meaning(hotkey) {
         Some(meaning) => Entry {
             hotkey,
             status: Status::Windows,
-            owner: meaning.to_string(),
+            meaning: meaning.to_string(),
+            holder: WINDOWS.to_string(),
             source: "windows list",
+            taken: probe_failed,
         },
         None => Entry {
             hotkey,
-            status: Status::Free,
-            owner: String::new(),
+            status: if probe_failed {
+                Status::TakenByApp
+            } else {
+                Status::Free
+            },
+            meaning: String::new(),
+            holder: String::new(),
             source: "probe",
+            taken: probe_failed,
         },
     }
 }
@@ -269,7 +304,8 @@ mod tests {
             Some(("ScreenDimmer", "Toggle monitor 1")),
         );
         assert_eq!(entry.status, Status::WinCraft);
-        assert_eq!(entry.owner, "ScreenDimmer: Toggle monitor 1");
+        assert_eq!(entry.meaning, "ScreenDimmer: Toggle monitor 1");
+        assert_eq!(entry.owner(), "WinCraft");
         assert_eq!(
             verdict_text(&entry),
             "WinCraft \u{b7} ScreenDimmer \u{2014} Toggle monitor 1"
@@ -277,18 +313,22 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_probe_beats_the_windows_list_but_keeps_its_meaning() {
+    fn a_windows_shortcut_the_shell_holds_is_windows_not_app() {
         let entry = classify(key("Win+E"), true, None);
-        assert_eq!(entry.status, Status::TakenByApp);
-        assert_eq!(entry.owner, "(Windows: Open File Explorer)");
-        assert_eq!(entry.source, "probe");
+        assert_eq!(entry.status, Status::Windows);
+        assert_eq!(entry.meaning, "Open File Explorer");
+        assert_eq!(entry.owner(), "Windows");
+        assert!(entry.taken);
+        assert_eq!(entry.source, "windows list");
+        assert_eq!(verdict_text(&entry), "Windows \u{b7} Open File Explorer");
     }
 
     #[test]
     fn the_windows_list_explains_a_combination_the_probe_won() {
         let entry = classify(key("Win+E"), false, None);
         assert_eq!(entry.status, Status::Windows);
-        assert_eq!(entry.owner, "Open File Explorer");
+        assert_eq!(entry.meaning, "Open File Explorer");
+        assert!(!entry.taken);
         assert_eq!(verdict_text(&entry), "Windows \u{b7} Open File Explorer");
     }
 
@@ -296,7 +336,8 @@ mod tests {
     fn an_unknown_combination_that_registers_is_free() {
         let entry = classify(key("Win+Alt+F7"), false, None);
         assert_eq!(entry.status, Status::Free);
-        assert!(entry.owner.is_empty());
+        assert!(entry.meaning.is_empty());
+        assert!(entry.owner().is_empty());
         assert_eq!(
             verdict_text(&entry),
             "Free \u{b7} no app or Windows shortcut uses it"
@@ -305,15 +346,15 @@ mod tests {
 
     #[test]
     fn every_verdict_starts_with_its_short_status_word() {
-        let app = classify(key("Win+E"), true, None);
-        assert_eq!(
-            verdict_text(&app),
-            "App \u{b7} taken by another app (Windows: Open File Explorer)"
-        );
         let unknown_app = classify(key("Ctrl+Alt+F9"), true, None);
+        assert_eq!(verdict_text(&unknown_app), "App \u{b7} unknown app");
+        assert_eq!(unknown_app.owner(), "unknown app");
+        let mut named = unknown_app.clone();
+        named.holder = "ShareX, probably".to_string();
+        named.meaning = "Capture a region".to_string();
         assert_eq!(
-            verdict_text(&unknown_app),
-            "App \u{b7} taken by another app"
+            verdict_text(&named),
+            "App \u{b7} ShareX, probably \u{2014} Capture a region"
         );
         let words: Vec<&str> = [
             Status::Free,
@@ -332,7 +373,7 @@ mod tests {
         // Win+L is reserved, so the verdict never probes it.
         let entry = verdict(std::ptr::null_mut(), key("Win+L"), &[]);
         assert_eq!(entry.status, Status::Windows);
-        assert_eq!(entry.owner, "Lock the PC");
+        assert_eq!(entry.meaning, "Lock the PC");
         assert_eq!(
             verdict_text(&entry),
             "Windows \u{b7} reserved, no app can have it: Lock the PC"
@@ -344,12 +385,13 @@ mod tests {
         let entries = vec![
             classify(key("Win+E"), false, None),
             classify(key("Ctrl+Alt+F9"), true, None),
-            classify(key("Win+Alt+S"), false, Some(("ShortcutDetector", "Open"))),
+            classify(key("Win+Alt+S"), false, Some(("ShortcutManager", "Open"))),
         ];
         let scan = ScanResult {
             entries,
             probed: 1_575,
             elapsed_ms: 57,
+            owners: Owners::default(),
         };
         assert_eq!(
             scan.status_line(),

@@ -1,5 +1,5 @@
 //! Putting text on the clipboard, for the palette's answers and the
-//! ShortcutDetector's table, and reading the text on it, for QuickActions.
+//! ShortcutManager's table, and reading the text on it, for QuickActions.
 
 use windows_sys::Win32::Foundation::{GlobalFree, HWND};
 use windows_sys::Win32::System::DataExchange::{

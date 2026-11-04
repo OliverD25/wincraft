@@ -295,6 +295,9 @@ impl Host {
             HostRequest::FocusWindow(hwnd) => bring_to_front(hwnd as HWND),
             HostRequest::ArrangeDigit(digit) => self.arrange_digit(digit),
             HostRequest::ClearPaletteUsage => self.to_ui.send(UiCommand::ClearPaletteUsage),
+            HostRequest::ChangeHotkeyOf(hotkey) => {
+                self.to_ui.send(UiCommand::ChangeHotkeyOf(hotkey))
+            }
             HostRequest::SetPluginEnabled { id, enabled } => {
                 if let Some(index) = self.plugins.index_of(&id) {
                     if enabled {

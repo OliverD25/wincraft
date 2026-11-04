@@ -201,7 +201,7 @@ pub fn plugin_changed() {
     }
 }
 
-/// The list the ShortcutDetector marks as WinCraft's own.
+/// The list the ShortcutManager marks as WinCraft's own.
 ///
 /// It takes an immutable borrow, so calling it while the host is mutably
 /// borrowed panics instead of quietly misbehaving. That is the re-entrancy rule

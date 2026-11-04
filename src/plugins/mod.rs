@@ -13,7 +13,7 @@ use crate::core::traits::WinCraftPlugin;
 pub fn load_active_plugins() -> Vec<Box<dyn WinCraftPlugin>> {
     vec![
         Box::new(screen_dimmer::ScreenDimmer::new()),
-        Box::new(shortcut_detector::ShortcutDetector::new()),
+        Box::new(shortcut_detector::ShortcutManager::new()),
         Box::new(layout_keeper::LayoutKeeper::new()),
         Box::new(window_deck::WindowDeck::new()),
         Box::new(language_indicator::LanguageIndicator::new()),

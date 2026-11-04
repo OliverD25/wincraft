@@ -2,7 +2,9 @@
 //! Check a shortcut box, the list of combinations and a bottom line with the
 //! scan's numbers. Keys: Ctrl+F search, ↑↓ select a row, Ctrl+C copy the
 //! rows shown, F5 scan again, Enter or Space on the box to check a shortcut,
-//! Esc close.
+//! Esc clear the box (back to the full list), or close when it is empty.
+//! While the box holds a combination, the list shows it and free ones close
+//! to it, and the line under the box says who holds it and how to change it.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -22,8 +24,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::core::theme::{self, Tokens};
 use crate::core::traits::{Hotkey, PluginWindow, WindowFrame};
-use crate::core::ui_bridge::HostRequest;
-use crate::core::{clipboard, hotkeys};
+use crate::core::ui_bridge::{HostChannel, HostRequest};
+use crate::core::{clipboard, hotkeys, instance};
 use crate::ui::settings;
 use crate::ui::widgets::button::{self, Kind};
 use crate::ui::widgets::icons::Icon;
@@ -31,12 +33,15 @@ use crate::ui::widgets::keycap::{self, Caps};
 use crate::ui::widgets::search_box::search_box;
 use crate::ui::widgets::{choice, focus, hotkey_capture, text, toggle};
 
+use super::answer::{self, Action, AnswerUi, LinkEdit};
+use super::owners::SOURCE_PRESS;
 use super::probe::{self, Entry, ScanResult};
 use super::rows::{self, Filter, Sort, Tone, COLUMNS, MODIFIERS, SIDE};
 use super::shared::{Handle, Shared};
+use super::{lnk, nearby, press};
 
 pub const WINDOW_ID: &str = "detector";
-const TITLE: &str = "WinCraft \u{b7} Shortcut detector";
+const TITLE: &str = "WinCraft \u{b7} Shortcut manager";
 const SIZE: [f32; 2] = [760.0, 560.0];
 const MIN_SIZE: [f32; 2] = [560.0, 400.0];
 
@@ -71,6 +76,8 @@ struct Shown {
     modifier: usize,
     show_free: bool,
     sort: Sort,
+    /// The combination in the Check box: its results instead of the list.
+    results: Option<Hotkey>,
 }
 
 #[derive(Default)]
@@ -87,6 +94,9 @@ struct WindowUi {
     live: u32,
     keys: Option<Hotkey>,
     verdict: Option<(String, Tone)>,
+    /// Today's answer for the combination in the box.
+    checked: Option<Entry>,
+    answer: AnswerUi,
     notice: Option<(String, Instant)>,
     window: isize,
     focused: bool,
@@ -103,6 +113,9 @@ enum Outcome {
     ShowFree(bool),
     StartCapture,
     StopCapture,
+    /// Esc or Show all: the box empties and the full list comes back.
+    ShowAll,
+    Answer(Action),
     Close,
 }
 
@@ -186,6 +199,7 @@ impl PluginWindow for DetectorWindow {
             if state.capturing {
                 listen(ui, &shared, &mut state);
             }
+            follow_press(ui, &mut shared, &mut state);
             if shared.scanning {
                 ui.ctx().request_repaint_after(SCAN_POLL);
             }
@@ -209,7 +223,7 @@ impl PluginWindow for DetectorWindow {
                 outcomes.push(Outcome::Close);
             }
             for outcome in outcomes {
-                act(outcome, &mut shared, &mut state);
+                act(outcome, &mut shared, &mut state, &to_host);
             }
             if state.closed {
                 if state.capturing {
@@ -223,7 +237,7 @@ impl PluginWindow for DetectorWindow {
     }
 }
 
-fn act(outcome: Outcome, shared: &mut Shared, state: &mut WindowUi) {
+fn act(outcome: Outcome, shared: &mut Shared, state: &mut WindowUi, to_host: &HostChannel) {
     match outcome {
         Outcome::Scan => shared.ask_scan(),
         Outcome::Copy(text) => {
@@ -240,11 +254,126 @@ fn act(outcome: Outcome, shared: &mut Shared, state: &mut WindowUi) {
             hotkey_capture::start();
             state.capturing = true;
             state.live = 0;
-            state.keys = None;
-            state.verdict = None;
+            state.answer.link = None;
+            show_all(state);
         }
         Outcome::StopCapture => stop_listening(state),
+        Outcome::ShowAll => {
+            if state.capturing {
+                stop_listening(state);
+            }
+            show_all(state);
+        }
+        Outcome::Answer(action) => answer_action(action, shared, state, to_host),
         Outcome::Close => state.closed = true,
+    }
+}
+
+fn show_all(state: &mut WindowUi) {
+    state.keys = None;
+    state.verdict = None;
+    state.checked = None;
+    state.answer.forget();
+    state.selected = None;
+}
+
+/// A button on the line under the box.
+fn answer_action(action: Action, shared: &mut Shared, state: &mut WindowUi, to_host: &HostChannel) {
+    let Some(entry) = state.checked.clone() else {
+        return;
+    };
+    let link = shared
+        .scan
+        .as_ref()
+        .and_then(|scan| scan.owners.link_path(entry.hotkey));
+    match action {
+        Action::Change => to_host.send(HostRequest::ChangeHotkeyOf(entry.hotkey)),
+        Action::EditLink => {
+            let Some(path) = link else { return };
+            let name = path
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if state.capturing {
+                stop_listening(state);
+            }
+            state.answer.link = Some(LinkEdit {
+                path,
+                name,
+                keys: None,
+            });
+            hotkey_capture::start();
+            state.capturing = true;
+            state.live = 0;
+        }
+        Action::Save | Action::RemoveKey => {
+            let path = state
+                .answer
+                .link
+                .as_ref()
+                .map(|edit| edit.path.clone())
+                .or(link);
+            let Some(path) = path else { return };
+            let keys = match action {
+                Action::Save => state.answer.link.as_ref().and_then(|edit| edit.keys),
+                _ => None,
+            };
+            if state.capturing {
+                stop_listening(state);
+            }
+            state.answer.link = None;
+            state.answer.note = Some(match lnk::write_key(&path, keys) {
+                Ok(()) if keys.is_some() => answer::SAVED.to_string(),
+                Ok(()) => answer::REMOVED.to_string(),
+                Err(why) => why,
+            });
+            log::info!(
+                "shortcut manager: {} the key of {}",
+                if keys.is_some() { "changed" } else { "removed" },
+                path.display()
+            );
+            shared.ask_scan();
+        }
+        Action::Cancel => {
+            if state.capturing {
+                stop_listening(state);
+            }
+            state.answer.link = None;
+        }
+        Action::Press => {
+            if state.capturing {
+                stop_listening(state);
+            }
+            match press::start(entry.hotkey, state.window) {
+                Ok(run) => state.answer.press = Some(run),
+                Err(why) => state.answer.note = Some(why.to_string()),
+            }
+        }
+    }
+}
+
+/// Waits for a running press test, and when it ends names the app it found
+/// in the list and on the line under the box.
+fn follow_press(ui: &Ui, shared: &mut Shared, state: &mut WindowUi) {
+    let Some(run) = &state.answer.press else {
+        return;
+    };
+    let Some(seen) = run.finished() else {
+        ui.ctx().request_repaint_after(SCAN_POLL);
+        return;
+    };
+    let hotkey = run.hotkey;
+    state.answer.press = None;
+    state.answer.pressed = Some((hotkey, press::result_text(seen.as_ref())));
+    if let (Some(seen), Some(scan)) = (seen, &shared.scan) {
+        if let Some(marked) = press::marked(scan, hotkey, &press::app_name(&seen)) {
+            shared.scan = Some(Arc::new(marked));
+        }
+    }
+    if state.keys == Some(hotkey) {
+        let (entry, line) = verdict(hotkey, shared);
+        state.checked = Some(entry);
+        state.verdict = Some(line);
     }
 }
 
@@ -254,17 +383,24 @@ fn listen(ui: &Ui, shared: &Shared, state: &mut WindowUi) {
     ui.ctx().request_repaint_after(CAPTURE_POLL);
     let in_front = ui.input(|i| i.viewport().focused).unwrap_or(true);
     if !in_front || hotkey_capture::take_cancelled() {
-        if in_front {
-            state.keys = None;
-            state.verdict = None;
+        if in_front && state.answer.link.take().is_none() {
+            show_all(state);
         }
         stop_listening(state);
         return;
     }
     state.live = hotkey_capture::live_modifiers();
     if let Some(hotkey) = hotkey_capture::take_result() {
+        if let Some(edit) = state.answer.link.as_mut() {
+            edit.keys = Some(hotkey);
+            return;
+        }
+        let (entry, line) = verdict(hotkey, shared);
+        state.answer.forget();
         state.keys = Some(hotkey);
-        state.verdict = Some(verdict(hotkey, shared));
+        state.checked = Some(entry);
+        state.verdict = Some(line);
+        state.selected = None;
     }
 }
 
@@ -274,16 +410,22 @@ fn stop_listening(state: &mut WindowUi) {
     state.live = 0;
 }
 
-/// Today's answer for one combination, and a note when it is not what the
-/// last scan said.
-fn verdict(hotkey: Hotkey, shared: &Shared) -> (String, Tone) {
-    let entry = probe::verdict(std::ptr::null_mut(), hotkey, &shared.mine);
-    let before = shared
-        .scan
-        .as_ref()
-        .and_then(|scan| scan.find(hotkey))
-        .map(|found| found.status);
-    verdict_line(&entry, before)
+/// Today's answer for one combination, with its owner from the last scan,
+/// and its line: with a note when it is not what the last scan said.
+fn verdict(hotkey: Hotkey, shared: &Shared) -> (Entry, (String, Tone)) {
+    let mut entry = probe::verdict(std::ptr::null_mut(), hotkey, &shared.mine);
+    let before = shared.scan.as_ref().and_then(|scan| {
+        scan.owners.apply(&mut entry);
+        scan.find(hotkey)
+    });
+    if let Some(pressed) = before
+        .filter(|found| found.source == SOURCE_PRESS && entry.status == probe::Status::TakenByApp)
+    {
+        entry.holder = pressed.holder.clone();
+        entry.source = SOURCE_PRESS;
+    }
+    let line = verdict_line(&entry, before.map(|found| found.status));
+    (entry, line)
 }
 
 fn verdict_line(entry: &Entry, before: Option<probe::Status>) -> (String, Tone) {
@@ -316,7 +458,34 @@ fn contents(ui: &mut Ui, view: &View, state: &mut WindowUi, out: &mut Vec<Outcom
 
     let mut y = full.top() + 8.0;
     y = toolbar(ui, view, state, full, y, out) + 16.0;
-    y = check_box(ui, state, full, y, out) + 16.0;
+    y = check_box(ui, state, full, y, out) + 8.0;
+    if let Some(entry) = state.checked.clone() {
+        let found = view
+            .scan
+            .as_ref()
+            .and_then(|scan| scan.owners.find(entry.hotkey));
+        let plan = answer::plan(&entry, found, instance::is_test(), &state.answer);
+        let area = Rect::from_min_size(
+            pos2(full.left() + SIDE, y),
+            vec2(full.width() - SIDE * 2.0, answer::HEIGHT),
+        );
+        let link_keys = state.answer.link.as_ref().map(|edit| edit.keys);
+        if let Some(action) = answer::strip(ui, area, &plan, link_keys) {
+            out.push(Outcome::Answer(action));
+        }
+        y += answer::HEIGHT + 4.0;
+    }
+    if let (Some(keys), Some(_)) = (state.keys, &view.scan) {
+        let area = Rect::from_min_size(
+            pos2(full.left() + SIDE, y),
+            vec2(full.width() - SIDE * 2.0, answer::RESULTS_HEIGHT),
+        );
+        if answer::results_line(ui, area, keys) {
+            out.push(Outcome::ShowAll);
+        }
+        y += answer::RESULTS_HEIGHT;
+    }
+    y += 8.0;
     let footer = footer_height(ui, view, state, full.width() - SIDE * 2.0);
     let list = Rect::from_min_max(
         pos2(full.left(), y),
@@ -343,6 +512,7 @@ fn shown_rows(view: &View, state: &mut WindowUi) -> Vec<usize> {
         modifier: state.modifier,
         show_free: view.show_free,
         sort: state.sort,
+        results: state.keys,
     };
     if let Some((shown, rows)) = &state.rows {
         if *shown == wanted {
@@ -354,7 +524,10 @@ fn shown_rows(view: &View, state: &mut WindowUi) -> Vec<usize> {
         modifier: rows::modifier_of(wanted.modifier),
         show_free: wanted.show_free,
     };
-    let found = rows::visible(&scan.entries, &filter, wanted.sort);
+    let found = match wanted.results {
+        Some(keys) => nearby::results(&scan.entries, keys),
+        None => rows::visible(&scan.entries, &filter, wanted.sort),
+    };
     state.rows = Some((wanted, found.clone()));
     found
 }
@@ -379,7 +552,11 @@ fn keys(ui: &mut Ui, view: &View, state: &mut WindowUi, visible: &[usize], out: 
         )
     });
     if escape {
-        out.push(Outcome::Close);
+        out.push(if state.keys.is_some() {
+            Outcome::ShowAll
+        } else {
+            Outcome::Close
+        });
     }
     if f5 {
         out.push(Outcome::Scan);
@@ -552,7 +729,7 @@ fn toolbar(
 /// The keys the box shows: the modifiers held while it listens, else the
 /// last combination pressed.
 fn box_keys(state: &WindowUi) -> Vec<String> {
-    let text = if state.capturing && state.live != 0 {
+    let text = if state.capturing && state.live != 0 && state.answer.link.is_none() {
         hotkeys::format_modifiers(state.live)
     } else if let Some(keys) = state.keys {
         hotkeys::format(keys)
@@ -613,10 +790,10 @@ fn check_box(
         if !state.capturing {
             out.push(Outcome::StartCapture);
         }
-    } else if state.capturing && !response.has_focus() {
+    } else if state.capturing && state.answer.link.is_none() && !response.has_focus() {
         out.push(Outcome::StopCapture);
     }
-    let border = if state.capturing {
+    let border = if state.capturing && state.answer.link.is_none() {
         tokens.accent
     } else {
         tokens.border
@@ -686,7 +863,12 @@ fn check_box(
 }
 
 /// One line cut with "…" when it is wider than `width`.
-fn one_line(line: &str, font: egui::FontId, colour: egui::Color32, width: f32) -> LayoutJob {
+pub(super) fn one_line(
+    line: &str,
+    font: egui::FontId,
+    colour: egui::Color32,
+    width: f32,
+) -> LayoutJob {
     let mut job = text::job(line, font, colour, None);
     job.wrap = TextWrapping {
         max_width: width.max(1.0),
@@ -795,7 +977,7 @@ fn empty_line(painter: &egui::Painter, body: Rect, line: &str, tokens: &Tokens) 
 }
 
 /// One row; true when it was clicked.
-fn row(ui: &mut Ui, entry: &Entry, selected: bool, columns: &[egui::Rangef; 4]) -> bool {
+fn row(ui: &mut Ui, entry: &Entry, selected: bool, columns: &[egui::Rangef; 5]) -> bool {
     let tokens = Tokens::get(ui.ctx());
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::click());
     if !ui.is_rect_visible(rect) {
@@ -835,19 +1017,28 @@ fn row(ui: &mut Ui, entry: &Entry, selected: bool, columns: &[egui::Rangef; 4]) 
     painter.rect_stroke(pill, 10, theme::line(ui.ctx(), colour), StrokeKind::Inside);
     painter.galley(pill.center() - galley.size() / 2.0, galley, colour);
 
-    let meaning = painter.layout_job(one_line(
-        rows::meaning(entry),
-        theme::regular(13.0),
-        tokens.text_secondary,
-        columns[2].span(),
-    ));
-    painter.galley(
-        pos2(columns[2].min, rect.center().y - meaning.size().y / 2.0),
-        meaning,
-        tokens.text_secondary,
-    );
+    let mut cut = false;
+    for (text, at) in [(rows::meaning(entry), 2), (rows::owner(entry), 3)] {
+        let galley = painter.layout_job(one_line(
+            text,
+            theme::regular(13.0),
+            tokens.text_secondary,
+            columns[at].span(),
+        ));
+        cut |= galley.elided;
+        painter.galley(
+            pos2(columns[at].min, rect.center().y - galley.size().y / 2.0),
+            galley,
+            tokens.text_secondary,
+        );
+    }
+    let response = if cut {
+        response.on_hover_text(format!("{}\n{}", rows::meaning(entry), rows::owner(entry)))
+    } else {
+        response
+    };
     painter.text(
-        pos2(columns[3].min, rect.center().y),
+        pos2(columns[4].min, rect.center().y),
         Align2::LEFT_CENTER,
         entry.source,
         theme::mono(12.0),

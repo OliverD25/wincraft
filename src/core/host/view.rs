@@ -2,7 +2,7 @@ use super::*;
 
 impl Host {
     /// Shows the balloons the plugin bookkeeping asked for. Clicking one
-    /// opens ShortcutDetector.
+    /// opens ShortcutManager.
     pub(super) fn show_warnings(&mut self) {
         for text in std::mem::take(&mut self.plugins.warnings) {
             self.balloon_click = BalloonClick::Detector;

@@ -171,7 +171,7 @@ fn format_key(vk: u32) -> String {
 }
 
 /// Every key that is not a plain letter, digit or function key. This is the
-/// single source for both the parser and the ShortcutDetector scan, so a key
+/// single source for both the parser and the ShortcutManager scan, so a key
 /// added here becomes usable in config.json and probed at the same time.
 pub const NAMED_KEYS: &[(&str, u32)] = &[
     ("Space", 0x20),

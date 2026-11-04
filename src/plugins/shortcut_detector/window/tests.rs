@@ -11,11 +11,12 @@ fn scan() -> Arc<ScanResult> {
         entries: vec![
             classify(key("Win+E"), false, None),
             classify(key("Ctrl+Alt+F9"), true, None),
-            classify(key("Win+Alt+S"), false, Some(("ShortcutDetector", "Open"))),
+            classify(key("Win+Alt+S"), false, Some(("ShortcutManager", "Open"))),
             classify(key("Ctrl+Shift+F7"), false, None),
         ],
         probed: 1_575,
         elapsed_ms: 57,
+        owners: Default::default(),
     })
 }
 
@@ -101,7 +102,7 @@ fn keys_select_copy_scan_and_close() {
     let [Outcome::Copy(text)] = out.as_slice() else {
         panic!("{out:?}");
     };
-    assert!(text.starts_with("Shortcut\tStatus\tMeaning\tSource\r\n"));
+    assert!(text.starts_with("Shortcut\tStatus\tMeaning\tOwner\tSource\r\n"));
     assert_eq!(text.lines().count(), 4, "the three taken rows and a header");
 
     let out = frames(
@@ -207,4 +208,63 @@ fn the_box_shows_held_modifiers_then_the_combination() {
     assert_eq!(box_keys(&state), ["Win", "Alt", "K"]);
     state.keys = None;
     assert!(box_keys(&state).is_empty());
+}
+
+#[test]
+fn a_combination_in_the_box_shows_its_results_and_esc_brings_the_list_back() {
+    let entries = vec![
+        classify(key("Ctrl+Alt+F9"), true, None),
+        classify(key("Win+Alt+F9"), false, None),
+        classify(key("Ctrl+Alt+F10"), false, None),
+        classify(key("Win+E"), true, None),
+    ];
+    let shown = view(Some(Arc::new(ScanResult {
+        entries: entries.clone(),
+        probed: 4,
+        elapsed_ms: 1,
+        owners: Default::default(),
+    })));
+    let mut state = WindowUi {
+        query: "explorer".to_string(),
+        modifier: 4,
+        sort: Sort::default().clicked(rows::Column::Owner),
+        ..WindowUi::default()
+    };
+    let before = shown_rows(&shown, &mut state);
+    assert_eq!(before, [3], "the search, filter and sort pick Win+E");
+
+    state.keys = Some(key("Ctrl+Alt+F9"));
+    state.checked = Some(entries[0].clone());
+    assert_eq!(shown_rows(&shown, &mut state), [0, 1, 2]);
+    // The results and the answer line draw in every theme.
+    assert!(frames(&shown, &mut state, Vec::new()).is_empty());
+
+    let out = frames(
+        &shown,
+        &mut state,
+        vec![vec![press(Key::Escape, Modifiers::NONE)]],
+    );
+    assert_eq!(out, [Outcome::ShowAll]);
+    act(
+        Outcome::ShowAll,
+        &mut Shared::default(),
+        &mut state,
+        &crate::core::ui_bridge::create().to_host,
+    );
+    assert!(state.keys.is_none() && state.checked.is_none());
+    assert_eq!(state.query, "explorer", "the search stays");
+    assert_eq!(state.modifier, 4);
+    assert_eq!(state.sort.column, rows::Column::Owner);
+    assert_eq!(shown_rows(&shown, &mut state), before);
+}
+
+#[test]
+fn drawing_the_answer_of_an_unknown_app_presses_nothing() {
+    let mut state = WindowUi {
+        keys: Some(key("Ctrl+Alt+F9")),
+        checked: Some(classify(key("Ctrl+Alt+F9"), true, None)),
+        ..WindowUi::default()
+    };
+    assert!(frames(&view(Some(scan())), &mut state, Vec::new()).is_empty());
+    assert!(state.answer.press.is_none());
 }

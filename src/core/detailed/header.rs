@@ -5,7 +5,6 @@
 
 use std::path::Path;
 
-use windows_sys::Win32::System::ProcessStatus::K32EnumProcesses;
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows_sys::Win32::UI::Shell::{SHAppBarMessage, ABM_GETTASKBARPOS, APPBARDATA};
 
@@ -80,7 +79,7 @@ fn lines(plugins: &[String]) -> Vec<String> {
             if primary { " (primary)" } else { "" },
         ));
     }
-    let processes = process_names();
+    let processes = windows_list::process_names();
     let tools = keyboard_tools(&processes);
     lines.push(format!(
         "keyboard tools running: {}",
@@ -113,23 +112,6 @@ fn taskbar_side() -> &'static str {
         3 => "bottom",
         _ => "unknown",
     }
-}
-
-/// The file names of the running processes Windows lets WinCraft read.
-fn process_names() -> Vec<String> {
-    let mut ids = vec![0u32; 4096];
-    let mut bytes = 0u32;
-    let size = (ids.len() * std::mem::size_of::<u32>()) as u32;
-    if unsafe { K32EnumProcesses(ids.as_mut_ptr(), size, &mut bytes) } == 0 {
-        return Vec::new();
-    }
-    ids.truncate(bytes as usize / std::mem::size_of::<u32>());
-    ids.into_iter()
-        .filter(|pid| *pid != 0)
-        .map(windows_list::exe_path)
-        .filter(|path| !path.is_empty())
-        .map(|path| path.rsplit('\\').next().unwrap_or("").to_string())
-        .collect()
 }
 
 /// The keyboard tools among `processes`, each name once, sorted.

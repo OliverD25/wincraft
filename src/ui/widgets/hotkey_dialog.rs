@@ -356,9 +356,7 @@ pub fn verdict_of(check: Check, windows: Option<&str>, target: &str) -> Verdict 
 /// `core::shortcuts`, then a live probe of whether another app holds the
 /// first press. The probe is plain Win32 and safe on the UI thread.
 pub fn verdict(keys: &Shortcut, target: &Target, all: &[ShortcutInfo]) -> Verdict {
-    let held = |hotkey: Hotkey| {
-        probe::verdict(std::ptr::null_mut(), hotkey, &[]).status == probe::Status::TakenByApp
-    };
+    let held = |hotkey: Hotkey| probe::verdict(std::ptr::null_mut(), hotkey, &[]).taken;
     let check = shortcuts::check(keys, &target.id, all, held);
     verdict_of(check, known::meaning(keys.first), &target.label)
 }

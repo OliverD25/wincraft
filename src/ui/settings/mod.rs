@@ -285,6 +285,21 @@ impl SettingsState {
     }
 }
 
+/// The command whose first key press is `hotkey`.
+pub fn command_of(
+    all: &[crate::core::ui_bridge::ShortcutInfo],
+    hotkey: crate::core::traits::Hotkey,
+) -> Option<String> {
+    let mask = !windows_sys::Win32::UI::Input::KeyboardAndMouse::MOD_NOREPEAT;
+    all.iter()
+        .find(|info| {
+            hotkeys::parse_shortcut(&info.binding).is_ok_and(|keys| {
+                keys.first.vk == hotkey.vk && keys.first.modifiers & mask == hotkey.modifiers & mask
+            })
+        })
+        .map(|info| info.id.clone())
+}
+
 /// A test scene's dialog: no keyboard hook, and the keys shown as if
 /// pressed, so a picture can show a conflict or taken keys.
 fn scene_editor(target: Target, keys: Option<String>, snapshot: &UiSnapshot) -> Editor {
@@ -399,6 +414,18 @@ impl Settings {
             shared.state.page = Page::Shortcuts;
             shared.state.open_plugin = None;
             shared.state.scene_dialog = Some((id.to_string(), keys));
+            shared.closed = false;
+            shared.window = 0;
+        }
+    }
+
+    /// Hotkeys with the hotkey dialog open on this command, as the page's
+    /// own Change does.
+    pub fn change_hotkey(&self, id: &str) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.state.page = Page::Shortcuts;
+            shared.state.open_plugin = None;
+            shared.state.shortcuts.change(id);
             shared.closed = false;
             shared.window = 0;
         }
@@ -712,6 +739,15 @@ mod tests {
         assert!(bridge.host_rx.try_recv().is_err(), "a scene saves nothing");
         state.close_hotkey();
         assert!(state.hotkey_dialog.is_none());
+
+        // ShortcutManager's Change finds the command by its first press.
+        let palette = hotkeys::parse("Win+Alt+P").unwrap();
+        assert_eq!(
+            command_of(&snapshot.shortcuts, palette),
+            Some("wincraft.palette".to_string())
+        );
+        let other = hotkeys::parse("Win+Alt+O").unwrap();
+        assert_eq!(command_of(&snapshot.shortcuts, other), None);
     }
 
     #[test]
