@@ -1,5 +1,15 @@
 use super::*;
 
+/// An action's default keys as config text; empty for an action that
+/// starts without keys.
+pub(super) fn default_text(default: Hotkey) -> String {
+    if default.is_none() {
+        String::new()
+    } else {
+        hotkeys::format(default)
+    }
+}
+
 /// Global hotkeys, behind a trait so the bookkeeping runs in tests with a
 /// fake that never registers anything with Windows.
 pub(super) trait Registrar {
@@ -78,7 +88,7 @@ impl PluginSet {
             .plugin
             .hotkey_actions()
             .iter()
-            .map(|action| (action.name, hotkeys::format(action.default)))
+            .map(|action| (action.name, default_text(action.default)))
             .collect();
         let settings = slot.plugin.default_settings();
 
@@ -215,7 +225,7 @@ impl PluginSet {
             .config(plugin_id)
             .and_then(|plugin| plugin.hotkeys.get(name))
         else {
-            return Some(Shortcut::single(default));
+            return (!default.is_none()).then(|| Shortcut::single(default));
         };
         if text.trim().is_empty() {
             return None;
@@ -224,7 +234,7 @@ impl PluginSet {
             Ok(keys) => Some(keys),
             Err(err) => {
                 log::warn!("{plugin_id}.{name}: {err}; using the plugin default");
-                Some(Shortcut::single(default))
+                (!default.is_none()).then(|| Shortcut::single(default))
             }
         }
     }
@@ -528,7 +538,7 @@ impl PluginSet {
             actions
                 .iter()
                 .find(|action| action.id == action_id)
-                .map(|action| hotkeys::format(action.default))
+                .map(|action| default_text(action.default))
                 .unwrap_or_default()
         };
         if slot.enabled {
@@ -553,7 +563,7 @@ impl PluginSet {
                     .resolve_shortcut(meta.id, action.name, action.default)
                     .map(|keys| hotkeys::format_shortcut(&keys))
                     .unwrap_or_default(),
-                default_binding: hotkeys::format(action.default),
+                default_binding: default_text(action.default),
                 registered: true,
             })
             .collect()

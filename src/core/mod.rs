@@ -4,6 +4,7 @@ pub mod attention;
 pub mod autostart;
 pub mod canvas;
 pub mod chord;
+pub mod chord_tip;
 pub mod clipboard;
 pub mod clock;
 pub mod com;

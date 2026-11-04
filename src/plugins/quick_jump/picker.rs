@@ -1,6 +1,6 @@
-//! "Pin a window…": the open windows to choose from for one slot, with a
-//! search box. Enter pins the chosen window (it moves if it is pinned
-//! elsewhere), Esc closes.
+//! "Add a window…": the open windows to choose from, with a search box.
+//! Enter adds the chosen window to the end of Quick access (a window that
+//! is in it already keeps its number), Esc closes.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -19,11 +19,10 @@ use crate::ui::widgets::focus;
 use super::list::clip_text;
 use super::matching::Live;
 use super::pictures::Pictures;
-use super::pins::digit_of_slot;
 use super::shared::{Handle, Request, View};
 
 pub const WINDOW_ID: &str = "picker";
-const TITLE: &str = "QuickJump \u{b7} Pin a window";
+const TITLE: &str = "QuickJump \u{b7} Add a window";
 const WIDTH: f32 = 620.0;
 const ROW: f32 = 56.0;
 const ROWS: usize = 8;
@@ -164,9 +163,7 @@ impl PluginWindow for Picker {
             let mut outcomes = Vec::new();
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(tokens.elevated_bg))
-                .show(ui, |ui| {
-                    contents(ui, &view, slot, &mut state, &mut outcomes)
-                });
+                .show(ui, |ui| contents(ui, &view, &mut state, &mut outcomes));
             state.pictures.end();
             if ui.ctx().input(|i| i.viewport().close_requested()) {
                 outcomes.push(Outcome::Close);
@@ -174,8 +171,7 @@ impl PluginWindow for Picker {
             for outcome in outcomes {
                 match outcome {
                     Outcome::Pin(hwnd) => {
-                        shared.send(Request::Pin { slot, hwnd });
-                        shared.select = Some(slot);
+                        shared.send(Request::Add(hwnd));
                         shared.picker = None;
                     }
                     Outcome::Close => shared.picker = None,
@@ -191,7 +187,7 @@ impl PluginWindow for Picker {
     }
 }
 
-fn contents(ui: &mut Ui, view: &View, slot: usize, state: &mut PickerUi, out: &mut Vec<Outcome>) {
+fn contents(ui: &mut Ui, view: &View, state: &mut PickerUi, out: &mut Vec<Outcome>) {
     let tokens = Tokens::get(ui.ctx());
     let area = ui.max_rect();
     let painter = ui.painter().clone();
@@ -206,11 +202,10 @@ fn contents(ui: &mut Ui, view: &View, slot: usize, state: &mut PickerUi, out: &m
         tokens.text_disabled,
     );
     y += 18.0;
-    let digit = digit_of_slot(slot);
     painter.text(
         pos2(left, y),
         Align2::LEFT_TOP,
-        format!("Pin a window to slot {digit}"),
+        "Add a window to Quick access",
         theme::semibold(18.0),
         tokens.text_primary,
     );
@@ -335,7 +330,7 @@ fn contents(ui: &mut Ui, view: &View, slot: usize, state: &mut PickerUi, out: &m
             painter.text(
                 tag.center(),
                 Align2::CENTER_CENTER,
-                format!("in slot {}", pinned.digit),
+                format!("number {}", pinned.slot + 1),
                 theme::regular(12.0),
                 tokens.text_secondary,
             );
@@ -371,7 +366,7 @@ fn contents(ui: &mut Ui, view: &View, slot: usize, state: &mut PickerUi, out: &m
         |ui| {
             ui.horizontal_centered(|ui| {
                 ui.label(
-                    egui::RichText::new(format!("\u{21b5} Pin to {digit}"))
+                    egui::RichText::new("\u{21b5} Add")
                         .font(theme::regular(12.0))
                         .color(tokens.accent),
                 );
@@ -427,7 +422,7 @@ mod tests {
                 },
                 ..Default::default()
             };
-            let mut output = ctx.run_ui(input, |ui| contents(ui, &view, 4, state, &mut out));
+            let mut output = ctx.run_ui(input, |ui| contents(ui, &view, state, &mut out));
             output.textures_delta.clear();
         }
         out

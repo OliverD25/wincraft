@@ -45,8 +45,8 @@ user's decisions.
 | `Plugins Grid v2.dc.html` (1a), `design_handoff_plugins_grid/README.md` | `src/ui/settings/plugins.rs`, `src/ui/settings/store.rs`, `src/ui/settings/catalog.rs`, `src/ui/widgets/tile.rs` |
 | `Open or Switch Options.dc.html` (1a, then 3a = 2a + 2c) | `src/ui/palette/running.rs`, `running/desks.rs`, `nesting.rs`, `nested_row.rs`, `inspector.rs`; window list from `src/search/providers/windows.rs` |
 | `QuickJump.dc.html` | `src/plugins/quick_jump/` |
-| `Chord Tip Options.dc.html` (5b chosen) | not built yet; will live in the host chord code (`src/core/chord.rs`) and a tip window in `src/ui/` |
-| `Quick Access Options.dc.html` (4a, the user's pick 2026-11-05) | not built yet; will replace the pin list in `src/plugins/quick_jump/list.rs` |
+| `Chord Tip Options.dc.html` (5b chosen) | `src/core/chord_tip.rs` (states, times, sizes), `src/core/chord_tip/draw.rs` (the picture), `screen.rs` (on screen); host chords in `src/core/host/bindings.rs` and `arrange.rs`, QuickJump's in `src/plugins/quick_jump/wait.rs` |
+| `Quick Access Options.dc.html` (4a, the user's pick 2026-11-05) | `src/plugins/quick_jump/list/grid.rs` (cards, keys), `src/plugins/quick_jump/list.rs` (window, details panel) |
 | `Shortcut Detector.dc.html` | `src/plugins/shortcut_detector/window.rs` (ShortcutManager since 0.20.73; the plugin was called ShortcutDetector, its folder and id keep that name) |
 | `WinCraft Themes.dc.html` | `src/core/theme.rs`, `src/ui/settings/themes.rs`, `src/ui/widgets/theme_tile.rs` |
 | `WinCraft Handout.dc.html`, `design_handoff_wincraft_ui/README.md` | `src/core/theme.rs`, `src/ui/widgets/` |

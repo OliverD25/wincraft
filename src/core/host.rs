@@ -48,8 +48,8 @@ use crate::core::ui_bridge::{
 use crate::core::update::{self, Checked, Handover};
 use crate::core::update_notice::{self, UpdateNotice};
 use crate::core::{
-    autostart, chord, config, hotkeys, install, instance, mask_key, release_notes, taskbar,
-    taskbar_number, theme, update_stage, update_timing, wide, window_snapshot,
+    autostart, chord, chord_tip, config, hotkeys, install, instance, mask_key, release_notes,
+    taskbar, taskbar_number, theme, update_stage, update_timing, wide, window_snapshot,
 };
 use crate::search::{self, Router, SearchProvider};
 use crate::store::github::{self, Release};

@@ -222,7 +222,7 @@ from any callback.
 
 Most plugins need no window: settings, the tray, the palette and the
 notices are the host's. When yours keeps a list that people browse and
-edit, such as QuickJump's pin list, return a `PluginWindow` from
+edit, such as QuickJump's Quick access window, return a `PluginWindow` from
 `windows()`. Like a search provider it is made once at startup and moved to
 the UI thread, so share data with your plugin through an `Arc<Mutex<…>>`
 and wake your plugin with a message to a window of its own.
@@ -464,7 +464,10 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   connected now, for the strip), `taskbar_order` (a group's thumbnail order
   and the calls that set it), `strip_groups` (the strip's data from windows
   in order), `window_actions` (switch to, close or move one window),
-  `chord` (waiting for the key after a hotkey), `canvas` (drawing an
+  `chord` (waiting for the key after a hotkey), `chord_tip` (the tip that
+  shows while a chord waits: pass `chord_tip::show` your keys and the list
+  of keys that can follow, and `chord_tip::end` how the wait ended),
+  `canvas` (drawing an
   on-screen panel for `core::layered`) and `notice` (the notice with Undo
   that QuickJump and QuickActions show after a change).
 - **Clean up in `teardown`.** A plugin can be switched off and on again from

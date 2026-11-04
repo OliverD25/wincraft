@@ -1,32 +1,78 @@
 # QuickJump
 
-Pin up to ten windows to the number keys and jump back to any of them from
-anywhere, on any virtual desktop. It works like Harpoon in Neovim, for
-windows.
+Keep up to ten windows in a numbered list and jump back to any of them
+from anywhere, on any virtual desktop. It works like Harpoon in Neovim,
+for windows.
 
 ## Keys
 
-- **Win+Alt+Shift+Q, then a digit** pins the window in front to that slot.
-- **Win+Alt+Q, then a digit** jumps to the window in that slot.
-- **Win+Alt+Q twice** opens the pin list.
+Press **Win+`** (the key left of 1), then one more key:
 
-1 to 9 are slots 1 to 9, and 0 is slot 10, as with Win+number. You can keep
-Win and Alt held while you press the digit, or let them go first. QuickJump
-waits 3 seconds for the digit. Esc, a click, or any other key stops the wait
-and changes nothing.
+| Then | What it does |
+|---|---|
+| 1 to 9, 0 | Jump to window 1 to 10 in the list |
+| ` (Win+` twice) | Open Quick access |
+| A | Add the window in front to the end of the list |
+| Alt+1 to Alt+9, Alt+0 | Put the window in front at that number |
+| U | Unpin the window in front |
+| Esc | Cancel |
 
-Every shortcut can be changed in Settings, Hotkeys. The pin list
-has a row there too, "Open pin list", with no keys at first.
+0 is number 10, as with Win+number. You can keep Win held while you press
+the next key, or let it go first. QuickJump waits 3 seconds for it.
 
-## The strip
+While it waits, a tip at the bottom of the screen shows the keys you
+pressed, the windows in the list with their numbers, and what the other
+keys do. A thin bar along its bottom runs out with the time. The tip never
+takes the keyboard from the app in front, and clicks go through it. When
+the wait ends, the tip says how: the window you jumped to, "Nothing
+assigned to X" for a key with no job (that key does not reach the app
+either), or "Cancelled".
 
-While QuickJump waits for the digit, a strip at the bottom of the screen
-shows the ten slots: the app's icon and name, and a line that says what the
-digit would do. A thin line along its top shrinks while the time runs out.
-A slot whose window is on another desktop shows that desktop, such as "D3".
+Every shortcut can be changed in Settings, Hotkeys. "Pin this window…"
+has no keys at first; give it keys there and then a digit puts the window
+in front at that number. "Open quick access" has a row there too, with no
+keys at first.
 
-The strip never takes the keyboard from the app in front, and clicks go
-through it.
+### When Win+` does nothing
+
+Windows Terminal uses Win+` to show its quake window on many PCs, and only
+one app can own a shortcut. WinCraft then warns that the key is taken.
+WinCraft does not take the key from Windows Terminal. To free it:
+
+1. Open Windows Terminal.
+2. Press Ctrl+, to open "Settings".
+3. Click "Actions" in the list on the left.
+4. Find "Toggle quake mode" (it may also be called "Show/Hide the
+   Terminal window" or "globalSummon"), with the keys "Win+`".
+5. Click the pencil next to it, then the bin, to delete the keys.
+6. Click "Save" at the bottom right.
+7. Turn QuickJump off and on again in WinCraft's Settings, Plugins, or
+   restart WinCraft. The warning should not come back.
+
+Or give QuickJump other keys in WinCraft's Settings, Hotkeys.
+
+## The list
+
+The list holds up to ten windows, in order. A window's number is its place
+in the list:
+
+- **A** adds the window in front to the end. With ten windows the tip says
+  "Quick access is full", and nothing changes. A window that is in the list
+  already keeps its number, and the tip says "Already number N".
+- **Alt and a digit** puts the window in front at that number: the window
+  that had the number and the ones after it move down one. A window that is
+  in the list already moves from its old place. A number past the end of
+  the list puts the window at the end.
+- **U**, or Del in Quick access, unpins a window. The windows after it move
+  up one, so there is never a gap.
+
+Every change shows a notice with **Undo**; Ctrl+Z works too while the
+notice is on screen. The notice stays longer while the mouse rests on it.
+
+Before 0.20.74 the pins sat in ten fixed slots. The first start of 0.20.74
+turns them into the list, in slot order without the empty slots, and keeps
+a copy of the old file as
+`%LOCALAPPDATA%\WinCraft\plugins\quick_jump.state.before-0.20.74.json`.
 
 ## Jumping
 
@@ -37,14 +83,6 @@ does nothing.
 
 When the window is not open, QuickJump starts the app and switches to its
 first window once it opens. Each pin can turn this off in its details.
-
-## Pinning
-
-A digit pins at once and a short notice says what happened. Pinning to a
-full slot replaces what was there, and a window that is pinned to another
-slot moves. Every change shows a notice with **Undo**; Ctrl+Z works too
-while the notice is on screen. The notice stays longer while the mouse rests
-on it.
 
 ## How a pin finds its window
 
@@ -57,32 +95,33 @@ opens again, also after a restart, QuickJump looks for it in this order:
    one, if there are several),
 3. the app's only window.
 
-With no match the slot shows "not open". The pins are saved in
+With no match the card says "not open". The pins are saved in
 `%LOCALAPPDATA%\WinCraft\plugins\quick_jump.state.json`.
 
-## The pin list
+## Quick access
 
-Open it with Win+Alt+Q twice, from the tray menu or from the palette. It
-shows all ten slots with a live picture of each window.
+Open it with Win+` twice, from the tray menu or from the palette. It shows
+the pinned windows as cards in rows of four, in list order, each with a
+live picture of the window, its title and app, and the key that reaches it
+under the card.
 
 | Key | What it does |
 |---|---|
-| ↑ ↓ | Select a slot |
-| Enter, double-click | Jump, and close the list; on an empty slot, pick a window |
-| Ctrl+↑ ↓, drag | Move the pin up or down |
-| 1 to 0 | Move the pin to that slot, swapping with a pin there |
-| Del | Remove the pin |
-| F2, click the selected pin | Open the details |
-| Esc | Close the details, then the list |
+| ↑ ↓ ← → | Select a card |
+| Enter, double-click, 1 to 0 | Jump, and close Quick access |
+| Ctrl+arrows, drag | Move the window to another place |
+| Del | Unpin the window; the ones after it move up |
+| F2, click the selected card | Open the details |
+| Esc | Close the details, then Quick access |
 
-The details give a pin a label, which the strip and the list show instead of
-the app's name, and set how QuickJump finds the window: the app, and the
-text its title contains. A line under the title says how many open windows
-match now. Changes take effect with Done; Esc drops them.
-
-**Pin a window…** on an empty slot lists the open windows to choose from.
+The details give a pin a label, which the tip and Quick access show instead
+of the window's title, and set how QuickJump finds the window: the app, and
+the text its title contains. A line under the title says how many open
+windows match now. Changes take effect with Done; Esc drops them.
 
 ## The palette
 
-Type "jump" in the palette for one row per pinned slot, such as "Jump to 3 ·
-Claude". "Pin this window…" and "Open pin list" are there too.
+Type "jump" in the palette for one row per pinned window, such as "Jump to
+3 · Claude". "Add a window to Quick access…" lists the open windows to
+choose from, and adds the one you pick to the end. "Pin this window…" and
+"Open quick access" are there too.

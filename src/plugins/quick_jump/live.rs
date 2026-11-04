@@ -10,7 +10,7 @@ use crate::core::{appid, monitors, window_names, windows_list};
 
 use super::matching::Live;
 
-/// Whether the window belongs to WinCraft itself, such as the pin list.
+/// Whether the window belongs to WinCraft itself, such as Quick access.
 pub fn is_own(hwnd: HWND) -> bool {
     let mut pid = 0;
     unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };

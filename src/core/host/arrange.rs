@@ -417,7 +417,10 @@ impl Host {
     /// and a first digit is no longer joined by a second one.
     pub(super) fn end_wait(&mut self) {
         chord::stop_for(self.hwnd as isize);
-        self.chord_wait = None;
+        if self.chord_wait.take().is_some() {
+            // A tip that already says how the chord ended keeps saying it.
+            chord_tip::end(self.hwnd as isize, chord_tip::End::Cancelled);
+        }
         self.stop_reveal();
         self.wait_hint = None;
         self.digits = taskbar_number::Digits::default();
@@ -426,26 +429,36 @@ impl Host {
     /// Keys the hook kept during the wait, or the news that it ended.
     pub(super) fn wait_news(&mut self, news: chord::News) {
         if let Some(press) = self.chord_wait.clone() {
-            for stroke in news.taken {
-                match shortcuts::chord_key(&press, stroke) {
-                    shortcuts::ChordKey::Run(command) => {
-                        self.end_wait();
-                        log::info!(
-                            "chord {}: second key matched",
-                            hotkeys::format(press.hotkey)
-                        );
-                        self.run_from_key(command);
-                        return;
-                    }
-                    shortcuts::ChordKey::Cancel => {
-                        self.end_wait();
-                        return;
-                    }
-                    shortcuts::ChordKey::Other => {}
+            let owner = self.hwnd as isize;
+            // Every key the hook takes ends the wait, so only the first
+            // one counts.
+            let Some(&stroke) = news.taken.first() else {
+                if news.ended {
+                    self.end_wait();
                 }
-            }
-            if news.ended {
-                self.end_wait();
+                return;
+            };
+            let key = chord_tip::key_label(stroke, press.hotkey.modifiers);
+            match shortcuts::chord_key(&press, stroke) {
+                shortcuts::ChordKey::Run(command) => {
+                    let text = self.command_name(command);
+                    chord_tip::end(owner, chord_tip::End::Matched { key, text });
+                    self.end_wait();
+                    log::info!(
+                        "chord {}: second key matched",
+                        hotkeys::format(press.hotkey)
+                    );
+                    self.run_from_key(command);
+                }
+                shortcuts::ChordKey::Cancel => self.end_wait(),
+                shortcuts::ChordKey::Other => {
+                    log::info!(
+                        "chord {}: nothing is assigned to {key}",
+                        hotkeys::format(press.hotkey)
+                    );
+                    chord_tip::end(owner, chord_tip::End::Unassigned { key });
+                    self.end_wait();
+                }
             }
             return;
         }
@@ -594,7 +607,7 @@ thread_local! {
 /// The keyboard hook's rule while a chord with first press `press` waits
 /// for its second press. It runs on the hook's thread, so it owns `press`.
 pub(super) fn chord_rule(press: FirstPress) -> impl Fn(chord::Stroke) -> chord::Verdict + Send {
-    move |stroke| shortcuts::chord_verdict(shortcuts::chord_key(&press, stroke))
+    move |stroke| shortcuts::chord_rule_verdict(&press, stroke)
 }
 
 /// The part of a WinCraft command's shortcut id after "wincraft.".

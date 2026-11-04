@@ -63,7 +63,7 @@
       "name": "QuickJump",
       "version": "1.0.0",
       "author": "community",
-      "description": "Pin windows to the digits and jump back to one from anywhere.",
+      "description": "Keep up to ten windows in a numbered list and jump back to one from anywhere.",
       "readme": "src/plugins/quick_jump/README.md",
       "category": "Windows",
       "icon": "pin"

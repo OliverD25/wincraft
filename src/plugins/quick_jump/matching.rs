@@ -126,20 +126,19 @@ pub fn check_line(count: usize) -> (String, CheckTone) {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum State {
     #[default]
-    Empty,
     NotOpen,
     Open,
     /// The pin's window is the one in front.
     InFront,
 }
 
-/// One slot as the strip, the list and the palette show it.
+/// One pin as the tip, the Quick access window and the palette show it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SlotView {
     pub slot: usize,
     pub digit: u8,
     pub state: State,
-    /// The label, else the app's name; empty for an empty slot.
+    /// The label, else the app's name.
     pub name: String,
     pub app_name: String,
     /// The open window's title, else the pin's title text.
@@ -154,23 +153,25 @@ pub struct SlotView {
 }
 
 impl SlotView {
-    pub fn is_pinned(&self) -> bool {
-        self.state != State::Empty
+    /// What the tip and Quick access call the pin: its label, else the
+    /// window's title, else the app's name.
+    pub fn title_line(&self) -> &str {
+        if self.name != self.app_name {
+            &self.name
+        } else if !self.title.trim().is_empty() {
+            &self.title
+        } else {
+            &self.app_name
+        }
     }
 }
 
-/// Every slot, in order, with the window each pin stands for now.
+/// Every pin, in order, with the window each one stands for now.
 pub fn slot_views(slots: &Slots, live: &[Live], front: isize) -> Vec<SlotView> {
-    (0..SLOTS)
-        .map(|slot| {
+    slots
+        .iter()
+        .map(|(slot, pin)| {
             let digit = digit_of_slot(slot);
-            let Some(pin) = slots.get(slot) else {
-                return SlotView {
-                    slot,
-                    digit,
-                    ..SlotView::default()
-                };
-            };
             let found = find(pin, live);
             let state = match found {
                 Some(window) if window.hwnd == front => State::InFront,
@@ -197,9 +198,9 @@ pub fn slot_views(slots: &Slots, live: &[Live], front: isize) -> Vec<SlotView> {
         .collect()
 }
 
-/// "7 of 10 slots pinned".
+/// "7 of 10 pinned".
 pub fn pinned_line(count: usize) -> String {
-    format!("{count} of {SLOTS} slots pinned")
+    format!("{count} of {SLOTS} pinned")
 }
 
 #[cfg(test)]
@@ -288,27 +289,25 @@ pub mod tests {
     }
 
     #[test]
-    fn each_slot_knows_whether_it_is_open_in_front_closed_or_empty() {
+    fn each_pin_knows_whether_it_is_open_in_front_or_closed() {
         let mut slots = Slots::default();
-        slots.pin(0, pin("Claude", None));
-        slots.pin(1, pin("Chrome", None));
-        slots.pin(2, pin("Code", None));
+        slots.add(pin("Claude", None));
+        slots.add(pin("Chrome", None));
+        slots.add(pin("Code", None));
         let mut far = window(2, "Chrome", "Docs");
         far.desktop = Some(3);
         far.other_desktop = true;
         far.monitor = Some("Left".to_string());
         let live = vec![window(1, "Claude", "Claude"), far];
         let views = slot_views(&slots, &live, 1);
-        assert_eq!(views.len(), SLOTS);
+        assert_eq!(views.len(), 3);
         assert_eq!(views[0].state, State::InFront);
         assert_eq!(views[1].state, State::Open);
         assert_eq!(views[1].badge.as_deref(), Some("D3"));
         assert_eq!(views[1].place, "Desktop 3 \u{b7} Left");
         assert_eq!(views[2].state, State::NotOpen);
         assert_eq!(views[2].hwnd, None);
-        assert_eq!(views[3].state, State::Empty);
-        assert!(!views[3].is_pinned());
-        assert_eq!(views[9].digit, 0);
+        assert_eq!(views[2].digit, 3);
         assert_eq!(views[0].badge, None, "this desktop needs no badge");
     }
 
@@ -317,6 +316,6 @@ pub mod tests {
         assert_eq!(place(None, None), "");
         assert_eq!(place(Some(2), None), "Desktop 2");
         assert_eq!(place(None, Some("Centre")), "Centre");
-        assert_eq!(pinned_line(7), "7 of 10 slots pinned");
+        assert_eq!(pinned_line(7), "7 of 10 pinned");
     }
 }

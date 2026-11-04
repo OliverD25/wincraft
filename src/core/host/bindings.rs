@@ -86,10 +86,40 @@ impl Host {
             return;
         }
         log::info!("{keys}: waiting 3 s for the second key of a chord");
+        let rows = self.chord_rows(&press);
+        chord_tip::show(
+            self.hwnd as isize,
+            chord_tip::Content::of_keys(&keys, rows),
+            shortcuts::CHORD_WAIT,
+        );
         self.chord_wait = Some(press);
-        self.wait_hint = Some(ui::taskbar_badges::WaitHint::line_only(
-            &shortcuts::wait_line(&keys),
-        ));
+    }
+
+    /// The second keys of a chord and their commands' names, for the tip.
+    pub(super) fn chord_rows(&self, press: &FirstPress) -> Vec<chord_tip::Row> {
+        let entries = self.plugins.palette_entries(&[]);
+        press
+            .seconds
+            .iter()
+            .map(|(second, command)| {
+                let name = entries
+                    .iter()
+                    .find(|entry| entry.id == *command)
+                    .map(|entry| entry.label.clone())
+                    .unwrap_or_default();
+                chord_tip::Row::new(hotkeys::format(*second), name)
+            })
+            .collect()
+    }
+
+    /// The name of the command a chord ran, for the tip.
+    pub(super) fn command_name(&self, command: CommandId) -> String {
+        self.plugins
+            .palette_entries(&[])
+            .into_iter()
+            .find(|entry| entry.id == command)
+            .map(|entry| entry.label)
+            .unwrap_or_default()
     }
 
     /// Applies the Hotkeys page's changes in order, so Replace
