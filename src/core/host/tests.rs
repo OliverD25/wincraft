@@ -1480,6 +1480,11 @@ fn settings_requests_save_and_publish() {
     assert!(ui
         .try_iter()
         .any(|command| matches!(command, UiCommand::ClearPaletteUsage)));
+    let keys = hotkeys::parse("Win+Alt+S").unwrap();
+    host.handle_request(HostRequest::ChangeHotkeyOf(keys));
+    assert!(ui
+        .try_iter()
+        .any(|command| matches!(command, UiCommand::ChangeHotkeyOf(sent) if sent == keys)));
 }
 
 fn change(id: &str, binding: Option<&str>) -> ShortcutChange {

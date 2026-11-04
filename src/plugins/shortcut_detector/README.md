@@ -50,6 +50,31 @@ the box.
 | Windows · reserved, no app can have it: … | Windows keeps it and no program can ever have it, such as `Win+L`. |
 | WinCraft · … | One of your own WinCraft plugins holds it. |
 
+Under the box a line says what you can do about it:
+
+| Owner | The line | Buttons |
+|---|---|---|
+| WinCraft | Which command uses it. | **Change** opens the hotkey dialog on that command. |
+| A shortcut file | Which shortcut has the key. | **Change** asks for a new key and writes it into the shortcut file; **Remove key** takes the key away. Explorer may take a moment to use the new key; if it does not, sign out and in again. A shortcut file key cannot use `Win`, and one in the common Start menu may need administrator rights. |
+| A known app | Where in that app you change it, for example "Windows Terminal: Settings → Actions → Quake mode". | **Press it for real** |
+| Unknown app | "Unknown app. Try 'Press it for real' to see which app reacts." | **Press it for real** |
+| Windows | That Windows uses it, or keeps it. | None. |
+
+**Press it for real** sends the combination once, as if you pressed it, and
+watches for 3 seconds which window comes to the front or opens. The line then
+says, for example, "Pressing it opened "Windows PowerShell" from
+WindowsTerminal.exe.", and the list names that app with Source `press test`.
+The other app really acts, so this happens only when you click the button.
+A test copy of WinCraft never sends keys (the button is greyed out), and keys
+that Windows keeps, such as `Win+L`, are never sent.
+
+While the box holds a combination, the list below shows search results:
+first that combination, then up to 8 free combinations close to it (the same
+key with one modifier added, taken away or swapped, or the same modifiers
+with the key next to it), `Win+Alt` ones first. "Show all" or `Esc` empties
+the box and brings back the full list with your search, filter and sort as
+they were.
+
 ## Hotkeys
 
 | Action | Default |
@@ -83,6 +108,19 @@ from two places, read only when the window scans:
   (`known_apps.rs`). An app is named only while it runs, and only as
   "probably", because you may have changed the key in that app. Source
   `known apps`.
+
+A shortcut file wins over a known app. When neither knows, **Press it for
+real** (see above) can show which app reacts.
+
+### Adding an app
+
+Add one `KnownApp` entry to `known_apps.rs` in a pull request: the app's
+name, its program file names (as Task Manager's Details tab shows them), its
+default global keys with what each does, and where in the app the user
+changes them. Only add keys the app registers for the whole desktop by
+default, not keys that work only inside its own window and not keys it reads
+through a keyboard hook. If you are not sure of a key, leave it out: a wrong
+guess is worse than none. The unit tests check that every key parses.
 
 **The limitation:** a program that reads keys through a keyboard hook instead of
 registering a hotkey cannot be detected by this method, or by any method that

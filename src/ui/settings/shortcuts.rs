@@ -83,7 +83,7 @@ impl View {
     }
 
     /// Asks for the hotkey dialog on this row.
-    fn change(&mut self, id: &str) {
+    pub(crate) fn change(&mut self, id: &str) {
         self.selected = Some(Spot::Row(id.to_string()));
         self.dialog_request = Some(id.to_string());
     }

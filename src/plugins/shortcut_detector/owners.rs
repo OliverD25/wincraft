@@ -56,11 +56,6 @@ impl Found<'_> {
             Found::Known { .. } => SOURCE_KNOWN,
         }
     }
-
-    /// True when the answer is a guess the user should be told about.
-    pub fn is_guess(&self) -> bool {
-        matches!(self, Found::Known { .. })
-    }
 }
 
 impl Owners {
@@ -179,7 +174,7 @@ mod tests {
         assert_eq!(entry.owner(), "Windows Terminal, probably");
         assert_eq!(entry.meaning, "Open the Quake mode window");
         assert_eq!(entry.source, SOURCE_KNOWN);
-        assert!(on.find(key("Win+`")).unwrap().is_guess());
+        assert!(matches!(on.find(key("Win+`")), Some(Found::Known { .. })));
         assert_eq!(on.link_path(key("Win+`")), None);
     }
 
@@ -188,7 +183,10 @@ mod tests {
         let both = owners(&[("Ctrl+PrintScreen", "Snap")], &["ShareX.exe"]);
         let entry = applied(&both, "Ctrl+PrintScreen", true);
         assert_eq!(entry.owner(), "Explorer shortcut: Snap");
-        assert!(!both.find(key("Ctrl+PrintScreen")).unwrap().is_guess());
+        assert!(matches!(
+            both.find(key("Ctrl+PrintScreen")),
+            Some(Found::Link(_))
+        ));
     }
 
     #[test]

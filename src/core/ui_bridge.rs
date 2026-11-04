@@ -569,6 +569,9 @@ pub enum UiCommand {
     },
     /// The palette forgets every pick it recorded.
     ClearPaletteUsage,
+    /// Settings → Hotkeys with the hotkey dialog on the command whose first
+    /// key press is this one, as ShortcutDetector's Change asks.
+    ChangeHotkeyOf(crate::core::traits::Hotkey),
     /// The palette forgets where it was dragged to and moves back to the centre.
     CentrePalette,
     /// The answer to `HostRequest::CommandDetails`; None when the plugin
@@ -694,6 +697,9 @@ pub enum HostRequest {
     ArrangeDigit(u8),
     /// Settings' "Clear usage history": the palette forgets every pick.
     ClearPaletteUsage,
+    /// A plugin window's "Change" on one of WinCraft's own hotkeys: open the
+    /// hotkey dialog on the command that holds it.
+    ChangeHotkeyOf(crate::core::traits::Hotkey),
     /// The palette was dragged: remember its spot on this monitor (a device
     /// name), or forget it with `None`.
     SetPaletteSpot {

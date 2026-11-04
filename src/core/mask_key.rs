@@ -78,6 +78,13 @@ pub fn win_digit_keys(vk: u32, win_held: bool) -> Vec<(u32, bool)> {
     keys
 }
 
+/// Sends `keys` (virtual key, up) in one go, each with `TAG`. False when
+/// Windows took fewer than all of them.
+pub fn send_keys(keys: &[(u32, bool)]) -> bool {
+    let inputs: Vec<INPUT> = keys.iter().map(|(vk, up)| input(*vk, *up)).collect();
+    send_all(&inputs)
+}
+
 /// Sends Win+`vk` to Windows again, for a Win+number a hook kept and then
 /// found it should not have.
 pub fn replay_win_digit(vk: u32) {
