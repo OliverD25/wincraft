@@ -45,7 +45,7 @@ impl Area {
 
     /// Signed distance from the point to the edge of this box with rounded
     /// corners: below zero inside.
-    fn distance(self, px: f32, py: f32, radius: f32) -> f32 {
+    pub fn distance(self, px: f32, py: f32, radius: f32) -> f32 {
         let (half_w, half_h) = (self.w / 2.0, self.h / 2.0);
         let radius = radius.min(half_w).min(half_h).max(0.0);
         let qx = (px - (self.x + half_w)).abs() - (half_w - radius);
