@@ -312,6 +312,7 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
             refresh_arrange();
         }
         if taskbar_cache::buttons_may_change(wparam) {
+            taskbar_cache::note_change();
             // A busy host misses nothing: a press checks the list it counts.
             let _ = HOST.with(|cell| run_unless_busy(cell, |host| host.buttons_changed()));
         }

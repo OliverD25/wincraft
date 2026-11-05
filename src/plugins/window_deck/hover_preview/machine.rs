@@ -3,6 +3,7 @@
 //! when to close it, and when Windows' own popup may be hidden. Nothing
 //! here calls Windows, so all of it is tested on made-up looks.
 
+use super::carry::{Carry, Spot};
 use crate::core::taskbar_popup::keys::{decide, Decision, KeyState, KeyWatch};
 
 /// Left, top, right, bottom in physical screen pixels.
@@ -70,6 +71,10 @@ pub struct Look {
     pub now: u64,
     pub cursor: Point,
     pub on_taskbar: bool,
+    /// The taskbar the mouse is on.
+    pub taskbar: Option<Rect>,
+    /// Goes up each time the taskbar's buttons may have changed.
+    pub button_changes: u64,
     pub keys: KeyState,
     /// The strip's window, while it is on screen.
     pub strip: Option<Rect>,
@@ -94,12 +99,18 @@ pub enum Command {
 }
 
 /// When Windows' popup may be hidden: only while the mouse is on this
-/// button or in the strip, and only when the key rules allow it.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// button or in the strip, on a button known to have two or more windows,
+/// or anywhere on `area` while the next button is not known yet, and only
+/// when the key rules allow it.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Gate {
-    pub button: Rect,
+    pub button: Option<Rect>,
     pub strip: Option<Rect>,
     pub keys: KeyWatch,
+    pub area: Option<Rect>,
+    pub eligible: Vec<Rect>,
+    /// Buttons known to have one window: never hidden, even on `area`.
+    pub single: Vec<Rect>,
 }
 
 impl Gate {
@@ -107,7 +118,11 @@ impl Gate {
         if self.keys.win_was_down() {
             return false;
         }
-        let on = contains(self.button, cursor) || self.strip.is_some_and(|s| contains(s, cursor));
+        let inside = |rect: &Rect| contains(*rect, cursor);
+        let on = self.button.as_ref().is_some_and(inside)
+            || self.strip.as_ref().is_some_and(inside)
+            || self.eligible.iter().any(inside)
+            || (self.area.as_ref().is_some_and(inside) && !self.single.iter().any(inside));
         decide(&self.keys.inputs(keys, now, on)) == Decision::Hide
     }
 }
@@ -149,6 +164,7 @@ pub struct Machine {
     escape_was_down: bool,
     /// A Windows key went down while the strip was open with Win+1…9 on.
     win_held: bool,
+    carry: Carry,
 }
 
 impl Default for Machine {
@@ -161,6 +177,7 @@ impl Default for Machine {
             mouse_was_down: false,
             escape_was_down: false,
             win_held: false,
+            carry: Carry::default(),
         }
     }
 }
@@ -198,18 +215,61 @@ impl Machine {
         if !self.on {
             return None;
         }
+        let (button, strip) = match &self.state {
+            State::OnButton { button, .. } if button.eligible() => (Some(button.rect), None),
+            State::Open { button, .. } => (Some(button.rect), strip),
+            // The keyboard or a click had a part in this hover.
+            State::Done { .. } => return None,
+            _ => (None, None),
+        };
+        let area = self.carry.area();
+        let eligible = self.carry.known(true);
+        if button.is_none() && area.is_none() && eligible.is_empty() {
+            return None;
+        }
+        Some(Gate {
+            button,
+            strip,
+            keys: self.keys,
+            area,
+            eligible,
+            single: self.carry.known(false),
+        })
+    }
+
+    /// Whether the popup may be hidden anywhere on the taskbar now.
+    pub fn carrying(&self) -> bool {
+        self.carry.active()
+    }
+
+    /// See `Carry::take_undo`.
+    pub fn take_undo(&mut self) -> bool {
+        self.carry.take_undo()
+    }
+
+    /// Whether the hover holds a button now: the popup there is WinCraft's.
+    fn holds(&self) -> bool {
         match &self.state {
-            State::OnButton { button, .. } if button.eligible() => Some(Gate {
-                button: button.rect,
-                strip: None,
-                keys: self.keys,
-            }),
-            State::Open { button, .. } => Some(Gate {
-                button: button.rect,
-                strip,
-                keys: self.keys,
-            }),
-            _ => None,
+            State::OnButton { button, .. } => button.eligible(),
+            State::Open { .. } => true,
+            _ => false,
+        }
+    }
+
+    fn spot(&self, look: &Look) -> Spot {
+        match &self.state {
+            State::OnButton { button, .. } if button.eligible() => Spot::Holds,
+            State::Open { button, other, .. } => {
+                let on_button = look.on_taskbar && contains(button.rect, look.cursor);
+                let in_strip = look.strip.is_some_and(|strip| contains(strip, look.cursor));
+                match other {
+                    _ if on_button || in_strip => Spot::Holds,
+                    Some((at, _, _)) => Spot::Waiting(*at),
+                    None => Spot::Other,
+                }
+            }
+            State::Resting { at, .. } => Spot::Waiting(*at),
+            _ => Spot::Other,
         }
     }
 
@@ -221,6 +281,7 @@ impl Machine {
         }
         let was_open = self.is_open();
         self.state = State::Idle;
+        self.carry.clear();
         if was_open {
             vec![Command::Close]
         } else {
@@ -236,8 +297,10 @@ impl Machine {
         self.escape_was_down = look.keys.escape;
         if !self.on {
             self.state = State::Idle;
+            self.carry.clear();
             return Vec::new();
         }
+        let held = self.holds() || self.carry.active();
         let mut out = Vec::new();
         if !self.is_open() {
             self.win_held = false;
@@ -275,6 +338,8 @@ impl Machine {
                 &mut out,
             ),
         };
+        let spot = self.spot(look);
+        self.carry.step(held, spot, look);
         out
     }
 
@@ -534,6 +599,7 @@ mod tests {
     const ON_BUTTON: Point = (1020, 2060);
     const IN_STRIP: Point = (1020, 1800);
     const DESKTOP: Point = (500, 500);
+    const TASKBAR: Rect = [0, 2040, 3840, 2088];
 
     fn button(windows: usize) -> Button {
         Button {
@@ -555,6 +621,7 @@ mod tests {
             now,
             cursor,
             on_taskbar: cursor.1 >= 2040,
+            taskbar: (cursor.1 >= 2040).then_some(TASKBAR),
             ..Look::default()
         }
     }
@@ -1154,7 +1221,188 @@ mod tests {
             ..with_strip(now + 120, next_point)
         };
         assert_eq!(machine.step(&single), [Command::Close]);
+        let gate = machine.gate(None);
+        assert!(
+            !gate.is_some_and(|gate| gate.allows(next_point, KeyState::default(), now + 130)),
+            "Windows' popup for the one-window app is left alone"
+        );
+    }
+
+    const NEXT_POINT: Point = (1070, 2060);
+    const FAR_POINT: Point = (2000, 2060);
+
+    fn hides(machine: &Machine, cursor: Point, now: u64) -> bool {
+        machine
+            .gate(Some(STRIP))
+            .is_some_and(|gate| gate.allows(cursor, KeyState::default(), now))
+    }
+
+    fn next(windows: usize) -> Button {
+        Button {
+            app: "Telegram.TelegramDesktop".to_string(),
+            rect: NEXT,
+            windows,
+        }
+    }
+
+    /// From the open strip to the next button, until its lookup is asked.
+    fn move_to_next(machine: &mut Machine, now: u64) -> u64 {
+        machine.step(&with_strip(now + 16, NEXT_POINT));
+        assert!(hides(machine, NEXT_POINT, now + 16), "before the lookup");
+        assert_eq!(
+            machine.step(&with_strip(now + 16 + LOOKUP_MS, NEXT_POINT)),
+            [Command::Lookup(NEXT_POINT)]
+        );
+        assert!(hides(machine, NEXT_POINT, now + 16 + LOOKUP_MS), "asked");
+        now + 16 + LOOKUP_MS
+    }
+
+    #[test]
+    fn from_the_open_strip_the_next_button_stays_hidden_until_it_is_known() {
+        let mut machine = on();
+        let now = open_strip(&mut machine);
+        machine.step(&with_strip(now + 8, FAR_POINT));
+        assert!(hides(&machine, FAR_POINT, now + 8), "moving along");
+        let now = move_to_next(&mut machine, now + 8);
+        let answer = Look {
+            answer: Some(Answer {
+                at: NEXT_POINT,
+                button: Some(next(2)),
+            }),
+            ..with_strip(now + 40, NEXT_POINT)
+        };
+        assert_eq!(machine.step(&answer).len(), 1, "opens for the next app");
+        assert_eq!(machine.open_button(), Some(NEXT));
+        assert!(hides(&machine, NEXT_POINT, now + 40), "no gap");
+        assert!(!hides(&machine, DESKTOP, now + 40));
+    }
+
+    #[test]
+    fn a_next_button_with_one_window_is_left_to_windows() {
+        let mut machine = on();
+        let now = open_strip(&mut machine);
+        let now = move_to_next(&mut machine, now);
+        let answer = Look {
+            answer: Some(Answer {
+                at: NEXT_POINT,
+                button: Some(next(1)),
+            }),
+            ..with_strip(now + 40, NEXT_POINT)
+        };
+        assert_eq!(machine.step(&answer), [Command::Close]);
+        assert!(!hides(&machine, NEXT_POINT, now + 40));
+        assert!(!hides(&machine, FAR_POINT, now + 40), "not carried on");
+    }
+
+    #[test]
+    fn a_point_that_is_no_app_button_stops_the_carry_there() {
+        let mut machine = on();
+        let now = open_strip(&mut machine);
+        let now = move_to_next(&mut machine, now);
+        machine.step(&Look {
+            answer: Some(Answer {
+                at: NEXT_POINT,
+                button: None,
+            }),
+            ..with_strip(now + 40, NEXT_POINT)
+        });
+        assert!(machine.is_open(), "the strip waits out its grace");
+        assert!(!hides(&machine, NEXT_POINT, now + 40));
+        assert!(
+            hides(&machine, IN_STRIP, now + 40),
+            "the strip is still covered"
+        );
+    }
+
+    #[test]
+    fn from_an_eligible_button_the_next_one_stays_hidden_until_known() {
+        let mut machine = on();
+        machine.delay_ms = 1000;
+        rest_on(&mut machine, 2);
+        machine.step(&look(120, NEXT_POINT));
+        assert!(hides(&machine, NEXT_POINT, 120));
+        machine.step(&look(120 + LOOKUP_MS, NEXT_POINT));
+        assert!(hides(&machine, NEXT_POINT, 120 + LOOKUP_MS));
+        machine.step(&answered(200, NEXT_POINT, Some(next(3))));
+        assert_eq!(machine.app(), Some("Telegram.TelegramDesktop"));
+        assert!(hides(&machine, NEXT_POINT, 200), "on the known button now");
+    }
+
+    #[test]
+    fn leaving_the_taskbar_ends_the_carry() {
+        let mut machine = on();
+        machine.delay_ms = 1000;
+        rest_on(&mut machine, 2);
+        machine.step(&look(120, NEXT_POINT));
+        assert!(hides(&machine, NEXT_POINT, 120));
+        machine.step(&look(140, DESKTOP));
         assert_eq!(machine.gate(None), None);
+        machine.step(&look(160, NEXT_POINT));
+        assert!(!hides(&machine, NEXT_POINT, 160), "a fresh hover");
+
+        let mut open = on();
+        let now = open_strip(&mut open);
+        open.step(&with_strip(now + 16, NEXT_POINT));
+        open.step(&with_strip(now + 32, DESKTOP));
+        assert!(!hides(&open, NEXT_POINT, now + 32));
+    }
+
+    #[test]
+    fn a_windows_key_stops_the_carry_from_hiding() {
+        let mut machine = on();
+        let now = open_strip(&mut machine);
+        machine.step(&with_strip(now + 16, NEXT_POINT));
+        let gate = machine.gate(Some(STRIP)).expect("carried");
+        let win = KeyState {
+            win_down: true,
+            ..KeyState::default()
+        };
+        assert!(!gate.allows(NEXT_POINT, win, now + 16));
+        let mut held = gate;
+        held.keys.see(win, now + 10);
+        assert!(!held.allows(NEXT_POINT, KeyState::default(), now + 16));
+    }
+
+    #[test]
+    fn a_first_hover_hides_nothing_before_the_answer() {
+        let mut machine = on();
+        machine.step(&look(0, NEXT_POINT));
+        assert_eq!(machine.gate(None), None);
+        machine.step(&look(LOOKUP_MS, NEXT_POINT));
+        assert_eq!(machine.gate(None), None);
+        machine.step(&answered(100, NEXT_POINT, Some(next(1))));
+        assert!(!hides(&machine, NEXT_POINT, 100));
+    }
+
+    #[test]
+    fn known_buttons_are_covered_or_left_alone_at_once() {
+        let mut machine = on();
+        let now = open_strip(&mut machine);
+        let now = move_to_next(&mut machine, now);
+        machine.step(&Look {
+            answer: Some(Answer {
+                at: NEXT_POINT,
+                button: Some(next(1)),
+            }),
+            ..with_strip(now + 40, NEXT_POINT)
+        });
+        // Back to the first app: known to have 3 windows, so covered at
+        // once, before any lookup.
+        machine.step(&look(now + 60, ON_BUTTON));
+        assert!(hides(&machine, ON_BUTTON, now + 60));
+        assert!(!hides(&machine, NEXT_POINT, now + 60));
+
+        // Its strip opens again; moving on to the one-window app, known
+        // now, never hides that app's popup.
+        machine.step(&look(now + 60 + LOOKUP_MS, ON_BUTTON));
+        machine.step(&answered(now + 140, ON_BUTTON, Some(button(3))));
+        assert_eq!(machine.step(&look(now + 300, ON_BUTTON)).len(), 1);
+        machine.step(&with_strip(now + 320, NEXT_POINT));
+        assert!(!hides(&machine, NEXT_POINT, now + 320));
+        assert!(
+            hides(&machine, FAR_POINT, now + 320),
+            "other buttons still are"
+        );
     }
 
     #[test]

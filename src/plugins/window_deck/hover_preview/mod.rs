@@ -15,12 +15,17 @@
 //! move, so the popup comes back on the next hover if WinCraft stops. The
 //! key rules in `keys::decide` keep Win+number and Alt+Tab untouched.
 //!
+//! When the mouse moves on from a button the strip holds, Windows shows the
+//! next button's popup at once, before the lookup can say which button it
+//! is; `carry` keeps it hidden until the answer comes.
+//!
 //! While the open strip is under the mouse and does not have the keyboard,
 //! its keys follow the mouse into it (`super::hover_keys`).
 
+mod carry;
 mod machine;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::sync::mpsc::TryRecvError;
 
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
@@ -50,8 +55,11 @@ thread_local! {
     /// When Windows' popup may be hidden now. The WinEvent callback runs on
     /// the host thread, possibly while a plugin call is on the stack, so it
     /// reads only this copy and never the plugin.
-    static GATE: Cell<Option<Gate>> = const { Cell::new(None) };
+    static GATE: RefCell<Option<Gate>> = const { RefCell::new(None) };
     static HIDDEN: Cell<u32> = const { Cell::new(0) };
+    /// Popups hidden while the carry ran, to show again if its answer
+    /// leaves them to Windows.
+    static CARRY_HIDDEN: RefCell<Vec<HWND>> = const { RefCell::new(Vec::new()) };
 }
 
 #[derive(Default)]
@@ -141,7 +149,11 @@ impl HoverPreview {
             self.taskbars_at = Some(now);
         }
         let cursor = cursor();
-        let on_taskbar = self.taskbars.iter().any(|rect| contains(*rect, cursor));
+        let taskbar = self
+            .taskbars
+            .iter()
+            .copied()
+            .find(|rect| contains(*rect, cursor));
         let keys = popup::key_state();
         let strip_hwnd = ui_bridge::arrange_window();
         let strip = strip_hwnd.and_then(|hwnd| window_rect(hwnd as HWND));
@@ -150,7 +162,9 @@ impl HoverPreview {
         let look = Look {
             now,
             cursor,
-            on_taskbar,
+            on_taskbar: taskbar.is_some(),
+            taskbar,
+            button_changes: crate::core::host::taskbar_button_changes(),
             keys,
             strip,
             strip_focused,
@@ -187,18 +201,20 @@ impl HoverPreview {
         let wanted = routes_keys(self.machine.is_open(), &look) || digits_only;
         self.keys.update(wanted, digits_only, now);
 
+        self.undo_carry(look.on_taskbar);
+
         let gate = self.machine.gate(strip);
         if gate.is_some() && !self.may_hide && !self.refusal_noted {
             log::info!("read-only test instance: hiding Windows' taskbar preview skipped");
         }
         self.refusal_noted = gate.is_some();
         let gate = gate.filter(|_| self.may_hide);
-        GATE.with(|cell| cell.set(gate));
+        GATE.with(|cell| *cell.borrow_mut() = gate.clone());
         if let Some(gate) = gate {
             // In case a WinEvent came late or not at all.
             for hwnd in popup::find_popups() {
                 if popup::is_shown(hwnd) && gate.allows(cursor, keys, now) {
-                    hide(hwnd);
+                    hide(hwnd, gate.area.is_some());
                 }
             }
         }
@@ -211,6 +227,25 @@ impl HoverPreview {
             self.set_timer(IDLE_MS);
         }
         out
+    }
+
+    /// Once the carry is over, forgets what it hid; when its answer left
+    /// the popup to Windows, shows again what WinCraft itself hid, so the
+    /// one-window app keeps its preview (Principle 1).
+    fn undo_carry(&mut self, on_taskbar: bool) {
+        let undo = self.machine.take_undo();
+        if self.machine.carrying() {
+            return;
+        }
+        let hidden = CARRY_HIDDEN.with(|cell| std::mem::take(&mut *cell.borrow_mut()));
+        if !carry::reshow(undo, !hidden.is_empty(), on_taskbar, self.may_hide) {
+            return;
+        }
+        for hwnd in hidden {
+            if popup::is_popup_window(hwnd) && !popup::visible_and_cloak(hwnd).0 {
+                popup::show_again(hwnd);
+            }
+        }
     }
 
     fn take_answer(&mut self, windows_of: &dyn Fn(&str, Rect) -> usize) -> Option<Answer> {
@@ -276,7 +311,8 @@ impl HoverPreview {
     fn stop_watching(&mut self) {
         self.keys.stop();
         self.stop_hooks();
-        GATE.with(|cell| cell.set(None));
+        GATE.with(|cell| *cell.borrow_mut() = None);
+        CARRY_HIDDEN.with(|cell| cell.borrow_mut().clear());
         if let (Some(hwnd), Some(_)) = (self.hwnd, self.timer_ms.take()) {
             unsafe { KillTimer(hwnd, TIMER_ID) };
         }
@@ -303,9 +339,17 @@ fn on_its_button(button: Option<Rect>, look: &Look) -> bool {
         && button.is_some_and(|rect| contains(rect, look.cursor))
 }
 
-fn hide(hwnd: HWND) {
+fn hide(hwnd: HWND, carried: bool) {
     popup::hide(hwnd);
     HIDDEN.with(|cell| cell.set(cell.get() + 1));
+    if carried {
+        CARRY_HIDDEN.with(|cell| {
+            let mut hidden = cell.borrow_mut();
+            if !hidden.contains(&hwnd) {
+                hidden.push(hwnd);
+            }
+        });
+    }
 }
 
 /// Explorer showed or uncloaked a window. Out of context, so it arrives
@@ -319,14 +363,22 @@ unsafe extern "system" fn on_event(
     _thread: u32,
     _time: u32,
 ) {
-    let Some(gate) = GATE.with(|cell| cell.get()) else {
+    if GATE.with(|cell| cell.try_borrow().map_or(true, |gate| gate.is_none())) {
         return;
-    };
+    }
     if !popup::is_popup_event(hwnd, id_object, id_child) {
         return;
     }
-    if gate.allows(cursor(), popup::key_state(), unsafe { GetTickCount64() }) {
-        hide(hwnd);
+    let (cursor, keys, now) = (cursor(), popup::key_state(), unsafe { GetTickCount64() });
+    let (allows, carried) = GATE.with(|cell| {
+        cell.try_borrow()
+            .map_or((false, false), |gate| match gate.as_ref() {
+                Some(gate) => (gate.allows(cursor, keys, now), gate.area.is_some()),
+                None => (false, false),
+            })
+    });
+    if allows {
+        hide(hwnd, carried);
     }
 }
 

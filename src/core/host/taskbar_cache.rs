@@ -8,6 +8,7 @@
 //! button the user dragged to another place: if the number now names
 //! another app, WindowDeck is opened again on the right one.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::core::taskbar::Button;
@@ -65,6 +66,18 @@ impl Cache {
     }
 }
 
+static CHANGES: AtomicU64 = AtomicU64::new(0);
+
+/// Counts the shell messages after which the buttons may have changed, so
+/// anything that remembers buttons can tell its memory is old.
+pub fn note_change() {
+    CHANGES.fetch_add(1, Ordering::Relaxed);
+}
+
+pub fn changes() -> u64 {
+    CHANGES.load(Ordering::Relaxed)
+}
+
 /// A shell message after which the taskbar's buttons may have changed:
 /// a window came or went. A window that only took the front changes no
 /// button, and it comes far too often to read the taskbar each time.
@@ -84,6 +97,13 @@ mod tests {
             app: app.to_string(),
             rect: [left, 1040, left + 48, 1088],
         }
+    }
+
+    #[test]
+    fn each_change_is_counted() {
+        let before = changes();
+        note_change();
+        assert!(changes() > before);
     }
 
     #[test]
