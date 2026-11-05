@@ -83,6 +83,12 @@ using System.Runtime.InteropServices;
 
 public static class SceneShot {
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
+    // Per-monitor aware, so window rects and the screen agree on every
+    // monitor, also one with another scale than the main one.
+    public static void BeDpiAware() {
+        if (!SetProcessDpiAwarenessContext(new IntPtr(-4))) SetProcessDPIAware();
+    }
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc f, IntPtr l);
@@ -118,16 +124,26 @@ public static class SceneShot {
         return best;
     }
 
+    [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr h);
+    [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr h, IntPtr dc);
+    [DllImport("gdi32.dll")] static extern bool BitBlt(IntPtr dst, int x, int y, int w, int h, IntPtr src, int sx, int sy, uint op);
+
     public static void Capture(int[] rect, string path) {
         using (var bmp = new Bitmap(rect[2], rect[3]))
         using (var g = Graphics.FromImage(bmp)) {
-            g.CopyFromScreen(rect[0], rect[1], 0, 0, bmp.Size);
+            // SRCCOPY with CAPTUREBLT, so layered windows (the panels drawn
+            // with core::layered) are in the picture too.
+            IntPtr screen = GetDC(IntPtr.Zero);
+            IntPtr dc = g.GetHdc();
+            BitBlt(dc, 0, 0, rect[2], rect[3], screen, rect[0], rect[1], 0x00CC0020 | 0x40000000);
+            g.ReleaseHdc(dc);
+            ReleaseDC(IntPtr.Zero, screen);
             bmp.Save(path, System.Drawing.Imaging.ImageFormat.Png);
         }
     }
 }
 '@
-[SceneShot]::SetProcessDPIAware() | Out-Null
+[SceneShot]::BeDpiAware()
 
 $scratch = Join-Path $env:LOCALAPPDATA 'Temp\wincraft-scene-shot'
 $data = Join-Path $scratch 'WinCraft'
