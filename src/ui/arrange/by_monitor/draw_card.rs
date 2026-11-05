@@ -26,7 +26,7 @@ impl Draw<'_> {
         painter.multiply_opacity(alpha);
         let is_cursor = shared.cursor == Some(window.hwnd) && !shared.cursor_ghost && !leaving;
         let lit = if is_cursor {
-            Some(tokens.selection_bg)
+            Some(selected_fill(&tokens))
         } else if response.hovered() && shared.pointer.moved() && self.dragged.is_none() {
             Some(tokens.hover_bg)
         } else {
@@ -43,7 +43,7 @@ impl Draw<'_> {
             painter.rect_stroke(
                 rect.expand(3.0),
                 tokens.radius_row + 2,
-                theme::stroke(ui.ctx(), 2.0, tokens.accent),
+                theme::stroke(ui.ctx(), 2.0, selected_ring(&tokens)),
                 StrokeKind::Middle,
             );
         }
@@ -202,7 +202,7 @@ impl Draw<'_> {
             painter.rect_stroke(
                 rect.expand(3.0),
                 6,
-                theme::stroke(ui.ctx(), 2.0, tokens.accent),
+                theme::stroke(ui.ctx(), 2.0, selected_ring(&tokens)),
                 StrokeKind::Middle,
             );
         }

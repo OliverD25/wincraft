@@ -105,7 +105,11 @@ pub(super) fn card(
         monitor_chip(painter, rect, monitor);
     }
     let area = grown(picture_area(rect), scale);
-    let border = if lit { tokens.accent } else { tokens.border };
+    let border = if lit {
+        selected_ring(&tokens)
+    } else {
+        tokens.border
+    };
     painter.rect(
         area,
         tokens.radius_row,
@@ -239,6 +243,18 @@ pub fn card_look(tokens: &Tokens, lit: Option<Color32>, attention: bool) -> Look
             outline: None,
         }
     }
+}
+
+/// The ring around the selected card (the one Enter opens). Neutral, not
+/// the accent: in the warm themes the accent is amber, and a selected card
+/// looked like one that wants attention, whose frame is orange.
+pub fn selected_ring(tokens: &Tokens) -> Color32 {
+    theme::with_alpha(tokens.text_primary, 0.85)
+}
+
+/// The fill of the selected card, neutral for the same reason.
+pub fn selected_fill(tokens: &Tokens) -> Color32 {
+    theme::with_alpha(tokens.text_primary, 0.10)
 }
 
 /// Paints a card's look in `rect`. The outline stays on the card's edge,

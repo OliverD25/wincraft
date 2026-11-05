@@ -593,8 +593,8 @@ fn card(
         painter.rect(
             rect,
             tokens.radius_tile,
-            tokens.selection_bg,
-            theme::stroke(ui.ctx(), 2.0, tokens.accent),
+            super::cards::selected_fill(&tokens),
+            theme::stroke(ui.ctx(), 2.0, super::cards::selected_ring(&tokens)),
             StrokeKind::Inside,
         );
     } else if response.hovered() && shared.pointer.moved() {
