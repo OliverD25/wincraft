@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::HWND;
+use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOW};
 
 use egui::{
     pos2, vec2, Align2, Color32, Key, Painter, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder,
@@ -18,6 +19,7 @@ use crate::core::ui_bridge::HostRequest;
 use crate::core::window_place;
 use crate::search::icons::IconCache;
 use crate::search::IconRef;
+use crate::ui::dwm_thumbs;
 use crate::ui::settings;
 use crate::ui::widgets::button::{self, Kind};
 
@@ -53,7 +55,8 @@ struct ListUi {
     details: Option<Draft>,
     window: isize,
     focused: bool,
-    placed: bool,
+    /// Hidden until it is in its place, then covered until it has drawn.
+    reveal: Reveal,
     pictures: Pictures,
     icons: Option<IconCache>,
     drag: Option<usize>,
@@ -99,7 +102,7 @@ impl PluginWindow for PinList {
         if let Ok(mut state) = self.state.lock() {
             state.closed = false;
             state.focused = false;
-            state.placed = false;
+            state.reveal = Reveal::Hidden;
             state.window = 0;
         }
     }
@@ -115,6 +118,7 @@ impl PluginWindow for PinList {
             state.pictures.clear();
             state.details = None;
             state.window = 0;
+            state.reveal = Reveal::Hidden;
         }
     }
 
@@ -123,6 +127,9 @@ impl PluginWindow for PinList {
     }
 
     fn show(&mut self, ctx: &egui::Context, frame: &WindowFrame) {
+        if let (Ok(shared), Ok(mut state)) = (self.shared.lock(), self.state.lock()) {
+            reveal_step(ctx, &shared, &mut state, frame.palette_hwnd);
+        }
         let size = match (self.shared.lock(), self.state.lock()) {
             (Ok(shared), Ok(state)) => {
                 window_size(shared.view.slots.len(), state.details.is_some())
@@ -133,7 +140,9 @@ impl PluginWindow for PinList {
             .with_title(TITLE)
             .with_inner_size(size)
             .with_resizable(false)
-            .with_maximize_button(false);
+            .with_maximize_button(false)
+            // Shown by `reveal_step` once it is in its place.
+            .with_visible(false);
         if let Some(icon) = &frame.icon {
             builder = builder.with_icon(Arc::clone(icon));
         }
@@ -152,8 +161,13 @@ impl PluginWindow for PinList {
             }
             if state.window != 0 {
                 settings::sync_title_bar(state.window, tokens.dark);
-                if !std::mem::replace(&mut state.placed, true) {
-                    put_in_place(&shared, state.window);
+                if let Reveal::Covered { .. } = state.reveal {
+                    // This frame draws into the covered window; uncover after it.
+                    state.reveal = Reveal::Drawn;
+                    ui.ctx().request_repaint();
+                } else if state.reveal == Reveal::Drawn {
+                    dwm_thumbs::cloak(state.window as HWND, false);
+                    state.reveal = Reveal::Shown;
                 }
                 if !std::mem::replace(&mut state.focused, true) {
                     to_host.send(HostRequest::FocusWindow(state.window));
@@ -204,9 +218,62 @@ impl PluginWindow for PinList {
                 state.details = None;
                 state.window = 0;
                 state.size = None;
+                state.reveal = Reveal::Hidden;
                 ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
             }
         });
+    }
+}
+
+/// How far a new Quick access window is on its way to the screen. Windows
+/// paints a new window white before egui draws it, so it stays hidden while
+/// it moves into place and covered (cloaked) until its first frame is drawn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Reveal {
+    #[default]
+    Hidden,
+    Covered {
+        since: Instant,
+    },
+    Drawn,
+    Shown,
+}
+
+/// Uncovers the window anyway after this long, so a missed frame never
+/// leaves it invisible.
+const COVERED_LONGEST: Duration = Duration::from_millis(400);
+
+/// Runs on the main frame, so it works while the window itself is hidden.
+fn reveal_step(ctx: &egui::Context, shared: &Shared, state: &mut ListUi, palette: isize) {
+    if !shared.list_open {
+        return;
+    }
+    match state.reveal {
+        Reveal::Hidden => {
+            if state.window == 0 {
+                state.window = settings::find_window(TITLE, palette);
+            }
+            if state.window == 0 {
+                ctx.request_repaint();
+                return;
+            }
+            let hwnd = state.window as HWND;
+            put_in_place(shared, state.window);
+            dwm_thumbs::cloak(hwnd, true);
+            unsafe { ShowWindow(hwnd, SW_SHOW) };
+            state.reveal = Reveal::Covered {
+                since: Instant::now(),
+            };
+            ctx.request_repaint_of(viewport_id());
+            ctx.request_repaint();
+        }
+        Reveal::Covered { since } if since.elapsed() >= COVERED_LONGEST => {
+            dwm_thumbs::cloak(state.window as HWND, false);
+            state.reveal = Reveal::Shown;
+            log::warn!("QuickJump: Quick access was shown before it had drawn itself");
+        }
+        Reveal::Covered { .. } | Reveal::Drawn => ctx.request_repaint(),
+        Reveal::Shown => {}
     }
 }
 
