@@ -72,6 +72,9 @@ pub struct Shared {
     pub keep_spot: bool,
     /// Where the user last left Quick access.
     pub spot: Option<super::spot::Spot>,
+    /// Where Quick access was when a jump left from it, so the monitor
+    /// hint knows which monitor the user was looking at.
+    pub jumped_from: Option<crate::core::monitors::Rect>,
 }
 
 pub type Handle = Arc<Mutex<Shared>>;

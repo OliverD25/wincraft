@@ -30,11 +30,16 @@ pub fn kept_inside(work: Area, size: (i32, i32), at: (i32, i32)) -> (i32, i32) {
 
 /// The window's top-left corner on the screen.
 pub fn top_left(hwnd: HWND) -> Option<(i32, i32)> {
+    rect(hwnd).map(|[left, top, _, _]| (left, top))
+}
+
+/// The window's box on the screen: left, top, right, bottom.
+pub fn rect(hwnd: HWND) -> Option<[i32; 4]> {
     let mut rect: RECT = unsafe { std::mem::zeroed() };
     if hwnd.is_null() || unsafe { GetWindowRect(hwnd, &mut rect) } == 0 {
         return None;
     }
-    Some((rect.left, rect.top))
+    Some([rect.left, rect.top, rect.right, rect.bottom])
 }
 
 /// Puts the window in the middle of the monitor under the mouse.

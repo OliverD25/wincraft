@@ -206,7 +206,12 @@ impl PluginWindow for PinList {
             }
             for outcome in outcomes {
                 match outcome {
-                    Outcome::Send(request) => shared.send(request),
+                    Outcome::Send(request) => {
+                        if matches!(request, Request::Jump(_)) {
+                            shared.jumped_from = window_place::rect(state.window as HWND);
+                        }
+                        shared.send(request)
+                    }
                     Outcome::Close => state.closed = true,
                 }
             }
