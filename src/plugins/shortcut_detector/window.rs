@@ -14,18 +14,12 @@ use egui::{
     pos2, vec2, Align, Align2, Event, Id, Key, Layout, Modifiers, Rect, RichText, Sense,
     StrokeKind, Ui, UiBuilder,
 };
-use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
-use windows_sys::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
-};
-use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetWindowRect, SetWindowPos, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER,
-};
+use windows_sys::Win32::Foundation::HWND;
 
 use crate::core::theme::{self, Tokens};
 use crate::core::traits::{Hotkey, PluginWindow, WindowFrame};
 use crate::core::ui_bridge::{HostChannel, HostRequest};
-use crate::core::{clipboard, hotkeys, instance};
+use crate::core::{clipboard, hotkeys, instance, window_place};
 use crate::ui::settings;
 use crate::ui::widgets::button::{self, Kind};
 use crate::ui::widgets::icons::Icon;
@@ -190,7 +184,7 @@ impl PluginWindow for DetectorWindow {
             if state.window != 0 {
                 settings::sync_title_bar(state.window, tokens.dark);
                 if !std::mem::replace(&mut state.placed, true) {
-                    centre_on_cursor_monitor(state.window as HWND);
+                    window_place::centre_on_cursor_monitor(state.window as HWND);
                 }
                 if !std::mem::replace(&mut state.focused, true) {
                     to_host.send(HostRequest::FocusWindow(state.window));
@@ -1129,41 +1123,6 @@ fn footer_line(ui: &Ui, view: &View, state: &WindowUi, area: Rect) {
         pos2(inner.left(), inner.top() + summary_height + 4.0)
     };
     painter.galley(at, note, tokens.text_disabled);
-}
-
-/// Puts the window in the middle of the monitor under the cursor, as the
-/// Win32 window did. winit corrects its size when that monitor has another
-/// scale.
-fn centre_on_cursor_monitor(hwnd: HWND) {
-    let mut point = POINT { x: 0, y: 0 };
-    let mut window: RECT = unsafe { std::mem::zeroed() };
-    let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
-    info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-    unsafe {
-        if GetCursorPos(&mut point) == 0 || GetWindowRect(hwnd, &mut window) == 0 {
-            return;
-        }
-        let monitor = MonitorFromPoint(point, MONITOR_DEFAULTTOPRIMARY);
-        if GetMonitorInfoW(monitor, &mut info) == 0 {
-            return;
-        }
-    }
-    let work = info.rcWork;
-    let width = window.right - window.left;
-    let height = window.bottom - window.top;
-    let x = (work.left + (work.right - work.left - width) / 2).max(work.left);
-    let y = (work.top + (work.bottom - work.top - height) / 2).max(work.top);
-    unsafe {
-        SetWindowPos(
-            hwnd,
-            std::ptr::null_mut(),
-            x,
-            y,
-            0,
-            0,
-            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-        )
-    };
 }
 
 #[cfg(test)]

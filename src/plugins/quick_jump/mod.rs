@@ -17,6 +17,7 @@ mod pictures;
 mod pins;
 mod provider;
 mod shared;
+mod spot;
 mod wait;
 
 use std::cell::RefCell;
@@ -33,8 +34,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::core::traits::{
-    HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata, PluginWindow, TrayAction,
-    WinCraftPlugin,
+    FieldKind, HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata, PluginWindow,
+    SettingField, TrayAction, WinCraftPlugin,
 };
 use crate::core::ui_bridge::ActionKind;
 use crate::core::{chord, chord_tip, config, host, instance, shortcuts, wide};
@@ -586,7 +587,31 @@ impl WinCraftPlugin for QuickJump {
         }
     }
 
-    fn init(&mut self, _ctx: &HostContext) -> Result<(), String> {
+    fn default_settings(&self) -> Value {
+        serde_json::json!({ spot::CENTRE: true })
+    }
+
+    fn settings_fields(&self) -> Vec<SettingField> {
+        vec![SettingField {
+            key: spot::CENTRE,
+            label: "Open Quick access in the middle of the screen",
+            help: "Turn off to open it where you last left it.",
+            kind: FieldKind::Toggle,
+        }]
+    }
+
+    fn on_settings_changed(&mut self, settings: &Value) -> bool {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.keep_spot = !spot::centre_on(settings);
+        }
+        true
+    }
+
+    fn init(&mut self, ctx: &HostContext) -> Result<(), String> {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.keep_spot = !spot::centre_on(ctx.settings);
+            shared.spot = spot::load(&spot::path());
+        }
         let hwnd = create_window()?;
         let path = state_path();
         let slots = Slots::load(&path, &config::plugins_dir().join(pins::BACKUP_NAME));

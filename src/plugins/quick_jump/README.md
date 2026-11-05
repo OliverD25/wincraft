@@ -105,6 +105,17 @@ the pinned windows as cards in rows of four, in list order, each with a
 live picture of the window, its title and app, and the key that reaches it
 under the card.
 
+It opens in the middle of the monitor under the mouse. To open it where you
+last left it instead:
+
+1. Open WinCraft's Settings, click "Plugins", then click "QuickJump".
+2. Turn off "Open Quick access in the middle of the screen".
+3. Open Quick access, drag it by its title bar to where you want it, and
+   close it. It opens there from now on.
+
+The spot is kept in `%LOCALAPPDATA%\WinCraft\plugins\quick_jump.spot.json`.
+A spot on a monitor that is gone or smaller is moved onto the nearest screen.
+
 | Key | What it does |
 |---|---|
 | ↑ ↓ ← → | Select a card |

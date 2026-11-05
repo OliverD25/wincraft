@@ -68,6 +68,10 @@ pub struct Shared {
     pub picker: Option<usize>,
     /// Quick access should select this pin when it next draws.
     pub select: Option<usize>,
+    /// Quick access opens where the user left it, not in the middle.
+    pub keep_spot: bool,
+    /// Where the user last left Quick access.
+    pub spot: Option<super::spot::Spot>,
 }
 
 pub type Handle = Arc<Mutex<Shared>>;

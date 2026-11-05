@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use windows_sys::Win32::Foundation::HWND;
+
 use egui::{
     pos2, vec2, Align2, Color32, Key, Painter, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder,
 };
@@ -13,6 +15,7 @@ use egui::{
 use crate::core::theme::{self, Tokens};
 use crate::core::traits::{PluginWindow, WindowFrame};
 use crate::core::ui_bridge::HostRequest;
+use crate::core::window_place;
 use crate::search::icons::IconCache;
 use crate::search::IconRef;
 use crate::ui::settings;
@@ -23,7 +26,8 @@ use crate::ui::widgets::{choice, focus, input, toggle};
 use super::matching::{candidates, check_line, CheckTone, SlotView};
 use super::pictures::Pictures;
 use super::pins::{number_of_slot, Pin};
-use super::shared::{Handle, Request, View};
+use super::shared::{Handle, Request, Shared, View};
+use super::spot::{self, Place, Spot};
 
 mod grid;
 
@@ -49,6 +53,7 @@ struct ListUi {
     details: Option<Draft>,
     window: isize,
     focused: bool,
+    placed: bool,
     pictures: Pictures,
     icons: Option<IconCache>,
     drag: Option<usize>,
@@ -94,11 +99,15 @@ impl PluginWindow for PinList {
         if let Ok(mut state) = self.state.lock() {
             state.closed = false;
             state.focused = false;
+            state.placed = false;
             state.window = 0;
         }
     }
 
     fn close(&mut self) {
+        if let (Ok(mut shared), Ok(state)) = (self.shared.lock(), self.state.lock()) {
+            remember_spot(&mut shared, state.window);
+        }
         if let Ok(mut shared) = self.shared.lock() {
             shared.list_open = false;
         }
@@ -143,6 +152,9 @@ impl PluginWindow for PinList {
             }
             if state.window != 0 {
                 settings::sync_title_bar(state.window, tokens.dark);
+                if !std::mem::replace(&mut state.placed, true) {
+                    put_in_place(&shared, state.window);
+                }
                 if !std::mem::replace(&mut state.focused, true) {
                     to_host.send(HostRequest::FocusWindow(state.window));
                 }
@@ -185,6 +197,7 @@ impl PluginWindow for PinList {
                 }
             }
             if state.closed {
+                remember_spot(&mut shared, state.window);
                 shared.list_open = false;
                 state.closed = false;
                 state.pictures.clear();
@@ -194,6 +207,28 @@ impl PluginWindow for PinList {
                 ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
             }
         });
+    }
+}
+
+/// Puts a freshly opened Quick access in the middle of the monitor under
+/// the mouse, or where the user left it when the setting says so.
+fn put_in_place(shared: &Shared, window: isize) {
+    let hwnd = window as HWND;
+    match spot::place(!shared.keep_spot, shared.spot) {
+        Place::Centre => window_place::centre_on_cursor_monitor(hwnd),
+        Place::At(x, y) => window_place::place_at(hwnd, (x, y)),
+    }
+}
+
+/// Keeps where the window is now, so it can open there next time.
+fn remember_spot(shared: &mut Shared, window: isize) {
+    let Some((x, y)) = window_place::top_left(window as HWND) else {
+        return;
+    };
+    let now = Spot { x, y };
+    if shared.spot != Some(now) {
+        shared.spot = Some(now);
+        spot::save(&spot::path(), now);
     }
 }
 
