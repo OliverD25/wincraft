@@ -62,25 +62,6 @@ pub fn waiting_text(app: &str) -> String {
     format!("Waiting for {app}")
 }
 
-/// Whether the user's Windows setting "Animation effects" is on. When it is
-/// off, cards change at once.
-pub fn animations_on() -> bool {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SystemParametersInfoW, SPI_GETCLIENTAREAANIMATION,
-    };
-    let mut on: i32 = 1;
-    // SAFETY: the call writes one BOOL into `on`.
-    let read = unsafe {
-        SystemParametersInfoW(
-            SPI_GETCLIENTAREAANIMATION,
-            0,
-            (&mut on as *mut i32).cast(),
-            0,
-        )
-    };
-    read == 0 || on != 0
-}
-
 /// Where `key` was drawn last frame, when it must slide to `target`: it
 /// comes after the first card of a window in `closed` in `last` (the cards
 /// of last frame, in drawing order) and its place changed. Cards before the

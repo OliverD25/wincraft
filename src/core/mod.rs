@@ -1,3 +1,4 @@
+pub mod animations;
 pub mod app_names;
 pub mod appid;
 pub mod attention;
@@ -55,6 +56,7 @@ pub mod version_info;
 pub mod virtual_desktops;
 pub mod window_actions;
 pub mod window_census;
+pub mod window_hint;
 pub mod window_identity;
 pub mod window_info;
 pub mod window_names;

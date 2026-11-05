@@ -141,7 +141,7 @@ Shows all windows of an app in a row above the taskbar with a live picture of ea
 
 ### 4. QuickJump
 
-Keeps up to ten windows in a numbered list, like **Harpoon in Neovim**, so you can jump back to any of them from anywhere, across any virtual desktop. While it waits for the next key, the chord tip at the bottom of the screen lists the windows by number and what the other keys do. Jumping switches virtual desktops automatically and restores minimized windows without moving them. Pins find their window again by app and title even after a restart (and launch the app if closed). Unpinning closes the gap, so the numbers always run 1, 2, 3. Every change shows a notice with **Undo**, and the **Quick access** window shows the pinned windows as cards with live pictures, to reorder, rename and tune them. [Full README](src/plugins/quick_jump/README.md)
+Keeps up to ten windows in a numbered list, like **Harpoon in Neovim**, so you can jump back to any of them from anywhere, across any virtual desktop. While it waits for the next key, the chord tip at the bottom of the screen lists the windows by number and what the other keys do. Jumping switches virtual desktops automatically and restores minimized windows without moving them. When the window comes up on another monitor, a short glow around it and an arrow on your monitor show where it went. Pins find their window again by app and title even after a restart (and launch the app if closed). Unpinning closes the gap, so the numbers always run 1, 2, 3. Every change shows a notice with **Undo**, and the **Quick access** window shows the pinned windows as cards with live pictures, to reorder, rename and tune them. [Full README](src/plugins/quick_jump/README.md)
 
 | Hotkey | What it does |
 | --- | --- |

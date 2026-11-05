@@ -7,6 +7,7 @@
 //! the UI thread wakes it with requests. Everything else, the chord tip
 //! among it, it gets from the host.
 
+mod hint;
 mod keys;
 mod list;
 mod live;
@@ -38,7 +39,7 @@ use crate::core::traits::{
     SettingField, TrayAction, WinCraftPlugin,
 };
 use crate::core::ui_bridge::ActionKind;
-use crate::core::{chord, chord_tip, config, host, instance, shortcuts, wide};
+use crate::core::{chord, chord_tip, config, host, instance, shortcuts, wide, window_hint};
 use crate::search::actions;
 use crate::search::{Action, SearchProvider};
 use serde_json::Value;
@@ -169,6 +170,10 @@ struct Engine {
     starting: Option<Starting>,
     live: Vec<matching::Live>,
     epoch: Instant,
+    /// Point to a window that comes up on another monitor (the setting).
+    hint: bool,
+    /// Where Quick access was when the jump being made came from it.
+    quick_access: Option<crate::core::monitors::Rect>,
 }
 
 thread_local! {
@@ -312,17 +317,21 @@ impl Engine {
 
     // ---- Jumping and pinning -------------------------------------------
 
-    fn activate(&self, hwnd: isize) {
+    /// Brings the window to the front; false in a test instance, which
+    /// never touches a real window.
+    fn activate(&self, hwnd: isize) -> bool {
         if instance::is_test() {
             log::info!("read-only test instance: switching to window {hwnd:#x} skipped");
-            return;
+            return false;
         }
         actions::perform(&Action::Activate(hwnd), self.hwnd);
+        true
     }
 
     /// Jumps to the pin at `slot`. Returns its name when the window is in
     /// front now; None when a notice says what happened instead.
     fn jump(&mut self, slot: usize, front: isize) -> Option<String> {
+        let from = hint::from(front, self.quick_access.take());
         let Some(pin) = self.slots.get(slot).cloned() else {
             log::info!("QuickJump: number {} is empty", pins::number_of_slot(slot));
             self.notify(notice::empty(slot, &self.jump_keys), None);
@@ -335,7 +344,9 @@ impl Engine {
             }
             Some(hwnd) => {
                 log::info!("QuickJump: jump to number {}", pins::number_of_slot(slot));
-                self.activate(hwnd);
+                if self.activate(hwnd) && self.hint {
+                    hint::point(&pin, &self.live, hwnd, from);
+                }
                 Some(pin.name().to_string())
             }
             None if pin.start => {
@@ -461,6 +472,11 @@ impl Engine {
             Request::Refresh => self.refresh(),
             Request::Jump(slot) => {
                 self.refresh();
+                self.quick_access = self
+                    .shared
+                    .lock()
+                    .ok()
+                    .and_then(|mut shared| shared.jumped_from.take());
                 let front = unsafe { GetForegroundWindow() } as isize;
                 self.jump(slot, front);
             }
@@ -588,21 +604,34 @@ impl WinCraftPlugin for QuickJump {
     }
 
     fn default_settings(&self) -> Value {
-        serde_json::json!({ spot::CENTRE: true })
+        serde_json::json!({ spot::CENTRE: true, hint::KEY: true })
     }
 
     fn settings_fields(&self) -> Vec<SettingField> {
-        vec![SettingField {
-            key: spot::CENTRE,
-            label: "Open Quick access in the middle of the screen",
-            help: "Turn off to open it where you last left it.",
-            kind: FieldKind::Toggle,
-        }]
+        vec![
+            SettingField {
+                key: spot::CENTRE,
+                label: "Open Quick access in the middle of the screen",
+                help: "Turn off to open it where you last left it.",
+                kind: FieldKind::Toggle,
+            },
+            SettingField {
+                key: hint::KEY,
+                label: "Point to a window on another monitor",
+                help: "A short glow around the window, and an arrow on the monitor you were using.",
+                kind: FieldKind::Toggle,
+            },
+        ]
     }
 
     fn on_settings_changed(&mut self, settings: &Value) -> bool {
         if let Ok(mut shared) = self.shared.lock() {
             shared.keep_spot = !spot::centre_on(settings);
+        }
+        let on = hint::on(settings);
+        with_engine(|engine| engine.hint = on);
+        if !on {
+            window_hint::hide();
         }
         true
     }
@@ -633,6 +662,8 @@ impl WinCraftPlugin for QuickJump {
             starting: None,
             live: Vec::new(),
             epoch: Instant::now(),
+            hint: hint::on(ctx.settings),
+            quick_access: None,
         };
         ENGINE.with(|cell| *cell.borrow_mut() = Some(engine));
         Ok(())
@@ -772,6 +803,7 @@ impl WinCraftPlugin for QuickJump {
         if let Some(mut engine) = engine {
             engine.close_wait(false);
             chord_tip::hide(engine.hwnd as isize);
+            window_hint::hide();
             engine.close_notice();
             engine.starting = None;
             chord::stop_for(engine.hwnd as isize);

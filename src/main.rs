@@ -150,6 +150,7 @@ fn main() {
     let (mut scene, theme, mut notes) = scene_flags(&args, instance::is_test());
     for flag in [
         "--show-restore-panel",
+        "--show-window-hint",
         "--update-now",
         "--show-update-notice",
         "--show-update-progress",
@@ -176,6 +177,8 @@ fn main() {
             ui::set_scene_select_update(true);
         } else if flag == "--allow-hide-popup" {
             scene.allow_hide_popup = true;
+        } else if flag == "--show-window-hint" {
+            scene.window_hint = true;
         } else {
             scene.restore_panel = true;
         }

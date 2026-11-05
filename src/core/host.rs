@@ -293,6 +293,8 @@ pub struct SceneFlags {
     pub ask_name: Option<isize>,
     /// Show LayoutKeeper's please-wait panel with sample progress.
     pub restore_panel: bool,
+    /// Show the window hint around a test window of WinCraft's own.
+    pub window_hint: bool,
     /// Let the hover strip hide Windows' taskbar preview, for a supervised
     /// live test of it.
     pub allow_hide_popup: bool,
@@ -532,6 +534,9 @@ pub fn run(config: Config, plugins: Vec<Box<dyn WinCraftPlugin>>, flags: Startup
     }
     if let Some(hwnd) = flags.scene.ask_name {
         with_host(|host| host.arrange_action(NAMER_ID, &ArrangeAction::AskName(hwnd)));
+    }
+    if flags.scene.window_hint {
+        crate::core::window_hint::show_demo();
     }
     match flags.scene.settings {
         Some(SettingsTarget::Page(page)) => {
