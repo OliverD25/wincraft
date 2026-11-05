@@ -186,6 +186,12 @@ pub fn allow_hide_popup() -> bool {
     ALLOW_HIDE_POPUP.load(Ordering::Relaxed)
 }
 
+/// Goes up each time a window came or went, after which the taskbar's
+/// buttons may have moved. Safe to call from any thread.
+pub fn taskbar_button_changes() -> u64 {
+    super::taskbar_cache::changes()
+}
+
 /// Sends the Arrange strip fresh data if it is open, for changes that show
 /// a moment after the plugin made them. Safe to call from any callback.
 pub fn refresh_arrange() {
