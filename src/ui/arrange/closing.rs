@@ -66,7 +66,7 @@ impl Shared {
     /// True while something still moves.
     pub(super) fn settle_motion(&mut self) -> bool {
         let now = Instant::now();
-        self.animate = slide::animations_on();
+        self.animate = crate::core::animations::on();
         self.slides.next_frame();
         let over = |since: Instant| now.saturating_duration_since(since) >= CARD_MOTION;
         let shrink = if self.animate {

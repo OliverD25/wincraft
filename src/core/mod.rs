@@ -1,3 +1,4 @@
+pub mod animations;
 pub mod app_names;
 pub mod appid;
 pub mod attention;
