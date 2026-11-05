@@ -84,6 +84,24 @@ does nothing.
 When the window is not open, QuickJump starts the app and switches to its
 first window once it opens. Each pin can turn this off in its details.
 
+### On another monitor
+
+When the window comes up on another monitor than the one you were using,
+QuickJump points to it. A soft glow in the theme's accent colour shows
+around the window for under a second, and a small pill on your monitor
+says where it went, at the edge that faces the other monitor: "Telegram ·
+Right monitor →". Both fade out by themselves. Clicks go through them, and
+they never take the keyboard. The monitor you were using is the one of
+the window in front before the jump, of Quick access when you jumped from
+it, or of the mouse when the desktop was in front. A window that QuickJump
+has to start first gets no hint. With the Windows setting "Animation
+effects" off, the hint shows without fading.
+
+To turn it off:
+
+1. Open WinCraft's Settings, click "Plugins", then click "QuickJump".
+2. Turn off "Point to a window on another monitor".
+
 ## How a pin finds its window
 
 A pin remembers the app (its program, and for Store apps and web apps the

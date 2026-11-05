@@ -468,8 +468,11 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   shows while a chord waits: pass `chord_tip::show` your keys and the list
   of keys that can follow, and `chord_tip::end` how the wait ended),
   `canvas` (drawing an
-  on-screen panel for `core::layered`) and `notice` (the notice with Undo
-  that QuickJump and QuickActions show after a change).
+  on-screen panel for `core::layered`), `notice` (the notice with Undo
+  that QuickJump and QuickActions show after a change), `window_hint`
+  (after you bring a window to the front, `window_hint::show` points to it
+  when it is on another monitor than the one the user looks at) and
+  `animations` (whether the Windows setting "Animation effects" is on).
 - **Clean up in `teardown`.** A plugin can be switched off and on again from
   the settings window, so `init` must work a second time.
 - **`cargo fmt`, `cargo test`, `cargo clippy --all-targets` and a
@@ -549,6 +552,7 @@ it is a separate instance:
   | `--ask-name=<hwnd>` | The palette's rename box for that window (WindowNamer). Nothing is renamed without Enter. |
   | `--show-tip=<id>` | Lets that in-app tip show. A test instance shows no tip otherwise, so no other scene carries one. `bookmark-ctrl-b` is the hint over a folder or file row (pair it with a query that selects one, such as `--open-palette=/C:\Windows\`); `bookmark-saved` opens the palette on the confirmation that follows saving a bookmark, with no Enter needed. |
   | `--show-restore-panel` | LayoutKeeper's please-wait panel with sample progress, and nothing else. A flag without a value. |
+  | `--show-window-hint` | The window hint (`core::window_hint`) around a test window of WinCraft's own in the middle of the monitor with the mouse: the accent glow, and a sample pill "Telegram · Right monitor →" at the window's left edge. No real window is read or touched; it stays until the instance quits. A flag without a value. |
   | `--allow-hide-popup` | Lets WindowDeck's hover strip hide Windows' taskbar preview. Without it a test instance opens the strip on hover but never hides the preview, and logs "hiding Windows' taskbar preview skipped". Use it only for a test you watch: it acts on your real taskbar. A flag without a value. |
   | `--ddc-test=<what>` | ScreenDimmer's DDC/CI check on real monitors, printed step by step, then exit; no tray icon, no plugins. `list` only reads each monitor's power mode and brightness. `left`, `centre` or `right` turns that monitor off the way Auto does, keeps it so for 10 s and brings it back; `wake-left` and so on only wakes it. Run it only with the person at the PC: it really turns a screen off. |
   | `--show-update-available` | A sample newer release (v9.9.9), shown as if this copy could install it: About lists it and the palette pins its "Update ready" row above Recent. Every real update stays refused. A flag without a value. |
