@@ -1,4 +1,5 @@
 use super::*;
+use windows_sys::Win32::UI::WindowsAndMessaging::{BringWindowToTop, GetAncestor, GA_ROOTOWNER};
 
 /// Shows a tray balloon for a plugin. Safe to call from any plugin callback.
 pub fn notify(title: &str, text: &str) {
@@ -257,7 +258,9 @@ pub fn bring_to_front(hwnd: HWND) {
     let began = std::time::Instant::now();
     let ms = |began: std::time::Instant| began.elapsed().as_millis();
     let before = unsafe { GetForegroundWindow() };
-    if unsafe { SetForegroundWindow(hwnd) } != 0 {
+    // Windows may answer "done" and only flash the taskbar button, so the
+    // window really in front is what counts, not the answer.
+    if unsafe { SetForegroundWindow(hwnd) } != 0 && in_front(hwnd) {
         log::debug!("took the keyboard for {hwnd:?} at once ({} ms)", ms(began));
         ask_noted(hwnd, before, "SetForegroundWindow 1 at once");
         return;
@@ -267,7 +270,7 @@ pub fn bring_to_front(hwnd: HWND) {
     // refuses and only flashes the taskbar button. It allows the process that
     // sent the last input, so send an empty mouse event: no move, no click.
     let sent = send_empty_input();
-    if unsafe { SetForegroundWindow(hwnd) } != 0 {
+    if unsafe { SetForegroundWindow(hwnd) } != 0 && in_front(hwnd) {
         log::debug!(
             "took the keyboard for {hwnd:?} after an empty input ({} ms)",
             ms(began)
@@ -291,8 +294,12 @@ pub fn bring_to_front(hwnd: HWND) {
     let mine = unsafe { GetCurrentThreadId() };
     let attached = unsafe { AttachThreadInput(mine, other, 1) };
     let set = unsafe { SetForegroundWindow(hwnd) };
+    unsafe { BringWindowToTop(hwnd) };
     unsafe { SetFocus(hwnd) };
     unsafe { AttachThreadInput(mine, other, 0) };
+    if !in_front(hwnd) {
+        log::warn!("the window {hwnd:?} did not come to the front; Windows flashed its taskbar button instead");
+    }
     ask_noted(
         hwnd,
         before,
@@ -304,6 +311,16 @@ pub fn bring_to_front(hwnd: HWND) {
         "took the keyboard for {hwnd:?} through the other thread's input (attached {attached}, set {set}, {} ms)",
         ms(began)
     );
+}
+
+/// Whether `hwnd`, or a window of the same top-level family (its owner or
+/// an owned dialog), is the one in front now.
+fn in_front(hwnd: HWND) -> bool {
+    let front = unsafe { GetForegroundWindow() };
+    if front.is_null() {
+        return false;
+    }
+    front == hwnd || unsafe { GetAncestor(front, GA_ROOTOWNER) == GetAncestor(hwnd, GA_ROOTOWNER) }
 }
 
 /// How many inputs Windows took: 1, or 0 when it refused.
