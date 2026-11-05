@@ -45,6 +45,7 @@ mod rename;
 mod reveal;
 mod routed;
 mod rows;
+mod seen;
 mod sizing;
 mod slide;
 mod strip;
@@ -272,6 +273,8 @@ struct Shared {
     select_next: bool,
     /// A short line on screen, and since when.
     note: Option<(String, Instant)>,
+    /// The line after Ctrl+M, and what Ctrl+Z would bring back.
+    seen: seen::Seen,
     /// When the host asked for the strip, for the log line that says how
     /// soon it was on screen.
     asked_at: Option<Instant>,

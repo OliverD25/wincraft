@@ -625,6 +625,7 @@ pub(super) fn host_slug(command: HostCommand) -> &'static str {
         HostCommand::DetailedLogReport => "detailed-log-report",
         HostCommand::DetailedLogDelete => "detailed-log-delete",
         HostCommand::PaletteCentre => "palette-centre",
+        HostCommand::MarkAllSeen => "mark-all-seen",
         HostCommand::Exit => "quit",
         HostCommand::TogglePlugin(_) => "turn-on-off",
     }

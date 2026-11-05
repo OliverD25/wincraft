@@ -105,7 +105,12 @@ pub fn keep_left(left: i32, width: i32, work: [i32; 4]) -> i32 {
 
 /// The key hints under the button, over the cards. `switch_to` names the desktop of the
 /// picked window when it is on another one.
-pub fn hints(expanded: bool, more: bool, switch_to: Option<&str>) -> Vec<(String, String)> {
+pub fn hints(
+    expanded: bool,
+    more: bool,
+    switch_to: Option<&str>,
+    marked: bool,
+) -> Vec<(String, String)> {
     let enter = match switch_to {
         Some(desktop) => format!("Switch to {desktop}"),
         None => "Open".to_string(),
@@ -117,7 +122,26 @@ pub fn hints(expanded: bool, more: bool, switch_to: Option<&str>) -> Vec<(String
     } else if more {
         hints.push(("\u{2192}".to_string(), "More".to_string()));
     }
+    if marked {
+        hints.push(("Ctrl + M".to_string(), "Mark all as seen".to_string()));
+    }
     hints
+}
+
+/// How many hints, from the first, fit in `room` when they are `widths`
+/// wide, each after the first with `gap` before it. The first always stays.
+fn hints_that_fit(widths: &[f32], gap: f32, room: f32) -> usize {
+    let mut used = 0.0;
+    let mut count = 0;
+    for (index, width) in widths.iter().enumerate() {
+        let wanted = used + width + if index > 0 { gap } else { 0.0 };
+        if index > 0 && wanted > room {
+            break;
+        }
+        used = wanted;
+        count += 1;
+    }
+    count
 }
 
 /// What Enter on the window at `at` in `order` does: it comes to the front.
@@ -362,7 +386,13 @@ pub fn body(
     hint_line(
         ui,
         pos2(content.left(), content.top() + layout.hints_top()),
-        &hints(open, layout.more(), switch_to),
+        &hints(
+            open,
+            layout.more(),
+            switch_to,
+            super::seen::any_marked(snapshot),
+        ),
+        layout.size(open).x - 2.0 * PAD,
     );
     let top = content.top() + layout.cards_top(open);
 
@@ -760,11 +790,31 @@ fn more_button(ui: &mut Ui, rect: Rect, words: &str, open: bool) -> Response {
     response
 }
 
-fn hint_line(ui: &mut Ui, at: egui::Pos2, hints: &[(String, String)]) {
+fn hint_line(ui: &mut Ui, at: egui::Pos2, hints: &[(String, String)], room: f32) {
     let tokens = Tokens::get(ui.ctx());
     let painter = ui.painter();
     let mut x = at.x;
     let centre = at.y + HINTS / 2.0;
+    // A narrow popup drops the hints that do not fit, from the end.
+    let measure = |text: &str, font: egui::FontId| {
+        painter
+            .layout_no_wrap(text.to_string(), font, tokens.text_secondary)
+            .size()
+            .x
+    };
+    let dot = measure("\u{b7}", theme::regular(12.0)) + 12.0;
+    let widths: Vec<f32> = hints
+        .iter()
+        .map(|(key, words)| {
+            let font = if key.is_ascii() {
+                theme::regular(12.0)
+            } else {
+                theme::mono(12.0)
+            };
+            measure(key, font) + 10.0 + 6.0 + measure(words, theme::regular(12.0))
+        })
+        .collect();
+    let hints = &hints[..hints_that_fit(&widths, dot, room)];
     for (index, (key, words)) in hints.iter().enumerate() {
         if index > 0 {
             let dot = painter.layout_no_wrap(
@@ -1014,12 +1064,25 @@ mod tests {
         let words = |hints: Vec<(String, String)>| -> Vec<String> {
             hints.into_iter().map(|(_, words)| words).collect()
         };
-        assert_eq!(words(hints(false, true, None)), ["Open", "More"]);
-        assert_eq!(words(hints(false, false, None)), ["Open"]);
+        assert_eq!(words(hints(false, true, None, false)), ["Open", "More"]);
+        assert_eq!(words(hints(false, false, None, false)), ["Open"]);
         assert_eq!(
-            words(hints(true, true, Some("Desktop 5"))),
+            words(hints(true, true, Some("Desktop 5"), false)),
             ["Switch to Desktop 5", "Back", "Close"]
         );
+        // The Mark hint comes last, and only while a card is orange.
+        let marked = hints(false, true, None, true);
+        assert_eq!(marked.last().unwrap().0, "Ctrl + M");
+        assert_eq!(marked.last().unwrap().1, "Mark all as seen");
+        assert_eq!(hints(false, true, None, false).len(), 2);
+    }
+
+    #[test]
+    fn a_narrow_popup_drops_the_last_hints_but_keeps_the_first() {
+        let widths = [60.0, 70.0, 150.0];
+        assert_eq!(hints_that_fit(&widths, 12.0, 1000.0), 3);
+        assert_eq!(hints_that_fit(&widths, 12.0, 200.0), 2);
+        assert_eq!(hints_that_fit(&widths, 12.0, 10.0), 1);
     }
 
     #[test]

@@ -237,6 +237,7 @@ pub fn body(
             shown && snapshot.keeps_order,
             others_count > 0,
             cards_here(group, &snapshot.desktops) > 10,
+            super::super::seen::any_marked(snapshot),
         );
     }
 

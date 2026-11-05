@@ -272,6 +272,10 @@ impl App {
                     self.arrange.note(text);
                     ctx.request_repaint_of(arrange::viewport_id());
                 }
+                UiCommand::ArrangeMarked { windows, undone } => {
+                    self.arrange.marked_seen(windows, undone);
+                    ctx.request_repaint_of(arrange::viewport_id());
+                }
                 UiCommand::HideArrange => {
                     if self.arrange_life.close() {
                         self.arrange.hidden();

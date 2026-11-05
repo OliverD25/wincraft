@@ -8,7 +8,8 @@
 use std::collections::HashSet;
 
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    HSHELL_HIGHBIT, HSHELL_REDRAW, HSHELL_WINDOWACTIVATED, HSHELL_WINDOWDESTROYED,
+    FlashWindowEx, FLASHWINFO, FLASHW_STOP, HSHELL_HIGHBIT, HSHELL_REDRAW, HSHELL_WINDOWACTIVATED,
+    HSHELL_WINDOWDESTROYED,
 };
 
 /// A window flashes its taskbar button.
@@ -44,6 +45,73 @@ impl Attention {
 
     pub fn wants(&self, hwnd: isize) -> bool {
         self.windows.contains(&hwnd)
+    }
+
+    pub fn count(&self) -> usize {
+        self.windows.len()
+    }
+
+    /// Forgets every mark. Returns the windows that were marked, in a fixed
+    /// order, so the user can take the marks back.
+    pub fn clear_all(&mut self) -> Vec<isize> {
+        let mut windows: Vec<isize> = self.windows.drain().collect();
+        windows.sort_unstable();
+        windows
+    }
+
+    /// Marks exactly these windows again, as after `clear_all`. Others stay
+    /// as they are.
+    pub fn restore(&mut self, windows: &[isize]) {
+        self.windows.extend(windows.iter().copied());
+    }
+}
+
+/// Tells Windows these windows stopped flashing, so their taskbar buttons
+/// lose the orange. A test copy of WinCraft never does it: it must not
+/// change the user's real windows (Principle 1). Returns how many windows
+/// it was called for.
+pub fn stop_flashing(windows: &[isize], test_copy: bool) -> usize {
+    stop_flashing_with(windows, test_copy, |hwnd| {
+        let info = FLASHWINFO {
+            cbSize: std::mem::size_of::<FLASHWINFO>() as u32,
+            hwnd: hwnd as _,
+            dwFlags: FLASHW_STOP,
+            uCount: 0,
+            dwTimeout: 0,
+        };
+        unsafe { FlashWindowEx(&info) };
+    })
+}
+
+fn stop_flashing_with(windows: &[isize], test_copy: bool, mut stop: impl FnMut(isize)) -> usize {
+    if test_copy {
+        return 0;
+    }
+    for hwnd in windows {
+        stop(*hwnd);
+    }
+    windows.len()
+}
+
+/// What WinCraft says after "Mark all as seen" for `count` windows.
+pub fn marked_line(count: usize) -> String {
+    match count {
+        0 => "No windows to mark as seen".to_string(),
+        1 => "Marked 1 window as seen".to_string(),
+        n => format!("Marked {n} windows as seen"),
+    }
+}
+
+/// What WinCraft says after the undo. The taskbar cannot be made to flash
+/// again, so the line says so.
+pub const UNDONE_LINE: &str = "Orange frames are back. The taskbar stays as it is.";
+
+/// The second line of the palette command.
+pub fn palette_subtitle(count: usize) -> Option<String> {
+    match count {
+        0 => None,
+        1 => Some("1 window wants attention".to_string()),
+        n => Some(format!("{n} windows want attention")),
     }
 }
 
@@ -96,5 +164,50 @@ mod tests {
         assert!(!attention.wants(10));
         attention.mark(10);
         assert!(attention.wants(10));
+    }
+
+    #[test]
+    fn clear_all_returns_the_marked_windows_and_empties_the_set() {
+        let mut attention = Attention::default();
+        assert!(attention.clear_all().is_empty());
+        attention.mark(30);
+        attention.mark(10);
+        attention.mark(20);
+        assert_eq!(attention.count(), 3);
+        assert_eq!(attention.clear_all(), [10, 20, 30]);
+        assert_eq!(attention.count(), 0);
+        assert!(!attention.wants(10));
+        assert!(attention.clear_all().is_empty());
+    }
+
+    #[test]
+    fn restore_marks_only_the_given_windows() {
+        let mut attention = Attention::default();
+        attention.mark(5);
+        attention.restore(&[10, 20]);
+        assert!(attention.wants(5) && attention.wants(10) && attention.wants(20));
+        assert!(!attention.wants(30));
+        let mut other = Attention::default();
+        other.restore(&[]);
+        assert_eq!(other.count(), 0);
+    }
+
+    #[test]
+    fn a_test_copy_never_stops_a_real_window_flashing() {
+        let mut called = Vec::new();
+        assert_eq!(stop_flashing_with(&[1, 2], true, |h| called.push(h)), 0);
+        assert!(called.is_empty());
+        assert_eq!(stop_flashing_with(&[1, 2], false, |h| called.push(h)), 2);
+        assert_eq!(called, [1, 2]);
+    }
+
+    #[test]
+    fn the_lines_name_the_count() {
+        assert_eq!(marked_line(0), "No windows to mark as seen");
+        assert_eq!(marked_line(1), "Marked 1 window as seen");
+        assert_eq!(marked_line(9), "Marked 9 windows as seen");
+        assert_eq!(palette_subtitle(0), None);
+        assert_eq!(palette_subtitle(1).unwrap(), "1 window wants attention");
+        assert_eq!(palette_subtitle(9).unwrap(), "9 windows want attention");
     }
 }

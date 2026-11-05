@@ -831,8 +831,8 @@ fn the_palette_lists_each_plugins_commands_dimmed_while_it_is_off() {
     );
     assert_eq!(
         off.iter().filter(|entry| entry.group == "WinCraft").count(),
-        13,
-        "nine commands and the detailed log's four"
+        14,
+        "ten commands and the detailed log's four"
     );
     set.enable(0);
     let on = set.palette_entries(&plugins(&set));
@@ -2927,4 +2927,87 @@ fn the_update_panel_ends_with_the_update_it_shows() {
     // Only an update the user started has a panel.
     host.progress(update_notice::Stage::Checking);
     assert!(host.update_notice.is_none());
+}
+
+#[test]
+fn mark_all_seen_clears_the_marks_and_tells_the_strip_which_windows() {
+    let data = Scratch::new("mark-all-seen");
+    let (log, keyboard) = (diary(), FakeKeys::default());
+    let (mut host, ui) = test_host(
+        vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+        &keyboard,
+        &data,
+    );
+    ATTENTION.with(|attention| {
+        let mut attention = attention.borrow_mut();
+        attention.mark(0x7771);
+        attention.mark(0x7772);
+    });
+    host.handle_request(HostRequest::MarkAllSeen);
+    assert_eq!(ATTENTION.with(|attention| attention.borrow().count()), 0);
+    match ui.try_recv() {
+        Ok(UiCommand::ArrangeMarked { windows, undone }) => {
+            assert_eq!(windows, [0x7771, 0x7772]);
+            assert!(!undone);
+        }
+        _ => panic!("the strip was not told"),
+    }
+
+    // Nothing marked: the strip still gets an answer, with no windows.
+    host.handle_request(HostRequest::MarkAllSeen);
+    assert!(matches!(
+        ui.try_recv(),
+        Ok(UiCommand::ArrangeMarked { windows, .. }) if windows.is_empty()
+    ));
+}
+
+#[test]
+fn restore_marks_puts_back_only_windows_that_still_exist() {
+    let data = Scratch::new("restore-marks");
+    let (log, keyboard) = (diary(), FakeKeys::default());
+    let (mut host, ui) = test_host(
+        vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+        &keyboard,
+        &data,
+    );
+    let alive = unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetDesktopWindow() } as isize;
+    host.handle_request(HostRequest::RestoreMarks(vec![alive, 0x7773]));
+    ATTENTION.with(|attention| {
+        let attention = attention.borrow();
+        assert!(attention.wants(alive));
+        assert!(!attention.wants(0x7773));
+    });
+    assert!(matches!(
+        ui.try_recv(),
+        Ok(UiCommand::ArrangeMarked { undone: true, .. })
+    ));
+    ATTENTION.with(|attention| attention.borrow_mut().clear_all());
+}
+
+#[test]
+fn the_palette_lists_mark_all_as_seen_with_the_count() {
+    let data = Scratch::new("mark-all-palette");
+    let (log, keyboard) = (diary(), FakeKeys::default());
+    let set = plugin_set(
+        vec![fake("fake_a", "Fake A", "Win+Alt+F1", &log)],
+        &keyboard,
+        &data,
+    );
+    let find = |set: &PluginSet| {
+        set.palette_entries(&[])
+            .into_iter()
+            .find(|entry| entry.id == CommandId::Host(HostCommand::MarkAllSeen))
+            .expect("the command is listed")
+    };
+    let entry = find(&set);
+    assert_eq!(entry.label, "Mark all windows as seen");
+    assert_eq!(entry.words, "read attention orange clear flash");
+    assert_eq!(entry.subtitle, None);
+    ATTENTION.with(|attention| {
+        let mut attention = attention.borrow_mut();
+        attention.mark(0x7774);
+        attention.mark(0x7775);
+    });
+    assert_eq!(find(&set).subtitle.unwrap(), "2 windows want attention");
+    ATTENTION.with(|attention| attention.borrow_mut().clear_all());
 }

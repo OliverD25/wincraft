@@ -250,6 +250,7 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
             toggle_hints(shared);
             ctx.request_repaint();
         }
+        seen::keys(&ctx, shared);
         if rename_key {
             start_rename(shared, &group, snapshot.can_rename);
         }
@@ -323,6 +324,14 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
 
     if routed::shows_line(shared.keys_routed, ctx.input(|i| i.viewport().focused)) {
         routed::routed_line(&ctx, panel);
+    }
+    if let Some((text, left)) = shared
+        .seen
+        .line(Instant::now())
+        .map(|(text, left)| (text.to_string(), left))
+    {
+        seen::line(&ctx, panel, &text);
+        ctx.request_repaint_after(left);
     }
     if let Some((text, since)) = shared.note.clone() {
         match NOTE_TIME.checked_sub(since.elapsed()) {
