@@ -17,7 +17,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     FindWindowExW, FindWindowW, GetWindowThreadProcessId, IsWindowVisible, ShowWindowAsync,
     CHILDID_SELF, EVENT_OBJECT_SHOW, EVENT_OBJECT_UNCLOAKED, OBJID_WINDOW, SW_HIDE,
-    WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
+    SW_SHOWNOACTIVATE, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
 };
 
 pub mod keys;
@@ -35,6 +35,23 @@ pub fn hide(hwnd: HWND) {
         i64::from(ok),
         ok == 0,
     );
+}
+
+/// Shows a popup again that WinCraft itself hid, without taking the
+/// keyboard: only to undo `hide`, never for a popup Explorer hid.
+pub fn show_again(hwnd: HWND) {
+    let ok = unsafe { ShowWindowAsync(hwnd, SW_SHOWNOACTIVATE) };
+    crate::core::detailed::call(
+        "ShowWindowAsync SW_SHOWNOACTIVATE (taskbar preview shown again)",
+        hwnd as isize,
+        i64::from(ok),
+        ok == 0,
+    );
+}
+
+/// Whether the window still is one of Explorer's taskbar popups.
+pub fn is_popup_window(hwnd: HWND) -> bool {
+    !hwnd.is_null() && class_name(hwnd) == POPUP_CLASS
 }
 
 pub fn find_popups() -> Vec<HWND> {

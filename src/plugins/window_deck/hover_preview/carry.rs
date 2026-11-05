@@ -29,6 +29,10 @@ pub struct Carry {
     active: bool,
     /// A lookup at this point said: no app button here.
     refused: Option<Point>,
+    /// The point whose answer the active carry waits for.
+    waiting: Option<Point>,
+    /// The carry just ended on an answer that leaves the popup to Windows.
+    undo: bool,
     /// The taskbar the known buttons are on.
     taskbar: Option<Rect>,
     changes: u64,
@@ -39,6 +43,8 @@ impl Carry {
     /// `held` says whether the hover held a button, or carried, before
     /// this step.
     pub fn step(&mut self, held: bool, spot: Spot, look: &Look) {
+        let waited = self.waiting.take().filter(|_| self.active);
+        self.undo = waited.is_some_and(|at| leaves_it_to_windows(look, at));
         if look.taskbar != self.taskbar || look.button_changes != self.changes {
             self.known.clear();
             self.taskbar = look.taskbar;
@@ -72,10 +78,18 @@ impl Carry {
         }
         self.active =
             held && look.taskbar.is_some() && look.taskbar == self.home && self.refused != Some(at);
+        self.waiting = self.active.then_some(at);
     }
 
     pub fn active(&self) -> bool {
         self.active
+    }
+
+    /// True once, right after the step in which the answer for the carried
+    /// point said one window or no app button: a popup the carry hid
+    /// belongs to Windows again.
+    pub fn take_undo(&mut self) -> bool {
+        std::mem::take(&mut self.undo)
     }
 
     /// The taskbar on which any popup may be hidden now.
@@ -102,6 +116,25 @@ impl Carry {
         self.known.retain(|known| !overlap(known.rect, button.rect));
         self.known.push(button.clone());
     }
+}
+
+/// The answer for `at` came, and it is not an eligible button under the
+/// mouse.
+fn leaves_it_to_windows(look: &Look, at: Point) -> bool {
+    look.answer.as_ref().is_some_and(|answer| {
+        answer.at == at
+            && !answer
+                .button
+                .as_ref()
+                .is_some_and(|button| button.eligible() && contains(button.rect, look.cursor))
+    })
+}
+
+/// Whether the popups the carry hid are shown again: only when the carry
+/// ended on such an answer, it hid something, the mouse is still on the
+/// taskbar, and this WinCraft may hide (and so undo) at all.
+pub fn reshow(undo: bool, hid: bool, on_taskbar: bool, may_hide: bool) -> bool {
+    undo && hid && on_taskbar && may_hide
 }
 
 fn overlap(a: Rect, b: Rect) -> bool {
@@ -169,6 +202,67 @@ mod tests {
         carry.step(false, Spot::Other, &look((10, 2050), Some(answer)));
         carry.step(false, Spot::Other, &Look::default());
         assert!(carry.known(true).is_empty(), "the mouse left the taskbar");
+    }
+
+    fn carried_to(carry: &mut Carry, at: Point) {
+        carry.step(true, Spot::Holds, &look((10, 2050), None));
+        carry.step(true, Spot::Waiting(at), &look(at, None));
+        assert!(carry.active());
+        assert!(!carry.take_undo());
+    }
+
+    #[test]
+    fn an_answer_of_one_window_or_no_button_ends_the_carry_with_an_undo() {
+        let at = (200, 2050);
+        for button in [Some(button(190, 1)), None] {
+            let mut carry = Carry::default();
+            carried_to(&mut carry, at);
+            let answer = Answer { at, button };
+            let spot = if answer.button.is_some() {
+                Spot::Other
+            } else {
+                Spot::Waiting(at)
+            };
+            carry.step(true, spot, &look(at, Some(answer)));
+            assert!(!carry.active());
+            assert!(carry.take_undo());
+            assert!(!carry.take_undo(), "only once");
+        }
+    }
+
+    #[test]
+    fn an_eligible_answer_or_leaving_undoes_nothing() {
+        let at = (200, 2050);
+        let mut carry = Carry::default();
+        carried_to(&mut carry, at);
+        let answer = Answer {
+            at,
+            button: Some(button(190, 2)),
+        };
+        carry.step(true, Spot::Holds, &look(at, Some(answer)));
+        assert!(!carry.take_undo());
+
+        let mut left = Carry::default();
+        carried_to(&mut left, at);
+        left.step(true, Spot::Other, &Look::default());
+        assert!(!left.take_undo());
+
+        let mut never = Carry::default();
+        let answer = Answer {
+            at,
+            button: Some(button(190, 1)),
+        };
+        never.step(false, Spot::Other, &look(at, Some(answer)));
+        assert!(!never.take_undo(), "no carry, nothing to undo");
+    }
+
+    #[test]
+    fn hidden_popups_are_shown_again_only_when_all_holds() {
+        assert!(reshow(true, true, true, true));
+        assert!(!reshow(false, true, true, true), "eligible, or no answer");
+        assert!(!reshow(true, false, true, true), "nothing was hidden");
+        assert!(!reshow(true, true, false, true), "left the taskbar");
+        assert!(!reshow(true, true, true, false), "read-only test instance");
     }
 
     #[test]

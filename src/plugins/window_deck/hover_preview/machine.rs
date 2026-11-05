@@ -237,6 +237,16 @@ impl Machine {
         })
     }
 
+    /// Whether the popup may be hidden anywhere on the taskbar now.
+    pub fn carrying(&self) -> bool {
+        self.carry.active()
+    }
+
+    /// See `Carry::take_undo`.
+    pub fn take_undo(&mut self) -> bool {
+        self.carry.take_undo()
+    }
+
     /// Whether the hover holds a button now: the popup there is WinCraft's.
     fn holds(&self) -> bool {
         match &self.state {
