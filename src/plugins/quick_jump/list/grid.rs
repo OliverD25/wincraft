@@ -259,6 +259,16 @@ pub(super) fn contents(ui: &mut Ui, view: &View, state: &mut ListUi, out: &mut V
         return;
     }
 
+    let sources: Vec<egui::Vec2> = view
+        .slots
+        .iter()
+        .filter(|card| matches!(card.state, State::Open | State::InFront))
+        .filter_map(|card| card.hwnd)
+        .filter_map(|hwnd| state.pictures.source_size(hwnd))
+        .collect();
+    state.picture_scale =
+        super::super::pictures::common_scale(&sources, vec2(CARD_W - 20.0, PICTURE_H));
+
     let pointer = ui.ctx().pointer_interact_pos();
     let mut rects = Vec::new();
     for (index, card) in view.slots.iter().enumerate() {
@@ -388,6 +398,16 @@ fn header(ui: &Ui, painter: &Painter, (left, right): (f32, f32), top: f32, count
     }
 }
 
+/// The light outline of a card's picture box, when no live picture fills it.
+fn frame_box(painter: &Painter, picture: Rect, tokens: &Tokens) {
+    painter.rect_stroke(
+        picture,
+        6,
+        Stroke::new(1.0, theme::with_alpha(tokens.text_primary, 0.08)),
+        StrokeKind::Inside,
+    );
+}
+
 fn draw_card(
     ui: &Ui,
     painter: &Painter,
@@ -419,9 +439,26 @@ fn draw_card(
     let pixels_per_point = ui.ctx().pixels_per_point();
     match (card.state, card.hwnd) {
         (State::Open | State::InFront, Some(hwnd)) => {
-            painter.rect_filled(picture, 6, tokens.panel_bg);
-            if !state.pictures.show(hwnd, picture, pixels_per_point) {
-                name_card(painter, picture, card.title_line(), &tokens, 1.0);
+            let scale = state.picture_scale;
+            match state
+                .pictures
+                .show_scaled(hwnd, picture, pixels_per_point, scale)
+            {
+                // A frame that hugs the picture, so its width shows.
+                Some(shown) => {
+                    painter.rect_filled(shown.expand(1.0), 4, tokens.panel_bg);
+                    painter.rect_stroke(
+                        shown.expand(1.0),
+                        4,
+                        Stroke::new(1.0, theme::with_alpha(tokens.text_primary, 0.12)),
+                        StrokeKind::Outside,
+                    );
+                }
+                None => {
+                    painter.rect_filled(picture, 6, tokens.panel_bg);
+                    name_card(painter, picture, card.title_line(), &tokens, 1.0);
+                    frame_box(painter, picture, &tokens);
+                }
             }
         }
         _ => {
@@ -434,14 +471,9 @@ fn draw_card(
                 Rect::from_center_size(picture.center(), vec2(32.0, 32.0)),
                 NOT_OPEN,
             );
+            frame_box(painter, picture, &tokens);
         }
     }
-    painter.rect_stroke(
-        picture,
-        6,
-        Stroke::new(1.0, theme::with_alpha(tokens.text_primary, 0.08)),
-        StrokeKind::Inside,
-    );
     let width = inner.width() - 4.0;
     if selected || hovered {
         // A card can be dragged to another place.

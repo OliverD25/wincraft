@@ -58,6 +58,9 @@ struct ListUi {
     /// Hidden until it is in its place, then covered until it has drawn.
     reveal: Reveal,
     pictures: Pictures,
+    /// One scale for every card's picture, so their sizes compare as on
+    /// the screen; worked out at the start of each frame.
+    picture_scale: Option<f32>,
     icons: Option<IconCache>,
     drag: Option<usize>,
     refreshed: Option<Instant>,
