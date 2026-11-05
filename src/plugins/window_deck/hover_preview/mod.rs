@@ -14,6 +14,9 @@
 //! Hiding is a plain `ShowWindowAsync(SW_HIDE)` of Explorer's popup, never a
 //! move, so the popup comes back on the next hover if WinCraft stops. The
 //! key rules in `keys::decide` keep Win+number and Alt+Tab untouched.
+//! While the mouse is on a taskbar, a popup the strip has hidden is also
+//! kept see-through (`see_through`), so a show that comes before the hide
+//! is never seen; it is visible again the moment the mouse leaves.
 //!
 //! When the mouse moves on from a button the strip holds, Windows shows the
 //! next button's popup at once, before the lookup can say which button it
@@ -24,6 +27,7 @@
 
 mod carry;
 mod machine;
+mod see_through;
 
 use std::cell::{Cell, RefCell};
 use std::sync::mpsc::TryRecvError;
@@ -109,6 +113,9 @@ impl HoverPreview {
                     "off: Windows' own preview is left alone"
                 }
             );
+            if on && self.may_hide {
+                see_through::repair();
+            }
             if on && !self.may_hide {
                 log::info!(
                     "read-only test instance: the hover strip opens, but Windows' taskbar preview \
@@ -124,6 +131,14 @@ impl HoverPreview {
             self.stop_watching();
         }
         out
+    }
+
+    /// At plugin start: puts back a popup that a WinCraft that crashed left
+    /// see-through. A test instance that may not hide touches nothing.
+    pub fn repair(&self) {
+        if self.may_hide {
+            see_through::repair();
+        }
     }
 
     /// For teardown: off, and nothing left behind.
@@ -209,6 +224,7 @@ impl HoverPreview {
         }
         self.refusal_noted = gate.is_some();
         let gate = gate.filter(|_| self.may_hide);
+        see_through::set(self.may_hide && self.machine.see_through(strip, cursor, keys, now));
         GATE.with(|cell| *cell.borrow_mut() = gate.clone());
         if let Some(gate) = gate {
             // In case a WinEvent came late or not at all.
@@ -311,6 +327,7 @@ impl HoverPreview {
     fn stop_watching(&mut self) {
         self.keys.stop();
         self.stop_hooks();
+        see_through::restore_all();
         GATE.with(|cell| *cell.borrow_mut() = None);
         CARRY_HIDDEN.with(|cell| cell.borrow_mut().clear());
         if let (Some(hwnd), Some(_)) = (self.hwnd, self.timer_ms.take()) {
@@ -340,6 +357,7 @@ fn on_its_button(button: Option<Rect>, look: &Look) -> bool {
 }
 
 fn hide(hwnd: HWND, carried: bool) {
+    see_through::learn(hwnd);
     popup::hide(hwnd);
     HIDDEN.with(|cell| cell.set(cell.get() + 1));
     if carried {

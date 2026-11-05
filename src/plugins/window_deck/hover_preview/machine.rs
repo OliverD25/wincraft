@@ -237,6 +237,46 @@ impl Machine {
         })
     }
 
+    /// Whether Windows' popup is kept see-through now: wherever it may be
+    /// hidden, and also where the button is not known yet, so a popup
+    /// Windows shows before the answer is never seen. A spot known to be
+    /// Windows' own (a one-window app, no app button, a hover the keyboard
+    /// or a click had a part in) keeps its popup visible.
+    pub fn see_through(
+        &self,
+        strip: Option<Rect>,
+        cursor: Point,
+        keys: KeyState,
+        now: u64,
+    ) -> bool {
+        if !self.engaged() {
+            return false;
+        }
+        if self
+            .gate(strip)
+            .is_some_and(|gate| gate.allows(cursor, keys, now))
+        {
+            return true;
+        }
+        let waiting = match &self.state {
+            State::Resting { at, .. } => !self.carry.refused(*at),
+            State::Open {
+                other: Some((at, _, _)),
+                ..
+            } => !self.carry.refused(*at),
+            _ => false,
+        };
+        let single = self
+            .carry
+            .known(false)
+            .iter()
+            .any(|rect| contains(*rect, cursor));
+        waiting
+            && !single
+            && !self.keys.win_was_down()
+            && decide(&self.keys.inputs(keys, now, true)) == Decision::Hide
+    }
+
     /// Whether the popup may be hidden anywhere on the taskbar now.
     pub fn carrying(&self) -> bool {
         self.carry.active()
