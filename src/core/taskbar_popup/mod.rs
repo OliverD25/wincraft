@@ -1,9 +1,16 @@
 //! Finding, reading and hiding Explorer's taskbar hover popup, for
 //! WindowDeck's hover strip.
 //!
-//! Only plain hides are used, never a move off-screen: Explorer shows a
-//! hidden popup again on the next hover by itself, so a WinCraft that
-//! crashes or quits can never leave the taskbar without its popup.
+//! Hides are plain hides, never a move off-screen: Explorer shows a hidden
+//! popup again on the next hover by itself, so a WinCraft that crashes or
+//! quits can never leave the taskbar without its popup.
+//!
+//! One exception changes the popup's look: `see_through` makes a popup the
+//! hover strip has hidden fully transparent while the mouse is on a
+//! taskbar, and puts it back the moment that ends. Explorer would not undo
+//! that by itself, so the old state is kept on the popup in a window
+//! property, and each start of WindowDeck repairs a popup that a crashed
+//! WinCraft left transparent.
 
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
@@ -21,6 +28,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 pub mod keys;
+pub mod see_through;
 
 use crate::core::wide;
 use crate::core::windows_list::class_name;
