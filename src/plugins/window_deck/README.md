@@ -371,6 +371,11 @@ With it on:
   take the keyboard and opens the rename box, as a click would. A key you
   pressed before the mouse came in, and the release of a key the strip
   got, never reach the wrong place.
+- **Digits work from the taskbar button too.** While the mouse still rests
+  on the taskbar button that opened the strip, a digit (or Shift and a
+  digit) opens that card at once, so you need not move the mouse up first.
+  Only the digits go to the strip there; every other key stays with your
+  window.
 - **Win+number and Alt+Tab work exactly as before** (unless you switched
   on **Open WindowDeck with Win+1…9**). Windows' preview is
   never hidden while a Windows key or Alt is down, within 1.5 s of

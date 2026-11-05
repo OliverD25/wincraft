@@ -182,14 +182,28 @@ fn the_hook_stays_only_while_routing_or_waiting_for_a_release() {
 fn a_read_only_test_instance_never_puts_the_hook_in() {
     let mut keys = HoverKeys::default();
     assert!(!keys.may_route);
-    keys.update(true, 10);
+    keys.update(true, false, 10);
     assert!(keys.is_routing(), "the decision is still made and logged");
     assert!(!is_running());
     assert!(!ROUTING.load(Ordering::Relaxed), "the real keys are left");
-    keys.update(false, 20);
+    keys.update(false, false, 20);
     assert!(!keys.is_routing());
-    keys.update(true, 30);
+    keys.update(true, true, 30);
     keys.stop();
     assert!(!keys.is_routing());
     assert!(!is_running());
+}
+
+#[test]
+fn on_the_taskbar_button_only_digits_go_to_the_strip() {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN,
+    };
+    assert!(rule::button_key(0x31, 0));
+    assert!(rule::button_key(0x30, MOD_SHIFT));
+    assert!(!rule::button_key(0x31, MOD_CONTROL), "Ctrl+digit stays");
+    assert!(!rule::button_key(0x31, MOD_WIN));
+    assert!(!rule::button_key(0x31, MOD_ALT));
+    assert!(!rule::button_key(0x44, 0), "D stays with the app");
+    assert!(!rule::button_key(0x0D, 0), "Enter stays with the app");
 }

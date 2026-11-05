@@ -183,8 +183,9 @@ impl HoverPreview {
             );
         }
 
-        self.keys
-            .update(routes_keys(self.machine.is_open(), &look), now);
+        let digits_only = on_its_button(self.machine.open_button(), &look);
+        let wanted = routes_keys(self.machine.is_open(), &look) || digits_only;
+        self.keys.update(wanted, digits_only, now);
 
         let gate = self.machine.gate(strip);
         if gate.is_some() && !self.may_hide && !self.refusal_noted {
@@ -290,6 +291,16 @@ impl HoverPreview {
 /// and the strip does not have the keyboard already.
 fn routes_keys(open: bool, look: &Look) -> bool {
     open && !look.strip_focused && look.strip.is_some_and(|strip| contains(strip, look.cursor))
+}
+
+/// Whether the mouse rests on the open strip's own taskbar button, where
+/// the digits go to the strip too, so a card can be opened before the mouse
+/// moves up. The strip must not have the keyboard already.
+fn on_its_button(button: Option<Rect>, look: &Look) -> bool {
+    !look.strip_focused
+        && look.strip.is_some()
+        && look.on_taskbar
+        && button.is_some_and(|rect| contains(rect, look.cursor))
 }
 
 fn hide(hwnd: HWND) {
@@ -521,6 +532,44 @@ mod tests {
         assert!(
             !routes_keys(true, &look((900, 1000), Some(strip), false)),
             "past its far edge"
+        );
+    }
+
+    #[test]
+    fn digits_follow_the_mouse_on_the_strips_own_taskbar_button() {
+        let strip = [100, 700, 900, 1000];
+        let button = [0, 1040, 60, 1080];
+        let look = |cursor: Point, strip: Option<Rect>, focused: bool| Look {
+            cursor,
+            strip,
+            strip_focused: focused,
+            on_taskbar: cursor.1 >= 1040,
+            ..Default::default()
+        };
+        let on_button = (30, 1060);
+        assert!(on_its_button(
+            Some(button),
+            &look(on_button, Some(strip), false)
+        ));
+        assert!(
+            !on_its_button(Some(button), &look((300, 1060), Some(strip), false)),
+            "another taskbar button"
+        );
+        assert!(
+            !on_its_button(Some(button), &look((400, 800), Some(strip), false)),
+            "in the strip, where every strip key goes"
+        );
+        assert!(
+            !on_its_button(Some(button), &look(on_button, Some(strip), true)),
+            "the strip has the keyboard"
+        );
+        assert!(
+            !on_its_button(Some(button), &look(on_button, None, false)),
+            "not on screen yet"
+        );
+        assert!(
+            !on_its_button(None, &look(on_button, Some(strip), false)),
+            "no strip open"
         );
     }
 

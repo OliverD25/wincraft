@@ -37,6 +37,8 @@ use rule::{keep_hook, Router, Step};
 
 /// Whether keys go to the strip now; the hook reads it for every key.
 static ROUTING: AtomicBool = AtomicBool::new(false);
+/// Only digits go to the strip: the mouse is on its taskbar button.
+static DIGITS_ONLY: AtomicBool = AtomicBool::new(false);
 /// `Router::held` of the hook's router, for the host thread.
 static HELD: AtomicUsize = AtomicUsize::new(0);
 static WORKER: Mutex<Option<HookThread>> = Mutex::new(None);
@@ -66,8 +68,12 @@ pub struct HoverKeys {
 }
 
 impl HoverKeys {
-    /// Routing should be `wanted` now (see `hover_preview::routes_keys`).
-    pub fn update(&mut self, wanted: bool, now: u64) {
+    /// Routing should be `wanted` now (see `hover_preview::routes_keys`);
+    /// `digits_only` while the mouse is on the strip's taskbar button.
+    pub fn update(&mut self, wanted: bool, digits_only: bool, now: u64) {
+        if self.may_route {
+            DIGITS_ONLY.store(digits_only, Ordering::Relaxed);
+        }
         if wanted != self.routing {
             self.routing = wanted;
             host::detailed(format_args!(
@@ -200,10 +206,11 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
     }
     let vk = info.vkCode;
     let ours = mask_key::is_ours(info.dwExtraInfo) || vk == mask_key::VK;
-    let routing = ROUTING.load(Ordering::Relaxed);
     let step = ROUTER.with(|cell| match cell.try_borrow_mut() {
         Ok(mut router) => {
             let modifiers = super::win_digit::modifiers_now();
+            let routing = ROUTING.load(Ordering::Relaxed)
+                && (!DIGITS_ONLY.load(Ordering::Relaxed) || rule::button_key(vk, modifiers));
             let was_down = is_down && key_down(vk);
             let step = router.step(vk, is_down, modifiers, routing, was_down, ours);
             HELD.store(router.held(), Ordering::Relaxed);

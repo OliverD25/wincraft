@@ -12,6 +12,13 @@ const NONE: u32 = 0;
 const CTRL: u32 = MOD_CONTROL;
 const SHIFT: u32 = MOD_SHIFT;
 
+/// A key that goes to the strip while the mouse is only on its taskbar
+/// button: a digit, plain or with Shift, which opens a card. Every other
+/// key stays with the app in front there, so typing is never taken.
+pub fn button_key(vk: u32, modifiers: u32) -> bool {
+    (0x30..=0x39).contains(&vk) && (modifiers == NONE || modifiers == SHIFT)
+}
+
 /// The strip's key for `vk` with `modifiers` held (`MOD_WIN`, `MOD_ALT`,
 /// `MOD_CONTROL`, `MOD_SHIFT`), or None when the key stays with the app in
 /// front. Win and Alt never go to the strip: they close it, so Win+number

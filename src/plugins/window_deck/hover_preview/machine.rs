@@ -176,6 +176,14 @@ impl Machine {
         matches!(self.state, State::Open { .. })
     }
 
+    /// The taskbar button the open strip belongs to.
+    pub fn open_button(&self) -> Option<Rect> {
+        match &self.state {
+            State::Open { button, .. } => Some(button.rect),
+            _ => None,
+        }
+    }
+
     /// The app the hover is about, for the log.
     pub fn app(&self) -> Option<&str> {
         match &self.state {
