@@ -607,6 +607,7 @@ impl PluginSet {
                 HostCommand::PaletteCentre,
                 "Palette: Move back to the centre",
             ),
+            (HostCommand::MarkAllSeen, "Mark all windows as seen"),
             (HostCommand::Exit, "Quit WinCraft"),
         ] {
             entries.push(PaletteEntry {
@@ -614,10 +615,10 @@ impl PluginSet {
                 group: host_group.clone(),
                 label: label.to_string(),
                 hint: String::new(),
-                words: if command == HostCommand::DetailedLog {
-                    detailed_log::TOGGLE_WORDS.to_string()
-                } else {
-                    String::new()
+                words: match command {
+                    HostCommand::DetailedLog => detailed_log::TOGGLE_WORDS.to_string(),
+                    HostCommand::MarkAllSeen => "read attention orange clear flash".to_string(),
+                    _ => String::new(),
                 },
                 confirm: if command == HostCommand::DetailedLogDelete {
                     "Press Enter again to delete every detailed log file. This cannot be undone."
@@ -631,6 +632,15 @@ impl PluginSet {
                 subtitle: detailed_log::subtitle(command).or_else(|| {
                     (command == HostCommand::UpdateWinCraft)
                         .then(|| "Checks now and installs a newer version at once".to_string())
+                        .or_else(|| {
+                            (command == HostCommand::MarkAllSeen)
+                                .then(|| {
+                                    crate::core::attention::palette_subtitle(
+                                        ATTENTION.with(|attention| attention.borrow().count()),
+                                    )
+                                })
+                                .flatten()
+                        })
                 }),
                 shortcut_id: String::new(),
                 shortcut: String::new(),

@@ -62,6 +62,7 @@ mod detailed_log;
 mod plugins;
 mod prepared;
 mod requests;
+mod seen;
 mod taskbar_cache;
 mod updates;
 mod view;

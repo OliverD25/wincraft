@@ -29,6 +29,7 @@ impl Host {
             CommandId::Host(HostCommand::PaletteCentre) => {
                 self.to_ui.send(UiCommand::CentrePalette)
             }
+            CommandId::Host(HostCommand::MarkAllSeen) => self.mark_all_seen(false),
             CommandId::Host(HostCommand::Exit) => self.shutdown(),
             CommandId::Host(HostCommand::TogglePlugin(index)) => {
                 if index < self.plugins.slots.len() {
@@ -293,6 +294,8 @@ impl Host {
                 self.send_layout();
             }
             HostRequest::FocusWindow(hwnd) => bring_to_front(hwnd as HWND),
+            HostRequest::MarkAllSeen => self.mark_all_seen(true),
+            HostRequest::RestoreMarks(windows) => self.restore_marks(&windows),
             HostRequest::ArrangeDigit(digit) => self.arrange_digit(digit),
             HostRequest::ClearPaletteUsage => self.to_ui.send(UiCommand::ClearPaletteUsage),
             HostRequest::ChangeHotkeyOf(hotkey) => {

@@ -212,6 +212,17 @@ its height; beyond that the mouse wheel scrolls it. In both views:
   program about windows (it changes no window). It cannot know about a
   window that flashed before WinCraft started, so such a window shows no
   mark until it flashes again.
+- **Ctrl+M** marks every orange card as seen, in every view, on every
+  monitor and desktop (not only the cards you see). Some apps flash all
+  their windows when they start, so this clears them in one key. WinCraft
+  also tells Windows that each of those windows stopped flashing, so the
+  taskbar buttons lose their orange too. It does this only on this key (or
+  the palette command **Mark all windows as seen**), never on its own. The
+  strip stays open and shows "Marked N windows as seen · Ctrl+Z Undo" for
+  4 seconds. **Ctrl+Z** in that time brings the orange cards back (it
+  cannot make the taskbar flash again). The hint "Ctrl + M  Mark all as
+  seen" shows only while a card is orange. A test copy of WinCraft clears
+  its own marks but never touches the real taskbar buttons.
 - **Keyboard (Flat):** ← and → pick a window, Ctrl+← and Ctrl+→ move it,
   Alt+← and Alt+→ change its number, D shows or hides the other desktops,
   Enter switches to it, a number switches to the window whose card shows it,

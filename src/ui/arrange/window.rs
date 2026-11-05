@@ -44,6 +44,7 @@ impl Arrange {
                 select_window: None,
                 asked_at: None,
                 note: None,
+                seen: seen::Seen::default(),
                 anchor: None,
                 compact_left: None,
                 reveal: reveal::Reveal::Shown,
@@ -105,6 +106,7 @@ impl Arrange {
         shared.asked_at = Some(Instant::now());
         shared.compact_left = None;
         shared.note = None;
+        shared.seen = seen::Seen::default();
         shared.rename = None;
         shared.snapshot = Some(snapshot);
         shared.holds.clear();
@@ -213,6 +215,14 @@ impl Arrange {
     pub fn note(&self, text: String) {
         if let Ok(mut shared) = self.shared.lock() {
             shared.note = Some((text, Instant::now()));
+        }
+    }
+
+    /// The host cleared the attention marks (`windows`), or put them back
+    /// (`undone`): the strip says so for a few seconds.
+    pub fn marked_seen(&self, windows: Vec<isize>, undone: bool) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.seen.answer(windows, undone, Instant::now());
         }
     }
 

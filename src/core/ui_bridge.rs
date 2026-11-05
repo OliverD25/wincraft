@@ -59,6 +59,8 @@ pub enum HostCommand {
     DetailedLogDelete,
     /// Forgets where the palette was dragged to: it opens centred again.
     PaletteCentre,
+    /// Clears the orange "wants attention" mark of every window.
+    MarkAllSeen,
     TogglePlugin(usize),
     Exit,
 }
@@ -602,6 +604,12 @@ pub enum UiCommand {
     ArrangeSelect(usize),
     /// A short line the open strip shows for a moment.
     ArrangeNote(String),
+    /// The answer to Ctrl+M in the strip: the windows whose marks were
+    /// cleared (kept for Ctrl+Z), or `undone` after Ctrl+Z.
+    ArrangeMarked {
+        windows: Vec<isize>,
+        undone: bool,
+    },
     /// The strip just opened for the window in front: pick its card.
     ArrangeSelectWindow(isize),
     /// Win and the same number again: pick the next card on this desktop.
@@ -693,6 +701,10 @@ pub enum HostRequest {
     /// The strip's own window, which only the host thread may bring forward
     /// right after the hotkey that opened it.
     FocusWindow(isize),
+    /// Ctrl+M in the strip: clear every window's attention mark.
+    MarkAllSeen,
+    /// Ctrl+Z after that: put the marks back on these windows.
+    RestoreMarks(Vec<isize>),
     /// A digit typed in the strip: the strip for that taskbar button.
     ArrangeDigit(u8),
     /// Settings' "Clear usage history": the palette forgets every pick.
