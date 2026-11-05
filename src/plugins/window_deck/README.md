@@ -391,13 +391,25 @@ WinCraft only hides Windows' preview window, the way any program can; it
 never moves it, changes Explorer or changes a setting. If WinCraft stops,
 Windows shows its own preview again on the next hover.
 
+Windows can show its preview a moment before WinCraft hides it, which
+looks like a short flash. So while the mouse is on a taskbar, WinCraft also
+makes Windows' preview window fully transparent once it has hidden it. You
+see it again at once where it belongs to Windows: on an app with one
+window, away from app buttons, while a Windows key or Alt is down, or after
+a click. Its normal look comes back the moment the mouse leaves the
+taskbar, when you switch the feature off, and when WinCraft quits. If
+WinCraft ever crashes while the preview is transparent, it puts the preview
+back the next time it starts. If Windows' preview cannot be made
+transparent, WinCraft only hides it, as before.
+
 It costs almost nothing while you do not use it: away from the taskbar,
 WinCraft looks at the mouse position 10 times a second and does nothing
 else. Only while the mouse is on a taskbar does it look more often, and only
 once the mouse rests there does it ask Windows which button it is on.
 
 A test copy of WinCraft (`WINCRAFT_INSTANCE`) opens the strip on hover but
-never hides Windows' preview, so a test cannot touch your real taskbar; the
+never hides Windows' preview or makes it transparent, so a test cannot
+touch your real taskbar; the
 log says "hiding Windows' taskbar preview skipped". The flag
 `--allow-hide-popup` lets a test copy hide it, for a test you watch.
 

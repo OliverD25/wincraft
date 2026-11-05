@@ -85,6 +85,11 @@ impl Carry {
         self.active
     }
 
+    /// A lookup at this point said: no app button here.
+    pub fn refused(&self, at: Point) -> bool {
+        self.refused == Some(at)
+    }
+
     /// True once, right after the step in which the answer for the carried
     /// point said one window or no app button: a popup the carry hid
     /// belongs to Windows again.
