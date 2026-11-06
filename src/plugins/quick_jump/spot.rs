@@ -43,6 +43,14 @@ pub fn place(centre: bool, saved: Option<Spot>) -> Place {
     }
 }
 
+/// The corner Windows gives a minimised window.
+const MINIMISED: (i32, i32) = (-32000, -32000);
+
+/// Whether the window's place is worth keeping: not minimised, on a monitor.
+pub fn worth_keeping(iconic: bool, on_monitor: bool, at: (i32, i32)) -> bool {
+    !iconic && on_monitor && at != MINIMISED
+}
+
 pub fn load(path: &Path) -> Option<Spot> {
     let text = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&text).ok()
@@ -75,6 +83,17 @@ mod tests {
         assert_eq!(place(true, spot), Place::Centre);
         assert_eq!(place(false, spot), Place::At(40, -300));
         assert_eq!(place(false, None), Place::Centre);
+    }
+
+    #[test]
+    fn a_minimised_or_lost_window_is_not_remembered() {
+        assert!(worth_keeping(false, true, (40, -300)));
+        assert!(!worth_keeping(true, true, (40, 40)), "minimised");
+        assert!(!worth_keeping(false, true, (-32000, -32000)), "parked");
+        assert!(
+            !worth_keeping(false, false, (9000, 9000)),
+            "off every monitor"
+        );
     }
 
     #[test]

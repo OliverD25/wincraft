@@ -7,7 +7,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::HWND;
-use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOW};
+use windows_sys::Win32::Graphics::Gdi::{MonitorFromWindow, MONITOR_DEFAULTTONULL};
+use windows_sys::Win32::UI::WindowsAndMessaging::{IsIconic, ShowWindow, SW_SHOW};
 
 use egui::{
     pos2, vec2, Align2, Color32, Key, Painter, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder,
@@ -31,6 +32,7 @@ use super::pins::{number_of_slot, Pin};
 use super::shared::{Handle, Request, Shared, View};
 use super::spot::{self, Place, Spot};
 
+mod find;
 mod grid;
 
 use grid::window_size;
@@ -66,6 +68,21 @@ struct ListUi {
     refreshed: Option<Instant>,
     closed: bool,
     size: Option<egui::Vec2>,
+    /// Windows of earlier opens. A fast reopen must not take a dying one
+    /// for the new window.
+    retired: Vec<isize>,
+}
+
+impl ListUi {
+    /// The window is closing: remember it as old, so a quick reopen does not
+    /// pick it up again by its title.
+    fn retire_window(&mut self) {
+        if self.window != 0 {
+            self.retired.push(self.window);
+            find::forget_gone(&mut self.retired);
+        }
+        self.window = 0;
+    }
 }
 
 /// What a frame of Quick access asks for.
@@ -120,7 +137,7 @@ impl PluginWindow for PinList {
         if let Ok(mut state) = self.state.lock() {
             state.pictures.clear();
             state.details = None;
-            state.window = 0;
+            state.retire_window();
             state.reveal = Reveal::Hidden;
         }
     }
@@ -160,7 +177,7 @@ impl PluginWindow for PinList {
             };
             let tokens = Tokens::get(ui.ctx());
             if state.window == 0 {
-                state.window = settings::find_window(TITLE, palette);
+                state.window = find::find_fresh(TITLE, palette, &mut state.retired);
             }
             if state.window != 0 {
                 settings::sync_title_bar(state.window, tokens.dark);
@@ -224,7 +241,7 @@ impl PluginWindow for PinList {
                 state.closed = false;
                 state.pictures.clear();
                 state.details = None;
-                state.window = 0;
+                state.retire_window();
                 state.size = None;
                 state.reveal = Reveal::Hidden;
                 ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
@@ -259,7 +276,7 @@ fn reveal_step(ctx: &egui::Context, shared: &Shared, state: &mut ListUi, palette
     match state.reveal {
         Reveal::Hidden => {
             if state.window == 0 {
-                state.window = settings::find_window(TITLE, palette);
+                state.window = find::find_fresh(TITLE, palette, &mut state.retired);
             }
             if state.window == 0 {
                 ctx.request_repaint();
@@ -295,11 +312,19 @@ fn put_in_place(shared: &Shared, window: isize) {
     }
 }
 
-/// Keeps where the window is now, so it can open there next time.
+/// Keeps where the window is now, so it can open there next time. A
+/// minimised window (parked far off the screen) or one on no monitor has
+/// no place worth keeping.
 fn remember_spot(shared: &mut Shared, window: isize) {
-    let Some((x, y)) = window_place::top_left(window as HWND) else {
+    let hwnd = window as HWND;
+    let Some((x, y)) = window_place::top_left(hwnd) else {
         return;
     };
+    let iconic = unsafe { IsIconic(hwnd) } != 0;
+    let on_monitor = !unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL) }.is_null();
+    if !spot::worth_keeping(iconic, on_monitor, (x, y)) {
+        return;
+    }
     let now = Spot { x, y };
     if shared.spot != Some(now) {
         shared.spot = Some(now);
