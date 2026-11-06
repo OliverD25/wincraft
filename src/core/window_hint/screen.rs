@@ -8,13 +8,13 @@ use std::time::Instant;
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetClassNameW, GetCursorPos, IsIconic, IsWindow, IsZoomed, KillTimer, SetTimer,
+    GetCursorPos, IsIconic, IsWindow, IsZoomed, KillTimer, SetTimer,
 };
 
 use crate::core::canvas::Area;
 use crate::core::layered::{Image, Layered};
 use crate::core::monitors::{self, Rect, Screen};
-use crate::core::{animations, instance, theme};
+use crate::core::{animations, instance, theme, windows_list};
 use crate::ui::taskbar_badges::scale_at;
 
 use super::draw;
@@ -203,7 +203,9 @@ pub fn show(hint: &Hint) -> bool {
         Before::Window(_) => None,
     };
     let front = match hint.from {
-        Before::Window(hwnd) if hwnd != 0 && !is_desktop(&class_name(hwnd)) => {
+        Before::Window(hwnd)
+            if hwnd != 0 && !is_desktop(&windows_list::class_name(hwnd as HWND)) =>
+        {
             monitors::screen_of(hwnd as HWND, &screens)
         }
         _ => None,
@@ -404,12 +406,6 @@ fn frame_bounds(hwnd: isize) -> Option<Rect> {
     } == 0;
     let rect = [frame.left, frame.top, frame.right, frame.bottom];
     (read && rect[2] > rect[0] && rect[3] > rect[1]).then_some(rect)
-}
-
-fn class_name(hwnd: isize) -> String {
-    let mut buffer = [0u16; 64];
-    let length = unsafe { GetClassNameW(hwnd as HWND, buffer.as_mut_ptr(), buffer.len() as i32) };
-    String::from_utf16_lossy(&buffer[..length.max(0) as usize])
 }
 
 fn pointer_screen(screens: &[Screen]) -> Option<usize> {

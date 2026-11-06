@@ -590,12 +590,17 @@ fn card(
     faded_painter.multiply_opacity(fade);
     let painter = &faded_painter;
     if look.picked {
-        painter.rect(
+        painter.rect_filled(
             rect,
             tokens.radius_tile,
             super::cards::selected_fill(&tokens),
-            theme::stroke(ui.ctx(), 2.0, super::cards::selected_ring(&tokens)),
-            StrokeKind::Inside,
+        );
+        super::cards::paint_ring(
+            painter,
+            ui.ctx(),
+            rect,
+            tokens.radius_tile,
+            super::cards::selected_ring(&tokens),
         );
     } else if response.hovered() && shared.pointer.moved() {
         painter.rect_filled(rect, tokens.radius_tile, tokens.hover_bg);
