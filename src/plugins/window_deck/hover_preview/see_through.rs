@@ -59,9 +59,7 @@ pub fn set(wanted: bool) {
         for hwnd in restore {
             put_back(&mut state, hwnd);
         }
-        for hwnd in apply {
-            make(&mut state, hwnd);
-        }
+        make_all(&mut state, apply, make);
     });
 }
 
@@ -106,18 +104,44 @@ pub fn repair() {
     }
 }
 
+/// Makes each popup see-through until one refuses: then the rest stay as
+/// they are, and `record` has already put back what was made see-through.
+fn make_all(state: &mut State, popups: Vec<HWND>, mut make: impl FnMut(&mut State, HWND)) {
+    for hwnd in popups {
+        if state.off {
+            break;
+        }
+        make(state, hwnd);
+    }
+}
+
 fn make(state: &mut State, hwnd: HWND) {
     if !popup::is_popup_window(hwnd) {
         return;
     }
-    match see_through::apply(hwnd) {
-        Ok(_) => state.applied.push(hwnd),
+    record(state, hwnd, see_through::apply(hwnd), |hwnd| {
+        see_through::restore(hwnd);
+    });
+}
+
+/// Writes what `apply` said for `hwnd` into `state`. Only popups this
+/// WinCraft changed are remembered, so only those are put back later.
+fn record(
+    state: &mut State,
+    hwnd: HWND,
+    result: Result<bool, String>,
+    mut restore: impl FnMut(HWND),
+) {
+    match result {
+        Ok(true) => state.applied.push(hwnd),
+        // Another WinCraft made it see-through: it is that one's to put back.
+        Ok(false) => {}
         Err(reason) => {
             log::info!("taskbar preview: cannot be made see-through ({reason}); it is only hidden");
             state.off = true;
             state.wanted = false;
             for hwnd in std::mem::take(&mut state.applied) {
-                see_through::restore(hwnd);
+                restore(hwnd);
             }
         }
     }
