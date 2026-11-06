@@ -30,7 +30,14 @@ fn the_marker_keeps_what_was_there() {
             alpha: 200,
         },
     ] {
-        assert_eq!(Saved::decode(saved.encode()), Some(saved));
+        assert_eq!(Saved::decode(saved.encode(4242)), Some(saved));
+        assert_eq!(owner(saved.encode(4242)), 4242);
+        assert_eq!(
+            Saved::decode(saved.encode(0)),
+            Some(saved),
+            "a marker of an older WinCraft"
+        );
+        assert_eq!(owner(saved.encode(0)), 0);
     }
     assert_eq!(Saved::decode(0), None, "no property");
     assert_eq!(Saved::decode(0x1234_0101), None, "someone else's value");
@@ -72,21 +79,41 @@ fn repair_restores_only_our_own_see_through_popup() {
         alpha: 255,
     };
     assert_eq!(
-        repair_plan(layered(Some(0)), Some(ours)),
+        repair_plan(layered(Some(0)), Some(ours), false),
         Repair::Restore(ours)
     );
     assert_eq!(
-        repair_plan(layered(Some(0)), None),
+        repair_plan(layered(Some(0)), None, false),
         Repair::Nothing,
         "alpha 0 without our marker is not ours"
     );
-    assert_eq!(repair_plan(PLAIN, None), Repair::Nothing);
+    assert_eq!(repair_plan(PLAIN, None, false), Repair::Nothing);
     assert_eq!(
-        repair_plan(layered(Some(255)), Some(ours)),
+        repair_plan(layered(Some(255)), Some(ours), false),
         Repair::DropMarker,
         "visible again: only the stale marker goes"
     );
-    assert_eq!(repair_plan(PLAIN, Some(ours)), Repair::DropMarker);
+    assert_eq!(repair_plan(PLAIN, Some(ours), false), Repair::DropMarker);
+    assert_eq!(
+        repair_plan(layered(Some(0)), Some(ours), true),
+        Repair::Nothing,
+        "another WinCraft that still runs keeps its see-through popup"
+    );
+}
+
+#[test]
+fn only_another_running_wincraft_holds_a_popup() {
+    let running = |pid| pid == 7;
+    assert!(
+        held_elsewhere(7, 1, running),
+        "a test copy sees the real one"
+    );
+    assert!(!held_elsewhere(1, 1, running), "our own marker");
+    assert!(!held_elsewhere(9, 1, running), "a WinCraft that crashed");
+    assert!(
+        !held_elsewhere(0, 1, |_| true),
+        "an older WinCraft's marker"
+    );
 }
 
 /// The proof that see-through works on a window of another process. It
