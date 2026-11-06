@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="stylesheet" href="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/styles.css">
+  <script src="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/_ds_bundle.js"></script>
+  <style>
+    body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:'Segoe UI Variable Text','Segoe UI',Selawik,'Noto Sans',sans-serif}
+    a{color:var(--color-accent)} a:hover{color:var(--color-accent-700)}
+  </style>
+</helmet>
+
+<section style="padding:48px;display:flex;flex-direction:column;gap:32px">
+  <header style="display:flex;flex-direction:column;gap:6px;max-width:880px">
+    <div style="font-size:12px;font-weight:600;color:var(--color-accent)">About · Updates</div>
+    <h1 style="margin:0;font-family:inherit;font-size:28px;font-weight:600;line-height:1.15">Checking and updating in one place</h1>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">Updates moves to the top, under Version. One row holds the status and a single button whose job follows the state: Check for updates, then Update now. Release notes open right below it, and the two update switches sit under the notes. Links and Fonts move to the end.</p>
+  </header>
+
+  <div style="display:flex;flex-wrap:wrap;gap:48px;align-items:flex-start">
+    <sc-for list="{{ states }}" as="s" hint-placeholder-count="3">
+      <div style="flex:none;width:860px;display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">{{ s.label }}</div>
+        <div style="background:#1c1a19;color:#f3f2f2;border:1px solid #444141;border-radius:8px;padding:36px 44px;font-size:14px;display:flex;flex-direction:column">
+          <h2 style="margin:0;font-family:inherit;font-size:30px;font-weight:600">About</h2>
+          <div style="font-size:14px;color:#bab6b6;margin:6px 0 24px">WinCraft is open source under the MIT licence.</div>
+
+          <div style="display:flex;align-items:center;gap:16px;padding:16px 0;border-bottom:1px solid #444141">
+            <div style="flex:1;min-width:0;font-size:15px">Version</div>
+            <div style="flex:none;white-space:nowrap;font:13px Consolas,'Cascadia Mono',monospace;color:#bab6b6">0.20.30 · built 2026-10-26</div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;border-bottom:1px solid #444141">
+            <div style="display:flex;align-items:center;gap:16px;padding:16px 0">
+              <div style="flex:1;display:flex;flex-direction:column;gap:4px;min-width:0">
+                <div style="font-size:15px">Updates</div>
+                <div style="font-size:13px;color:{{ s.statusColor }}">{{ s.status }}</div>
+                <sc-if value="{{ s.detail }}" hint-placeholder-val="{{ false }}"><div style="font-size:13px;color:#bab6b6;text-wrap:pretty">{{ s.detail }}</div></sc-if>
+              </div>
+              <sc-if value="{{ s.releaseLink }}" hint-placeholder-val="{{ false }}">
+                <span style="flex:none;white-space:nowrap;font-size:13px;color:#e1ad66;text-decoration:underline;text-underline-offset:3px">Release page</span>
+              </sc-if>
+              <sc-if value="{{ s.progress }}" hint-placeholder-val="{{ false }}">
+                <div style="flex:none;width:160px;height:4px;border-radius:2px;background:#444141;overflow:hidden"><div style="width:62%;height:100%;background:#e1ad66"></div></div>
+              </sc-if>
+              <span style="flex:none;white-space:nowrap;height:34px;padding:0 14px;display:inline-flex;align-items:center;border:1px solid {{ s.btnBorder }};border-radius:4px;color:{{ s.btnColor }};font-size:14px">{{ s.btn }}</span>
+            </div>
+            <sc-if value="{{ s.notes }}" hint-placeholder-val="{{ false }}">
+              <div style="margin:0 0 16px;padding:14px 18px;border:1px solid #444141;border-radius:6px;display:flex;flex-direction:column;gap:8px">
+                <div style="font-size:12px;color:#7d7979">What's new in 0.20.32</div>
+                <div style="font-size:13px;line-height:1.5;color:#f3f2f2;text-wrap:pretty">One hotkey editor everywhere: General, the Hotkeys page, plugin settings and Ctrl+K in the palette.</div>
+                <div style="font-size:12px;color:#7d7979;text-wrap:pretty">Downloads the new version, checks it and restarts WinCraft. If it does not start properly, this version comes back.</div>
+              </div>
+            </sc-if>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:16px;padding:16px 0;border-bottom:1px solid #444141">
+            <div style="flex:1;display:flex;flex-direction:column;gap:4px"><div style="font-size:15px">Check for updates automatically</div><div style="font-size:13px;color:#bab6b6">Asks GitHub every hour and tells you. Nothing installs until you click Update now.</div></div>
+            <span style="width:40px;height:20px;border:1px solid #e1ad66;border-radius:10px;position:relative"><span style="position:absolute;right:3px;top:3px;width:14px;height:14px;border-radius:7px;background:#e1ad66"></span></span>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:16px;padding:16px 0;border-bottom:1px solid #444141">
+            <div style="flex:1;display:flex;flex-direction:column;gap:4px"><div style="font-size:15px">Download updates ahead</div><div style="font-size:13px;color:#bab6b6">Downloads and checks a new version in the background, so Update takes a few seconds. It never installs on its own.</div></div>
+            <span style="width:40px;height:20px;border:1px solid #e1ad66;border-radius:10px;position:relative"><span style="position:absolute;right:3px;top:3px;width:14px;height:14px;border-radius:7px;background:#e1ad66"></span></span>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:16px;padding:16px 0;border-bottom:1px solid #444141">
+            <div style="flex:1;font-size:15px">Links</div>
+            <div style="display:flex;gap:8px">
+              <span style="flex:none;white-space:nowrap;height:34px;padding:0 14px;display:inline-flex;align-items:center;border:1px solid #444141;border-radius:4px">Repository</span>
+              <span style="flex:none;white-space:nowrap;height:34px;padding:0 14px;display:inline-flex;align-items:center;border:1px solid #444141;border-radius:4px">Report an issue</span>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:4px;padding:16px 0">
+            <div style="font-size:15px">Fonts</div>
+            <div style="font-size:13px;color:#bab6b6">Segoe UI from Windows. Bundled: Selawik and JetBrains Mono, both under the SIL Open Font License 1.1.</div>
+          </div>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+
+  <header style="display:flex;flex-direction:column;gap:6px;max-width:880px;margin-top:24px">
+    <div style="font-size:12px;font-weight:600;color:var(--color-accent)">Update panel</div>
+    <h2 style="margin:0;font-family:inherit;font-size:24px;font-weight:600;line-height:1.15">While an update runs</h2>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">Shows at the bottom right of the monitor under the mouse whenever the user starts an update: palette "Update WinCraft", About's Update now, or the "Update ready" row. Same look as the "Updated to" panel. One line per step. The bar fills to the percent while downloading, is full while restarting, and sweeps a third-long piece once every 1.4 s when the end is not known. A failure has no bar, holds 8 s, then fades. A click opens About.</p>
+  </header>
+  <div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start">
+    <sc-for list="{{ panels }}" as="p" hint-placeholder-count="4">
+      <div style="flex:none;width:380px;display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">{{ p.label }}</div>
+        <div style="background:#2d2b2b;color:#f3f2f2;border:1px solid #444141;border-radius:12px;padding:14px 18px;display:flex;gap:12px;align-items:flex-start;box-shadow:0 8px 24px rgba(0,0,0,0.35)">
+          <span style="flex:none;width:24px;height:24px;border:1px solid #e1ad66;border-radius:5px;color:#e1ad66;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center">W</span>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+            <div style="font-size:14px;font-weight:600">{{ p.title }}</div>
+            <sc-if value="{{ p.bar }}" hint-placeholder-val="{{ true }}">
+              <div style="height:4px;border-radius:2px;background:#444141;overflow:hidden;position:relative"><div style="position:absolute;top:0;bottom:0;left:{{ p.barLeft }};width:{{ p.barWidth }};background:#e1ad66;border-radius:2px"></div></div>
+            </sc-if>
+            <div style="font-size:13px;color:#bab6b6;text-wrap:pretty">{{ p.line }}</div>
+            <sc-if value="{{ p.line2 }}" hint-placeholder-val="{{ false }}"><div style="font-size:13px;color:#bab6b6">{{ p.line2 }}</div></sc-if>
+            <sc-if value="{{ p.foot }}" hint-placeholder-val="{{ false }}"><div style="font-size:12px;color:#bab6b6">{{ p.foot }}</div></sc-if>
+          </div>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const neutral = { btnBorder: '#444141', btnColor: '#f3f2f2' };
+    const accent = { btnBorder: '#e1ad66', btnColor: '#e1ad66' };
+    return { states: [
+      { label: 'Up to date', status: 'Up to date · checked today, 09:14', statusColor: '#bab6b6', btn: 'Check for updates', ...neutral },
+      { label: 'Update available', status: 'v0.20.32 available', statusColor: '#e1ad66', btn: 'Update now', releaseLink: true, notes: true, ...accent },
+      { label: 'Could not check (not the network)', status: 'Could not check', detail: 'GitHub is limiting update checks for now. WinCraft tries again in 12 minutes.', statusColor: '#e88a4a', btn: 'Check for updates', ...neutral },
+      { label: 'Could not check (offline)', status: 'Could not check — offline', statusColor: '#e88a4a', btn: 'Check for updates', ...neutral },
+      { label: 'Updating', status: 'Downloading v0.20.32 · WinCraft restarts when done', statusColor: '#bab6b6', btn: 'Cancel', progress: true, ...neutral },
+    ], panels: [
+      { label: 'Checking (end not known: moving piece)', title: 'WinCraft · Updating', bar: true, barLeft: '22%', barWidth: '33.3%', line: 'Checking for the new version…' },
+      { label: 'Downloading', title: 'WinCraft · Updating to 0.20.32', bar: true, barLeft: '0', barWidth: '42%', line: 'Downloading WinCraft 0.20.32 · 42 %' },
+      { label: 'Downloaded ahead', title: 'WinCraft · Updating to 0.20.32', bar: true, barLeft: '48%', barWidth: '33.3%', line: 'Already downloaded, checking it…' },
+      { label: 'Checking the download', title: 'WinCraft · Updating to 0.20.32', bar: true, barLeft: '10%', barWidth: '33.3%', line: 'Checking the download…' },
+      { label: 'Restarting (full bar)', title: 'WinCraft · Updating to 0.20.32', bar: true, barLeft: '0', barWidth: '100%', line: 'Restarting WinCraft…' },
+      { label: 'Failed: no bar, holds 8 s, then fades', title: 'WinCraft · Update failed', bar: false, line: 'The download did not finish. The connection dropped.', line2: 'WinCraft 0.20.30 stays', foot: 'Click for details in Settings → About' },
+    ] };
+  }
+}
+</script>
+</body>
+</html>

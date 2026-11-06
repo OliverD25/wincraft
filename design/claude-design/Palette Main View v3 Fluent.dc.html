@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="stylesheet" href="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/styles.css">
+  <script src="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/_ds_bundle.js"></script>
+  <style>
+    body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:'Segoe UI Variable Text','Segoe UI',Selawik,'Noto Sans',sans-serif}
+    a{color:var(--color-accent)} a:hover{color:var(--color-accent-700)}
+  </style>
+</helmet>
+
+<section style="padding:48px;display:flex;flex-direction:column;gap:32px">
+  <header style="display:flex;flex-direction:column;gap:6px;max-width:900px">
+    <div style="font-size:12px;font-weight:600;color:var(--color-accent)">WinCraft · Command palette · option 6a · v3 · Fluent / Mica</div>
+    <div style="font-size:12px;color:var(--color-neutral-700)">On glass the window corner is 8 px: Windows clips a glass window to its own 8 px corners. Without glass (battery saver, transparency off) Fluent keeps 12 px. The glass is 88 % solid in dark and light, so windows behind the palette do not show through as lighter and darker patches.</div>
+    <h1 style="margin:0;font-family:inherit;font-size:28px;font-weight:600;line-height:1.15">v2 in a Fluent treatment: acrylic over the desktop, rounded layers, amber accent lines, colour icon tiles</h1>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">Same content and behaviour as v2. The palette is translucent acrylic over the wallpaper (blur 48, saturation 180%), corners are 12 on the window and 6 on rows, the search field carries a 2 px amber focus line, the selected row gets a Fluent accent pill, and every item has a colour icon tile so types read at a glance.</p>
+  </header>
+
+  <div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+    <sc-for list="{{ items }}" as="s" hint-placeholder-count="8">
+      <div id="{{ s.id }}" style="flex:none;width:998px;display:flex;flex-direction:column;gap:12px;opacity:1">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">{{ s.label }}</span>
+        </div>
+
+        <div style="position:relative;padding:48px;border-radius:12px;background:{{ s.desk }}">
+          <div style="{{ s.vars }}"><span style="position:absolute;top:16px;left:20px;font-size:12px;line-height:16px;color:var(--text3);pointer-events:none">Desktop background, not part of WinCraft</span>
+          <div style="width:900px;height:520px;background:var(--glass);backdrop-filter:blur(48px) saturate(1.8);-webkit-backdrop-filter:blur(48px) saturate(1.8);color:var(--text);border:1px solid var(--rim);border-radius:8px;box-shadow:0 32px 64px var(--shadow), 0 2px 8px var(--shadow), inset 0 1px 0 var(--hi);overflow:hidden;display:flex;flex-direction:column;font-size:14px">
+
+            <div style="height:56px;flex:none;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--border);box-shadow:inset 0 -2px 0 var(--accent)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+              <span style="flex:1;display:flex;align-items:center;gap:8px;font-size:16px;min-width:0">
+                <sc-if value="{{ s.scope }}" hint-placeholder-val="{{ false }}"><span style="height:24px;padding:0 8px;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent);background:var(--accentSoft);border-radius:6px;font-size:12px;color:var(--accent)"><span style="font-family:Consolas,'Cascadia Mono',monospace">{{ s.scopeKey }}</span>{{ s.scope }}</span></sc-if>
+                <span style="color:{{ s.qColor }};white-space:nowrap">{{ s.query }}</span>
+                <sc-if value="{{ s.caret }}" hint-placeholder-val="{{ false }}"><span style="width:1px;height:20px;background:var(--text);margin-left:-6px"></span></sc-if>
+              </span>
+              <span style="height:28px;padding:0 10px;flex:none;white-space:nowrap;display:inline-flex;align-items:center;gap:8px;border:1px solid var(--rim);background:var(--layer);border-radius:14px;font-size:13px;color:var(--text2)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.75" stroke-linejoin="round"><path d="M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z"></path><path d="M19 3v4M17 5h4"></path></svg>Ask AI<span style="font-size:11px;padding:0 5px;border:1px solid var(--border);border-radius:4px;color:var(--text3)">?</span>
+              </span>
+            </div>
+
+            <div style="flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;grid-template-rows:minmax(0,1fr);overflow:hidden">
+              <div style="display:flex;flex-direction:column;padding:4px 8px 8px;min-width:0;overflow:hidden">
+                <sc-for list="{{ s.groups }}" as="g" hint-placeholder-count="2">
+                  <div style="display:flex;flex-direction:column">
+                    <div style="height:28px;display:flex;align-items:flex-end;padding:0 12px 4px;font-size:12px;color:var(--text3)">{{ g.name }}</div>
+                    <sc-if value="{{ g.note }}" hint-placeholder-val="{{ false }}"><div style="padding:12px 12px 16px;font-size:13px;color:var(--text3)">{{ g.note }}</div></sc-if>
+                    <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="2">
+                      <div style="position:relative;min-height:44px;display:flex;align-items:center;gap:12px;padding:0 12px;border-radius:6px;background:{{ r.bg }}">
+                        <span style="position:absolute;left:0;top:50%;margin-top:-8px;width:3px;height:16px;border-radius:2px;background:{{ r.pill }}"></span>
+                        <sc-if value="{{ r.check }}" hint-placeholder-val="{{ false }}"><span style="width:16px;height:16px;flex:none;box-sizing:border-box;border:1px solid {{ r.checkBorder }};border-radius:4px;background:{{ r.checkBg }};display:flex;align-items:center;justify-content:center;color:var(--onAccent)">{{ r.checkMark }}</span></sc-if>
+                        <sc-if value="{{ r.mono }}" hint-placeholder-val="{{ false }}"><span style="width:28px;height:28px;flex:none;border-radius:7px;background:{{ r.tile }};box-shadow:inset 0 0 0 1px rgba(255,255,255,0.14);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;text-shadow:0 1px 1px rgba(0,0,0,0.25)">{{ r.mono }}</span></sc-if>
+                        <sc-if value="{{ r.icon }}" hint-placeholder-val="{{ false }}"><span style="width:28px;height:28px;flex:none;border-radius:7px;background:{{ r.tile }};box-shadow:inset 0 0 0 1px rgba(255,255,255,0.14);display:flex;align-items:center;justify-content:center;color:#fff">{{ r.icon }}</span></sc-if>
+                        <div style="display:flex;flex-direction:column;gap:1px;min-width:0;padding:5px 0">
+                          <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                            <sc-if value="{{ r.big }}" hint-placeholder-val="{{ false }}"><span style="font-size:20px;font-variant-numeric:tabular-nums">{{ r.big }}</span></sc-if>
+                            <span style="font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.title }}</span>
+                            <sc-for list="{{ r.badges }}" as="b" hint-placeholder-count="0">
+                              <span style="height:18px;padding:0 6px;flex:none;display:inline-flex;align-items:center;gap:4px;border:1px solid {{ b.border }};border-radius:9px;font-size:11px;color:{{ b.color }}"><sc-if value="{{ b.dot }}" hint-placeholder-val="{{ false }}"><span style="width:6px;height:6px;border-radius:3px;background:var(--success)"></span></sc-if>{{ b.icon }}{{ b.label }}</span>
+                            </sc-for>
+                          </div>
+                          <sc-if value="{{ r.sub }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.sub }}</span></sc-if>
+                        </div>
+                        <span style="margin-left:auto;display:flex;align-items:center;gap:4px;flex:none">
+                          <sc-for list="{{ r.keys }}" as="k" hint-placeholder-count="0">
+                            <span style="height:20px;min-width:20px;padding:0 5px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:11px;color:var(--text2)">{{ k }}</span>
+                          </sc-for>
+                          <sc-if value="{{ r.enter }}" hint-placeholder-val="{{ false }}"><span style="height:24px;padding:0 4px 0 8px;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent);background:var(--accentSoft);border-radius:6px;font-size:12px;color:var(--accent)">{{ r.enter }}<span style="height:16px;min-width:16px;padding:0 3px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--accent);border-radius:3px;font-size:10px">↵</span></span></sc-if>
+                        </span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-for>
+              </div>
+
+              <div style="border-left:1px solid var(--border);background:var(--layer);padding:16px;display:flex;flex-direction:column;gap:14px;min-width:0">
+                <sc-if value="{{ s.winPreview }}" hint-placeholder-val="{{ false }}">
+                  <div style="height:{{ s.previewH }};flex:none;border:1px solid var(--rim);border-radius:8px;background:var(--thumb);position:relative;overflow:hidden">
+                    <div style="position:absolute;inset:0 auto 0 0;width:24%;background:rgba(255,255,255,0.05)"></div>
+                    <div style="position:absolute;top:14px;left:32%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.16)"></div>
+                    <div style="position:absolute;top:24px;left:32%;right:34%;height:3px;border-radius:2px;background:rgba(255,255,255,0.1)"></div>
+                    <div style="position:absolute;top:34px;left:32%;right:22%;height:3px;border-radius:2px;background:rgba(255,255,255,0.1)"></div>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ s.layoutPreview }}" hint-placeholder-val="{{ false }}">
+                  <div style="height:150px;flex:none;border:1px solid var(--rim);border-radius:8px;background:var(--layer);display:flex;align-items:flex-end;justify-content:center;gap:6px;padding:16px;box-sizing:border-box">
+                    <span style="width:62px;height:35px;border:1px dashed var(--text3);border-radius:3px"></span>
+                    <span style="width:110px;height:62px;border:1px solid var(--accent);border-radius:3px;display:grid;grid-template-columns:1fr 1fr;gap:3px;padding:4px;box-sizing:border-box"><span style="grid-row:span 2;border:1px solid var(--accent);border-radius:2px"></span><span style="border:1px solid var(--text3);border-radius:2px"></span><span style="border:1px solid var(--text3);border-radius:2px"></span></span>
+                    <span style="width:62px;height:70px;border:1px solid var(--text3);border-radius:3px;display:flex;padding:4px;box-sizing:border-box"><span style="flex:1;border:1px solid var(--text3);border-radius:2px"></span></span>
+                  </div>
+                </sc-if>
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <div style="display:flex;align-items:center;gap:8px"><span style="font-size:18px;font-weight:600">{{ s.title }}</span>
+                    <sc-if value="{{ s.open }}" hint-placeholder-val="{{ false }}"><span style="height:18px;padding:0 6px;display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:9px;font-size:11px;color:var(--text2)"><span style="width:6px;height:6px;border-radius:3px;background:var(--success)"></span>open</span></sc-if>
+                  </div>
+                  <sc-if value="{{ s.desc }}" hint-placeholder-val="{{ false }}"><span style="font-size:13px;line-height:1.45;color:var(--text2)">{{ s.desc }}</span></sc-if>
+                </div>
+                <sc-if value="{{ s.hasMeta }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;flex-direction:column;gap:4px">
+                    <sc-for list="{{ s.meta }}" as="m" hint-placeholder-count="3">
+                      <div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;line-height:16px"><span style="color:var(--text3)">{{ m.k }}</span><span style="color:var(--text2);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ m.v }}</span></div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ s.toggle }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;align-items:center;justify-content:space-between;font-size:13px">{{ s.toggle }}
+                    <span style="width:36px;height:20px;box-sizing:border-box;border:1px solid var(--text2);border-radius:10px;display:flex;align-items:center;padding:0 3px"><span style="width:12px;height:12px;border-radius:6px;background:var(--text2)"></span></span>
+                  </div>
+                </sc-if>
+                <div style="display:flex;flex-direction:column;border-top:1px solid var(--border)">
+                  <sc-for list="{{ s.actions }}" as="a" hint-placeholder-count="3">
+                    <div style="height:34px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);font-size:13px;color:{{ a.color }}">{{ a.label }}<span style="margin-left:auto;display:flex;gap:3px"><sc-for list="{{ a.keys }}" as="k" hint-placeholder-count="1"><span style="height:20px;min-width:20px;padding:0 5px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:11px;color:var(--text2)">{{ k }}</span></sc-for></span></div>
+                  </sc-for>
+                </div>
+                <span style="margin-top:auto;font-size:12px;color:var(--text3)">{{ s.source }}</span>
+              </div>
+            </div>
+
+            <div style="height:40px;flex:none;display:flex;align-items:center;gap:16px;padding:0 16px 0 8px;border-top:1px solid var(--border);background:var(--glass2);font-size:12px;color:var(--text2)">
+              <span style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;color:var(--text2)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"></path></svg>
+              </span>
+              <span style="width:1px;height:18px;background:var(--border)"></span>
+              <sc-for list="{{ s.foot }}" as="f" hint-placeholder-count="5">
+                <span style="display:inline-flex;align-items:center;gap:6px;color:{{ f.c }}"><span style="height:20px;min-width:20px;padding:0 5px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid {{ f.b }};border-radius:4px;font-size:11px">{{ f.k }}</span>{{ f.l }}</span>
+              </sc-for>
+              <span style="margin-left:auto;font-size:12px;font-weight:600;color:var(--text3)">WinCraft <span style="font:11px Consolas,'Cascadia Mono',monospace">v0.20.1</span></span>
+            </div>
+          </div>
+          <sc-if value="{{ s.altFoot }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:12px;height:40px;display:flex;align-items:center;gap:16px;padding:0 16px;border:1px solid var(--border);border-radius:6px;background:var(--elevated);font-size:12px;color:var(--text2)">
+              <span style="color:var(--text3)">{{ s.altLabel }}</span>
+              <span style="width:1px;height:18px;background:var(--border)"></span>
+              <sc-for list="{{ s.altFoot }}" as="f" hint-placeholder-count="4">
+                <span style="display:inline-flex;align-items:center;gap:6px"><span style="height:20px;min-width:20px;padding:0 5px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:11px">{{ f.k }}</span>{{ f.l }}</span>
+              </sc-for>
+            </div>
+          </sc-if>
+          </div>
+        </div>
+
+        <sc-if value="{{ s.note }}" hint-placeholder-val="{{ false }}"><p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-800);text-wrap:pretty">{{ s.note }}</p></sc-if>
+      </div>
+    </sc-for>
+  </div>
+  <section style="max-width:880px;display:flex;flex-direction:column;gap:8px;font-size:13px;line-height:1.55;color:var(--color-neutral-800)">
+    <h2 style="margin:0;font-family:inherit;font-size:18px;font-weight:600">Rules for the developer</h2>
+    <ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px">
+      <li>Fluent treatment: window acrylic (theme glass colour + backdrop blur 48, saturate 180%; fall back to solid elevated when transparency effects are off), 1 px rim, inset top highlight, radius 12. Inspector and Ask AI pill sit on a 3–45% white layer. Rows radius 6; selected row = warm tint + 3 × 16 accent pill at the left edge. Search field has a 2 px accent bottom line while focused. Icons sit on 28 px colour tiles (radius 7, white glyph 16): layout blue, file grey, save green, WindowDeck violet, calculator teal, AI amber, web sky; app tiles use the app's own icon.</li>
+      <li>Base layout, rows, inspector, settings gear and Ask AI pill as in 6a (Palette Main View.dc.html). WinCraft updates and the plugin store live in Settings only.</li>
+      <li>Scope prefixes: a prefix followed by a space at the start of the query becomes a chip (24 high, 1 px accent border, prefix in mono). &gt; commands, w windows, a apps, = calculator, ? Ask AI; plugins may register their own. Backspace on an empty query removes the chip.</li>
+      <li>Enter hint: the selected row replaces its keycaps with an accent pill (24 high) holding the Enter verb and a ↵ keycap. The verb comes from the item's first action.</li>
+      <li>Inline answers: calculator and unit/currency conversion render as the first group while typing, value at 20 px tabular figures. Enter copies and closes; Ctrl+↵ pastes into the previously focused window.</li>
+      <li>Multi-select: Ctrl+Space or Shift+click marks window rows; a 16 px checkbox column appears after the first mark. The inspector lists the marked set and its actions apply to all. Esc clears marks before it closes the palette.</li>
+      <li>Learned ranking: per-query pick counts with a 14-day half-life. The top item gets a Best match group and an "often picked" badge with a clock icon. "Forget this pick" (Ctrl+Del) and a Settings switch turn it off.</li>
+      <li>Empty state: one line "No apps, windows or commands match." then a Try instead group with Ask AI (Enter) and Search the web (Ctrl+↵).</li>
+      <li>Window inspector: 96 px preview, then process and PID, monitor and desktop, memory, and a "Show on all desktops" switch, then actions.</li>
+      <li>Footer: keycap hints come from the selected item's actions (max 5, Esc Close always last), so they change with the selection.</li>
+      <li><b>Moving the palette.</b> Press and hold on blank space and drag to move the window; it opens where it was left, per monitor. Double-click on blank space, or the command "Palette: Move back to the centre" (WinCraft group), puts it back at the default spot. Nothing is drawn for this: no hover or grab cursor.</li>
+      <li><b>Window edge.</b> The coloured area around a window on this page is the desktop background, shown only to judge the look over a wallpaper. It is not part of WinCraft. The window ends at its 1 px border and rounded corners. Nothing outside it belongs to WinCraft: no outer frame, no margin, no extra glass. The shadow is the system shadow that Windows draws.</li>
+      <li><b>Acrylic.</b> The acrylic fills only the window itself, edge to edge. The window is exactly the panel size, with Windows' own rounded corners and shadow. There is no transparent margin around it and no caption buttons (minimise, maximise, close) on the palette, WindowDeck or QuickJump.</li>
+    </ul>
+  </section>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const h = React.createElement;
+    const P = {
+      layout: ['M4 3h5a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM15 3h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM15 14h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1z'],
+      file: ['M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z', 'M14 2v5h5', 'M10 12l-2 2 2 2M14 12l2 2-2 2'],
+      save: ['M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z', 'M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7', 'M7 3v4a1 1 0 0 0 1 1h7'],
+      columns: ['M3 5h18v14H3z', 'M9 5v14', 'M15 5v14'],
+      calc: ['M6 2h12a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z', 'M8 6h8', 'M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01'],
+      clock: ['M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z', 'M12 6v6l4 2'],
+      sparkle: ['M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z', 'M19 3v4M17 5h4'],
+      globe: ['M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z', 'M2 12h20', 'M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z'],
+      check: ['M20 6 9 17l-5-5'],
+    };
+    const ico = (k, s = 16) => h('svg', { width: s, height: s, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: s < 14 ? 2.25 : 2, strokeLinecap: 'round', strokeLinejoin: 'round' }, P[k].map((d, i) => h('path', { key: i, d })));
+    const open = { label: 'open', dot: true, icon: '', border: 'var(--border)', color: 'var(--text2)' };
+    const freq = { label: 'often picked', dot: false, icon: ico('clock', 11), border: 'var(--border)', color: 'var(--text3)' };
+    const g2 = (a, b) => 'linear-gradient(145deg, ' + a + ', ' + b + ')';
+    const TILE = { layout: g2('#5b9cff', '#2f63d8'), file: g2('#9aa3ad', '#646d78'), save: g2('#47c98a', '#1f955a'), columns: g2('#ad86f5', '#7448d6'), calc: g2('#34c7bb', '#128a83'), sparkle: g2('#f2bd68', '#c4852a'), globe: g2('#55b4f5', '#1f73c8'),
+      C: g2('#e8936a', '#c25a2c'), G: 'conic-gradient(from 210deg, #e94b3c 0 33%, #f6c026 0 66%, #34a853 0)', Ch: g2('#8d93c9', '#5a5f9a') };
+    const row = (title, o = {}, sel) => {
+      const on = o.id && o.id === sel;
+      return { title, sub: o.sub ?? '', mono: o.mono ?? '', icon: o.icon ? ico(o.icon) : '', iconColor: on ? 'var(--accent)' : 'var(--text2)', badges: o.badges ?? [], keys: o.keys ?? [],
+        big: o.big ?? '', enter: on ? (o.enter ?? '') : '', check: !!o.check, checkMark: o.checked ? ico('check', 12) : '', checkBorder: o.checked ? 'var(--accent)' : 'var(--text3)',
+        tile: TILE[o.icon || o.mono] || TILE.file, checkBg: o.checked ? 'var(--accent)' : 'transparent', pill: on ? 'var(--accent)' : 'transparent',
+        bg: on ? 'var(--selection)' : 'transparent' };
+    };
+    const base = (sel, enter) => [
+      { name: 'Recent and suggested', rows: [
+        row('Claude', { id: 'claude', mono: 'C', sub: 'Desktop 2 · Centre monitor', badges: [open], enter }, sel),
+        row('Chrome · Dmytro (Oliver)', { mono: 'G', sub: '14 windows on 3 monitors', badges: [open] }, sel),
+      ] },
+      { name: 'LayoutKeeper', rows: [
+        row('Saved window layout', { id: 'layout', icon: 'layout', sub: 'Restore windows to their saved monitors and desktops', keys: ['Win', 'Alt', 'R'] }, sel),
+        row('Open the config file', { icon: 'file', sub: '%APPDATA%\\WinCraft\\config.toml' }, sel),
+      ] },
+    ];
+    const A = (label, keys, first) => ({ label, keys, color: first ? 'var(--accent)' : 'var(--text)' });
+    const F = (k, l, hi) => ({ k, l, c: hi ? 'var(--accent)' : 'var(--text2)', b: hi ? 'var(--accent)' : 'var(--border)' });
+    const stdFoot = [F('↵', 'Run'), F('↑↓', 'Move'), F('→', 'Actions'), F('Ctrl+P', 'Plugins'), F('Esc', 'Close')];
+    const claude = { winPreview: true, previewH: '150px', title: 'Claude', open: true, desc: 'Desktop 2 · Centre monitor (3840×2160) · taskbar position 1.',
+      actions: [A('Switch to window', ['↵'], true), A('Move to next monitor', ['Shift', '→']), A('Open in WindowDeck…', ['Ctrl', '↵'])], source: 'Open window · claude.exe' };
+    const blank = { scope: '', scopeKey: '', query: 'Type a command, app or window…', caret: false, winPreview: false, previewH: '150px', layoutPreview: false, open: false, desc: '', meta: [], toggle: '', altFoot: null, foot: stdFoot };
+
+    const det = [{ k: 'Process', v: 'claude.exe · PID 18240' }, { k: 'Monitor', v: 'Centre · Desktop 2 of 6' }, { k: 'Memory', v: '612 MB' }];
+    const winFoot = [F('↵', 'Switch'), F('Shift+→', 'Next monitor'), F('Ctrl+↵', 'WindowDeck'), F('Ctrl+Space', 'Mark'), F('Esc', 'Close')];
+    const layoutRows = sel => [
+      row('Saved window layout', { id: 'layout', icon: 'layout', sub: 'Restore windows to their saved monitors and desktops', keys: ['Win', 'Alt', 'R'], enter: 'Restore' }, sel),
+      row('Save current layout', { icon: 'save', sub: 'Overwrite the saved layout with the windows as they are now' }),
+      row('WindowDeck: Open', { icon: 'columns', sub: 'Set taskbar order per monitor by dragging' }),
+    ];
+    const S = {
+      win: { label: 'Window selected, empty query', ...claude, previewH: '96px', desc: '', source: '', groups: base('claude', 'Switch'), meta: det, toggle: 'Show on all desktops',
+        actions: [A('Switch to window', ['↵'], true), A('Move to next monitor', ['Shift', '→']), A('Open in WindowDeck…', ['Ctrl', '↵'])], foot: winFoot },
+      cmd: { label: 'Command scope, "> lay"', scope: 'Commands', scopeKey: '>', query: 'lay', caret: true, groups: [{ name: 'Commands', rows: layoutRows('layout') }],
+        layoutPreview: true, title: 'Saved window layout', desc: 'Saved 21 Oct, 18:40 · 11 windows on 3 monitors and 6 desktops.',
+        actions: [A('Restore now', ['↵'], true), A('Save current layout', ['Ctrl', 'S'])], source: 'From LayoutKeeper 1.2.1',
+        foot: [F('Backspace', 'Clear scope', true), F('↵', 'Restore'), F('Ctrl+S', 'Save layout'), F('Ctrl+K', 'Change hotkey'), F('Esc', 'Close')] },
+      calc: { label: 'Inline answer, "1299*0.8"', query: '1299*0.8', caret: true,
+        groups: [{ name: 'Calculator', rows: [row('', { id: 'a', icon: 'calc', big: '1 039.2', sub: '1299 × 0.8', enter: 'Copy' }, 'a'), row('', { icon: 'calc', big: '1 039', sub: 'Rounded' })] }],
+        title: '1 039.2', desc: 'Updates as you type. Handles + − × ÷, %, brackets and unit conversions such as "12 in to cm" or "30 usd to eur".',
+        actions: [A('Copy result', ['↵'], true), A('Copy with expression', ['Ctrl', 'C']), A('Paste into previous window', ['Ctrl', '↵'])], source: 'Built-in calculator',
+        foot: [F('↵', 'Copy'), F('Ctrl+C', 'Copy with expression'), F('Ctrl+↵', 'Paste'), F('Esc', 'Close')] },
+      multi: { label: '3 windows marked, "chrome"', query: 'chrome', caret: true,
+        groups: [{ name: 'Windows', rows: [
+          row('Chrome · Work', { check: true, checked: true, mono: 'G', sub: 'Left monitor · Desktop 1', badges: [open] }),
+          row('Chrome · Dmytro (Oliver)', { id: 'c2', check: true, checked: true, mono: 'G', sub: 'Centre monitor · Desktop 2', badges: [open], enter: 'WindowDeck' }, 'c2'),
+          row('Chrome · Docs', { check: true, checked: true, mono: 'G', sub: 'Right monitor · Desktop 2', badges: [open] }),
+          row('Chrome · Music', { check: true, checked: false, mono: 'G', sub: 'Left monitor · Desktop 3', badges: [open] }),
+        ] }],
+        title: '3 windows marked', meta: [{ k: 'Chrome · Work', v: 'Left · Desktop 1' }, { k: 'Chrome · Dmytro', v: 'Centre · Desktop 2' }, { k: 'Chrome · Docs', v: 'Right · Desktop 2' }],
+        actions: [A('Open marked in WindowDeck', ['↵'], true), A('Move all to monitor 2', ['Shift', '→']), A('Minimise all', ['Ctrl', 'M']), A('Close all', ['Ctrl', 'W'])], source: 'Ctrl+Space marks the row under the cursor',
+        foot: [F('Ctrl+Space', 'Mark'), F('Ctrl+A', 'Mark all'), F('↵', 'WindowDeck'), F('Shift+→', 'Next monitor'), F('Esc', 'Clear marks')] },
+      freq: { label: 'Learned ranking, "c"', query: 'c', caret: true,
+        groups: [
+          { name: 'Best match', rows: [row('Claude', { id: 'claude', mono: 'C', sub: 'Desktop 2 · Centre monitor', badges: [open, freq], enter: 'Switch' }, 'claude')] },
+          { name: 'Apps and windows', rows: [row('Chrome · Dmytro (Oliver)', { mono: 'G', sub: '14 windows on 3 monitors', badges: [open] }), row('Calculator', { icon: 'calc', sub: 'App' }), row('Character Map', { mono: 'Ch', sub: 'App' })] },
+        ],
+        ...claude, previewH: '96px', desc: '', meta: [{ k: 'Picked for "c"', v: '23 times this month' }, { k: 'Last picked', v: 'Today, 09:12' }, { k: 'Process', v: 'claude.exe · PID 18240' }],
+        actions: [A('Switch to window', ['↵'], true), A('Move to next monitor', ['Shift', '→']), A('Forget this pick', ['Ctrl', 'Del'])],
+        foot: [F('↵', 'Switch'), F('Shift+→', 'Next monitor'), F('Ctrl+Del', 'Forget pick'), F('Esc', 'Close')] },
+      empty: { label: 'No matches, "kubectl rollout restart"', query: 'kubectl rollout restart', caret: true,
+        groups: [
+          { name: '', note: 'No apps, windows or commands match.', rows: [] },
+          { name: 'Try instead', rows: [
+            row('Ask AI about "kubectl rollout restart"', { id: 'ai', icon: 'sparkle', sub: 'Answer opens inside the palette', enter: 'Ask' }, 'ai'),
+            row('Search the web', { icon: 'globe', sub: 'Opens in your default browser', keys: ['Ctrl', '↵'] }),
+          ] },
+        ],
+        title: 'Ask AI', desc: 'Sends the query to the assistant chosen in Settings. The answer opens in the palette; Esc returns to the list.',
+        actions: [A('Ask', ['↵'], true), A('Search the web', ['Ctrl', '↵']), A('Copy query', ['Ctrl', 'C'])], source: 'AI provider · set in Settings',
+        foot: [F('↵', 'Ask AI'), F('Ctrl+↵', 'Web'), F('Esc', 'Close')] },
+    };
+    const D = { glass:'rgba(36,33,32,0.88)', glass2:'rgba(26,24,23,0.55)', rim:'rgba(255,255,255,0.09)', hi:'rgba(255,255,255,0.07)', layer:'rgba(255,255,255,0.035)', accentSoft:'rgba(225,173,102,0.12)', onAccent:'#1c1a19', bg:'#1c1a19', panel:'#262322', elevated:'#2d2b2b', border:'rgba(255,255,255,0.08)', text:'#f3f2f2', text2:'#bab6b6', text3:'#7d7979', accent:'#e1ad66', selection:'rgba(225,173,102,0.14)', hover:'rgba(243,242,242,0.05)', success:'#8fbf7f', shadow:'rgba(0,0,0,0.38)', thumb:'#23262c' };
+    const L = { glass:'rgba(250,248,247,0.88)', glass2:'rgba(244,242,240,0.6)', rim:'rgba(0,0,0,0.08)', hi:'rgba(255,255,255,0.8)', layer:'rgba(255,255,255,0.45)', accentSoft:'rgba(182,130,53,0.10)', onAccent:'#ffffff', bg:'#f3f2f2', panel:'#eae9e9', elevated:'#faf8f7', border:'rgba(0,0,0,0.07)', text:'#201f1d', text2:'#605d5d', text3:'#9b9797', accent:'#b68235', selection:'rgba(182,130,53,0.16)', hover:'rgba(32,31,29,0.05)', success:'#3f7a4a', shadow:'rgba(45,43,43,0.22)', thumb:'#3a3f47' };
+    const vars = o => Object.fromEntries(Object.entries(o).map(([k, v]) => ['--' + k, v]));
+    const plan = [['Dark', D, 'radial-gradient(55% 75% at 18% 28%, #b8692a 0%, rgba(184,105,42,0) 70%), radial-gradient(50% 70% at 82% 72%, #2b4f94 0%, rgba(43,79,148,0) 70%), radial-gradient(40% 50% at 60% 10%, #6b3a5e 0%, rgba(107,58,94,0) 70%), #12151c', ['win', 'cmd', 'calc', 'multi', 'freq', 'empty']], ['Light', L, 'radial-gradient(55% 75% at 22% 30%, #f4c48a 0%, rgba(244,196,138,0) 70%), radial-gradient(50% 70% at 80% 75%, #9cc0ee 0%, rgba(156,192,238,0) 70%), radial-gradient(40% 50% at 60% 8%, #e4b6d0 0%, rgba(228,182,208,0) 70%), #e9edf3', ['win', 'cmd']]];
+    const items = plan.flatMap(([n, T, desk, keys]) => keys.map(k => {
+      const s = { ...blank, ...S[k] };
+      return { ...s, id: n + '-' + k, label: n + ' · ' + s.label, vars: vars(T), desk, note: '', hasMeta: s.meta.length > 0, qColor: s.caret ? 'var(--text)' : 'var(--text3)' };
+    }));
+    return { items };
+  }
+}
+</script>
+</body>
+</html>

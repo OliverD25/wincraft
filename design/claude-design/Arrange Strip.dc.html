@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="stylesheet" href="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/styles.css">
+  <script src="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/_ds_bundle.js"></script>
+  <style>
+    body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:'Segoe UI Variable Text','Segoe UI',Selawik,'Noto Sans',sans-serif}
+    a{color:var(--color-accent)} a:hover{color:var(--color-accent-700)}
+  </style>
+</helmet>
+
+<div style="padding:48px;display:flex;flex-direction:column;gap:40px">
+  <header style="display:flex;flex-direction:column;gap:6px;max-width:820px">
+    <div style="font-size:12px;font-weight:600;color:var(--color-accent)">WinCraft · WindowDeck plugin</div>
+    <h1 style="margin:0;font-size:32px;font-weight:600;line-height:1.1">WindowDeck, grouped by monitor and desktop</h1>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">One band per virtual desktop, current desktop first. Inside a band, one column per monitor in physical left-to-right order, so WindowDeck is a map of the desk. Columns size by demand: a sparse monitor takes only the width its cards need (never more than its proportional share), the busiest monitor takes the rest, and an empty monitor collapses to a 40 px rail that widens into a drop box while a card is dragged. Windows keep their order inside a column; dragging across a column boundary moves the window to that monitor on restore. Same tokens as the settings window. 1440 wide artboard; WindowDeck scrolls vertically only.</p>
+  </header>
+
+  <sc-for list="{{ themes }}" as="t" hint-placeholder-count="2">
+    <div style="{{ t.vars }}">
+    <div style="width:1440px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;display:flex;flex-direction:column;gap:0;overflow:hidden;font-size:14px">
+
+      <div style="display:flex;align-items:center;gap:12px;padding:16px 20px 12px">
+        <span style="height:32px;padding:0 12px;display:inline-flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:4px">Claude<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+        <span style="display:inline-flex;border:1px solid var(--border);border-radius:4px;overflow:hidden;height:32px">
+          <span style="padding:0 12px;display:inline-flex;align-items:center;font-size:13px;color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)">By monitor</span>
+          <span style="padding:0 12px;display:inline-flex;align-items:center;font-size:13px;color:var(--text2);border-left:1px solid var(--border)">Flat</span>
+        </span>
+        <span style="margin-left:auto;font-size:13px;color:var(--text2)">3 monitors · 6 desktops · 19 windows</span>
+      </div>
+
+      <sc-for list="{{ desktops }}" as="d" hint-placeholder-count="3">
+        <div style="display:flex;flex-direction:column;border-top:1px solid var(--border);padding:12px 20px 16px;opacity:{{ d.opacity }}">
+          <div style="display:flex;align-items:baseline;gap:10px;padding-bottom:10px">
+            <span style="font-size:13px;font-weight:600;color:{{ d.titleColor }}">{{ d.name }}</span>
+            <span style="font-size:12px;color:var(--text3)">{{ d.meta }}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:{{ d.cols }};gap:16px">
+            <sc-for list="{{ d.monitors }}" as="m" hint-placeholder-count="3">
+              <div style="min-width:0">
+              <sc-if value="{{ m.rail }}" hint-placeholder-val="{{ false }}">
+                <div style="height:100%;min-height:150px;border:1px dashed var(--border);border-radius:4px;display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 0;color:var(--text3);font-size:12px;box-sizing:border-box">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>
+                  <span style="writing-mode:vertical-rl;transform:rotate(180deg);color:var(--text2);font-weight:600">{{ m.name }}</span>
+                  <span style="writing-mode:vertical-rl;transform:rotate(180deg)">empty</span>
+                </div>
+              </sc-if>
+              <sc-if value="{{ m.full }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:8px;min-width:0;border-left:1px solid var(--border);padding-left:12px">
+                <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3)">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                  <span style="font-weight:600;color:var(--text2)">{{ m.name }}</span><span>{{ m.res }}</span>
+                  <sc-if value="{{ m.primary }}" hint-placeholder-val="{{ false }}"><span style="height:18px;padding:0 6px;display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:4px;font-size:12px">Primary</span></sc-if>
+                  <span style="margin-left:auto">{{ m.count }}</span>
+                </div>
+                <sc-if value="{{ m.empty }}" hint-placeholder-val="{{ false }}">
+                  <div style="height:112px;border:1px dashed var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--text3)">Drop a window here to move it to this monitor</div>
+                </sc-if>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <sc-for list="{{ m.windows }}" as="w" hint-placeholder-count="0">
+                    <sc-if value="{{ w.ghost }}" hint-placeholder-val="{{ false }}">
+                      <div title="{{ w.tip }}" style="width:84px;height:128px;box-sizing:border-box;border:1px dashed var(--border);border-radius:4px;display:grid;grid-template-columns:20px minmax(0,1fr);overflow:hidden;color:var(--text3);font-size:12px">
+                        <div style="border-right:1px dashed var(--border);display:flex;flex-direction:column;align-items:center;gap:5px;padding:4px 0 5px;min-height:0">
+                          <span style="width:16px;flex:none;padding:3px 0;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:1px;border:1px solid var(--text3);border-radius:8px;font-size:12px;font-weight:600;line-height:1">
+                            <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="{{ w.arrow }}"></path></svg>{{ w.letter }}
+                          </span>
+                          <span style="flex:1;min-height:0;writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text2);font-size:12px">{{ w.title }}</span>
+                          <span style="height:16px;min-width:16px;padding:0 2px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px dashed var(--text3);border-radius:3px">{{ w.n }}</span>
+                        </div>
+                        <div style="background:{{ w.thumb }};opacity:0.4;filter:grayscale(1);position:relative">
+                          <div style="position:absolute;inset:0 auto 0 0;width:25%;background:rgba(255,255,255,0.06)"></div>
+                          <div style="position:absolute;top:10px;left:34%;right:10%;height:2px;background:rgba(255,255,255,0.16)"></div>
+                          <div style="position:absolute;top:16px;left:34%;right:30%;height:2px;background:rgba(255,255,255,0.1)"></div>
+                        </div>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ w.card }}" hint-placeholder-val="{{ true }}">
+                    <div style="width:172px;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;background:{{ w.bg }};outline:{{ w.outline }};outline-offset:2px">
+                      <div style="height:96px;border-radius:3px;background:{{ w.thumb }};border:1px solid var(--border);position:relative;overflow:hidden">
+                        <div style="position:absolute;inset:0 auto 0 0;width:22%;background:rgba(255,255,255,0.05)"></div>
+                        <div style="position:absolute;top:8px;left:30%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.14)"></div>
+                        <div style="position:absolute;top:16px;left:30%;right:35%;height:3px;border-radius:2px;background:rgba(255,255,255,0.08)"></div>
+                        <sc-if value="{{ w.badge }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;right:6px;top:6px;height:18px;padding:0 6px;display:inline-flex;align-items:center;border-radius:4px;background:var(--bg);border:1px solid var(--accent);color:var(--accent);font-size:12px">{{ w.badge }}</span></sc-if>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px">
+                        <span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">{{ w.n }}</span>
+                        <span style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:{{ w.color }}">{{ w.title }}</span>
+                      </div>
+                    </div>
+                    </sc-if>
+                  </sc-for>
+                </div>
+              </div>
+              </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+
+      <div style="border-top:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:16px;font-size:12px;color:var(--text2)">
+        <span>Order on other desktops applies at the next restore.</span>
+        <span style="margin-left:auto;display:inline-flex;gap:16px">
+          <span style="display:inline-flex;gap:6px;align-items:center"><span style="padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--panel)">←→</span>Move within monitor</span>
+          <span style="display:inline-flex;gap:6px;align-items:center"><span style="padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--panel)">Shift + ←→</span>Move to next monitor</span>
+          <span style="display:inline-flex;gap:6px;align-items:center"><span style="padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--panel)">Shift + ↑↓</span>Move to next desktop</span>
+          <span style="display:inline-flex;gap:6px;align-items:center"><span style="padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--panel)">1–9</span>Open by number</span>
+            <span style="display:inline-flex;gap:6px;align-items:center"><span style="padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--panel)">Shift + 1–0</span>Cards 11–20</span>
+          <span style="display:inline-flex;gap:6px;align-items:center"><span style="padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--panel)">Ctrl + 1–9</span>Taskbar button</span>
+          <span style="display:inline-flex;gap:6px;align-items:center"><span style="padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--panel)">Ctrl + H</span>Hide hints</span>
+        </span>
+      </div>
+    </div>
+    </div>
+  </sc-for>
+
+  <section style="display:flex;flex-direction:column;gap:16px">
+    <h2 style="margin:0;font-size:18px;font-weight:600">Hide the hint strip: Ctrl + H</h2>
+    <p style="margin:0;max-width:820px;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">Ctrl + H hides or shows the hint strip at the bottom. WindowDeck gets shorter by the strip's height and the cards stay where they are. The choice is remembered for the next time WindowDeck opens. While the strip is hidden, a small "Ctrl + H Hints" label at the right of the header shows how to get it back.</p>
+    <div style="{{ darkVars }}">
+      <div style="display:flex;flex-direction:column;gap:24px">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">Dark · Hints shown (default)</div>
+        <div style="width:1040px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:14px">
+          <div style="display:flex;align-items:center;gap:12px;padding:16px 20px 12px">
+            <span style="height:32px;padding:0 12px;display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:4px">Claude</span>
+            <span style="margin-left:auto;font-size:13px;color:var(--text2);white-space:nowrap">3 monitors · 6 desktops · 11 windows</span>
+            
+          </div>
+          <div style="border-top:1px solid var(--border);padding:12px 20px 16px;display:flex;gap:8px"><div style="width:172px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;background:var(--selection);outline:2px solid var(--ring);outline-offset:2px"><div style="height:96px;border-radius:3px;background:var(--thumbA);border:1px solid var(--border)"></div><div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px"><span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">1</span><span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Claude</span></div></div><div style="width:172px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;"><div style="height:96px;border-radius:3px;background:var(--thumbA);border:1px solid var(--border)"></div><div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px"><span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">2</span><span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Verdict AI</span></div></div><div style="width:172px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;"><div style="height:96px;border-radius:3px;background:var(--thumbA);border:1px solid var(--border)"></div><div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px"><span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">3</span><span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Law news website project</span></div></div><div style="width:172px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;"><div style="height:96px;border-radius:3px;background:var(--thumbA);border:1px solid var(--border)"></div><div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px"><span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">4</span><span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">WinCraft modular Windows</span></div></div><div style="width:172px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;"><div style="height:96px;border-radius:3px;background:var(--thumbA);border:1px solid var(--border)"></div><div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px"><span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">5</span><span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Claude Global settings</span></div></div></div>
+          <div style="border-top:1px solid var(--border);padding:10px 20px;display:flex;justify-content:flex-end;flex-wrap:wrap;gap:16px;font-size:12px;color:var(--text2)">
+            <span style="display:inline-flex;gap:6px;align-items:center"><span style="padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--panel)">←→↑↓</span>Select</span>
+            <span style="display:inline-flex;gap:6px;align-items:center"><span style="padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--panel)">Enter</span>Open</span>
+            <span style="display:inline-flex;gap:6px;align-items:center"><span style="padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--panel)">1–9</span>Open by number</span>
+            <span style="display:inline-flex;gap:6px;align-items:center"><span style="padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--panel)">Shift + 1–0</span>Cards 11–20</span>
+            <span style="display:inline-flex;gap:6px;align-items:center"><span style="padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--panel)">Ctrl + W</span>Close</span>
+            <span style="display:inline-flex;gap:6px;align-items:center"><span style="padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--panel)">F2</span>Rename</span>
+            <span style="display:inline-flex;gap:6px;align-items:center"><span style="padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--panel)">Ctrl + H</span>Hide hints</span>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">Dark · Hints hidden after Ctrl + H</div>
+        <div style="width:1040px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:14px">
+          <div style="display:flex;align-items:center;gap:12px;padding:16px 20px 12px">
+            <span style="height:32px;padding:0 12px;display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:4px">Claude</span>
+            <span style="margin-left:auto;font-size:13px;color:var(--text2);white-space:nowrap">3 monitors · 6 desktops · 11 windows</span>
+            <span style="display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var(--text3);white-space:nowrap"><span style="padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--panel)">Ctrl + H</span>Hints</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding:12px 20px 16px;display:flex;gap:8px"><div style="width:172px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;background:var(--selection);outline:2px solid var(--ring);outline-offset:2px"><div style="height:96px;border-radius:3px;background:var(--thumbA);border:1px solid var(--border)"></div><div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px"><span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">1</span><span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Claude</span></div></div><div style="width:172px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;"><div style="height:96px;border-radius:3px;background:var(--thumbA);border:1px solid var(--border)"></div><div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px"><span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">2</span><span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Verdict AI</span></div></div><div style="width:172px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;"><div style="height:96px;border-radius:3px;background:var(--thumbA);border:1px solid var(--border)"></div><div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px"><span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">3</span><span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Law news website project</span></div></div><div style="width:172px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;"><div style="height:96px;border-radius:3px;background:var(--thumbA);border:1px solid var(--border)"></div><div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px"><span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">4</span><span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">WinCraft modular Windows</span></div></div><div style="width:172px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;"><div style="height:96px;border-radius:3px;background:var(--thumbA);border:1px solid var(--border)"></div><div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px"><span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">5</span><span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Claude Global settings</span></div></div></div>
+          
+        </div>
+      </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:16px">
+    <h2 style="margin:0;font-size:18px;font-weight:600">Hover strip: keys follow the mouse</h2>
+    <p style="margin:0;max-width:820px;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">While the mouse is inside the hover strip and the strip does not have the keyboard, WindowDeck's keys go to it: digits, arrows, Enter, Esc, Ctrl+W, Ctrl+N, F2 and D. A line at the strip's foot says so for as long as it is true: 12 px regular text in text secondary, centred, in an elevated pill with the line border and row radius, 6 px above the bottom edge, drawn over the cards in every view.</p>
+    <div style="{{ darkVars }}">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">Dark · Mouse inside the strip, keyboard still in another app</div>
+        <div style="width:1040px;position:relative;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:14px">
+          <div style="padding:16px 20px 24px;display:flex;gap:8px">
+            <sc-for list="{{ hoverCards }}" as="c" hint-placeholder-count="5"><div style="width:{{ c.w }};flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;background:{{ c.bg }};outline:{{ c.outline }};outline-offset:2px;transform:{{ c.tf }};opacity:{{ c.op }};visibility:{{ c.vis }}">
+                <div style="height:96px;border-radius:3px;background:var(--thumbA);border:1px solid var(--border);position:relative;overflow:hidden">
+                  <div style="position:absolute;top:8px;left:30%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.14)"></div>
+                  <sc-if value="{{ c.wait }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;right:6px;top:6px;height:18px;padding:0 6px;display:inline-flex;align-items:center;gap:4px;border-radius:4px;background:var(--bg);border:1px solid #e88a4a;color:#e88a4a;font-size:12px;white-space:nowrap"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>{{ c.wait }}</span></sc-if>
+                  <sc-if value="{{ c.waitIcon }}" hint-placeholder-val="{{ false }}"><span title="Waiting for Notepad" style="position:absolute;right:6px;top:6px;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;background:var(--bg);border:1px solid #e88a4a;color:#e88a4a"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg></span></sc-if>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px">
+                  <span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">{{ c.n }}</span>
+                  <span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.title }}</span>
+                </div>
+              </div></sc-for>
+          </div>
+          <span style="position:absolute;left:50%;bottom:6px;transform:translateX(-50%);height:24px;padding:0 10px;display:inline-flex;align-items:center;background:var(--elevated);border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2);white-space:nowrap">Keys go to WindowDeck while the mouse is here</span>
+          <svg style="position:absolute;left:612px;top:70px" width="16" height="22" viewBox="0 0 16 22"><path d="M1 1v17l4.5-4 3 7 3-1.3-3-6.7H14z" fill="#fff" stroke="#000" stroke-width="1.2" stroke-linejoin="round"></path></svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:16px">
+    <h2 style="margin:0;font-size:18px;font-weight:600">Closing a window from the strip</h2>
+    <p style="margin:0;max-width:820px;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">Middle click or Ctrl+W. The card shrinks from 100 % to 85 % around its centre and fades out over 180 ms, ease-out. When the window is gone, the cards after it, in the same row and in wrapped rows below, slide into the gap over 200 ms, ease-out cubic; cards before it stay. Same in Flat, By monitor (per column; ghosts slide and fade like cards) and the compact popup. If the window is still open 1.5 s after the ask, the card grows back from 85 % and fades in, with a "Waiting for &lt;app&gt;" badge at the top right of its picture in the warning colour; a narrow card gets the clock alone. The badge goes when the window closes or the strip closes. With Windows "Animation effects" off, cards change at once.</p>
+    <div style="{{ darkVars }}">
+      <div style="display:flex;flex-direction:column;gap:24px">
+        <sc-for list="{{ closeFrames }}" as="f" hint-placeholder-count="5">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">{{ f.label }}</div>
+            <div style="width:1040px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:14px">
+              <div style="padding:16px 20px;display:flex;gap:8px">
+                <sc-for list="{{ f.cards }}" as="c" hint-placeholder-count="4"><div style="width:{{ c.w }};flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;background:{{ c.bg }};outline:{{ c.outline }};outline-offset:2px;transform:{{ c.tf }};opacity:{{ c.op }};visibility:{{ c.vis }}">
+                <div style="height:96px;border-radius:3px;background:var(--thumbA);border:1px solid var(--border);position:relative;overflow:hidden">
+                  <div style="position:absolute;top:8px;left:30%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.14)"></div>
+                  <sc-if value="{{ c.wait }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;right:6px;top:6px;height:18px;padding:0 6px;display:inline-flex;align-items:center;gap:4px;border-radius:4px;background:var(--bg);border:1px solid #e88a4a;color:#e88a4a;font-size:12px;white-space:nowrap"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>{{ c.wait }}</span></sc-if>
+                  <sc-if value="{{ c.waitIcon }}" hint-placeholder-val="{{ false }}"><span title="Waiting for Notepad" style="position:absolute;right:6px;top:6px;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;background:var(--bg);border:1px solid #e88a4a;color:#e88a4a"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg></span></sc-if>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px">
+                  <span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">{{ c.n }}</span>
+                  <span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.title }}</span>
+                </div>
+              </div></sc-for>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:16px">
+    <h2 style="margin:0;font-size:18px;font-weight:600">Mark all as seen: Ctrl + M</h2>
+    <p style="margin:0;max-width:820px;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">Ctrl + M, in every view, clears the orange frame of every window on all monitors and desktops and tells Windows each one stopped flashing. A line says what happened for 4 s: a pill in the elevated fill with the line border and row radius, 12 px text primary, centred 8 px above the bottom edge of the cards, drawn over them. While any card is orange, the footer gets the hint chip "Ctrl + M Mark all as seen" after Rename. The selected card keeps its neutral ring, so it never reads as orange.</p>
+    <div style="{{ darkVars }}">
+      <div style="display:flex;flex-direction:column;gap:24px">
+        <sc-for list="{{ seenFrames }}" as="f" hint-placeholder-count="4">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">{{ f.label }}</div>
+            <div style="width:1040px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:14px">
+              <div style="position:relative;padding:16px 20px 48px;display:flex;gap:8px">
+                <sc-for list="{{ f.cards }}" as="c" hint-placeholder-count="5"><div style="width:172px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;background:{{ c.bg }};outline:{{ c.outline }};outline-offset:2px">
+                  <div style="height:96px;border-radius:3px;background:var(--thumbA);border:1px solid var(--border);position:relative;overflow:hidden"><div style="position:absolute;top:8px;left:30%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.14)"></div></div>
+                  <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px"><span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">{{ c.n }}</span><span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.title }}</span></div>
+                </div></sc-for>
+                <sc-if value="{{ f.pill }}" hint-placeholder-val="{{ false }}">
+                  <span style="position:absolute;left:50%;bottom:8px;transform:translateX(-50%);height:26px;padding:0 10px;display:inline-flex;align-items:center;gap:8px;background:var(--elevated);border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text);white-space:nowrap">{{ f.pill }}<sc-if value="{{ f.undo }}" hint-placeholder-val="{{ false }}"><span style="color:var(--text3)">·</span><span style="display:inline-flex;align-items:center;gap:6px"><span style="padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--panel)">Ctrl + Z</span>Undo</span></sc-if></span>
+                </sc-if>
+              </div>
+              <div style="border-top:1px solid var(--border);padding:10px 20px;display:flex;justify-content:flex-end;flex-wrap:wrap;gap:16px;font-size:12px;color:var(--text2)">
+                <sc-for list="{{ f.hints }}" as="h" hint-placeholder-count="6"><span style="display:inline-flex;gap:6px;align-items:center"><span style="padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--panel)">{{ h.k }}</span>{{ h.l }}</span></sc-for>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:16px">
+    <h2 style="margin:0;font-size:18px;font-weight:600">Few windows: every column fits on one row</h2>
+    <p style="margin:0;max-width:820px;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">In the test build, a desktop with three windows wrapped the Centre column: card 1 and ghost 2 on the first row, ghost 3 on a second row, which doubled the band height. Right has two windows, so it counted as the busiest column and took the remaining width. Centre's width was counted from its one card only, ignoring its two ghosts, so it got the 200 px minimum. Fix: column width is measured from everything the column shows, ghosts included, and when every column fits on one row, nothing wraps.</p>
+    <div style="{{ darkVars }}">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">Dark · The case from the test build, fixed: Centre 372 px (card + 2 ghosts), Right takes the rest</div>
+        <div style="width:1040px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:14px">
+          <div style="display:flex;flex-direction:column;padding:12px 20px 16px">
+            <div style="display:flex;align-items:baseline;gap:10px;padding-bottom:10px"><span style="font-size:13px;font-weight:600;color:var(--accent)">This desktop</span><span style="font-size:12px;color:var(--text3);white-space:nowrap">Desktop 2 · 3 windows</span></div>
+            <div style="display:grid;grid-template-columns:40px 372px minmax(0,1fr);gap:16px">
+              <div style="min-height:150px;border:1px dashed var(--border);border-radius:4px;display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 0;color:var(--text3);font-size:12px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"></rect><path d="M8 21h8M14 17v4"></path></svg><span style="writing-mode:vertical-rl;transform:rotate(180deg)"><b style="color:var(--text2)">Left</b> empty</span></div>
+              <div style="display:flex;flex-direction:column;gap:8px;min-width:0;border-left:1px solid var(--border);padding-left:12px"><div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3);white-space:nowrap"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg><span style="font-weight:600;color:var(--text2)">Centre</span><span>3840×2160</span><span style="height:18px;padding:0 6px;display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:4px;font-size:12px">Primary</span><span style="margin-left:auto">1</span></div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start"><div style="width:172px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;background:var(--selection);outline:2px solid var(--ring);outline-offset:2px">
+              <div style="height:96px;border-radius:3px;background:var(--thumbA);border:1px solid var(--border);position:relative;overflow:hidden"><div style="position:absolute;inset:0 auto 0 0;width:22%;background:rgba(255,255,255,0.05)"></div><div style="position:absolute;top:8px;left:30%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.14)"></div><div style="position:absolute;top:16px;left:30%;right:35%;height:3px;border-radius:2px;background:rgba(255,255,255,0.08)"></div></div>
+              <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px">
+                <span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">1</span>
+                <span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)">Windows PowerShell</span>
+              </div>
+            </div><div style="width:84px;height:128px;flex:none;box-sizing:border-box;border:1px dashed var(--border);border-radius:4px;display:grid;grid-template-columns:20px minmax(0,1fr);overflow:hidden;color:var(--text3);font-size:12px">
+              <div style="border-right:1px dashed var(--border);display:flex;flex-direction:column;align-items:center;gap:5px;padding:4px 0 5px;min-height:0">
+                <span style="width:16px;flex:none;padding:3px 0;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:1px;border:1px solid var(--text3);border-radius:8px;font-size:12px;font-weight:600;line-height:1"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>R</span>
+                <span style="flex:1;min-height:0;writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text2);font-size:12px">telemetrix</span>
+                <span style="height:16px;min-width:16px;padding:0 2px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px dashed var(--text3);border-radius:3px">2</span>
+              </div>
+              <div style="background:var(--thumbB);opacity:0.4;filter:grayscale(1)"></div>
+            </div><div style="width:84px;height:128px;flex:none;box-sizing:border-box;border:1px dashed var(--border);border-radius:4px;display:grid;grid-template-columns:20px minmax(0,1fr);overflow:hidden;color:var(--text3);font-size:12px">
+              <div style="border-right:1px dashed var(--border);display:flex;flex-direction:column;align-items:center;gap:5px;padding:4px 0 5px;min-height:0">
+                <span style="width:16px;flex:none;padding:3px 0;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:1px;border:1px solid var(--text3);border-radius:8px;font-size:12px;font-weight:600;line-height:1"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>R</span>
+                <span style="flex:1;min-height:0;writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text2);font-size:12px">telemetrix</span>
+                <span style="height:16px;min-width:16px;padding:0 2px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px dashed var(--text3);border-radius:3px">3</span>
+              </div>
+              <div style="background:var(--thumbB);opacity:0.4;filter:grayscale(1)"></div>
+            </div></div></div>
+              <div style="display:flex;flex-direction:column;gap:8px;min-width:0;border-left:1px solid var(--border);padding-left:12px"><div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3);white-space:nowrap"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg><span style="font-weight:600;color:var(--text2)">Right</span><span>2560×2880</span><span style="margin-left:auto">2</span></div><div style="display:flex;gap:8px;flex-wrap:wrap"><div style="width:132px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;">
+              <div style="height:120px;border-radius:3px;background:var(--thumbB);border:1px solid var(--border);position:relative;overflow:hidden"><div style="position:absolute;inset:0 auto 0 0;width:22%;background:rgba(255,255,255,0.05)"></div><div style="position:absolute;top:8px;left:30%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.14)"></div><div style="position:absolute;top:16px;left:30%;right:35%;height:3px;border-radius:2px;background:rgba(255,255,255,0.08)"></div><div style="position:absolute;top:6px;right:6px;left:6px;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px"><span style="height:18px;padding:0 6px;display:inline-flex;align-items:center;border-radius:4px;background:var(--bg);border:1px solid var(--accent);color:var(--accent);font-size:12px;white-space:nowrap">Same title</span></div></div>
+              <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px">
+                <span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">2</span>
+                <span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)">telemetrix – Grafana</span>
+              </div>
+            </div><div style="width:132px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;">
+              <div style="height:120px;border-radius:3px;background:var(--thumbB);border:1px solid var(--border);position:relative;overflow:hidden"><div style="position:absolute;inset:0 auto 0 0;width:22%;background:rgba(255,255,255,0.05)"></div><div style="position:absolute;top:8px;left:30%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.14)"></div><div style="position:absolute;top:16px;left:30%;right:35%;height:3px;border-radius:2px;background:rgba(255,255,255,0.08)"></div><div style="position:absolute;top:6px;right:6px;left:6px;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px"><span style="height:18px;padding:0 6px;display:inline-flex;align-items:center;border-radius:4px;background:var(--bg);border:1px solid var(--accent);color:var(--accent);font-size:12px;white-space:nowrap">Same title</span></div></div>
+              <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px">
+                <span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">3</span>
+                <span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)">telemetrix – Grafana</span>
+              </div>
+            </div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:16px">
+    <h2 style="margin:0;font-size:18px;font-weight:600">Badges on narrow cards</h2>
+    <p style="margin:0;max-width:820px;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">In the test build, the "Same title" and "Moved" badges sat in the title row. On the narrow card of the portrait Right monitor they ran past the card edge and covered the number chip and the title. They also cut the title of card 3 down to "tel…". Fix: badges never go in the title row. They sit on the thumbnail, top-right, inside a 6 px inset, and the title row holds only the number chip and the title.</p>
+    <div style="{{ darkVars }}">
+      <div style="display:flex;flex-direction:column;gap:24px">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">Dark · The case from the test build, fixed</div>
+          <div style="width:1040px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:14px">
+          <div style="display:flex;flex-direction:column;padding:12px 20px 16px">
+            <div style="display:flex;align-items:baseline;gap:10px;padding-bottom:10px"><span style="font-size:13px;font-weight:600;color:var(--accent)">This desktop</span><span style="font-size:12px;color:var(--text3);white-space:nowrap">Desktop 2 · 3 windows</span></div>
+            <div style="display:grid;grid-template-columns:40px minmax(0,1fr) 200px;gap:16px">
+              <div style="min-height:150px;border:1px dashed var(--border);border-radius:4px;display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 0;color:var(--text3);font-size:12px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg><span style="writing-mode:vertical-rl;transform:rotate(180deg)"><b style="color:var(--text2)">Left</b> empty</span></div>
+              <div style="display:flex;flex-direction:column;gap:8px;min-width:0;border-left:1px solid var(--border);padding-left:12px">
+                <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg><span style="font-weight:600;color:var(--text2)">Centre</span><span>3840×2160</span><span style="height:18px;padding:0 6px;display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:4px;font-size:12px">Primary</span><span style="margin-left:auto">2</span></div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
+                  <div style="width:172px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;background:var(--selection);outline:2px solid var(--ring);outline-offset:2px">
+              <div style="height:96px;border-radius:3px;background:var(--thumbA);border:1px solid var(--border);position:relative;overflow:hidden"><div style="position:absolute;inset:0 auto 0 0;width:22%;background:rgba(255,255,255,0.05)"></div><div style="position:absolute;top:8px;left:30%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.14)"></div><div style="position:absolute;top:16px;left:30%;right:35%;height:3px;border-radius:2px;background:rgba(255,255,255,0.08)"></div></div>
+              <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px">
+                <span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">1</span>
+                <span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)">rde@RDE-PC: ~</span>
+              </div>
+            </div>
+                  <div style="width:84px;height:128px;flex:none;box-sizing:border-box;border:1px dashed var(--border);border-radius:4px;display:grid;grid-template-columns:20px minmax(0,1fr);overflow:hidden;color:var(--text3);font-size:12px">
+              <div style="border-right:1px dashed var(--border);display:flex;flex-direction:column;align-items:center;gap:5px;padding:4px 0 5px;min-height:0">
+                <span style="width:16px;flex:none;padding:3px 0;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:1px;border:1px solid var(--text3);border-radius:8px;font-size:12px;font-weight:600;line-height:1"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>R</span>
+                <span style="flex:1;min-height:0;writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text2);font-size:12px">telemetrix</span>
+                <span style="height:16px;min-width:16px;padding:0 2px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px dashed var(--text3);border-radius:3px">2</span>
+              </div>
+              <div style="background:var(--thumbB);opacity:0.4;filter:grayscale(1)"></div>
+            </div>
+                  <div style="width:172px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;">
+              <div style="height:96px;border-radius:3px;background:var(--thumbC);border:1px solid var(--border);position:relative;overflow:hidden"><div style="position:absolute;inset:0 auto 0 0;width:22%;background:rgba(255,255,255,0.05)"></div><div style="position:absolute;top:8px;left:30%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.14)"></div><div style="position:absolute;top:16px;left:30%;right:35%;height:3px;border-radius:2px;background:rgba(255,255,255,0.08)"></div><div style="position:absolute;top:6px;right:6px;left:6px;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px"><span style="height:18px;padding:0 6px;display:inline-flex;align-items:center;border-radius:4px;background:var(--bg);border:1px solid var(--accent);color:var(--accent);font-size:12px;white-space:nowrap">Same title</span><span style="height:18px;padding:0 6px;display:inline-flex;align-items:center;border-radius:4px;background:var(--bg);border:1px solid var(--accent);color:var(--accent);font-size:12px;white-space:nowrap">Moved</span></div></div>
+              <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px">
+                <span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">3</span>
+                <span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)">telemetrix – Grafana</span>
+              </div>
+            </div>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px;min-width:0;border-left:1px solid var(--border);padding-left:12px">
+                <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg><span style="font-weight:600;color:var(--text2)">Right</span><span>2560×2880</span><span style="margin-left:auto">1</span></div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <div style="width:96px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;">
+              <div style="height:96px;border-radius:3px;background:var(--thumbB);border:1px solid var(--border);position:relative;overflow:hidden"><div style="position:absolute;inset:0 auto 0 0;width:22%;background:rgba(255,255,255,0.05)"></div><div style="position:absolute;top:8px;left:30%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.14)"></div><div style="position:absolute;top:16px;left:30%;right:35%;height:3px;border-radius:2px;background:rgba(255,255,255,0.08)"></div><div style="position:absolute;top:6px;right:6px;left:6px;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px"><span title="Same title as another window" style="width:18px;height:18px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;background:var(--bg);border:1px solid var(--accent);color:var(--accent)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="14" height="14" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></span><span title="Moved: on a different monitor than its saved slot" style="width:18px;height:18px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;background:var(--bg);border:1px solid var(--accent);color:var(--accent)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 3 4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16"></path></svg></span></div></div>
+              <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px">
+                <span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">2</span>
+                <span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)">telemetrix – Grafana</span>
+              </div>
+            </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">Dark · Badge states by card width</div>
+          <div style="width:1040px;box-sizing:border-box;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:16px 20px;display:flex;gap:32px;align-items:flex-start;flex-wrap:wrap">
+          <div style="width:200px;display:flex;flex-direction:column;gap:8px;align-items:flex-start"><div style="font-size:12px;line-height:16px;color:var(--text3);text-wrap:pretty">Wide card, both fit: text chips in a row</div><div style="width:172px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;">
+              <div style="height:96px;border-radius:3px;background:var(--thumbC);border:1px solid var(--border);position:relative;overflow:hidden"><div style="position:absolute;inset:0 auto 0 0;width:22%;background:rgba(255,255,255,0.05)"></div><div style="position:absolute;top:8px;left:30%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.14)"></div><div style="position:absolute;top:16px;left:30%;right:35%;height:3px;border-radius:2px;background:rgba(255,255,255,0.08)"></div><div style="position:absolute;top:6px;right:6px;left:6px;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px"><span style="height:18px;padding:0 6px;display:inline-flex;align-items:center;border-radius:4px;background:var(--bg);border:1px solid var(--accent);color:var(--accent);font-size:12px;white-space:nowrap">Same title</span><span style="height:18px;padding:0 6px;display:inline-flex;align-items:center;border-radius:4px;background:var(--bg);border:1px solid var(--accent);color:var(--accent);font-size:12px;white-space:nowrap">Moved</span></div></div>
+              <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px">
+                <span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">3</span>
+                <span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)">telemetrix – Grafana</span>
+              </div>
+            </div></div>
+          <div style="width:200px;display:flex;flex-direction:column;gap:8px;align-items:flex-start"><div style="font-size:12px;line-height:16px;color:var(--text3);text-wrap:pretty">Wide card, one badge</div><div style="width:172px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;">
+              <div style="height:96px;border-radius:3px;background:var(--thumbB);border:1px solid var(--border);position:relative;overflow:hidden"><div style="position:absolute;inset:0 auto 0 0;width:22%;background:rgba(255,255,255,0.05)"></div><div style="position:absolute;top:8px;left:30%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.14)"></div><div style="position:absolute;top:16px;left:30%;right:35%;height:3px;border-radius:2px;background:rgba(255,255,255,0.08)"></div><div style="position:absolute;top:6px;right:6px;left:6px;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px"><span style="height:18px;padding:0 6px;display:inline-flex;align-items:center;border-radius:4px;background:var(--bg);border:1px solid var(--accent);color:var(--accent);font-size:12px;white-space:nowrap">Moved</span></div></div>
+              <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px">
+                <span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">5</span>
+                <span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)">Claude Global settings</span>
+              </div>
+            </div></div>
+          <div style="width:200px;display:flex;flex-direction:column;gap:8px;align-items:flex-start"><div style="font-size:12px;line-height:16px;color:var(--text3);text-wrap:pretty">Narrow card: icon chips, full text in tooltip</div><div style="width:96px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;">
+              <div style="height:96px;border-radius:3px;background:var(--thumbB);border:1px solid var(--border);position:relative;overflow:hidden"><div style="position:absolute;inset:0 auto 0 0;width:22%;background:rgba(255,255,255,0.05)"></div><div style="position:absolute;top:8px;left:30%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.14)"></div><div style="position:absolute;top:16px;left:30%;right:35%;height:3px;border-radius:2px;background:rgba(255,255,255,0.08)"></div><div style="position:absolute;top:6px;right:6px;left:6px;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px"><span title="Same title as another window" style="width:18px;height:18px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;background:var(--bg);border:1px solid var(--accent);color:var(--accent)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="14" height="14" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></span><span title="Moved: on a different monitor than its saved slot" style="width:18px;height:18px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;background:var(--bg);border:1px solid var(--accent);color:var(--accent)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 3 4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16"></path></svg></span></div></div>
+              <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px">
+                <span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">2</span>
+                <span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)">telemetrix – Grafana</span>
+              </div>
+            </div></div>
+          <div style="width:200px;display:flex;flex-direction:column;gap:8px;align-items:flex-start"><div style="font-size:12px;line-height:16px;color:var(--text3);text-wrap:pretty">Narrow card, one badge that fits</div><div style="width:96px;flex:none;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px;">
+              <div style="height:96px;border-radius:3px;background:var(--thumbA);border:1px solid var(--border);position:relative;overflow:hidden"><div style="position:absolute;inset:0 auto 0 0;width:22%;background:rgba(255,255,255,0.05)"></div><div style="position:absolute;top:8px;left:30%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.14)"></div><div style="position:absolute;top:16px;left:30%;right:35%;height:3px;border-radius:2px;background:rgba(255,255,255,0.08)"></div><div style="position:absolute;top:6px;right:6px;left:6px;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px"><span style="height:18px;padding:0 6px;display:inline-flex;align-items:center;border-radius:4px;background:var(--bg);border:1px solid var(--accent);color:var(--accent);font-size:12px;white-space:nowrap">Moved</span></div></div>
+              <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px">
+                <span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">4</span>
+                <span style="min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)">Verdict AI</span>
+              </div>
+            </div></div>
+        </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:16px">
+    <h2 style="margin:0;font-size:18px;font-weight:600">Dragging a ghost</h2>
+    <p style="margin:0;max-width:820px;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">Ghost 4 (Verdict AI, on Right) is picked up from its place between 3 and 5. It keeps its ghost look at 60 % opacity under the cursor. As with a card drag, the Left monitor's empty rail has widened into its drop box.</p>
+    <div style="{{ darkVars }}">
+    <div style="display:flex;flex-direction:column;gap:40px">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">Dark · Ghost 4 dragged inside the primary column, landing bar between 5 and 6</div>
+        <div style="width:1440px;position:relative;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:14px">
+          <div style="display:flex;flex-direction:column;padding:12px 20px 16px">
+            <div style="display:flex;align-items:baseline;gap:10px;padding-bottom:10px"><span style="font-size:13px;font-weight:600;color:var(--accent)">This desktop</span><span style="font-size:12px;color:var(--text3)">Desktop 2 · 11 windows</span></div>
+            <div style="display:grid;grid-template-columns:200px minmax(0,1fr) 200px;gap:16px">
+              <div style="display:flex;flex-direction:column;gap:8px;min-width:0;border-left:1px solid var(--border);padding-left:12px">
+                  <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>
+                    <span style="font-weight:600;color:var(--text2)">Left</span><span>1920×1080</span><span style="margin-left:auto"></span>
+                  </div>
+                  <div style="position:relative;height:112px;border:1px dashed var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;padding:0 16px;text-align:center;font-size:12px;color:var(--text3)">Drop a window here to move it to this monitor</div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px;min-width:0;border-left:1px solid var(--border);padding-left:12px">
+                  <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>
+                    <span style="font-weight:600;color:var(--text2)">Centre</span><span>3840×2160</span><span style="height:18px;padding:0 6px;display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:4px;font-size:12px">Primary</span><span style="margin-left:auto">10</span>
+                  </div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <sc-for list="{{ dragA }}" as="w" hint-placeholder-count="5">
+                      <sc-if value="{{ w.bar }}" hint-placeholder-val="{{ false }}"><div style="width:2px;height:128px;margin:0 -3px;border-radius:1px;background:var(--accent)"></div></sc-if>
+                      <sc-if value="{{ w.card }}" hint-placeholder-val="{{ true }}"><div style="width:172px;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px">
+                        <div style="height:96px;border-radius:3px;background:{{ w.thumb }};border:1px solid var(--border);position:relative;overflow:hidden">
+                          <div style="position:absolute;inset:0 auto 0 0;width:22%;background:rgba(255,255,255,0.05)"></div>
+                          <div style="position:absolute;top:8px;left:30%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.14)"></div>
+                          <div style="position:absolute;top:16px;left:30%;right:35%;height:3px;border-radius:2px;background:rgba(255,255,255,0.08)"></div>
+                          <sc-if value="{{ w.badge }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;right:6px;top:6px;height:18px;padding:0 6px;display:inline-flex;align-items:center;border-radius:4px;background:var(--bg);border:1px solid var(--accent);color:var(--accent);font-size:12px">{{ w.badge }}</span></sc-if>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px">
+                          <span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">{{ w.n }}</span>
+                          <span style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)">{{ w.title }}</span>
+                        </div>
+                      </div></sc-if>
+                    </sc-for>
+                  </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px;min-width:0;border-left:1px solid var(--border);padding-left:12px">
+                  <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>
+                    <span style="font-weight:600;color:var(--text2)">Right</span><span>2560×2880</span><span style="margin-left:auto">1</span>
+                  </div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <sc-for list="{{ rightCol }}" as="w" hint-placeholder-count="5">
+                      <sc-if value="{{ w.bar }}" hint-placeholder-val="{{ false }}"><div style="width:2px;height:128px;margin:0 -3px;border-radius:1px;background:var(--accent)"></div></sc-if>
+                      <sc-if value="{{ w.card }}" hint-placeholder-val="{{ true }}"><div style="width:172px;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px">
+                        <div style="height:96px;border-radius:3px;background:{{ w.thumb }};border:1px solid var(--border);position:relative;overflow:hidden">
+                          <div style="position:absolute;inset:0 auto 0 0;width:22%;background:rgba(255,255,255,0.05)"></div>
+                          <div style="position:absolute;top:8px;left:30%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.14)"></div>
+                          <div style="position:absolute;top:16px;left:30%;right:35%;height:3px;border-radius:2px;background:rgba(255,255,255,0.08)"></div>
+                          <sc-if value="{{ w.badge }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;right:6px;top:6px;height:18px;padding:0 6px;display:inline-flex;align-items:center;border-radius:4px;background:var(--bg);border:1px solid var(--accent);color:var(--accent);font-size:12px">{{ w.badge }}</span></sc-if>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px">
+                          <span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">{{ w.n }}</span>
+                          <span style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)">{{ w.title }}</span>
+                        </div>
+                      </div></sc-if>
+                    </sc-for>
+                  </div>
+              </div>
+            </div>
+          </div>
+          <div style="position:absolute;left:926px;top:78px;width:84px;height:128px;box-sizing:border-box;border:1px dashed var(--border);border-radius:4px;display:grid;grid-template-columns:20px minmax(0,1fr);overflow:hidden;color:var(--text3);font-size:12px;opacity:0.6;pointer-events:none">
+            <div style="border-right:1px dashed var(--border);display:flex;flex-direction:column;align-items:center;gap:5px;padding:4px 0 5px;min-height:0">
+              <span style="width:16px;flex:none;padding:3px 0;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:1px;border:1px solid var(--text3);border-radius:8px;font-size:12px;font-weight:600;line-height:1"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>R</span>
+              <span style="flex:1;min-height:0;writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text2);font-size:12px">Verdict AI</span>
+              <span style="height:16px;min-width:16px;padding:0 2px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px dashed var(--text3);border-radius:3px">4</span>
+            </div>
+            <div style="background:var(--thumbB);opacity:0.4;filter:grayscale(1);position:relative">
+              <div style="position:absolute;inset:0 auto 0 0;width:25%;background:rgba(255,255,255,0.06)"></div>
+              <div style="position:absolute;top:10px;left:34%;right:10%;height:2px;background:rgba(255,255,255,0.16)"></div>
+            </div>
+          </div>
+          <svg style="position:absolute;left:972px;top:148px;pointer-events:none" width="20" height="20" viewBox="0 0 24 24" fill="#ffffff" stroke="#000000" stroke-width="1.5" stroke-linejoin="round"><path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"></path></svg>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">Dark · Ghost 4 dragged over the Left monitor’s rail, widened into its drop box</div>
+        <div style="width:1440px;position:relative;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:14px">
+          <div style="display:flex;flex-direction:column;padding:12px 20px 16px">
+            <div style="display:flex;align-items:baseline;gap:10px;padding-bottom:10px"><span style="font-size:13px;font-weight:600;color:var(--accent)">This desktop</span><span style="font-size:12px;color:var(--text3)">Desktop 2 · 11 windows</span></div>
+            <div style="display:grid;grid-template-columns:200px minmax(0,1fr) 200px;gap:16px">
+              <div style="display:flex;flex-direction:column;gap:8px;min-width:0;border-left:1px solid var(--border);padding-left:12px">
+                  <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>
+                    <span style="font-weight:600;color:var(--text2)">Left</span><span>1920×1080</span><span style="margin-left:auto"></span>
+                  </div>
+                  <div style="position:relative;height:112px;border:1px dashed var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;padding:0 16px;text-align:center;font-size:12px;color:var(--text3)"><div style="position:absolute;left:6px;top:8px;bottom:8px;width:2px;border-radius:1px;background:var(--accent)"></div>Drop a window here to move it to this monitor</div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px;min-width:0;border-left:1px solid var(--border);padding-left:12px">
+                  <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>
+                    <span style="font-weight:600;color:var(--text2)">Centre</span><span>3840×2160</span><span style="height:18px;padding:0 6px;display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:4px;font-size:12px">Primary</span><span style="margin-left:auto">10</span>
+                  </div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <sc-for list="{{ dragB }}" as="w" hint-placeholder-count="5">
+                      <sc-if value="{{ w.bar }}" hint-placeholder-val="{{ false }}"><div style="width:2px;height:128px;margin:0 -3px;border-radius:1px;background:var(--accent)"></div></sc-if>
+                      <sc-if value="{{ w.card }}" hint-placeholder-val="{{ true }}"><div style="width:172px;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px">
+                        <div style="height:96px;border-radius:3px;background:{{ w.thumb }};border:1px solid var(--border);position:relative;overflow:hidden">
+                          <div style="position:absolute;inset:0 auto 0 0;width:22%;background:rgba(255,255,255,0.05)"></div>
+                          <div style="position:absolute;top:8px;left:30%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.14)"></div>
+                          <div style="position:absolute;top:16px;left:30%;right:35%;height:3px;border-radius:2px;background:rgba(255,255,255,0.08)"></div>
+                          <sc-if value="{{ w.badge }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;right:6px;top:6px;height:18px;padding:0 6px;display:inline-flex;align-items:center;border-radius:4px;background:var(--bg);border:1px solid var(--accent);color:var(--accent);font-size:12px">{{ w.badge }}</span></sc-if>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px">
+                          <span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">{{ w.n }}</span>
+                          <span style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)">{{ w.title }}</span>
+                        </div>
+                      </div></sc-if>
+                    </sc-for>
+                  </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px;min-width:0;border-left:1px solid var(--border);padding-left:12px">
+                  <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>
+                    <span style="font-weight:600;color:var(--text2)">Right</span><span>2560×2880</span><span style="margin-left:auto">1</span>
+                  </div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <sc-for list="{{ rightCol }}" as="w" hint-placeholder-count="5">
+                      <sc-if value="{{ w.bar }}" hint-placeholder-val="{{ false }}"><div style="width:2px;height:128px;margin:0 -3px;border-radius:1px;background:var(--accent)"></div></sc-if>
+                      <sc-if value="{{ w.card }}" hint-placeholder-val="{{ true }}"><div style="width:172px;display:flex;flex-direction:column;gap:6px;padding:4px;border-radius:4px">
+                        <div style="height:96px;border-radius:3px;background:{{ w.thumb }};border:1px solid var(--border);position:relative;overflow:hidden">
+                          <div style="position:absolute;inset:0 auto 0 0;width:22%;background:rgba(255,255,255,0.05)"></div>
+                          <div style="position:absolute;top:8px;left:30%;right:10%;height:3px;border-radius:2px;background:rgba(255,255,255,0.14)"></div>
+                          <div style="position:absolute;top:16px;left:30%;right:35%;height:3px;border-radius:2px;background:rgba(255,255,255,0.08)"></div>
+                          <sc-if value="{{ w.badge }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;right:6px;top:6px;height:18px;padding:0 6px;display:inline-flex;align-items:center;border-radius:4px;background:var(--bg);border:1px solid var(--accent);color:var(--accent);font-size:12px">{{ w.badge }}</span></sc-if>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px">
+                          <span style="height:18px;min-width:18px;padding:0 4px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2)">{{ w.n }}</span>
+                          <span style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)">{{ w.title }}</span>
+                        </div>
+                      </div></sc-if>
+                    </sc-for>
+                  </div>
+              </div>
+            </div>
+          </div>
+          <div style="position:absolute;left:96px;top:92px;width:84px;height:128px;box-sizing:border-box;border:1px dashed var(--border);border-radius:4px;display:grid;grid-template-columns:20px minmax(0,1fr);overflow:hidden;color:var(--text3);font-size:12px;opacity:0.6;pointer-events:none">
+            <div style="border-right:1px dashed var(--border);display:flex;flex-direction:column;align-items:center;gap:5px;padding:4px 0 5px;min-height:0">
+              <span style="width:16px;flex:none;padding:3px 0;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:1px;border:1px solid var(--text3);border-radius:8px;font-size:12px;font-weight:600;line-height:1"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>R</span>
+              <span style="flex:1;min-height:0;writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text2);font-size:12px">Verdict AI</span>
+              <span style="height:16px;min-width:16px;padding:0 2px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px dashed var(--text3);border-radius:3px">4</span>
+            </div>
+            <div style="background:var(--thumbB);opacity:0.4;filter:grayscale(1);position:relative">
+              <div style="position:absolute;inset:0 auto 0 0;width:25%;background:rgba(255,255,255,0.06)"></div>
+              <div style="position:absolute;top:10px;left:34%;right:10%;height:2px;background:rgba(255,255,255,0.16)"></div>
+            </div>
+          </div>
+          <svg style="position:absolute;left:142px;top:162px;pointer-events:none" width="20" height="20" viewBox="0 0 24 24" fill="#ffffff" stroke="#000000" stroke-width="1.5" stroke-linejoin="round"><path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"></path></svg>
+        </div>
+      </div>
+    </div>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:16px">
+    <h2 style="margin:0;font-size:18px;font-weight:600">Win+Alt+A, then a digit</h2>
+    <p style="margin:0;max-width:820px;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">Win+Alt+A waits for a digit; the digit opens WindowDeck for the app at that taskbar button. Someone who knows the number types it at once and sees nothing until WindowDeck opens. Only if no digit comes within 0.7 s do the number badges under the taskbar buttons and the small wait line fade in, as help for finding the number.</p>
+    <div style="{{ darkVars }}">
+    <div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+      <sc-for list="{{ waitStates }}" as="s" hint-placeholder-count="2">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">{{ s.label }}</div>
+          <div style="width:700px;height:300px;position:relative;border-radius:8px;overflow:hidden;background:linear-gradient(160deg,#3b4a5a,#26313d)">
+            <span style="position:absolute;top:12px;left:16px;font-size:12px;color:var(--text3);white-space:nowrap">Desktop background, not part of WinCraft</span>
+            <sc-if value="{{ s.on }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:226px;width:248px;bottom:66px;height:2px;border-radius:1px;background:var(--border)"><div style="width:62%;height:2px;border-radius:1px;background:var(--accent)"></div></div>
+            </sc-if>
+            <div style="position:absolute;left:0;right:0;bottom:0;height:48px;background:#202020;border-top:1px solid #3a3a3a;display:flex;justify-content:center;align-items:center;gap:4px">
+              <sc-for list="{{ taskbarApps }}" as="a" hint-placeholder-count="7">
+                <div style="width:40px;height:48px;position:relative;display:flex;align-items:flex-start;justify-content:center;padding-top:4px;box-sizing:border-box">
+                  <span style="width:24px;height:24px;border-radius:6px;background:{{ a.bg }};color:#ffffff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{ a.letter }}</span>
+                  <sc-if value="{{ a.badge }}" hint-placeholder-val="{{ false }}">
+                    <sc-if value="{{ s.on }}" hint-placeholder-val="{{ false }}">
+                      <span style="position:absolute;left:50%;bottom:2px;transform:translateX(-50%);height:16px;min-width:16px;padding:0 4px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;background:var(--elevated);font-size:12px;color:var(--text)">{{ a.n }}</span>
+                    </sc-if>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+    </div>
+  </section>
+
+  <section style="max-width:820px;display:flex;flex-direction:column;gap:8px;font-size:13px;line-height:1.55;color:var(--color-neutral-800)">
+    <h2 style="margin:0;font-size:18px;font-weight:600">Rules for the developer</h2>
+    <ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px">
+            <li><b>Name.</b> WindowDeck is its own plugin (not part of LayoutKeeper). Palette commands: "WindowDeck: Open" and "WindowDeck: Switch taskbar hover on or off". Tray entry: "WindowDeck on taskbar hover" (a check item).</li>
+      <li><b>Ctrl + H</b> hides or shows the hint strip. WindowDeck remembers the choice between openings. While hidden, the header shows "Ctrl + H Hints" at the right.</li>
+      <li><b>Digits inside WindowDeck:</b> a plain digit 1–9 (0 = 10) opens the window whose card shows that number chip. Ctrl+digit jumps to the app at that taskbar button. Footer hints: "1–9 Open by number" and "Ctrl + 1–9 Taskbar button".</li>
+      <li><b>Shift + digit</b> opens the card ten higher: Shift+1 = card 11, Shift+0 = card 20, so cards 11–20 take one key press. Cards 21 and higher use the arrow keys. When this desktop has more than ten cards, the footer shows one more chip after "1–9 Open by number": "Shift + 1–0 Cards 11–20".</li>
+      <li><b>Win+Alt+A, then a digit:</b> the digit opens WindowDeck for the app at that taskbar button. Nothing shows at first. Only if no digit is typed within 0.7 s do the number badges under the taskbar buttons and the small wait line fade in (150 ms). A digit typed before 0.7 s opens WindowDeck with no badges ever shown. See "Win+Alt+A, then a digit" above.</li>
+      <li><b>Setting "Open WindowDeck with Win+1…9"</b> (plugin page, Settings tab), off by default. When on, Win+digit always opens WindowDeck for that taskbar button, even for an app with one window; WindowDeck stays open after Win is released; pressing the digit again while Win is held selects the next card. Win+Shift, Win+Ctrl and Win+Alt with a number stay with Windows.</li>
+      <li>Sort monitors by the x of their work-area rect (EnumDisplayMonitors), ties by y. Track per column = clamp(min(content, proportional share), 200 px, …), where content = cards × 180 − 8 + 13 (one row) and proportional share = monitor width / total width × band width. The column with the most windows gets 1fr (ties → primary). Empty monitor = 40 px rail. Vertically stacked monitors get their own band row under the same desktop header.</li>
+      <li>Desktop bands in Windows order; the current desktop first and full opacity, others at 85 %. A desktop with no windows for this app is collapsed to its header row.</li>
+      <li>Empty monitor rail: dashed r4, Lucide monitor 14, name semibold text-secondary + "empty" text-disabled, rotated bottom-to-top. On drag start every rail animates to 200 px (150 ms ease-out) and shows the 112-high dashed drop box; collapses on drag end. Keyboard focus on a rail (Shift+←→) expands it the same way.</li>
+      <li>Card 172 wide: thumbnail 96 high (16:9 crop), 1 px border r3; title 13 px one line ellipsised. Selected card (the one Enter opens): fill text primary at 10 % and a 2 px ring in text primary at 85 %, 2 px offset, in By monitor, Flat and compact (and the picture border of a lit Flat card). Not the accent: in Classic the accent and the attention orange look alike, so the selected card read as unread. Drag highlights (insertion bar, drop box) keep the accent. Dragging: card at 60 % opacity, a 2 px accent insertion bar between neighbours.</li>
+      <li>Taskbar order: every card shows its taskbar position (18 px number chip before the title). The primary monitor's column (the taskbar that lists all windows) also shows ghosts for windows on other monitors at their taskbar position, so the full order reads left to right.</li>
+      <li>Ghost 84 × card height (128), dashed 1 px border r4, two strips split by a 1 px dashed rule. (1) Name strip 20 wide, top to bottom: monitor pill 14 wide r7, 1 px text-disabled border, Lucide arrow 8 toward the monitor over the letter L / R 10 px semibold; then the full title 12 px text-secondary rotated bottom-to-top, ellipsised to the free height (~80 px); dashed number chip 16 at the bottom. (2) Live thumbnail filling the rest (~62 × 126), centre-cropped, greyscale, 40 % alpha. Tooltip: full title + "on Right".</li>
+      <li><b>Ghosts are draggable</b>, like cards.</li>
+      <li><b>Drag inside the primary column:</b> the ghost moves between the cards and other ghosts. On drop it changes that window’s taskbar position, relative to its new neighbours. The window itself stays on its own monitor.</li>
+      <li><b>Drag into another monitor’s column or an empty-monitor rail:</b> the window moves to that monitor on restore, exactly as when its real card is dragged there. After the drop it shows as a normal card in that column (and as a ghost only where the taskbar lists all windows).</li>
+      <li><b>Drag onto another desktop’s band:</b> same as dragging its real card there.</li>
+      <li><b>While dragging:</b> the ghost keeps its ghost look (dashed border, faded picture) at 60 % opacity; the usual 2 px accent landing bar shows between the neighbours; empty-monitor rails widen into drop boxes as for cards.</li>
+      <li><b>Click or Enter</b> on a ghost opens its window. Middle-click closes it. Right-click opens the usual card menu.</li>
+      <li><b>Keyboard:</b> arrow keys land on ghosts like on cards (focus ring 2 px accent, 2 px offset, outside the ghost box). With a ghost selected: Ctrl+←→ and Alt+←→ change its taskbar position (the window stays on its monitor); Ctrl+Shift+←→ moves the window to the next monitor; Ctrl+Shift+↑↓ moves it to the next desktop — the same keys as for cards.</li>
+      <li><b>Not draggable:</b> nothing. The compact view (one or two windows on this desktop) has no ghosts, so it is unchanged.</li>
+      <li>Dropping a card before or after a ghost sets its taskbar position relative to that window. See the two "Dragging a ghost" artboards above.</li>
+      <li>A window currently on a different monitor than its saved slot gets an accent "Moved" badge until restore runs.</li>
+      <li><b>Column width (no wrap when it fits):</b> measure each column's one-row width from everything it shows: cards at their real width (portrait monitors give narrower cards) and ghosts at 84, gap 8, plus 13 for the rule and padding. If the sum of all columns, rails and gaps fits the band, every column gets exactly that width and nothing wraps; spare width goes to the last non-empty column. Only when it does not fit does the 1fr rule apply, and then the 1fr column is the one with the largest one-row width, not the most windows. A column wraps only when it is still too narrow after that. See "Few windows: every column fits on one row" above.</li>
+      <li><b>Badges:</b> Badges ("Moved", "Same title") sit on the thumbnail, top-right, inside a 6 px inset, never in the title row. If all text chips fit within the thumbnail width minus 12 px, they show as text in one row, gap 4. If they don’t, every chip on that card turns into an 18 × 18 icon chip (Lucide <code>copy</code> = Same title, <code>arrow-right-left</code> = Moved, 12 px) with the full text in a tooltip. The title row holds only the number chip and the title, which shrinks and ellipsises. Nothing may draw outside the card box. See "Badges on narrow cards" above.</li>
+      <li><b>Mark all as seen (Ctrl + M).</b> Works in every view. Clears the orange mark of every window (all monitors and desktops) and tells Windows each one stopped flashing. Pill for 4 s, 8 px above the bottom edge of the cards: "Marked N windows as seen · Ctrl + Z Undo" (N = 1: "Marked 1 window as seen"), "No windows to mark as seen", or after Ctrl + Z "Orange frames are back. The taskbar stays as it is." The key in the pill is a keycap chip like the footer's. Hint chip "Ctrl + M Mark all as seen": By monitor footer after Rename, and the compact popup's hint line (dropped when the popup is too narrow), only while a card is orange. Palette: WinCraft command "Mark all windows as seen" (words: read attention orange clear flash), subtitle "N windows want attention" when N &gt; 0; run from the palette it answers with the tray notice "WinCraft: Marked N windows as seen."</li>
+      <li>Orange frame (window wants attention): 2 px ring in the warning colour at 2 px offset, no fill. The selected card uses the neutral ring above, so the two never look alike.</li>
+      <li>"Flat" view is the old single strip per desktop, kept for single-monitor users; default is By monitor when 2+ monitors are attached.</li>
+    </ul>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const D = { bg:'#1c1a19', panel:'#262322', elevated:'#2d2b2b', border:'#444141', text:'#f3f2f2', text2:'#bab6b6', text3:'#7d7979', accent:'#e1ad66', selection:'rgba(243,242,242,0.10)', ring:'rgba(243,242,242,0.85)', warn:'#e88a4a', thumbA:'#23262c', thumbB:'#1a1f26', thumbC:'#2a2422' };
+    const L = { bg:'#f3f2f2', panel:'#eae9e9', elevated:'#faf8f7', border:'#d7d3d3', text:'#201f1d', text2:'#605d5d', text3:'#9b9797', accent:'#b68235', selection:'rgba(32,31,29,0.10)', ring:'rgba(32,31,29,0.85)', warn:'#b45f14', thumbA:'#3a3f47', thumbB:'#2d333c', thumbC:'#453b36' };
+    const vars = o => Object.fromEntries(Object.entries(o).map(([k,v]) => ['--'+k, v]));
+    const themes = [{ vars: vars(D) }, { vars: vars(L) }];
+    const AR = 'M5 12h14M13 6l6 6-6 6', AL = 'M19 12H5M11 6l-6 6 6 6';
+    const w = (n, title, o={}) => ({ n: String(n), card: true, ghost: false, title, thumb: `var(--thumb${o.t ?? 'A'})`, bg: o.sel ? 'var(--selection)' : 'transparent', outline: o.sel ? '2px solid var(--ring)' : 'none', color: 'var(--text)', badge: o.badge ?? '' });
+    const mon = (name, res, windows, o={}) => ({ name, res, windows, px: o.px, primary: !!o.primary, count: real(windows).length ? `${real(windows).length}` : '', empty: false, rail: windows.length === 0, full: windows.length > 0, n: real(windows).length });
+    const colsFor = ms => {
+      const band = 1400 - 16 * (ms.length - 1), total = ms.reduce((s, m) => s + m.px, 0);
+      const busiest = ms.reduce((b, m, i) => (m.n > ms[b].windows.length || (m.n === ms[b].windows.length && m.primary)) ? i : b, 0);
+      return ms.map((m, i) => i === busiest ? 'minmax(0,1fr)' : !m.n ? '40px' : `${Math.max(200, Math.min(m.n * 180 + 5, Math.floor(m.px / total * band)))}px`).join(' ');
+    };
+    const g = (n, title, side, o={}) => ({ n: String(n), card: false, ghost: true, title, side, letter: side[0], tip: `${title} · on ${side}`, arrow: side === 'Left' ? AL : AR, thumb: `var(--thumb${o.t ?? 'A'})` });
+    const real = ws => ws.filter(x => x.card);
+    const desk = (name, meta, monitors, current=false) => ({ name, meta, monitors, cols: colsFor(monitors), opacity: current ? 1 : 0.85, titleColor: current ? 'var(--accent)' : 'var(--text)' });
+    const L1 = ['1920×1080', 1920], C1 = ['3840×2160', 3840], R1 = ['2560×2880', 2560];
+    const desktops = [
+      desk('This desktop', 'Desktop 2 · 11 windows', [
+        mon('Left', L1[0], [], {px:L1[1]}),
+        mon('Centre', C1[0], [ w(1,'Claude', {sel:true}), w(2,'WinCraft modular…', {t:'B'}), w(3,'Intellekt.dev website'), g(4,'Verdict AI','Right',{t:'B'}), w(5,'Claude Global settings', {t:'B'}), w(6,'Ubuntu 2 server homelab', {t:'C'}), w(7,'Windows PC …'), w(8,'Telemetrix …', {t:'B'}), w(9,'Playwise - Kids Learn'), w(10,'Law news website project', {t:'C'}), w(11,'Design', {badge:'Moved'}) ], {primary:true, px:C1[1]}),
+        mon('Right', R1[0], [ w(4,'Verdict AI', {t:'B'}) ], {px:R1[1]}),
+      ], true),
+      desk('Home', 'Desktop 3 · 3 windows', [
+        mon('Left', L1[0], [ w(1,'Sport/etc', {t:'B'}) ], {px:L1[1]}),
+        mon('Centre', C1[0], [ g(1,'Sport/etc','Left',{t:'B'}), w(2,'Jobs'), w(3,'Home', {t:'C'}) ], {primary:true, px:C1[1]}),
+        mon('Right', R1[0], [], {px:R1[1]}),
+      ]),
+      desk('PlayDuck', 'Desktop 4 · 5 windows', [
+        mon('Left', L1[0], [ w(1,'Metabase') ], {px:L1[1]}),
+        mon('Centre', C1[0], [ g(1,'Metabase','Left'), w(2,'iGaming Research', {t:'C'}), w(3,'Dashboard - SerpApi - G…', {t:'B'}), w(4,'Wildo.Agency - Google C…'), g(5,'New Casinos Outreach','Right',{t:'B'}) ], {primary:true, px:C1[1]}),
+        mon('Right', R1[0], [ w(5,'New Casinos Outreach', {t:'B'}) ], {px:R1[1]}),
+      ]),
+    ];
+    const centre = [w(1,'Claude'), w(2,'WinCraft modular…', {t:'B'}), w(3,'Intellekt.dev website'), w(5,'Claude Global settings', {t:'B'}), w(6,'Ubuntu 2 server homelab', {t:'C'}), w(7,'Windows PC …'), w(8,'Telemetrix …', {t:'B'}), w(9,'Playwise - Kids Learn'), w(10,'Law news website project', {t:'C'}), w(11,'Design', {badge:'Moved'})];
+    const dragA = [...centre.slice(0, 4), { bar: true, card: false }, ...centre.slice(4)];
+    const taskbarApps = [{ letter: '⊞', bg: 'transparent' }, { letter: 'E', bg: '#c9a227', n: '1' }, { letter: 'C', bg: '#b0673f', n: '2' }, { letter: 'G', bg: '#3f7ab0', n: '3' }, { letter: 'T', bg: '#444141', n: '4' }, { letter: 'V', bg: '#3f8a6a', n: '5' }, { letter: 'S', bg: '#7a5ab0', n: '6' }].map(a => ({ ...a, badge: !!a.n }));
+    const waitStates = [{ label: 'Dark · 0–0.7 s after Win+Alt+A: nothing on screen', on: false }, { label: 'Dark · after 0.7 s with no digit: badges and wait line fade in', on: true }];
+    const cc = (n, title, o = {}) => ({ n, title, w: '172px', bg: 'transparent', outline: 'none', tf: 'none', op: 1, vis: 'visible', ...o });
+    const selO = { bg: 'var(--selection)', outline: '2px solid var(--ring)' };
+    const names = ['Claude', 'Notepad', 'Verdict AI', 'Windows PowerShell', 'Explorer'];
+    const hoverCards = names.map((t, i) => cc(String(i + 1), t, i === 2 ? selO : {}));
+    const row = (f) => names.map((t, i) => cc(String(i + 1), t, f(i) || {}));
+    const closeFrames = [
+      { label: 'Dark · 0 ms: Ctrl+W on card 2', cards: row(i => i === 1 && selO) },
+      { label: 'Dark · 90 ms: card 2 at 92 %, half faded', cards: row(i => i === 1 && { ...selO, tf: 'scale(0.925)', op: 0.5 }) },
+      { label: 'Dark · 180 ms: card 2 at 85 %, gone; window closes', cards: row(i => i === 1 && { tf: 'scale(0.85)', op: 0 }) },
+      { label: 'Dark · 280 ms: cards 3–5 halfway into the gap (card 1 stays)', cards: row(i => i === 1 ? { vis: 'hidden' } : i > 1 && { tf: 'translateX(-90px)' }) },
+      { label: 'Dark · Still open after 1.5 s: card grows back, waiting badge', cards: row(i => i === 1 && { ...selO, wait: 'Waiting for Notepad' }) },
+      { label: 'Dark · Narrow card (By monitor, tall monitor): clock badge only', cards: row(i => i === 1 ? { ...selO, w: '108px', waitIcon: true } : { w: '108px' }) },
+    ];
+    const H = (k, l) => ({ k, l });
+    const baseH = [H('←→↑↓', 'Select'), H('Enter', 'Open'), H('1–9', 'Open by number'), H('Ctrl + W', 'Close'), H('F2', 'Rename')];
+    const orange = { outline: '2px solid var(--warn)' };
+    const seenRow = (o) => names.map((t, i) => cc(String(i + 1), t, i === 0 ? selO : (o && (i === 1 || i === 3) ? orange : {})));
+    const seenFrames = [
+      { label: 'Dark · Two windows want attention: the footer offers Ctrl + M', cards: seenRow(true), pill: '', undo: false, hints: [...baseH, H('Ctrl + M', 'Mark all as seen')] },
+      { label: 'Dark · After Ctrl + M: frames gone, line for 4 s, chip gone', cards: seenRow(false), pill: 'Marked 2 windows as seen', undo: true, hints: baseH },
+      { label: 'Dark · After Ctrl + Z', cards: seenRow(true), pill: 'Orange frames are back. The taskbar stays as it is.', undo: false, hints: [...baseH, H('Ctrl + M', 'Mark all as seen')] },
+      { label: 'Dark · Ctrl + M with nothing orange', cards: seenRow(false), pill: 'No windows to mark as seen', undo: false, hints: baseH },
+    ];
+    return { seenFrames, themes, desktops, hoverCards, closeFrames, darkVars: vars(D), taskbarApps, waitStates, dragA, dragB: centre, rightCol: [w(4,'Verdict AI', {t:'B'})] };
+  }
+}
+</script>
+</body>
+</html>
