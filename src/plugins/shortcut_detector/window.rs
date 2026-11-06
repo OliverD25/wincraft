@@ -46,9 +46,12 @@ const SEARCH_HEIGHT: f32 = 36.0;
 const SEARCH_MIN: f32 = 200.0;
 const SEARCH_MAX: f32 = 280.0;
 const GAP: f32 = 12.0;
+const NEARBY_LABEL: f32 = 28.0;
 const CAPTURE_MIN: f32 = 200.0;
 const CHECK_PAD: egui::Vec2 = egui::Vec2::new(14.0, 10.0);
-const PLACEHOLDER: &str = "Search shortcuts or meaning";
+/// The toolbar while the box holds a combination: the filters do not apply.
+const TOOLBAR_DIMMED: f32 = 0.45;
+const PLACEHOLDER: &str = "Search shortcuts, meaning or owner";
 const CHECK_HINT: &str = "Click, then press keys";
 const CHANGED: &str = " \u{b7} changed since the last scan, press F5";
 
@@ -464,10 +467,12 @@ fn contents(ui: &mut Ui, view: &View, state: &mut WindowUi, out: &mut Vec<Outcom
             vec2(full.width() - SIDE * 2.0, answer::HEIGHT),
         );
         let link_keys = state.answer.link.as_ref().map(|edit| edit.keys);
-        if let Some(action) = answer::strip(ui, area, &plan, link_keys) {
-            out.push(Outcome::Answer(action));
+        if !plan.is_empty() {
+            if let Some(action) = answer::strip(ui, area, &plan, link_keys) {
+                out.push(Outcome::Answer(action));
+            }
+            y += answer::HEIGHT + 4.0;
         }
-        y += answer::HEIGHT + 4.0;
     }
     if let (Some(keys), Some(_)) = (state.keys, &view.scan) {
         let area = Rect::from_min_size(
@@ -636,6 +641,7 @@ fn toolbar(
         + 8.0;
     let widths = [SEARCH_MIN, segments, switch, buttons];
 
+    let results = state.keys.is_some();
     let mut y = top;
     for line in flow(&widths, available) {
         let used: f32 =
@@ -664,9 +670,11 @@ fn toolbar(
                 )
             };
             x += width + GAP;
-            ui.scope_builder(
-                UiBuilder::new().max_rect(rect).layout(layout),
-                |ui| match index {
+            ui.scope_builder(UiBuilder::new().max_rect(rect).layout(layout), |ui| {
+                if results {
+                    ui.set_opacity(TOOLBAR_DIMMED);
+                }
+                match index {
                     0 => {
                         search_box(ui, search_id(), &mut state.query, PLACEHOLDER, width);
                     }
@@ -712,8 +720,8 @@ fn toolbar(
                             }
                         }
                     }
-                },
-            );
+                }
+            });
         }
         y += height + GAP;
     }
@@ -787,7 +795,7 @@ fn check_box(
     } else if state.capturing && state.answer.link.is_none() && !response.has_focus() {
         out.push(Outcome::StopCapture);
     }
-    let border = if state.capturing && state.answer.link.is_none() {
+    let border = if (state.capturing && state.answer.link.is_none()) || !steps[0].is_empty() {
         tokens.accent
     } else {
         tokens.border
@@ -929,7 +937,7 @@ fn list_area(ui: &mut Ui, view: &View, state: &mut WindowUi, visible: &[usize], 
         .auto_shrink([false, false]);
     if std::mem::take(&mut state.follow) {
         if let Some(selected) = state.selected {
-            let top = selected as f32 * ROW;
+            let top = row_top(selected, state.keys.is_some());
             let bottom = top + ROW;
             if top < state.offset {
                 scroll = scroll.vertical_scroll_offset(top);
@@ -945,19 +953,59 @@ fn list_area(ui: &mut Ui, view: &View, state: &mut WindowUi, visible: &[usize], 
             .max_rect(body)
             .layout(Layout::top_down(Align::Min)),
     );
-    let output = scroll.show_rows(&mut child, ROW, visible.len(), |ui, range| {
-        ui.spacing_mut().item_spacing.y = 0.0;
-        for place in range {
-            let entry = &scan.entries[visible[place]];
-            if row(ui, entry, selected == Some(place), &columns) {
-                clicked = Some(place);
-            }
+    let mut draw = |ui: &mut Ui, place: usize| {
+        let entry = &scan.entries[visible[place]];
+        if row(ui, entry, selected == Some(place), &columns) {
+            clicked = Some(place);
         }
-    });
+    };
+    let output = if state.keys.is_some() {
+        scroll.show(&mut child, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for place in 0..visible.len() {
+                if place == 1 {
+                    nearby_label(ui);
+                }
+                draw(ui, place);
+            }
+        })
+    } else {
+        scroll.show_rows(&mut child, ROW, visible.len(), |ui, range| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for place in range {
+                draw(ui, place);
+            }
+        })
+    };
     state.offset = output.state.offset.y;
     if clicked.is_some() {
         state.selected = clicked;
     }
+}
+
+/// The top of row `place` inside the list. The results of one combination
+/// have a label between its own row and the free ones close to it.
+fn row_top(place: usize, results: bool) -> f32 {
+    let label = if results && place > 0 {
+        NEARBY_LABEL
+    } else {
+        0.0
+    };
+    place as f32 * ROW + label
+}
+
+/// The 28 px label above the free combinations close to the one checked.
+fn nearby_label(ui: &mut Ui) {
+    let tokens = Tokens::get(ui.ctx());
+    let (rect, _) =
+        ui.allocate_exact_size(vec2(ui.available_width(), NEARBY_LABEL), Sense::hover());
+    ui.painter().text(
+        pos2(rect.left() + SIDE, rect.center().y),
+        Align2::LEFT_CENTER,
+        "Free close to it",
+        theme::regular(12.0),
+        tokens.text_disabled,
+    );
 }
 
 fn empty_line(painter: &egui::Painter, body: Rect, line: &str, tokens: &Tokens) {
@@ -1012,18 +1060,26 @@ fn row(ui: &mut Ui, entry: &Entry, selected: bool, columns: &[egui::Rangef; 5]) 
     painter.galley(pill.center() - galley.size() / 2.0, galley, colour);
 
     let mut cut = false;
-    for (text, at) in [(rows::meaning(entry), 2), (rows::owner(entry), 3)] {
+    let owner_colour = if entry.owner().is_empty() || entry.owner() == probe::UNKNOWN_APP {
+        tokens.text_disabled
+    } else {
+        tokens.text_primary
+    };
+    for (text, at, text_colour) in [
+        (rows::meaning(entry), 2, tokens.text_secondary),
+        (rows::owner(entry), 3, owner_colour),
+    ] {
         let galley = painter.layout_job(one_line(
             text,
             theme::regular(13.0),
-            tokens.text_secondary,
+            text_colour,
             columns[at].span(),
         ));
         cut |= galley.elided;
         painter.galley(
             pos2(columns[at].min, rect.center().y - galley.size().y / 2.0),
             galley,
-            tokens.text_secondary,
+            text_colour,
         );
     }
     let response = if cut {

@@ -185,20 +185,25 @@ pub fn verdict(probe_hwnd: HWND, hotkey: Hotkey, wincraft: &[(String, String, Ho
     classify(hotkey, taken, owner_in(wincraft, hotkey))
 }
 
-/// One line in the "Status · detail" form, as the Check a shortcut box and
-/// `--hotkey-verdict` show it.
+/// One line as the Check a shortcut box and `--hotkey-verdict` show it:
+/// "App · owner — meaning", "WinCraft — command", "Windows — meaning" or
+/// "Free · no app or Windows shortcut uses it".
 pub fn verdict_text(entry: &Entry) -> String {
-    let detail = match entry.status {
-        Status::Free => "no app or Windows shortcut uses it".to_string(),
-        Status::TakenByApp if entry.meaning.is_empty() => entry.owner().to_string(),
-        Status::TakenByApp => format!("{} \u{2014} {}", entry.owner(), entry.meaning),
-        Status::Windows if known::is_reserved(entry.hotkey) => {
-            format!("reserved, no app can have it: {}", entry.meaning)
+    match entry.status {
+        Status::Free => "Free \u{b7} no app or Windows shortcut uses it".to_string(),
+        Status::TakenByApp if entry.meaning.is_empty() => {
+            format!("App \u{b7} {}", entry.owner())
         }
-        Status::Windows => entry.meaning.clone(),
-        Status::WinCraft => entry.meaning.replacen(": ", " \u{2014} ", 1),
-    };
-    format!("{} \u{b7} {detail}", entry.status.label())
+        Status::TakenByApp => {
+            format!("App \u{b7} {} \u{2014} {}", entry.owner(), entry.meaning)
+        }
+        Status::Windows if known::is_reserved(entry.hotkey) => format!(
+            "Windows \u{2014} reserved, no app can have it: {}",
+            entry.meaning
+        ),
+        Status::Windows => format!("Windows \u{2014} {}", entry.meaning),
+        Status::WinCraft => format!("WinCraft \u{2014} {}", entry.meaning),
+    }
 }
 
 /// Pure decision table, kept apart from the Win32 probe so it can be tested.
@@ -308,7 +313,7 @@ mod tests {
         assert_eq!(entry.owner(), "WinCraft");
         assert_eq!(
             verdict_text(&entry),
-            "WinCraft \u{b7} ScreenDimmer \u{2014} Toggle monitor 1"
+            "WinCraft \u{2014} ScreenDimmer: Toggle monitor 1"
         );
     }
 
@@ -320,7 +325,7 @@ mod tests {
         assert_eq!(entry.owner(), "Windows");
         assert!(entry.taken);
         assert_eq!(entry.source, "windows list");
-        assert_eq!(verdict_text(&entry), "Windows \u{b7} Open File Explorer");
+        assert_eq!(verdict_text(&entry), "Windows \u{2014} Open File Explorer");
     }
 
     #[test]
@@ -329,7 +334,7 @@ mod tests {
         assert_eq!(entry.status, Status::Windows);
         assert_eq!(entry.meaning, "Open File Explorer");
         assert!(!entry.taken);
-        assert_eq!(verdict_text(&entry), "Windows \u{b7} Open File Explorer");
+        assert_eq!(verdict_text(&entry), "Windows \u{2014} Open File Explorer");
     }
 
     #[test]
@@ -376,7 +381,7 @@ mod tests {
         assert_eq!(entry.meaning, "Lock the PC");
         assert_eq!(
             verdict_text(&entry),
-            "Windows \u{b7} reserved, no app can have it: Lock the PC"
+            "Windows \u{2014} reserved, no app can have it: Lock the PC"
         );
     }
 

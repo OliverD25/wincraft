@@ -51,9 +51,9 @@ the box.
 | App · Explorer shortcut: Notepad++ — Open Notepad++ | A shortcut file in the Start menu or on the desktop has this key. |
 | App · ShareX, probably — Capture a region | A running app uses this key by default. You may have changed it there. |
 | App · unknown app | Some other program registered it, and WinCraft cannot tell which. |
-| Windows · … | Windows itself uses it, and for what. |
-| Windows · reserved, no app can have it: … | Windows keeps it and no program can ever have it, such as `Win+L`. |
-| WinCraft · … | One of your own WinCraft plugins holds it. |
+| Windows — … | Windows itself uses it, and for what. |
+| Windows — reserved, no app can have it: … | Windows keeps it and no program can ever have it, such as `Win+L`. |
+| WinCraft — … | One of your own WinCraft plugins holds it. |
 
 Under the box a line says what you can do about it:
 
@@ -63,7 +63,7 @@ Under the box a line says what you can do about it:
 | A shortcut file | Which shortcut has the key. | **Change** asks for a new key and writes it into the shortcut file; **Remove key** takes the key away. Explorer may take a moment to use the new key; if it does not, sign out and in again. A shortcut file key cannot use `Win`, and one in the common Start menu may need administrator rights. |
 | A known app | Where in that app you change it, for example "Windows Terminal: Settings → Actions → Quake mode". | **Press it for real** |
 | Unknown app | "Unknown app. Try 'Press it for real' to see which app reacts." | **Press it for real** |
-| Windows | That Windows uses it, or keeps it. | None. |
+| Windows or free | No line. The box and the results say it. | None. |
 
 **Press it for real** sends the combination once, as if you pressed it, and
 watches for 3 seconds which window comes to the front or opens. The line then
@@ -74,11 +74,12 @@ A test copy of WinCraft never sends keys (the button is greyed out), and keys
 that Windows keeps, such as `Win+L`, are never sent.
 
 While the box holds a combination, the list below shows search results:
-first that combination, then up to 8 free combinations close to it (the same
+first that combination, then a label "Free close to it" and up to 8 free combinations close to it (the same
 key with one modifier added, taken away or swapped, or the same modifiers
 with the key next to it), `Win+Alt` ones first. "Show all" or `Esc` empties
 the box and brings back the full list with your search, filter and sort as
-they were.
+they were. The search, the modifier filter and Show free are dimmed and do
+not apply while the results show.
 
 ## Hotkeys
 

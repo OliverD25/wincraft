@@ -11,9 +11,9 @@ use crate::core::hotkeys;
 use crate::core::theme::{self, Tokens};
 use crate::core::traits::Hotkey;
 use crate::ui::widgets::button::{self, Kind};
+use crate::ui::widgets::icons::{self, Icon};
 use crate::ui::widgets::keycap::{self, Caps};
 
-use super::known;
 use super::lnk;
 use super::owners::{Found, SOURCE_PRESS};
 use super::press;
@@ -21,6 +21,8 @@ use super::probe::{Entry, Status};
 
 pub const HEIGHT: f32 = 34.0;
 pub const RESULTS_HEIGHT: f32 = 28.0;
+const MARK_SIDE: f32 = 14.0;
+const MARK_GAP: f32 = 8.0;
 pub const SAVED: &str =
     "Saved. Explorer may take a moment to use it; if it does not, sign out and in again.";
 pub const REMOVED: &str = "Removed. The shortcut no longer has a key.";
@@ -49,6 +51,24 @@ pub struct Button {
 pub struct Plan {
     pub line: String,
     pub buttons: Vec<Button>,
+    /// The icon before the line: what the last press test found.
+    pub mark: Option<Mark>,
+}
+
+impl Plan {
+    /// Free and Windows combinations have no line and no buttons.
+    pub fn is_empty(&self) -> bool {
+        self.line.is_empty() && self.buttons.is_empty()
+    }
+}
+
+/// An icon drawn before the answer line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mark {
+    /// The press test opened a window.
+    Found,
+    /// The press test saw nothing.
+    Nothing,
 }
 
 /// A shortcut file whose key is being changed.
@@ -123,6 +143,7 @@ pub fn plan(entry: &Entry, found: Option<Found>, test_instance: bool, ui: &Answe
                 button(Action::RemoveKey, "Remove key"),
                 button(Action::Cancel, "Cancel"),
             ],
+            mark: None,
         };
     }
     if ui.press.is_some() {
@@ -132,12 +153,14 @@ pub fn plan(entry: &Entry, found: Option<Found>, test_instance: bool, ui: &Answe
                 hotkeys::format(entry.hotkey)
             ),
             buttons: Vec::new(),
+            mark: None,
         };
     }
     if let Some(note) = &ui.note {
         return Plan {
             line: note.clone(),
             buttons: Vec::new(),
+            mark: None,
         };
     }
     let pressed = ui
@@ -145,22 +168,23 @@ pub fn plan(entry: &Entry, found: Option<Found>, test_instance: bool, ui: &Answe
         .as_ref()
         .filter(|(hotkey, _)| *hotkey == entry.hotkey)
         .map(|(_, line)| line.clone());
+    let mark =
+        if matches!(entry.status, Status::TakenByApp) && !matches!(found, Some(Found::Link(_))) {
+            pressed.as_deref().map(|line| {
+                if line == press::NOTHING {
+                    Mark::Nothing
+                } else {
+                    Mark::Found
+                }
+            })
+        } else {
+            None
+        };
     let (line, buttons) = match (entry.status, found) {
-        (Status::Free, _) => (
-            "You can use it. Free combinations close to it are listed below.".to_string(),
-            Vec::new(),
-        ),
+        (Status::Free | Status::Windows, _) => (String::new(), Vec::new()),
         (Status::WinCraft, _) => (
-            format!("WinCraft uses it: {}.", entry.meaning),
+            format!("WinCraft uses it: {}", entry.meaning),
             vec![button(Action::Change, "Change")],
-        ),
-        (Status::Windows, _) if known::is_reserved(entry.hotkey) => (
-            "Windows keeps it. No app can have it.".to_string(),
-            Vec::new(),
-        ),
-        (Status::Windows, _) => (
-            "Windows uses it, so a free combination is a better choice.".to_string(),
-            Vec::new(),
         ),
         (Status::TakenByApp, Some(Found::Link(link))) => (
             format!(
@@ -192,7 +216,11 @@ pub fn plan(entry: &Entry, found: Option<Found>, test_instance: bool, ui: &Answe
             )
         }
     };
-    Plan { line, buttons }
+    Plan {
+        line,
+        buttons,
+        mark,
+    }
 }
 
 /// Draws the plan in `area`; the action of a clicked button, if any.
@@ -231,22 +259,40 @@ pub fn strip(
         right -= width + 8.0;
     }
     let painter = ui.painter().clone();
-    let room = (right - area.left() - 8.0).max(1.0);
+    let (text_colour, mark_left) = match plan.mark {
+        Some(Mark::Nothing) => (tokens.text_disabled, MARK_SIDE + MARK_GAP),
+        Some(Mark::Found) => (tokens.text_secondary, MARK_SIDE + MARK_GAP),
+        None => (tokens.text_secondary, 0.0),
+    };
+    if let Some(mark) = plan.mark {
+        let (icon, colour) = match mark {
+            Mark::Found => (Icon::Check, tokens.success),
+            Mark::Nothing => (Icon::Clock, tokens.text_disabled),
+        };
+        let rect = Rect::from_center_size(
+            pos2(area.left() + MARK_SIDE / 2.0, area.center().y),
+            vec2(MARK_SIDE, MARK_SIDE),
+        );
+        icons::paint(&painter, rect, icon, colour);
+    }
+    let line_left = area.left() + mark_left;
+    let room = (right - line_left - 8.0).max(1.0);
     let galley = painter.layout_job(super::window::one_line(
         &plan.line,
         theme::regular(13.0),
-        tokens.text_secondary,
+        text_colour,
         room,
     ));
-    let line_right = area.left() + galley.size().x;
+    let line_right = line_left + galley.size().x;
     let elided = galley.elided;
     painter.galley(
-        pos2(area.left(), area.center().y - galley.size().y / 2.0),
+        pos2(line_left, area.center().y - galley.size().y / 2.0),
         galley,
-        tokens.text_secondary,
+        text_colour,
     );
     if elided {
-        let line_rect = Rect::from_min_max(area.min, pos2(line_right, area.bottom()));
+        let line_rect =
+            Rect::from_min_max(pos2(line_left, area.top()), pos2(line_right, area.bottom()));
         ui.interact(
             line_rect,
             Id::new("wincraft-detector-answer-line"),
@@ -423,20 +469,19 @@ mod tests {
     fn wincraft_windows_and_free_answers() {
         let mine = classify(key("Win+Alt+S"), true, Some(("ShortcutManager", "Open")));
         let answer = plan(&mine, None, false, &AnswerUi::default());
-        assert_eq!(answer.line, "WinCraft uses it: ShortcutManager: Open.");
+        assert_eq!(answer.line, "WinCraft uses it: ShortcutManager: Open");
         assert_eq!(actions(&answer), [Action::Change]);
 
         let windows = classify(key("Win+E"), true, None);
-        assert!(actions(&plan(&windows, None, false, &AnswerUi::default())).is_empty());
+        assert!(plan(&windows, None, false, &AnswerUi::default()).is_empty());
         let reserved = classify(key("Win+L"), true, None);
-        let answer = plan(&reserved, None, false, &AnswerUi::default());
-        assert_eq!(answer.line, "Windows keeps it. No app can have it.");
-        assert!(answer.buttons.is_empty(), "Win+L is never pressed");
+        assert!(
+            plan(&reserved, None, false, &AnswerUi::default()).is_empty(),
+            "Win+L is never pressed"
+        );
 
         let free = classify(key("Win+Alt+F7"), false, None);
-        assert!(plan(&free, None, false, &AnswerUi::default())
-            .line
-            .starts_with("You can use it."));
+        assert!(plan(&free, None, false, &AnswerUi::default()).is_empty());
     }
 
     #[test]
@@ -448,7 +493,14 @@ mod tests {
         };
         let answer = plan(&entry, None, false, &ui);
         assert_eq!(answer.line, press::NOTHING);
+        assert_eq!(answer.mark, Some(Mark::Nothing));
         assert_eq!(actions(&answer), [Action::Press], "it can be pressed again");
+        ui.pressed = Some((
+            key("Ctrl+Alt+F9"),
+            "Pressing it opened \u{201c}Notes\u{201d} from OneNote.".to_string(),
+        ));
+        assert_eq!(plan(&entry, None, false, &ui).mark, Some(Mark::Found));
+        ui.pressed = Some((key("Ctrl+Alt+F9"), press::NOTHING.to_string()));
         // A result for another combination does not show.
         let other = classify(key("Ctrl+Alt+F8"), true, None);
         assert!(plan(&other, None, false, &ui)
