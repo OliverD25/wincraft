@@ -379,6 +379,14 @@ pub trait WinCraftPlugin {
         None
     }
 
+    /// The keys that reach a tray or palette command, written as a
+    /// shortcut such as "Win+`, A" (two presses in a row), for the palette
+    /// to draw as keycaps with "then" between the presses. None for none.
+    fn palette_keys(&self, kind: ActionKind, action_id: u32) -> Option<String> {
+        let _ = (kind, action_id);
+        None
+    }
+
     /// More words the palette finds a hotkey or tray command by, split by
     /// spaces, such as a plugin's old name. Palette commands carry their
     /// own `words`.

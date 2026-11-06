@@ -22,13 +22,12 @@ const PAD_BOTTOM: f32 = 22.0;
 const HEADER: f32 = 28.0;
 const HEADER_GAP: f32 = 18.0;
 const CARD_W: f32 = 300.0;
-const CARD_H: f32 = 250.0;
+pub(super) const CARD_H: f32 = 250.0;
 const PICTURE_H: f32 = 175.0;
 const COLUMN_GAP: f32 = 20.0;
 const ROW_GAP: f32 = 28.0;
-const CAP: f32 = 30.0;
-const CAP_GAP: f32 = 10.0;
-const EMPTY: &str = "No windows yet. Press Win+` then A in any window to add it.";
+pub(super) const CAP: f32 = 30.0;
+pub(super) const CAP_GAP: f32 = 10.0;
 
 fn row_height() -> f32 {
     CARD_H + CAP_GAP + CAP
@@ -38,12 +37,15 @@ fn row_height() -> f32 {
 /// at least, four at most), as tall as their rows; wider with the details.
 pub fn window_size(count: usize, details: bool) -> egui::Vec2 {
     let top = PAD_TOP + HEADER + HEADER_GAP;
-    if count == 0 && !details {
-        return vec2(560.0, top + 24.0 + PAD_BOTTOM);
-    }
     let columns = count.clamp(2, COLUMNS) as f32;
-    let rows = count.div_ceil(COLUMNS).max(1) as f32;
     let width = 2.0 * PAD_X + columns * CARD_W + (columns - 1.0) * COLUMN_GAP;
+    if count == 0 && !details {
+        return vec2(
+            width,
+            top + super::empty::body_height() + super::empty::BOTTOM,
+        );
+    }
+    let rows = count.div_ceil(COLUMNS).max(1) as f32;
     let height = top + rows * row_height() + (rows - 1.0) * ROW_GAP + PAD_BOTTOM;
     if details {
         vec2(width + DETAILS, height.max(640.0))
@@ -240,13 +242,7 @@ pub(super) fn contents(ui: &mut Ui, view: &View, state: &mut ListUi, out: &mut V
     header(ui, &painter, (left, right), area.top() + PAD_TOP, count);
     let origin = pos2(left, area.top() + PAD_TOP + HEADER + HEADER_GAP);
     if count == 0 {
-        painter.text(
-            origin,
-            Align2::LEFT_TOP,
-            EMPTY,
-            theme::regular(14.0),
-            tokens.text_secondary,
-        );
+        super::empty::draw(ui, &painter, origin, &view.jump_keys, out);
         if details {
             details_panel(
                 ui,
@@ -336,6 +332,25 @@ pub(super) fn contents(ui: &mut Ui, view: &View, state: &mut ListUi, out: &mut V
     }
 }
 
+/// "2 of 10", next to the title.
+pub(super) fn count_line(count: usize) -> String {
+    format!("{count} of {}", super::super::pins::SLOTS)
+}
+
+/// The key hints at the header's right end, from the right: nothing but
+/// Esc while the list is empty.
+pub(super) fn hints(count: usize) -> Vec<(&'static str, &'static str)> {
+    let mut hints = vec![("Esc", "Close")];
+    if count > 0 {
+        hints.extend([
+            ("Del", "Unpin"),
+            ("F2", "Details"),
+            ("1\u{2013}0", "Switch"),
+        ]);
+    }
+    hints
+}
+
 /// The pin icon, "Quick access", how many are pinned, and the key hints.
 fn header(ui: &Ui, painter: &Painter, (left, right): (f32, f32), top: f32, count: usize) {
     let tokens = Tokens::get(ui.ctx());
@@ -356,21 +371,21 @@ fn header(ui: &Ui, painter: &Painter, (left, right): (f32, f32), top: f32, count
     painter.text(
         pos2(title.right() + 12.0, middle),
         Align2::LEFT_CENTER,
-        format!("{count} pinned"),
-        theme::regular(15.0),
+        count_line(count),
+        theme::regular(14.0),
         tokens.text_disabled,
     );
     let mut x = right;
-    for (key, label) in [("Esc", "Close"), ("Del", "Unpin"), ("1\u{2013}9", "Switch")] {
+    for (key, label) in hints(count) {
         let words = painter.text(
             pos2(x, middle),
             Align2::RIGHT_CENTER,
             label,
-            theme::regular(14.0),
+            theme::regular(13.0),
             tokens.text_secondary,
         );
         let text_w = painter
-            .layout_no_wrap(key.to_string(), theme::regular(13.0), tokens.text_secondary)
+            .layout_no_wrap(key.to_string(), theme::regular(12.0), tokens.text_secondary)
             .size()
             .x;
         let cap = Rect::from_min_size(
@@ -384,14 +399,14 @@ fn header(ui: &Ui, painter: &Painter, (left, right): (f32, f32), top: f32, count
             cap,
             5,
             theme::with_alpha(tokens.text_primary, 0.05),
-            Stroke::new(1.0, theme::with_alpha(tokens.text_primary, 0.14)),
+            Stroke::new(1.0, tokens.border),
             StrokeKind::Inside,
         );
         painter.text(
             cap.center(),
             Align2::CENTER_CENTER,
             key,
-            theme::regular(13.0),
+            theme::regular(12.0),
             tokens.text_secondary,
         );
         x = cap.left() - 16.0;
@@ -406,6 +421,15 @@ fn frame_box(painter: &Painter, picture: Rect, tokens: &Tokens) {
         Stroke::new(1.0, theme::with_alpha(tokens.text_primary, 0.08)),
         StrokeKind::Inside,
     );
+}
+
+/// A card that is not open names its window in the quieter colour.
+fn title_colour(state: State, tokens: &Tokens) -> egui::Color32 {
+    if state == State::NotOpen {
+        tokens.text_secondary
+    } else {
+        tokens.text_primary
+    }
 }
 
 fn draw_card(
@@ -431,11 +455,6 @@ fn draw_card(
     painter.rect(rect, 9, fill, Stroke::new(2.0, edge), StrokeKind::Inside);
     let inner = rect.shrink(10.0);
     let picture = Rect::from_min_size(inner.min, vec2(inner.width(), PICTURE_H));
-    let dim = if card.state == State::NotOpen {
-        NOT_OPEN
-    } else {
-        1.0
-    };
     let pixels_per_point = ui.ctx().pixels_per_point();
     match (card.state, card.hwnd) {
         (State::Open | State::InFront, Some(hwnd)) => {
@@ -468,7 +487,7 @@ fn draw_card(
                 painter,
                 state,
                 card,
-                Rect::from_center_size(picture.center(), vec2(32.0, 32.0)),
+                Rect::from_center_size(picture.center(), vec2(48.0, 48.0)),
                 NOT_OPEN,
             );
             frame_box(painter, picture, &tokens);
@@ -484,7 +503,7 @@ fn draw_card(
                 vec2(16.0, 16.0),
             ),
             Icon::Grip,
-            tokens.text_disabled,
+            tokens.text_secondary,
         );
     }
     let title = super::clip_text(
@@ -498,7 +517,7 @@ fn draw_card(
         Align2::LEFT_TOP,
         title,
         theme::regular(18.0),
-        theme::with_alpha(tokens.text_primary, dim),
+        title_colour(card.state, &tokens),
     );
     let second = match card.state {
         State::NotOpen => format!("{} \u{b7} not open", card.app_name),
@@ -596,8 +615,27 @@ mod tests {
     }
 
     #[test]
+    fn the_header_counts_of_ten_and_lists_the_keys_that_work() {
+        assert_eq!(count_line(0), "0 of 10");
+        assert_eq!(count_line(7), "7 of 10");
+        let keys: Vec<&str> = hints(3).iter().map(|(key, _)| *key).collect();
+        assert_eq!(keys, ["Esc", "Del", "F2", "1\u{2013}0"], "right to left");
+        assert_eq!(hints(3)[3].1, "Switch");
+        assert_eq!(hints(0), [("Esc", "Close")], "an empty list has only Esc");
+    }
+
+    #[test]
+    fn a_card_that_is_not_open_has_the_quiet_title() {
+        let tokens = Tokens::dark();
+        assert_eq!(title_colour(State::NotOpen, &tokens), tokens.text_secondary);
+        assert_eq!(title_colour(State::Open, &tokens), tokens.text_primary);
+    }
+
+    #[test]
     fn the_window_fits_the_rows_of_cards() {
-        assert_eq!(window_size(0, false).x, 560.0);
+        assert_eq!(window_size(0, false).x, 660.0, "empty: the two-card width");
+        assert_eq!(window_size(0, false).x, window_size(2, false).x);
+        assert_eq!(window_size(0, false).y, 538.0, "the design's empty window");
         assert_eq!(window_size(1, false).x, 660.0, "two columns at least");
         assert_eq!(window_size(4, false).x, 1300.0);
         assert_eq!(window_size(10, false).x, 1300.0);

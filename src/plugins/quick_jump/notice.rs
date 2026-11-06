@@ -25,8 +25,7 @@ pub fn pinned(name: &str, done: &Pinned) -> Message {
         .with_undo_key("Ctrl+Z"),
         Pinned::Moved { from, to } => moved(name, *from, *to),
         Pinned::Same { at } => message(Glyph::Info, already(*at)),
-        Pinned::Full => message(Glyph::Info, FULL.to_string())
-            .detail("Unpin a window in Quick access first.".to_string()),
+        Pinned::Full => message(Glyph::Info, FULL.to_string()),
     }
 }
 
@@ -110,6 +109,11 @@ pub fn no_keys() -> Message {
     .detail("Windows refused it, so Quick access opens instead.".to_string())
 }
 
+/// What "Add this window" says when no window is in front to add.
+pub fn no_window() -> Message {
+    message(Glyph::Info, "There is no window to pin".to_string())
+}
+
 pub fn undone(what: &str) -> Message {
     message(Glyph::Info, "Undone".to_string()).detail(what.to_string())
 }
@@ -131,6 +135,11 @@ mod tests {
         assert_eq!(same.text, "Already number 10");
         assert_eq!(pinned("Claude", &Pinned::Full).text, FULL);
         assert!(!pinned("Claude", &Pinned::Full).undo);
+        assert_eq!(
+            pinned("Claude", &Pinned::Full).detail,
+            None,
+            "the design shows no second line"
+        );
         assert_eq!(removed("Code", 3).text, "Unpinned Code (was number 4)");
         let empty = empty(4, "Win+`");
         assert_eq!(empty.text, "Number 5 is empty");
@@ -147,6 +156,7 @@ mod tests {
             not_open("Code", 0),
             not_started("Code"),
             no_keys(),
+            no_window(),
             undone("Added Claude as number 3"),
             changed("Code", 0),
         ] {

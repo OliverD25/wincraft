@@ -203,6 +203,11 @@ pub fn pinned_line(count: usize) -> String {
     format!("{count} of {SLOTS} pinned")
 }
 
+/// "3 of 10 windows", under "Open quick access" in the palette.
+pub fn windows_line(count: usize) -> String {
+    format!("{count} of {SLOTS} windows")
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::super::pins::tests::pin;
@@ -317,5 +322,6 @@ pub mod tests {
         assert_eq!(place(Some(2), None), "Desktop 2");
         assert_eq!(place(None, Some("Centre")), "Centre");
         assert_eq!(pinned_line(7), "7 of 10 pinned");
+        assert_eq!(windows_line(7), "7 of 10 windows");
     }
 }

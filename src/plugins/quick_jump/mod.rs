@@ -68,6 +68,7 @@ const OLD_PIN_KEYS: &str = "Win+Alt+Shift+Q";
 const MOVED_NOTE: &str = "keys_moved_0_20_74";
 const TRAY_LIST: u32 = 1;
 const PALETTE_ADD: u32 = 1;
+const PALETTE_ADD_FRONT: u32 = 2;
 
 /// Posted by the next-key wait.
 const WM_APP_KEY: u32 = WM_APP + 40;
@@ -470,6 +471,10 @@ impl Engine {
     fn request(&mut self, request: Request) {
         match request {
             Request::Refresh => self.refresh(),
+            Request::OpenPicker => {
+                self.refresh();
+                host::show_window(ID, picker::WINDOW_ID);
+            }
             Request::Jump(slot) => {
                 self.refresh();
                 self.quick_access = self
@@ -720,21 +725,35 @@ impl WinCraftPlugin for QuickJump {
     }
 
     fn palette_commands(&self) -> Vec<PaletteCommand> {
-        vec![PaletteCommand {
-            id: PALETTE_ADD,
-            label: "Add a window to Quick access\u{2026}",
+        let command = |id, label, words| PaletteCommand {
+            id,
+            label,
             hint: "",
-            words: "pin quickjump",
+            words,
             confirm: "",
             list: false,
             toggle: None,
-        }]
+        };
+        vec![
+            command(
+                PALETTE_ADD,
+                "Add a window to Quick access\u{2026}",
+                "pin quickjump",
+            ),
+            command(PALETTE_ADD_FRONT, "Add this window", "pin quickjump front"),
+        ]
     }
 
     fn on_palette_command(&mut self, id: u32) {
-        if id == PALETTE_ADD {
-            with_engine(|engine| engine.refresh());
-            host::show_window(ID, picker::WINDOW_ID);
+        match id {
+            PALETTE_ADD => {
+                with_engine(|engine| engine.refresh());
+                host::show_window(ID, picker::WINDOW_ID);
+            }
+            PALETTE_ADD_FRONT => {
+                with_engine(|engine| engine.add_front_window());
+            }
+            _ => {}
         }
     }
 
@@ -762,12 +781,23 @@ impl WinCraftPlugin for QuickJump {
                 Some("Choose a number for the window in front".to_string())
             }
             (ActionKind::Hotkey, ACTION_JUMP) => Some("Then press the window's number".to_string()),
-            (ActionKind::Tray, TRAY_LIST) => Some(matching::pinned_line(count)),
-            (ActionKind::Palette, PALETTE_ADD) => {
-                Some("Choose an open window for the end of the list".to_string())
+            (ActionKind::Tray, TRAY_LIST) => Some(matching::windows_line(count)),
+            (ActionKind::Palette, PALETTE_ADD) => Some("Choose from the open windows".to_string()),
+            (ActionKind::Palette, PALETTE_ADD_FRONT) => {
+                Some("Adds the window in front to the end".to_string())
             }
             _ => None,
         }
+    }
+
+    fn palette_keys(&self, kind: ActionKind, action_id: u32) -> Option<String> {
+        let second = match (kind, action_id) {
+            (ActionKind::Tray, TRAY_LIST) => "`",
+            (ActionKind::Palette, PALETTE_ADD_FRONT) => "A",
+            _ => return None,
+        };
+        let jump = self.shared.lock().ok()?.view.jump_keys.clone();
+        keys::then_key(&jump, second)
     }
 
     fn status(&self) -> Option<String> {

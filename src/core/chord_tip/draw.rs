@@ -9,7 +9,7 @@ use crate::core::layered::Image;
 use crate::core::panel_look as look;
 use crate::core::theme::{self, Tokens};
 
-use super::{dot, panel_size, Content, End, Tone, HEADER, LIST_TOP, ROW, ROW_GAP};
+use super::{dot, lines, panel_size, Content, End, Tone, GROUP_GAP, HEADER, LIST_TOP, ROW};
 
 const PAD_X: f32 = 18.0;
 const CAP: f32 = 30.0;
@@ -129,7 +129,8 @@ pub fn render(content: &Content, ending: Option<&End>, tokens: &Tokens, s: f32) 
     let px = |logical: f32| logical * s;
     let margin = (look::SHADOW * s).round();
     let list = ending.is_none();
-    let (width, height) = panel_size(content.rows.len(), list);
+    let pins = content.pins.min(content.rows.len());
+    let (width, height) = panel_size(pins, content.rows.len() - pins, list);
     let mut canvas = Canvas::new(
         (px(width) + 2.0 * margin).round() as i32,
         (px(height) + 2.0 * margin).round() as i32,
@@ -256,14 +257,14 @@ fn esc_cancel(
         "WinCraft",
         PLUS_FONT,
         tokens.text_disabled,
-        (start - 16.0 * s - name_w as f32, middle),
+        (start - 12.0 * s - name_w as f32, middle),
     );
     let cap = Cap {
         font: SMALL_FONT,
         height: ESC_CAP,
         pad: SMALL_CAP_PAD,
         bottom: 1.0,
-        edge: theme::with_alpha(tokens.text_primary, 0.14),
+        edge: tokens.border,
         text: tokens.text_secondary,
         face: tokens.elevated_bg,
     };
@@ -285,7 +286,8 @@ fn esc_cancel(
     );
 }
 
-/// The keys that can follow, in two columns, filled row by row.
+/// The keys that can follow, in two columns, filled row by row. The pin
+/// rows are a grid of their own, a hairline under it, then the others.
 fn rows(
     canvas: &mut Canvas,
     fonts: &Fonts,
@@ -299,7 +301,7 @@ fn rows(
     canvas.fill(
         Area::new(panel.x, divider, panel.w, s.round().max(1.0)),
         0.0,
-        theme::with_alpha(tokens.text_primary, 0.08),
+        tokens.border,
     );
     let left = panel.x + px(PAD_X);
     let column = (panel.w - 2.0 * px(PAD_X) - px(COLUMN_GAP)) / 2.0;
@@ -309,13 +311,34 @@ fn rows(
         height: SMALL_CAP,
         pad: SMALL_CAP_PAD,
         bottom: 2.0,
-        edge: theme::with_alpha(tokens.text_primary, 0.2),
+        edge: tokens.border,
         text: tokens.text_primary,
         face: tokens.elevated_bg,
     };
+    let pins = content.pins.min(content.rows.len());
+    let first_lines = lines(pins);
+    let grouped = pins > 0 && pins < content.rows.len();
+    if grouped {
+        let at = first + px(first_lines as f32 * ROW) + px((GROUP_GAP - 1.0) / 2.0);
+        canvas.fill(
+            Area::new(left, at, panel.w - 2.0 * px(PAD_X), s.round().max(1.0)),
+            0.0,
+            tokens.border,
+        );
+    }
     for (index, row) in content.rows.iter().enumerate() {
-        let x = left + (index % 2) as f32 * (column + px(COLUMN_GAP));
-        let middle = first + (index / 2) as f32 * px(ROW + ROW_GAP) + px(ROW) / 2.0;
+        let (line, place) = if index < pins {
+            (0, index)
+        } else {
+            (first_lines, index - pins)
+        };
+        let x = left + (place % 2) as f32 * (column + px(COLUMN_GAP));
+        let gap = if index >= pins && grouped {
+            GROUP_GAP
+        } else {
+            0.0
+        };
+        let middle = first + px((line + place / 2) as f32 * ROW + gap) + px(ROW) / 2.0;
         let width = keycap(
             canvas,
             fonts,

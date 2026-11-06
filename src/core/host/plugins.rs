@@ -739,7 +739,10 @@ impl PluginSet {
                     plugin: plugin.clone(),
                     subtitle: slot.plugin.palette_subtitle(ActionKind::Tray, action.id),
                     shortcut_id: String::new(),
-                    shortcut: String::new(),
+                    shortcut: slot
+                        .plugin
+                        .palette_keys(ActionKind::Tray, action.id)
+                        .unwrap_or_default(),
                     quiet: false,
                     badge: None,
                     toggle: None,
@@ -764,7 +767,10 @@ impl PluginSet {
                         .plugin
                         .palette_subtitle(ActionKind::Palette, command.id),
                     shortcut_id: String::new(),
-                    shortcut: String::new(),
+                    shortcut: slot
+                        .plugin
+                        .palette_keys(ActionKind::Palette, command.id)
+                        .unwrap_or_default(),
                     quiet: false,
                     badge: None,
                     toggle: command.toggle,

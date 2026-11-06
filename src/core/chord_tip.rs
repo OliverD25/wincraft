@@ -59,6 +59,10 @@ pub struct Content {
     pub keys: Vec<String>,
     /// The keys that can follow.
     pub rows: Vec<Row>,
+    /// How many of the first `rows` are a list of their own (QuickJump's
+    /// pinned windows): they are drawn as one two-column grid, then a
+    /// hairline, then the other rows as a second grid. 0 for one grid.
+    pub pins: usize,
 }
 
 impl Content {
@@ -70,6 +74,7 @@ impl Content {
                 .map(str::to_string)
                 .collect(),
             rows,
+            pins: 0,
         }
     }
 }
@@ -240,14 +245,26 @@ pub(crate) const HEADER: f32 = 58.0;
 pub(crate) const LIST_TOP: f32 = 10.0;
 pub(crate) const LIST_BOTTOM: f32 = 14.0;
 pub(crate) const ROW: f32 = 34.0;
-pub(crate) const ROW_GAP: f32 = 2.0;
 pub(crate) const BAR: f32 = 3.0;
+/// Between the pin grid and the command grid: 6 px, the hairline, 6 px.
+pub(crate) const GROUP_GAP: f32 = 13.0;
+
+/// The lines of rows a group of `rows` takes in two columns.
+pub(crate) fn lines(rows: usize) -> usize {
+    rows.div_ceil(2)
+}
 
 /// The panel's size without its shadow: the list only while it waits.
-pub fn panel_size(rows: usize, list: bool) -> (f32, f32) {
-    let lines = rows.div_ceil(2);
-    let list = if list && lines > 0 {
-        1.0 + LIST_TOP + lines as f32 * ROW + (lines - 1) as f32 * ROW_GAP + LIST_BOTTOM
+/// `pins` rows are a grid of their own, then `commands` rows another.
+pub fn panel_size(pins: usize, commands: usize, list: bool) -> (f32, f32) {
+    let all = lines(pins) + lines(commands);
+    let list = if list && all > 0 {
+        let between = if pins > 0 && commands > 0 {
+            GROUP_GAP
+        } else {
+            0.0
+        };
+        1.0 + LIST_TOP + all as f32 * ROW + between + LIST_BOTTOM
     } else {
         0.0
     };
