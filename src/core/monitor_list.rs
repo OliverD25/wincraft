@@ -15,9 +15,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::MONITORINFOF_PRIMARY;
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::monitors::{
-    self as core_monitors, friendly_names, from_wide, position_names, Rect,
-};
+use crate::core::monitors::{self as core_monitors, friendly_names, from_wide, place_names, Rect};
 use crate::core::ui_bridge::ArrangeMonitor;
 
 /// The three names of one monitor; LayoutKeeper saves it with each window.
@@ -113,8 +111,8 @@ pub fn ids(monitors: &[Monitor]) -> Vec<MonitorId> {
 /// The monitors for the strip: the connected ones in the order of `list`,
 /// then `disconnected`, which are saved monitors not connected now.
 pub fn for_strip(monitors: &[Monitor], disconnected: &[MonitorId]) -> Vec<ArrangeMonitor> {
-    let lefts: Vec<i32> = monitors.iter().map(|monitor| monitor.rect[0]).collect();
-    let places = position_names(&lefts);
+    let rects: Vec<Rect> = monitors.iter().map(|monitor| monitor.rect).collect();
+    let places = place_names(&rects);
     let mut strip: Vec<ArrangeMonitor> = monitors
         .iter()
         .zip(places)
@@ -183,8 +181,8 @@ pub fn strip_label(rect: Rect, monitors: &[Monitor]) -> Option<String> {
     if monitors[index].primary {
         return None;
     }
-    let lefts: Vec<i32> = monitors.iter().map(|monitor| monitor.rect[0]).collect();
-    position_names(&lefts).swap_remove(index)
+    let rects: Vec<Rect> = monitors.iter().map(|monitor| monitor.rect).collect();
+    place_names(&rects).swap_remove(index)
 }
 
 /// The place in `monitors` of the monitor a rectangle is mostly on.

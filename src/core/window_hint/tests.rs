@@ -167,6 +167,19 @@ fn the_pill_names_the_window_and_the_monitor() {
         "Mail \u{b7} Monitor 4 \u{2192}"
     );
     assert_eq!(pill_words("", Some("Centre")), "Centre monitor");
+    assert_eq!(
+        pill_text("", Some("Upper"), Dir::Up),
+        "Upper monitor \u{2191}"
+    );
+    assert_eq!(
+        pill_parts("Mail", Some("Right")),
+        ("Mail".to_string(), " \u{b7} Right monitor".to_string()),
+        "the place is its own part, drawn in the quieter colour"
+    );
+    assert_eq!(
+        pill_parts("", Some("Right")),
+        (String::new(), "Right monitor".to_string())
+    );
     assert_eq!(pill_words("Mail", None), "Mail \u{b7} Other monitor");
     let long = "x".repeat(60);
     assert!(pill_words(&long, Some("Right")).starts_with(&cut(&long, NAME_CHARS)));
