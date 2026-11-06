@@ -140,3 +140,42 @@ fn only_new_popups_are_made_see_through_and_all_are_put_back() {
     );
     assert_eq!(changes(false, &known, &[]), (Vec::new(), Vec::new()));
 }
+
+#[test]
+fn a_popup_that_refuses_stops_the_rest_and_puts_back_what_was_done() {
+    let mut state = State {
+        wanted: true,
+        applied: vec![hwnd(1)],
+        ..State::default()
+    };
+    let mut tried = Vec::new();
+    let mut restored = Vec::new();
+    make_all(&mut state, vec![hwnd(2), hwnd(3)], |state, popup| {
+        tried.push(popup);
+        let result = if popup == hwnd(2) {
+            Err("it uses a colour key".to_string())
+        } else {
+            Ok(true)
+        };
+        record(state, popup, result, |back| restored.push(back));
+    });
+    assert_eq!(
+        tried,
+        vec![hwnd(2)],
+        "the third popup is never made see-through"
+    );
+    assert_eq!(restored, vec![hwnd(1)]);
+    assert!(state.applied.is_empty());
+    assert!(state.off && !state.wanted);
+}
+
+#[test]
+fn a_popup_another_wincraft_made_see_through_is_not_ours_to_put_back() {
+    let mut state = State::default();
+    record(&mut state, hwnd(5), Ok(false), |_| {
+        panic!("nothing to put back")
+    });
+    assert!(state.applied.is_empty());
+    record(&mut state, hwnd(6), Ok(true), |_| {});
+    assert_eq!(state.applied, vec![hwnd(6)]);
+}

@@ -12,6 +12,30 @@ const NONE: u32 = 0;
 const CTRL: u32 = MOD_CONTROL;
 const SHIFT: u32 = MOD_SHIFT;
 
+/// What the hook does with keys now, kept in one value so the hook never
+/// sees half of a change (for example "all keys" while "digits only" turns
+/// off): keys go nowhere, all strip keys go, or only digits go.
+pub const MODE_OFF: u8 = 0;
+pub const MODE_ALL: u8 = 1;
+pub const MODE_DIGITS: u8 = 2;
+
+pub fn mode(routing: bool, digits_only: bool) -> u8 {
+    match (routing, digits_only) {
+        (false, _) => MODE_OFF,
+        (true, false) => MODE_ALL,
+        (true, true) => MODE_DIGITS,
+    }
+}
+
+/// Whether the hook may route this key in `mode`.
+pub fn routes(mode: u8, vk: u32, modifiers: u32) -> bool {
+    match mode {
+        MODE_ALL => true,
+        MODE_DIGITS => button_key(vk, modifiers),
+        _ => false,
+    }
+}
+
 /// A key that goes to the strip while the mouse is only on its taskbar
 /// button: a digit, plain or with Shift, which opens a card. Every other
 /// key stays with the app in front there, so typing is never taken.

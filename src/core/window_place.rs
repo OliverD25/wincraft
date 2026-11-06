@@ -1,6 +1,7 @@
 //! Puts a plugin window on the screen: in the middle of the monitor under
 //! the mouse, or back where the user left it. Positions are physical pixels,
-//! so winit corrects the size itself when the monitor has another scale.
+//! so winit corrects the size itself when the monitor has another scale; the
+//! window is then placed once more with its new size.
 
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
@@ -28,6 +29,17 @@ pub fn kept_inside(work: Area, size: (i32, i32), at: (i32, i32)) -> (i32, i32) {
     (x, y)
 }
 
+/// Where to move the window again after the first move, or None when its
+/// size stayed the same. On a monitor with another scale Windows resizes the
+/// window after the move, so the spot worked out for the old size is wrong.
+fn second_move(
+    before: (i32, i32),
+    after: Option<(i32, i32)>,
+    place: impl Fn((i32, i32)) -> (i32, i32),
+) -> Option<(i32, i32)> {
+    after.filter(|size| *size != before).map(place)
+}
+
 /// The window's top-left corner on the screen.
 pub fn top_left(hwnd: HWND) -> Option<(i32, i32)> {
     rect(hwnd).map(|[left, top, _, _]| (left, top))
@@ -49,7 +61,7 @@ pub fn centre_on_cursor_monitor(hwnd: HWND) {
         return;
     }
     if let (Some(work), Some(size)) = (work_area_at(point), size_of(hwnd)) {
-        move_to(hwnd, centred(work, size));
+        move_and_settle(hwnd, size, |size| centred(work, size));
     }
 }
 
@@ -58,7 +70,14 @@ pub fn centre_on_cursor_monitor(hwnd: HWND) {
 pub fn place_at(hwnd: HWND, at: (i32, i32)) {
     let point = POINT { x: at.0, y: at.1 };
     if let (Some(work), Some(size)) = (work_area_at(point), size_of(hwnd)) {
-        move_to(hwnd, kept_inside(work, size, at));
+        move_and_settle(hwnd, size, |size| kept_inside(work, size, at));
+    }
+}
+
+fn move_and_settle(hwnd: HWND, size: (i32, i32), place: impl Fn((i32, i32)) -> (i32, i32)) {
+    move_to(hwnd, place(size));
+    if let Some(at) = second_move(size, size_of(hwnd), &place) {
+        move_to(hwnd, at);
     }
 }
 
@@ -121,5 +140,17 @@ mod tests {
     fn a_spot_past_an_edge_is_pulled_back_inside() {
         assert_eq!(kept_inside(WORK, (800, 500), (1500, 900)), (1120, 540));
         assert_eq!(kept_inside(WORK, (800, 500), (-300, -50)), (0, 0));
+    }
+
+    #[test]
+    fn a_window_resized_by_the_move_is_centred_again_with_its_new_size() {
+        let place = |size| centred(WORK, size);
+        assert_eq!(second_move((1000, 600), Some((1000, 600)), place), None);
+        assert_eq!(second_move((1000, 600), None, place), None);
+        assert_eq!(
+            second_move((1000, 600), Some((1500, 900)), place),
+            Some((210, 70)),
+            "a 150% monitor made it bigger"
+        );
     }
 }
