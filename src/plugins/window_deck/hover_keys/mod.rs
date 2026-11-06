@@ -19,7 +19,7 @@ mod rule;
 mod tests;
 
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::{mpsc, Mutex, MutexGuard, PoisonError};
 
 use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
@@ -35,10 +35,9 @@ use crate::core::ui_bridge::ArrangeKey;
 use crate::core::{host, mask_key};
 use rule::{keep_hook, Router, Step};
 
-/// Whether keys go to the strip now; the hook reads it for every key.
-static ROUTING: AtomicBool = AtomicBool::new(false);
-/// Only digits go to the strip: the mouse is on its taskbar button.
-static DIGITS_ONLY: AtomicBool = AtomicBool::new(false);
+/// Which keys go to the strip now (`rule::mode`); the hook reads it for
+/// every key. One value, so a change is never seen half done.
+static MODE: AtomicU8 = AtomicU8::new(rule::MODE_OFF);
 /// `Router::held` of the hook's router, for the host thread.
 static HELD: AtomicUsize = AtomicUsize::new(0);
 static WORKER: Mutex<Option<HookThread>> = Mutex::new(None);
@@ -72,7 +71,7 @@ impl HoverKeys {
     /// `digits_only` while the mouse is on the strip's taskbar button.
     pub fn update(&mut self, wanted: bool, digits_only: bool, now: u64) {
         if self.may_route {
-            DIGITS_ONLY.store(digits_only, Ordering::Relaxed);
+            MODE.store(rule::mode(wanted, digits_only), Ordering::Relaxed);
         }
         if wanted != self.routing {
             self.routing = wanted;
@@ -84,7 +83,6 @@ impl HoverKeys {
                 self.off_at = now;
             }
             if self.may_route {
-                ROUTING.store(wanted, Ordering::Relaxed);
                 if wanted && !self.refused && !start() {
                     self.refused = true;
                     log::warn!(
@@ -113,7 +111,7 @@ impl HoverKeys {
     pub fn stop(&mut self) {
         let was = std::mem::take(&mut self.routing);
         self.refused = false;
-        ROUTING.store(false, Ordering::Relaxed);
+        MODE.store(rule::MODE_OFF, Ordering::Relaxed);
         if is_running() {
             stop();
         }
@@ -209,8 +207,7 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
     let step = ROUTER.with(|cell| match cell.try_borrow_mut() {
         Ok(mut router) => {
             let modifiers = super::win_digit::modifiers_now();
-            let routing = ROUTING.load(Ordering::Relaxed)
-                && (!DIGITS_ONLY.load(Ordering::Relaxed) || rule::button_key(vk, modifiers));
+            let routing = rule::routes(MODE.load(Ordering::Relaxed), vk, modifiers);
             let was_down = is_down && key_down(vk);
             let step = router.step(vk, is_down, modifiers, routing, was_down, ours);
             HELD.store(router.held(), Ordering::Relaxed);

@@ -185,7 +185,11 @@ fn a_read_only_test_instance_never_puts_the_hook_in() {
     keys.update(true, false, 10);
     assert!(keys.is_routing(), "the decision is still made and logged");
     assert!(!is_running());
-    assert!(!ROUTING.load(Ordering::Relaxed), "the real keys are left");
+    assert_eq!(
+        MODE.load(Ordering::Relaxed),
+        rule::MODE_OFF,
+        "the real keys are left"
+    );
     keys.update(false, false, 20);
     assert!(!keys.is_routing());
     keys.update(true, true, 30);
@@ -206,4 +210,20 @@ fn on_the_taskbar_button_only_digits_go_to_the_strip() {
     assert!(!rule::button_key(0x31, MOD_ALT));
     assert!(!rule::button_key(0x44, 0), "D stays with the app");
     assert!(!rule::button_key(0x0D, 0), "Enter stays with the app");
+}
+
+#[test]
+fn routing_and_digits_only_change_together() {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::MOD_CONTROL;
+    let off = rule::mode(false, true);
+    assert_eq!(off, rule::mode(false, false), "off is off, digits or not");
+    assert!(!rule::routes(off, A, 0), "from digits only to off: A stays");
+    assert!(!rule::routes(off, TWO, 0));
+    let digits = rule::mode(true, true);
+    assert!(rule::routes(digits, TWO, 0));
+    assert!(!rule::routes(digits, A, 0), "on the button: A stays");
+    assert!(!rule::routes(digits, TWO, MOD_CONTROL));
+    let all = rule::mode(true, false);
+    assert!(rule::routes(all, A, 0));
+    assert!(rule::routes(all, TWO, 0));
 }
