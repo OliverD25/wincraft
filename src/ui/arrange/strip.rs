@@ -330,7 +330,7 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
         .line(Instant::now())
         .map(|(text, left)| (text.to_string(), left))
     {
-        seen::line(&ctx, panel, &text);
+        seen::line(&ctx, panel, &text, shared.seen.offers_undo());
         ctx.request_repaint_after(left);
     }
     if let Some((text, since)) = shared.note.clone() {

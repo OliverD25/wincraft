@@ -196,8 +196,10 @@ pub fn cut(text: &str, max: usize) -> String {
     format!("{}\u{2026}", kept.trim_end())
 }
 
-/// The pill's words without the arrow: "Telegram · Right monitor".
-pub fn pill_words(name: &str, monitor: Option<&str>) -> String {
+/// The pill's words without the arrow, in two parts: the name, and the
+/// place after it (" · Right monitor"). The pill draws the place in a
+/// quieter colour.
+pub fn pill_parts(name: &str, monitor: Option<&str>) -> (String, String) {
     let place = match monitor {
         Some(word) if word.starts_with("Monitor") => word.to_string(),
         Some(word) => format!("{word} monitor"),
@@ -205,10 +207,16 @@ pub fn pill_words(name: &str, monitor: Option<&str>) -> String {
     };
     let name = cut(name, NAME_CHARS);
     if name.is_empty() {
-        place
+        (String::new(), place)
     } else {
-        format!("{name} \u{b7} {place}")
+        (name, format!(" \u{b7} {place}"))
     }
+}
+
+/// The pill's words without the arrow: "Telegram · Right monitor".
+pub fn pill_words(name: &str, monitor: Option<&str>) -> String {
+    let (name, place) = pill_parts(name, monitor);
+    format!("{name}{place}")
 }
 
 /// The arrow goes on the side of the other monitor: first for the left,

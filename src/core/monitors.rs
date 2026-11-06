@@ -35,6 +35,35 @@ pub fn position_names(lefts: &[i32]) -> Vec<Option<String>> {
     result
 }
 
+/// Each monitor's place word from its whole rectangle. Side by side it is
+/// `position_names`. Two monitors one above the other are "Upper" and
+/// "Lower". A layout with a stacked pair among three or more monitors is
+/// unclear, so they are numbered "Monitor N" by their left edge, then top.
+pub fn place_names(rects: &[Rect]) -> Vec<Option<String>> {
+    let stacked = |a: &Rect, b: &Rect| a[0] < b[2] && b[0] < a[2] && (a[3] <= b[1] || b[3] <= a[1]);
+    let any_stacked = rects
+        .iter()
+        .enumerate()
+        .any(|(at, a)| rects[at + 1..].iter().any(|b| stacked(a, b)));
+    if !any_stacked {
+        let lefts: Vec<i32> = rects.iter().map(|rect| rect[0]).collect();
+        return position_names(&lefts);
+    }
+    if rects.len() == 2 {
+        let upper = usize::from(rects[0][1] > rects[1][1]);
+        let mut result = vec![Some("Upper".to_string()), Some("Upper".to_string())];
+        result[1 - upper] = Some("Lower".to_string());
+        return result;
+    }
+    let mut order: Vec<usize> = (0..rects.len()).collect();
+    order.sort_by_key(|index| (rects[*index][0], rects[*index][1]));
+    let mut result = vec![None; rects.len()];
+    for (rank, index) in order.into_iter().enumerate() {
+        result[index] = Some(format!("Monitor {}", rank + 1));
+    }
+    result
+}
+
 /// GDI device name to friendly name, for every active display path. The
 /// friendly name comes from the monitor's EDID and can be empty, as on
 /// many laptop panels.
@@ -330,6 +359,36 @@ mod tests {
         assert_eq!(
             position_names(&[3840, 0, -1920, 1920]),
             words(&["Monitor 4", "Monitor 2", "Monitor 1", "Monitor 3"])
+        );
+    }
+
+    #[test]
+    fn side_by_side_monitors_keep_their_left_centre_right_words() {
+        let left = [0, 0, 1920, 1080];
+        let right = [1920, 100, 3840, 1180];
+        assert_eq!(place_names(&[left, right]), words(&["Left", "Right"]));
+        assert_eq!(place_names(&[left]), [None]);
+    }
+
+    #[test]
+    fn two_stacked_monitors_are_upper_and_lower() {
+        let top = [0, -1080, 1920, 0];
+        let bottom = [0, 0, 1920, 1080];
+        assert_eq!(place_names(&[bottom, top]), words(&["Lower", "Upper"]));
+        assert_eq!(place_names(&[top, bottom]), words(&["Upper", "Lower"]));
+        // Shifted sideways but still over each other.
+        let shifted = [500, -1080, 2420, 0];
+        assert_eq!(place_names(&[bottom, shifted]), words(&["Lower", "Upper"]));
+    }
+
+    #[test]
+    fn a_mixed_layout_is_numbered_from_the_left() {
+        let a = [0, 0, 1920, 1080];
+        let b = [1920, 0, 3840, 1080];
+        let above = [1920, -1080, 3840, 0];
+        assert_eq!(
+            place_names(&[a, b, above]),
+            words(&["Monitor 1", "Monitor 3", "Monitor 2"])
         );
     }
 

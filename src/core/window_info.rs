@@ -100,9 +100,9 @@ pub fn read(hwnd: HWND, pinner: Option<&Pinner>) -> WindowDetails {
     let path = windows_list::exe_path(pid);
     let process = path.rsplit('\\').next().unwrap_or_default().to_string();
     let screens = monitors::screens();
-    let lefts: Vec<i32> = screens.iter().map(|screen| screen.rect[0]).collect();
+    let rects: Vec<monitors::Rect> = screens.iter().map(|screen| screen.rect).collect();
     let monitor = monitors::screen_of(hwnd, &screens)
-        .and_then(|index| monitors::position_names(&lefts).swap_remove(index));
+        .and_then(|index| monitors::place_names(&rects).swap_remove(index));
     let desktops = virtual_desktops::list();
     let desktop = if desktops.len() > 1 {
         DesktopManager::new()

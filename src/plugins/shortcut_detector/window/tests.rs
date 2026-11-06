@@ -268,3 +268,25 @@ fn drawing_the_answer_of_an_unknown_app_presses_nothing() {
     assert!(frames(&view(Some(scan())), &mut state, Vec::new()).is_empty());
     assert!(state.answer.press.is_none());
 }
+
+#[test]
+fn the_free_close_to_it_label_sits_between_the_first_row_and_the_rest() {
+    assert_eq!(row_top(0, true), 0.0);
+    assert_eq!(row_top(1, true), ROW + NEARBY_LABEL);
+    assert_eq!(row_top(3, true), 3.0 * ROW + NEARBY_LABEL);
+    assert_eq!(row_top(3, false), 3.0 * ROW, "the full list has no label");
+}
+
+#[test]
+fn the_search_finds_a_row_by_its_owner() {
+    let scan = scan();
+    let filter = Filter {
+        query: "unknown app",
+        modifier: None,
+        show_free: true,
+    };
+    assert_eq!(
+        rows::visible(&scan.entries, &filter, Sort::default()).len(),
+        1
+    );
+}

@@ -8,18 +8,18 @@ use std::time::Instant;
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetClassNameW, GetCursorPos, IsIconic, IsWindow, IsZoomed, KillTimer, SetTimer,
+    GetCursorPos, IsIconic, IsWindow, IsZoomed, KillTimer, SetTimer,
 };
 
 use crate::core::canvas::Area;
 use crate::core::layered::{Image, Layered};
 use crate::core::monitors::{self, Rect, Screen};
-use crate::core::{animations, instance, theme};
+use crate::core::{animations, instance, theme, windows_list};
 use crate::ui::taskbar_badges::scale_at;
 
 use super::draw;
 use super::{
-    another_monitor, centre, direction, is_desktop, looking_at, pill_spot, pill_text, pill_words,
+    another_monitor, centre, direction, is_desktop, looking_at, pill_parts, pill_spot, pill_text,
     ring, ring_box, strength, Before, Dir, Hint, Ring, EDGE_GAP, GLOW_HOLD_MS, PILL_HOLD_MS,
 };
 
@@ -203,7 +203,9 @@ pub fn show(hint: &Hint) -> bool {
         Before::Window(_) => None,
     };
     let front = match hint.from {
-        Before::Window(hwnd) if hwnd != 0 && !is_desktop(&class_name(hwnd)) => {
+        Before::Window(hwnd)
+            if hwnd != 0 && !is_desktop(&windows_list::class_name(hwnd as HWND)) =>
+        {
             monitors::screen_of(hwnd as HWND, &screens)
         }
         _ => None,
@@ -219,10 +221,10 @@ pub fn show(hint: &Hint) -> bool {
         return false;
     };
     let dir = direction(from.rect, to.rect);
-    let lefts: Vec<i32> = screens.iter().map(|screen| screen.rect[0]).collect();
-    let names = monitors::position_names(&lefts);
+    let rects: Vec<monitors::Rect> = screens.iter().map(|screen| screen.rect).collect();
+    let names = monitors::place_names(&rects);
     let word = target.and_then(|index| names.get(index).cloned().flatten());
-    let words = pill_words(&hint.name, word.as_deref());
+    let words = pill_parts(&hint.name, word.as_deref());
     let visible = unsafe { IsIconic(hint.window as HWND) } == 0;
     let target_rect = frame_bounds(hint.window)
         .filter(|_| visible)
@@ -285,7 +287,7 @@ pub fn show_demo() {
     if let Some(window) = &live.test_window {
         window.set_alpha(255);
     }
-    let words = pill_words("Telegram", Some("Right"));
+    let words = pill_parts("Telegram", Some("Right"));
     live.pill_picture = Some(pill_picture(&words, Dir::Right, Dir::Left, rect, rect));
     begin(live);
     tick();
@@ -331,9 +333,15 @@ fn tick() {
 /// The pill's picture for the work area `work`, drawn with the arrow of
 /// `arrow`, and where it goes: at the edge that faces `edge`, in line with
 /// `target`.
-fn pill_picture(words: &str, arrow: Dir, edge: Dir, work: Rect, target: Rect) -> (Image, POINT) {
+fn pill_picture(
+    words: &(String, String),
+    arrow: Dir,
+    edge: Dir,
+    work: Rect,
+    target: Rect,
+) -> (Image, POINT) {
     let s = scale_at(point(centre(work)));
-    let (image, panel) = draw::pill(words, arrow, &theme::current_tokens(), s);
+    let (image, panel) = draw::pill(&words.0, &words.1, arrow, &theme::current_tokens(), s);
     let size = (panel.w.round() as i32, panel.h.round() as i32);
     let gap = (EDGE_GAP * s).round() as i32;
     let (x, y) = pill_spot(work, edge, target, size, gap);
@@ -398,12 +406,6 @@ fn frame_bounds(hwnd: isize) -> Option<Rect> {
     } == 0;
     let rect = [frame.left, frame.top, frame.right, frame.bottom];
     (read && rect[2] > rect[0] && rect[3] > rect[1]).then_some(rect)
-}
-
-fn class_name(hwnd: isize) -> String {
-    let mut buffer = [0u16; 64];
-    let length = unsafe { GetClassNameW(hwnd as HWND, buffer.as_mut_ptr(), buffer.len() as i32) };
-    String::from_utf16_lossy(&buffer[..length.max(0) as usize])
 }
 
 fn pointer_screen(screens: &[Screen]) -> Option<usize> {

@@ -99,8 +99,17 @@ pub(super) fn card(
     let mut faded = ui.painter().clone();
     faded.multiply_opacity(fade);
     let painter = &faded;
-    let look = card_look(&tokens, lit.then_some(tokens.hover_bg), window.attention);
+    let selected = is_cursor && !leaving;
+    let fill = if selected {
+        selected_fill(&tokens)
+    } else {
+        tokens.hover_bg
+    };
+    let look = card_look(&tokens, lit.then_some(fill), window.attention);
     paint_look(painter, grown(rect, scale), 6, look);
+    if selected {
+        paint_ring(painter, ui.ctx(), rect, 6, selected_ring(&tokens));
+    }
     if let Some(monitor) = monitor {
         monitor_chip(painter, rect, monitor);
     }
@@ -257,20 +266,41 @@ pub fn selected_fill(tokens: &Tokens) -> Color32 {
     theme::with_alpha(tokens.text_primary, 0.10)
 }
 
-/// Paints a card's look in `rect`. The outline stays on the card's edge,
+/// Paints a card's look in `rect`. The outline is a ring outside the card,
 /// clear of the picture, which DWM draws over anything painted under it.
 pub(super) fn paint_look(painter: &egui::Painter, rect: Rect, radius: u8, look: Look) {
     if let Some(fill) = look.fill {
         painter.rect_filled(rect, radius, fill);
     }
     if let Some(outline) = look.outline {
-        painter.rect_stroke(
-            rect,
-            radius,
-            theme::stroke(painter.ctx(), 1.5, outline),
-            StrokeKind::Inside,
-        );
+        paint_ring(painter, painter.ctx(), rect, radius, outline);
     }
+}
+
+/// The width of a ring and how far it stands off the card's edge: 2 px
+/// wide with a 2 px gap, as the design draws the selected card and the
+/// orange frame. Outside the card, which DWM would draw over inside.
+pub(super) const RING_WIDTH: f32 = 2.0;
+pub(super) const RING_OFFSET: f32 = 2.0;
+
+/// The distance from the card's edge to the middle of its ring.
+pub(super) fn ring_reach() -> f32 {
+    RING_OFFSET + RING_WIDTH / 2.0
+}
+
+pub(super) fn paint_ring(
+    painter: &egui::Painter,
+    ctx: &egui::Context,
+    rect: Rect,
+    radius: u8,
+    colour: Color32,
+) {
+    painter.rect_stroke(
+        rect.expand(ring_reach()),
+        radius + RING_OFFSET as u8,
+        theme::stroke(ctx, RING_WIDTH, colour),
+        StrokeKind::Middle,
+    );
 }
 
 /// A badge on a card's picture: "Same title" (amber), "Moved" (accent), or
@@ -559,5 +589,19 @@ pub(super) fn name_card(painter: &egui::Painter, area: Rect, label: &str, deskto
             detail,
             tokens.text_secondary,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_ring_is_two_wide_and_stands_two_off_the_card() {
+        assert_eq!(RING_WIDTH, 2.0);
+        assert_eq!(RING_OFFSET, 2.0);
+        // The middle of a 2 px line that starts 2 px outside the edge.
+        assert_eq!(ring_reach(), 3.0);
+        assert_eq!(ring_reach() - RING_WIDTH / 2.0, RING_OFFSET);
     }
 }

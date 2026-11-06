@@ -29,13 +29,13 @@ impl Seen {
             self.undo.clear();
             return;
         }
-        let text = attention::marked_line(windows.len());
-        self.line = Some(if windows.is_empty() {
-            (text, now)
-        } else {
-            (format!("{text} \u{b7} Ctrl+Z Undo"), now)
-        });
+        self.line = Some((attention::marked_line(windows.len()), now));
         self.undo = windows;
+    }
+
+    /// Whether the line shows the Ctrl + Z chip and "Undo" after the text.
+    pub fn offers_undo(&self) -> bool {
+        !self.undo.is_empty()
     }
 
     /// The line to show now, and how long it has left.
@@ -83,15 +83,31 @@ pub(super) fn keys(ctx: &egui::Context, shared: &mut Shared) {
     }
 }
 
-/// The line at the foot of the strip, above everything.
-pub(super) fn line(ctx: &egui::Context, panel: Rect, text: &str) {
+/// The key chip's text before "Undo".
+pub(super) const UNDO_KEY: &str = "Ctrl + Z";
+
+/// The line at the foot of the strip, above everything. With `undo` it
+/// ends with a dot, the Ctrl + Z key chip (drawn like the hint chips of
+/// the footer) and "Undo".
+pub(super) fn line(ctx: &egui::Context, panel: Rect, text: &str, undo: bool) {
     let tokens = Tokens::get(ctx);
     let layer = ctx.layer_painter(egui::LayerId::new(
         egui::Order::Foreground,
         egui::Id::new("arrange-seen-line"),
     ));
-    let galley = layer.layout_no_wrap(text.to_string(), theme::regular(12.0), tokens.text_primary);
-    let size = galley.size() + vec2(24.0, 12.0);
+    let font = theme::regular(12.0);
+    let galley = layer.layout_no_wrap(text.to_string(), font.clone(), tokens.text_primary);
+    let tail = undo.then(|| {
+        (
+            layer.layout_no_wrap("\u{b7}".to_string(), font.clone(), tokens.text_disabled),
+            layer.layout_no_wrap(UNDO_KEY.to_string(), font.clone(), tokens.text_primary),
+            layer.layout_no_wrap("Undo".to_string(), font.clone(), tokens.text_primary),
+        )
+    });
+    let tail_width = tail.as_ref().map_or(0.0, |(dot, key, word)| {
+        8.0 + dot.size().x + 8.0 + key.size().x + 12.0 + 6.0 + word.size().x
+    });
+    let size = vec2(galley.size().x + tail_width + 24.0, galley.size().y + 12.0);
     let rect = Rect::from_center_size(
         pos2(panel.center().x, panel.bottom() - 8.0 - size.y / 2.0),
         size,
@@ -103,11 +119,40 @@ pub(super) fn line(ctx: &egui::Context, panel: Rect, text: &str) {
         theme::line(ctx, tokens.border),
         StrokeKind::Inside,
     );
-    layer.galley(
-        rect.center() - galley.size() / 2.0,
-        galley,
-        tokens.text_primary,
-    );
+    let mut x = rect.left() + 12.0;
+    let middle = rect.center().y;
+    let text_width = galley.size().x;
+    let height = galley.size().y;
+    layer.galley(pos2(x, middle - height / 2.0), galley, tokens.text_primary);
+    x += text_width;
+    if let Some((dot, key, word)) = tail {
+        x += 8.0;
+        let dot_width = dot.size().x;
+        layer.galley(
+            pos2(x, middle - dot.size().y / 2.0),
+            dot,
+            tokens.text_disabled,
+        );
+        x += dot_width + 8.0;
+        let chip = Rect::from_min_size(
+            pos2(x, middle - key.size().y / 2.0 - 1.0),
+            vec2(key.size().x + 12.0, key.size().y + 2.0),
+        );
+        layer.rect(
+            chip,
+            tokens.radius_row,
+            tokens.panel_bg,
+            theme::line(ctx, tokens.border),
+            StrokeKind::Inside,
+        );
+        layer.galley(chip.center() - key.size() / 2.0, key, tokens.text_primary);
+        x = chip.right() + 6.0;
+        layer.galley(
+            pos2(x, middle - word.size().y / 2.0),
+            word,
+            tokens.text_primary,
+        );
+    }
 }
 
 #[cfg(test)]
@@ -119,15 +164,10 @@ mod tests {
         let now = Instant::now();
         let mut seen = Seen::default();
         seen.answer(vec![1], false, now);
-        assert_eq!(
-            seen.line(now).unwrap().0,
-            "Marked 1 window as seen \u{b7} Ctrl+Z Undo"
-        );
+        assert_eq!(seen.line(now).unwrap().0, "Marked 1 window as seen");
+        assert!(seen.offers_undo(), "the chip and Undo are drawn after it");
         seen.answer(vec![1, 2, 3], false, now);
-        assert_eq!(
-            seen.line(now).unwrap().0,
-            "Marked 3 windows as seen \u{b7} Ctrl+Z Undo"
-        );
+        assert_eq!(seen.line(now).unwrap().0, "Marked 3 windows as seen");
     }
 
     #[test]
@@ -136,6 +176,7 @@ mod tests {
         let mut seen = Seen::default();
         seen.answer(Vec::new(), false, now);
         assert_eq!(seen.line(now).unwrap().0, "No windows to mark as seen");
+        assert!(!seen.offers_undo());
         assert_eq!(seen.take_undo(now), None);
     }
 

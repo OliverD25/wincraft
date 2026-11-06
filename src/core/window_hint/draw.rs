@@ -81,7 +81,7 @@ pub fn glow(size: (i32, i32), frame: Area, inside: bool, tokens: &Tokens, s: f32
 /// is talking), then the words with the arrow on the side of the other
 /// monitor. Returns the picture and where the panel sits in it (the rest
 /// is room for its shadow).
-pub fn pill(words: &str, dir: Dir, tokens: &Tokens, s: f32) -> (Image, Area) {
+pub fn pill(name: &str, place: &str, dir: Dir, tokens: &Tokens, s: f32) -> (Image, Area) {
     let px = |size: f32| (size * s).round() as i32;
     let fonts = Fonts::new(&[
         (Weight::Regular, px(12.0)),
@@ -89,12 +89,17 @@ pub fn pill(words: &str, dir: Dir, tokens: &Tokens, s: f32) -> (Image, Area) {
         (Weight::Semibold, px(14.0)),
     ]);
     let caption = "WinCraft";
-    let words = fonts.fit(words, WORDS_FONT, px(WORDS_MAX));
+    let (place_w, _) = fonts.measure(place, WORDS_FONT);
+    let name = fonts.fit(name, WORDS_FONT, (px(WORDS_MAX) - place_w).max(0));
     let (caption_w, _) = fonts.measure(caption, CAPTION_FONT);
-    let (words_w, _) = fonts.measure(&words, WORDS_FONT);
+    let (name_w, _) = fonts.measure(&name, WORDS_FONT);
     let (arrow_w, _) = fonts.measure(dir.arrow(), ARROW_FONT);
-    let inner =
-        caption_w as f32 + CAPTION_GAP * s + words_w as f32 + ARROW_GAP * s + arrow_w as f32;
+    let inner = caption_w as f32
+        + CAPTION_GAP * s
+        + name_w as f32
+        + place_w as f32
+        + ARROW_GAP * s
+        + arrow_w as f32;
     let margin = (look::SHADOW * s).round();
     let panel_w = (inner + 2.0 * PILL_PAD_X * s).round();
     let panel_h = (PILL_HEIGHT * s).round();
@@ -117,13 +122,20 @@ pub fn pill(words: &str, dir: Dir, tokens: &Tokens, s: f32) -> (Image, Area) {
         canvas.text(&[run], &fonts.list, 1.0);
         width as f32
     };
-    x += put(&mut canvas, caption, CAPTION_FONT, tokens.text_disabled, x) + CAPTION_GAP * s;
     if arrow_first(dir) {
         x += put(&mut canvas, dir.arrow(), ARROW_FONT, tokens.accent, x) + ARROW_GAP * s;
-        put(&mut canvas, &words, WORDS_FONT, tokens.text_primary, x);
-    } else {
-        x += put(&mut canvas, &words, WORDS_FONT, tokens.text_primary, x) + ARROW_GAP * s;
-        put(&mut canvas, dir.arrow(), ARROW_FONT, tokens.accent, x);
+    }
+    x += put(&mut canvas, caption, CAPTION_FONT, tokens.text_disabled, x) + CAPTION_GAP * s;
+    x += put(&mut canvas, &name, WORDS_FONT, tokens.text_primary, x);
+    x += put(&mut canvas, place, WORDS_FONT, tokens.text_secondary, x);
+    if !arrow_first(dir) {
+        put(
+            &mut canvas,
+            dir.arrow(),
+            ARROW_FONT,
+            tokens.accent,
+            x + ARROW_GAP * s,
+        );
     }
     (canvas.into_image(), panel)
 }

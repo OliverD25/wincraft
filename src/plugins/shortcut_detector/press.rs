@@ -91,8 +91,9 @@ pub fn result_text(seen: Option<&Seen>) -> String {
 /// becomes "WindowsTerminal".
 pub fn app_name(seen: &Seen) -> String {
     let name = seen.app.as_str();
-    match name.len().checked_sub(4) {
-        Some(at) if name[at..].eq_ignore_ascii_case(".exe") => name[..at].to_string(),
+    let at = name.len().wrapping_sub(4);
+    match name.get(at..) {
+        Some(tail) if tail.eq_ignore_ascii_case(".exe") => name[..at].to_string(),
         _ => name.to_string(),
     }
 }
@@ -271,6 +272,13 @@ mod tests {
             app: "tool".to_string(),
         };
         assert_eq!(app_name(&odd), "tool");
+        for name in ["\u{e9}.ex", "\u{4e2d}\u{6587}", "a\u{e9}", "Caf\u{e9}.EXE"] {
+            let seen = Seen {
+                title: String::new(),
+                app: name.to_string(),
+            };
+            assert_eq!(app_name(&seen), name.strip_suffix(".EXE").unwrap_or(name));
+        }
     }
 
     #[test]
