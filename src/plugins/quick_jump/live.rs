@@ -29,8 +29,8 @@ pub fn read() -> Vec<Live> {
             .is_some_and(|id| desktops.iter().any(|desktop| desktop.id == id))
     };
     let screens = monitors::screens();
-    let lefts: Vec<i32> = screens.iter().map(|screen| screen.rect[0]).collect();
-    let names = monitors::position_names(&lefts);
+    let rects: Vec<_> = screens.iter().map(|screen| screen.rect).collect();
+    let names = monitors::place_names(&rects);
     windows_list::app_window_records(&known)
         .into_iter()
         .filter(|(hwnd, _)| !is_own(*hwnd))
