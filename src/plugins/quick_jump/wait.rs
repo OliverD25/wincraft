@@ -77,6 +77,15 @@ pub fn rows(mode: Mode, views: &[SlotView]) -> Vec<Row> {
     rows
 }
 
+/// How many of the tip's first rows are the pinned windows, which the tip
+/// draws as a grid of their own.
+pub fn pin_rows(mode: Mode, views: &[SlotView]) -> usize {
+    match mode {
+        Mode::Jump => views.len(),
+        Mode::Pin => 0,
+    }
+}
+
 /// The keycaps of a shortcut's text, both steps of a chord in a row.
 pub fn caps(keys: &str) -> Vec<String> {
     keys.split(',')
@@ -114,13 +123,7 @@ impl Engine {
         let front = foreground as isize;
         // From the palette the window in front is WinCraft's own, so the
         // one under it is meant.
-        let own = live::is_own(foreground);
-        let target = self
-            .live
-            .iter()
-            .find(|window| window.hwnd == front)
-            .or_else(|| own.then(|| self.live.first()).flatten())
-            .cloned();
+        let target = self.target_of(foreground);
         let listening = chord::listen(
             self.hwnd as isize,
             WM_APP_KEY,
@@ -139,6 +142,7 @@ impl Engine {
             Content {
                 keys: caps(&keys),
                 rows: rows(mode, &views),
+                pins: pin_rows(mode, &views),
             },
             shortcuts::CHORD_WAIT,
         );
@@ -155,6 +159,28 @@ impl Engine {
             target,
         });
         self.undo_keys = false;
+    }
+
+    /// The window the keys act on: the one in front, or from WinCraft's own
+    /// window (the palette) the one under it.
+    fn target_of(&self, foreground: windows_sys::Win32::Foundation::HWND) -> Option<Live> {
+        let front = foreground as isize;
+        let own = live::is_own(foreground);
+        self.live
+            .iter()
+            .find(|window| window.hwnd == front)
+            .or_else(|| own.then(|| self.live.first()).flatten())
+            .cloned()
+    }
+
+    /// The palette's "Add this window": the same as Win+`, then A.
+    pub(super) fn add_front_window(&mut self) {
+        let foreground = unsafe { GetForegroundWindow() };
+        self.refresh();
+        match self.target_of(foreground) {
+            Some(window) => self.add_window(&window),
+            None => self.notify(notice::no_window(), None),
+        }
     }
 
     /// Ends the wait. `by_key` says another key closed it, which a second
@@ -421,6 +447,12 @@ mod tests {
                 ("U", "Unpin this window"),
             ]
         );
+        assert_eq!(
+            pin_rows(Mode::Jump, &views),
+            2,
+            "the pins are the first rows"
+        );
+        assert_eq!(pin_rows(Mode::Pin, &views), 0);
         let pin = rows_for_pin();
         assert_eq!(pin[0].key, "1\u{2013}0");
         assert_eq!(pin.last().map(|row| row.key.as_str()), Some("U"));

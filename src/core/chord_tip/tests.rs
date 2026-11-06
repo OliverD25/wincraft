@@ -118,11 +118,71 @@ fn a_key_is_named_without_what_is_still_held_from_the_first_press() {
 
 #[test]
 fn the_panel_is_620_wide_with_rows_of_34_in_two_columns() {
-    assert_eq!(panel_size(0, true), (620.0, 61.0));
-    let (_, four) = panel_size(4, true);
-    assert_eq!(four, 58.0 + 1.0 + 10.0 + 34.0 * 2.0 + 2.0 + 14.0 + 3.0);
-    assert_eq!(panel_size(5, true).1, panel_size(6, true).1);
-    assert_eq!(panel_size(9, false), (620.0, 61.0), "no list once it ends");
+    assert_eq!(panel_size(0, 0, true), (620.0, 61.0));
+    let (_, four) = panel_size(0, 4, true);
+    assert_eq!(
+        four,
+        58.0 + 1.0 + 10.0 + 34.0 * 2.0 + 14.0 + 3.0,
+        "no gap between rows"
+    );
+    assert_eq!(panel_size(0, 5, true).1, panel_size(0, 6, true).1);
+    assert_eq!(
+        panel_size(0, 9, false),
+        (620.0, 61.0),
+        "no list once it ends"
+    );
+}
+
+#[test]
+fn a_pin_grid_and_a_command_grid_are_two_blocks_with_a_hairline_between() {
+    let (_, one) = panel_size(0, 4, true);
+    let (_, both) = panel_size(6, 4, true);
+    assert_eq!(
+        both - one,
+        34.0 * 3.0 + GROUP_GAP,
+        "three more lines and the hairline"
+    );
+    assert_eq!(
+        panel_size(5, 4, true).1,
+        both,
+        "an odd count still fills its last line"
+    );
+    assert_eq!(
+        panel_size(6, 0, true).1,
+        panel_size(0, 6, true).1,
+        "no hairline alone"
+    );
+}
+
+#[test]
+fn only_a_content_with_pins_has_a_pin_grid() {
+    let rows = vec![Row::new("1", "A"), Row::new("2", "B"), Row::new("`", "C")];
+    let plain = Content::of_keys("Win+`", rows.clone());
+    assert_eq!(plain.pins, 0);
+    assert_eq!(Content::of_keys("Win+`", rows.clone()).with_pins(2).pins, 2);
+    assert_eq!(
+        Content::of_keys("Win+`", rows).with_pins(9).pins,
+        3,
+        "never more than the rows"
+    );
+}
+
+#[test]
+fn the_tip_with_pins_is_taller_than_the_same_rows_without() {
+    let rows: Vec<Row> = (1..=6).map(|n| Row::new(n.to_string(), "Window")).collect();
+    let tokens = Tokens::of(ThemeName::ALL[0], true);
+    let flat = draw::render(&Content::of_keys("Win+`", rows.clone()), None, &tokens, 1.0);
+    let grouped = draw::render(
+        &Content::of_keys("Win+`", rows).with_pins(4),
+        None,
+        &tokens,
+        1.0,
+    );
+    assert_eq!(
+        grouped.base.height - flat.base.height,
+        GROUP_GAP as i32,
+        "the hairline's room"
+    );
 }
 
 #[test]
