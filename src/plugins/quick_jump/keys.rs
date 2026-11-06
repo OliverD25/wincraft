@@ -8,9 +8,9 @@
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN};
 
 use crate::core::chord::{Stroke, Verdict};
-use crate::core::shortcuts;
 use crate::core::taskbar_number::digit_of;
 use crate::core::traits::Hotkey;
+use crate::core::{hotkeys, shortcuts};
 
 const ESCAPE: u32 = 0x1B;
 const NUMPAD_0: u32 = 0x60;
@@ -106,6 +106,15 @@ pub fn firsts(jump: &str, pin: &str) -> Vec<Hotkey> {
         .collect()
 }
 
+/// The jump shortcut and then `second`, written as one chord ("Win+`, A"),
+/// for the palette to draw as keycaps. None without a single-press jump
+/// shortcut: a chord that is two presses already cannot take a third.
+pub fn then_key(jump: &str, second: &str) -> Option<String> {
+    let keys = shortcuts::parse(jump).filter(|keys| !keys.is_chord())?;
+    let text = format!("{}, {second}", hotkeys::format_shortcut(&keys));
+    shortcuts::parse(&text).map(|_| text)
+}
+
 /// The hook's rule while a notice with Undo shows: Ctrl+Z is kept for
 /// Undo, every other key goes on as usual.
 pub fn undo_rule(stroke: Stroke) -> Verdict {
@@ -122,6 +131,15 @@ mod tests {
 
     fn stroke(vk: u32, modifiers: u32) -> Stroke {
         Stroke { vk, modifiers }
+    }
+
+    #[test]
+    fn the_palette_shows_the_jump_keys_then_the_second_key() {
+        let steps = |text: Option<String>| shortcuts::parse(&text.unwrap()).unwrap().steps();
+        assert_eq!(steps(then_key("Win+`", "A")), [vec!["Win", "`"], vec!["A"]]);
+        assert_eq!(steps(then_key("Win+`", "`")), [vec!["Win", "`"], vec!["`"]]);
+        assert_eq!(then_key("", "A"), None, "no jump keys");
+        assert_eq!(then_key("Win+Alt+K, J", "A"), None, "already a chord");
     }
 
     #[test]

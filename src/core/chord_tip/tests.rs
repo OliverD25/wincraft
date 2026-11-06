@@ -159,11 +159,16 @@ fn only_a_content_with_pins_has_a_pin_grid() {
     let rows = vec![Row::new("1", "A"), Row::new("2", "B"), Row::new("`", "C")];
     let plain = Content::of_keys("Win+`", rows.clone());
     assert_eq!(plain.pins, 0);
-    assert_eq!(Content::of_keys("Win+`", rows.clone()).with_pins(2).pins, 2);
+    // More pins than rows is read as "all rows are pins" and still draws.
+    let tokens = Tokens::of(ThemeName::ALL[0], true);
+    let all = Content {
+        pins: 9,
+        ..Content::of_keys("Win+`", rows)
+    };
+    let picture = draw::render(&all, None, &tokens, 1.0);
     assert_eq!(
-        Content::of_keys("Win+`", rows).with_pins(9).pins,
-        3,
-        "never more than the rows"
+        picture.base.height,
+        panel_size(3, 0, true).1.round() as i32 + 2 * 16
     );
 }
 
@@ -173,7 +178,10 @@ fn the_tip_with_pins_is_taller_than_the_same_rows_without() {
     let tokens = Tokens::of(ThemeName::ALL[0], true);
     let flat = draw::render(&Content::of_keys("Win+`", rows.clone()), None, &tokens, 1.0);
     let grouped = draw::render(
-        &Content::of_keys("Win+`", rows).with_pins(4),
+        &Content {
+            pins: 4,
+            ..Content::of_keys("Win+`", rows)
+        },
         None,
         &tokens,
         1.0,

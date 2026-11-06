@@ -77,12 +77,6 @@ impl Content {
             pins: 0,
         }
     }
-
-    /// The first `pins` rows form their own group above the others.
-    pub fn with_pins(mut self, pins: usize) -> Self {
-        self.pins = pins.min(self.rows.len());
-        self
-    }
 }
 
 /// How a chord ended.

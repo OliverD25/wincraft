@@ -22,7 +22,7 @@ use crate::search::icons::IconCache;
 use crate::search::IconRef;
 use crate::ui::dwm_thumbs;
 use crate::ui::settings;
-use crate::ui::widgets::button::{self, Kind};
+use crate::ui::widgets::button::Kind;
 
 use crate::ui::widgets::{choice, focus, input, toggle};
 
@@ -32,9 +32,12 @@ use super::pins::{number_of_slot, Pin};
 use super::shared::{Handle, Request, Shared, View};
 use super::spot::{self, Place, Spot};
 
+mod buttons;
+mod empty;
 mod find;
 mod grid;
 
+use buttons::Extra;
 use grid::window_size;
 
 pub const WINDOW_ID: &str = "list";
@@ -481,7 +484,7 @@ fn details_panel(ui: &mut Ui, view: &View, area: Rect, state: &mut ListUi, out: 
         }
         caption(
             ui,
-            "Shown in the tip and Quick access instead of the window title.",
+            "Shown on the card, in the chord tip and in the window hint.",
             tokens.text_secondary,
         );
         ui.add_space(12.0);
@@ -558,11 +561,11 @@ fn details_panel(ui: &mut Ui, view: &View, area: Rect, state: &mut ListUi, out: 
         let buttons = Rect::from_min_max(pos2(inner.left(), inner.bottom() - 32.0), inner.max);
         ui.scope_builder(UiBuilder::new().max_rect(buttons), |ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if button::button(ui, "Done", Kind::Primary).clicked() {
+                if buttons::draw(ui, "Done", Kind::Primary, Extra::Key("\u{21b5}")).clicked() {
                     done = true;
                 }
                 ui.add_space(8.0);
-                if button::button(ui, "Remove pin", Kind::Danger).clicked() {
+                if buttons::draw(ui, "Unpin", Kind::Secondary, Extra::Key("Del")).clicked() {
                     remove = true;
                 }
             });
@@ -736,5 +739,37 @@ mod tests {
         let mut state = ListUi::default();
         let out = draw(&empty, &mut state, vec![key(Key::Escape)]);
         assert!(out.contains(&Outcome::Close));
+    }
+
+    #[test]
+    fn the_empty_state_opens_the_picker_with_enter_and_with_its_button() {
+        let mut empty = view();
+        empty.slots = slot_views(&Slots::default(), &[], 0);
+        empty.pins.clear();
+        let mut state = ListUi::default();
+        let quiet = draw(&empty, &mut state, Vec::new());
+        assert!(quiet.is_empty(), "drawing alone asks for nothing");
+        let out = draw(&empty, &mut state, vec![key(Key::Enter)]);
+        assert!(out.contains(&Outcome::Send(Request::OpenPicker)), "{out:?}");
+        // Without a jump shortcut the state still draws, with its button.
+        empty.jump_keys.clear();
+        let mut state = ListUi::default();
+        let out = draw(&empty, &mut state, vec![key(Key::Enter)]);
+        assert!(out.contains(&Outcome::Send(Request::OpenPicker)));
+        // With pins Enter jumps, it never opens the picker.
+        let mut state = ListUi::default();
+        let out = draw(&view(), &mut state, vec![key(Key::Enter)]);
+        assert!(!out.contains(&Outcome::Send(Request::OpenPicker)));
+    }
+
+    #[test]
+    fn an_unopened_pin_draws_with_its_big_icon_in_every_theme() {
+        let mut view = view();
+        view.slots = slot_views(&list(&["Claude", "Code"]), &[], 0);
+        let mut state = ListUi::default();
+        let out = draw(&view, &mut state, Vec::new());
+        assert!(out.is_empty());
+        state.details = draft(&view, 1);
+        draw(&view, &mut state, Vec::new());
     }
 }

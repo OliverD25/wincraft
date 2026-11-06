@@ -30,6 +30,8 @@ pub enum Request {
         slot: usize,
         pin: Pin,
     },
+    /// The empty Quick access asks for the picker.
+    OpenPicker,
     /// A window is open and wants fresh data.
     Refresh,
 }
