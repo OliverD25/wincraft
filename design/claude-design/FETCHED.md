@@ -118,3 +118,18 @@ Read: `design_handoff_arrange_strip/README.md` — Badge layout (chips on the th
 - `Chord Tip Options.dc.html` (11580 bytes): new, first fetch. A small tip while a chord waits for its next key (Win+` in the sketch). Chosen: 5b "Next keys, empty keycap": the keys so far, an empty dashed keycap with three moving dots, Esc Cancel, then two columns of the keys that can follow (from the registered chord commands, so plugins show up too), and a 3 s countdown bar. 620 wide, bottom centre of the monitor with the mouse pointer, 24 px above the taskbar, shown 150 ms after the first key, never takes focus. Closing states: Matched (600 ms, then 150 ms fade), "Nothing assigned to X" (key swallowed, 1.2 s), Cancelled (timeout or Esc, 600 ms). 5a (waiting line only) not chosen. The key list in the sketch is a placeholder.
 - `Quick Access Options.dc.html` (13428 bytes): new, first fetch. The pinned-windows window as cards in the window-deck style. 4a (rows of 4, keycap under each card, pin order, gaps close), 4b (3 larger cards per row, large numeral), 4c (fixed slots 1–9 with dashed empty slots). The design has not chosen; the user chose 4a in chat on 2026-11-05.
 - Left out: `support.js`, `_ds/` bundles, `uploads/`. Other pages were not fetched (this pull is narrowed to these two pages).
+
+## 2026-11-06
+The design session's own record (`github.md`, last sync 2026-11-05T23:52Z) says it brought the CODE-CHANGES entries of 2026-10-27 to 2026-11-06 into the design.
+- `Window Hint.dc.html` (14031 bytes): new. Glow and pill after a QuickJump jump to another monitor, light and dark, timing, rules.
+- `QuickJump v2.dc.html` (34797 bytes): new. Ordered list of up to ten, keys after Win+`, Quick access 4a as built (shared picture scale, two-card minimum width, empty state, F2 details), notices, settings, palette rows.
+- `Shortcut Manager.dc.html` (23793 bytes): new. The renamed window with the Owner column, the answer line and results for a typed shortcut.
+- `Chord Tip Options.dc.html` (23283 bytes): changed. New section 6a, "5b as built, for every chord", with the real key lists and the closing states.
+- `Arrange Strip.dc.html` (103243 bytes): first copy of the root page. WindowDeck with the neutral selected ring, Ctrl+M Mark all as seen, 12 px minimum text.
+- `Detailed Log.dc.html` (10095 bytes): first copy. Palette toggle row and LOG tag, Settings row, tray item, notice.
+- `About Updates.dc.html` (11784 bytes): first copy. Check states including "Could not check", the two update switches, the update panel.
+- `Palette Main View v3 Fluent.dc.html` (33595 bytes): first copy. Glass 88 %, 8 px corner on glass, drag to move.
+- `Window Deck Options.dc.html` (49837 bytes): first copy. Option 3a, larger thumbnails.
+- `design_handoff_window_deck_size/README.md` (1210 bytes): first copy. The 3a sizes and the rollback values.
+- `github.md` (2806 bytes) and the project's `CLAUDE.md` (629 bytes), copied as `design-project-notes.md` so that Claude Code does not load it as instructions for this folder.
+- Left out: `support.js`, `image-slot.js`, `_ds/` bundles, `uploads/`, `.thumbnail`, and pages not named in the design's sync record.

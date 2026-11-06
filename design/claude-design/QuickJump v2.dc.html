@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="stylesheet" href="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/styles.css">
+  <script src="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/_ds_bundle.js"></script>
+  <style>
+    body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:'Segoe UI Variable Text','Segoe UI',Selawik,'Noto Sans',sans-serif}
+    a{color:var(--color-accent)} a:hover{color:var(--color-accent-700)}
+  </style>
+</helmet>
+<section style="padding:48px;display:flex;flex-direction:column;gap:40px">
+  <header style="display:flex;flex-direction:column;gap:6px;max-width:960px">
+    <div style="font-size:12px;font-weight:600;color:var(--color-accent)">WinCraft · Plugin · QuickJump · Classic dark</div>
+    <h1 style="margin:0;font-family:inherit;font-size:28px;font-weight:600;line-height:1.15">QuickJump: an ordered list of up to ten windows</h1>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">Replaces the ten fixed slots and the slot strip. Windows are numbered 1–9 and 0 in the order they were added; unpinning closes the gap. Everything starts with the chord Win+`, and the <a href="Chord Tip Options.dc.html">chord tip (5b)</a> shows what can follow. The pin list window is now Quick access (<a href="Quick Access Options.dc.html">4a</a>).</p>
+  </header>
+
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">1 · Keys after Win+`</div>
+    <div style="width:960px;max-width:100%;display:grid;grid-template-columns:150px minmax(0,1fr) minmax(0,1.1fr);border-top:1px solid var(--color-neutral-300)">
+      <sc-for list="{{ keys }}" as="k" hint-placeholder-count="5">
+        <div style="display:contents">
+          <div style="padding:12px 0;border-bottom:1px solid var(--color-neutral-300);display:flex;gap:4px;align-items:flex-start;flex-wrap:wrap">
+            <sc-for list="{{ k.caps }}" as="c" hint-placeholder-count="1"><span style="height:26px;min-width:26px;padding:0 7px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--color-neutral-400);border-bottom-width:2px;border-radius:5px;font-size:13px;font-weight:600;background:#ffffff">{{ c }}</span></sc-for>
+          </div>
+          <div style="padding:14px 16px 12px 0;border-bottom:1px solid var(--color-neutral-300);font-size:14px;line-height:1.45">{{ k.what }}</div>
+          <div style="padding:14px 0 12px;border-bottom:1px solid var(--color-neutral-300);font-size:13px;line-height:1.45;color:var(--color-neutral-700);text-wrap:pretty">{{ k.then }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">2 · Quick access, 10 windows, number 3 selected · pictures keep their sizes to each other as on the screen</div>
+    <div style="padding:40px;border-radius:12px;background:#3a4250;align-self:flex-start;position:relative">
+      <span style="position:absolute;top:12px;left:16px;font-size:12px;color:#c8ccd4">Desktop background, not part of WinCraft</span>
+      <div style="width:1300px;box-sizing:border-box;background:#1c1a19;border:1px solid #444141;border-radius:8px;box-shadow:0 16px 48px rgba(0,0,0,0.45);color:#f3f2f2;padding:18px 20px 22px;display:flex;flex-direction:column;gap:18px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="display:flex;color:#e1ad66">{{ ic.pin }}</span>
+          <span style="font-size:20px;font-weight:600">Quick access</span>
+          <span style="font-size:14px;color:#7d7979">10 of 10</span>
+          <span style="margin-left:auto;display:flex;align-items:center;gap:16px;font-size:13px;color:#bab6b6">
+            <sc-for list="{{ hints }}" as="h" hint-placeholder-count="4"><span style="display:inline-flex;align-items:center;gap:7px"><span style="height:24px;min-width:24px;padding:0 7px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid #444141;border-radius:5px;font-size:12px">{{ h.k }}</span>{{ h.l }}</span></sc-for>
+          </span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,300px);gap:28px 20px">
+          <sc-for list="{{ cards }}" as="c" hint-placeholder-count="10">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+              <div style="width:300px;height:250px;box-sizing:border-box;padding:8px;border-radius:9px;border:2px solid {{ c.bd }};background:{{ c.bg }};display:flex;flex-direction:column;gap:10px">
+                <div style="width:280px;height:175px;flex:none;border-radius:6px;background:#211f1e;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden">
+                  <sc-if value="{{ c.live }}" hint-placeholder-val="{{ true }}">
+                    <div style="width:{{ c.pw }};height:{{ c.ph }};position:relative;border-radius:3px;overflow:hidden;box-shadow:0 0 0 1px rgba(243,242,242,0.12)">
+                      <sc-if value="{{ c.term }}" hint-placeholder-val="{{ true }}"><div style="position:absolute;inset:0;background:#0c0c0c;display:flex;flex-direction:column"><div style="height:8%;min-height:5px;background:#1e1e1e"></div><div style="padding:8%;display:flex;flex-direction:column;gap:7%;flex:1"><span style="height:2px;width:46%;background:#5fb35a"></span><span style="height:2px;width:58%;background:#5fb35a"></span><span style="height:2px;width:34%;background:rgba(255,255,255,0.35)"></span><span style="height:2px;width:52%;background:#5fb35a"></span></div></div></sc-if>
+                      <sc-if value="{{ c.dash }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:0;background:#0d1117;padding:6%;box-sizing:border-box;display:grid;grid-template-columns:1fr 1.3fr 1fr;gap:5%"><span style="border:1px solid rgba(110,150,200,0.45);display:flex;align-items:flex-end;padding:3px"><span style="height:40%;width:100%;background:#7fc66a"></span></span><span style="border:1px solid rgba(110,150,200,0.45);display:flex;flex-direction:column;gap:6%;padding:5%"><span style="height:3px;width:70%;background:#4ea1e0"></span><span style="height:3px;width:45%;background:#4ea1e0"></span><span style="height:3px;width:30%;background:#7fc66a"></span></span><span style="border:1px solid rgba(110,150,200,0.45)"></span></div></sc-if>
+                      <sc-if value="{{ c.code }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:0;background:#1f1f1f;display:grid;grid-template-columns:22% 1fr"><div style="background:#181818;border-right:1px solid rgba(255,255,255,0.06)"></div><div style="padding:8%;display:flex;flex-direction:column;gap:6%"><span style="height:2px;width:40%;background:#c586c0"></span><span style="height:2px;width:66%;background:#9cdcfe"></span><span style="height:2px;width:52%;background:#9cdcfe;margin-left:10%"></span><span style="height:2px;width:44%;background:#ce9178;margin-left:10%"></span><span style="height:2px;width:30%;background:#dcdcaa"></span></div></div></sc-if>
+                      <sc-if value="{{ c.doc }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:0;background:#2b2b2b;display:flex;flex-direction:column;align-items:center"><div style="height:12%;width:100%;background:#1d5fa8"></div><div style="width:58%;flex:1;margin-top:6%;background:#f3f2f2;padding:7%;box-sizing:border-box;display:flex;flex-direction:column;gap:8%"><span style="height:3px;width:50%;background:#555"></span><span style="height:2px;width:100%;background:#bbb"></span><span style="height:2px;width:92%;background:#bbb"></span><span style="height:2px;width:60%;background:#bbb"></span></div></div></sc-if>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ c.closed }}" hint-placeholder-val="{{ false }}">
+                    <div style="position:absolute;inset:0;background:#23262c;opacity:0.5"></div>
+                    <span style="position:relative;width:48px;height:48px;box-sizing:border-box;border-radius:10px;background:#b0673f;color:#ffffff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:600;opacity:0.45">{{ c.mono }}</span>
+                  </sc-if>
+                </div>
+                <div style="display:flex;align-items:flex-start;gap:8px;min-width:0;padding:0 2px">
+                  <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+                    <span style="font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:{{ c.tc }}">{{ c.t }}</span>
+                    <span style="font-size:13px;color:#bab6b6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.sub }}</span>
+                  </div>
+                  <sc-if value="{{ c.grip }}" hint-placeholder-val="{{ false }}"><span style="flex:none;display:flex;padding-top:4px;color:#bab6b6">{{ ic.grip }}</span></sc-if>
+                </div>
+              </div>
+              <span style="height:30px;min-width:30px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid {{ c.nb }};border-bottom-width:3px;border-radius:6px;background:rgba(255,255,255,0.05);font-size:15px;font-weight:600;color:{{ c.nc }}">{{ c.n }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">3 · Two windows (the narrowest Quick access), details open with F2</div>
+      <div style="width:1020px;box-sizing:border-box;background:#1c1a19;border:1px solid #444141;border-radius:8px;box-shadow:0 16px 48px rgba(0,0,0,0.3);color:#f3f2f2;display:grid;grid-template-columns:660px 360px;overflow:hidden">
+        <div style="padding:18px 20px 22px;display:flex;flex-direction:column;gap:18px">
+          <div style="display:flex;align-items:center;gap:12px"><span style="display:flex;color:#e1ad66">{{ ic.pin }}</span><span style="font-size:20px;font-weight:600">Quick access</span><span style="font-size:14px;color:#7d7979">2 of 10</span></div>
+          <div style="display:grid;grid-template-columns:repeat(2,300px);gap:20px">
+            <sc-for list="{{ two }}" as="c" hint-placeholder-count="2">
+              <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+                <div style="width:300px;height:250px;box-sizing:border-box;padding:8px;border-radius:9px;border:2px solid {{ c.bd }};background:{{ c.bg }};display:flex;flex-direction:column;gap:10px">
+                  <div style="width:280px;height:175px;border-radius:6px;background:#211f1e;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden">
+                    <sc-if value="{{ c.live }}" hint-placeholder-val="{{ true }}"><div style="width:{{ c.pw }};height:{{ c.ph }};position:relative;border-radius:3px;overflow:hidden;box-shadow:0 0 0 1px rgba(243,242,242,0.12);background:#0d1117;padding:6%;box-sizing:border-box;display:grid;grid-template-columns:1fr 1.3fr 1fr;gap:5%"><span style="border:1px solid rgba(110,150,200,0.45);display:flex;align-items:flex-end;padding:3px"><span style="height:40%;width:100%;background:#7fc66a"></span></span><span style="border:1px solid rgba(110,150,200,0.45)"></span><span style="border:1px solid rgba(110,150,200,0.45)"></span></div></sc-if>
+                    <sc-if value="{{ c.closed }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:0;background:#23262c;opacity:0.5"></div><span style="position:relative;width:48px;height:48px;border-radius:10px;background:#b0673f;color:#ffffff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:600;opacity:0.45">{{ c.mono }}</span></sc-if>
+                  </div>
+                  <div style="display:flex;align-items:flex-start;gap:8px;min-width:0;padding:0 2px">
+                    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><span style="font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:{{ c.tc }}">{{ c.t }}</span><span style="font-size:13px;color:#bab6b6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.sub }}</span></div>
+                    <sc-if value="{{ c.grip }}" hint-placeholder-val="{{ false }}"><span style="flex:none;display:flex;padding-top:4px;color:#bab6b6">{{ ic.grip }}</span></sc-if>
+                  </div>
+                </div>
+                <span style="height:30px;min-width:30px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid {{ c.nb }};border-bottom-width:3px;border-radius:6px;background:rgba(255,255,255,0.05);font-size:15px;font-weight:600;color:{{ c.nc }}">{{ c.n }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="border-left:1px solid #444141;padding:20px;display:flex;flex-direction:column;gap:18px;background:#211f1e">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="height:26px;min-width:26px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid #444141;border-bottom-width:2px;border-radius:5px;font-size:13px;font-weight:600;background:#2d2b2b">2</span>
+            <div style="display:flex;flex-direction:column;gap:1px;min-width:0"><span style="font-size:18px;font-weight:600">Number 2 details</span><span style="font-size:12px;color:#bab6b6">Claude · not open</span></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <span style="font-size:12px;color:#bab6b6">Label (optional)</span>
+            <div style="height:36px;box-sizing:border-box;border:1px solid #444141;border-radius:4px;display:flex;align-items:center;padding:0 10px;background:#2d2b2b;font-size:14px;color:#7d7979">Claude</div>
+            <span style="font-size:12px;color:#7d7979">Shown on the card, in the chord tip and in the window hint.</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;padding-top:14px;border-top:1px solid #444141">
+            <span style="font-size:13px;font-weight:600">How QuickJump finds this window</span>
+            <div style="display:flex;flex-direction:column;gap:6px"><span style="font-size:12px;color:#bab6b6">App</span><div style="height:36px;box-sizing:border-box;border:1px solid #444141;border-radius:4px;display:flex;align-items:center;gap:8px;padding:0 10px;background:#2d2b2b;font-size:14px">Claude<span style="font:12px Consolas,'Cascadia Mono',monospace;color:#7d7979">claude.exe</span><span style="margin-left:auto;display:flex;color:#bab6b6">{{ ic.down }}</span></div></div>
+            <div style="display:flex;flex-direction:column;gap:6px"><span style="font-size:12px;color:#bab6b6">Title contains</span><div style="height:36px;box-sizing:border-box;border:2px solid #e1ad66;border-radius:4px;display:flex;align-items:center;padding:0 9px;background:#2d2b2b;font-size:14px">Claude<span style="width:1px;height:18px;margin-left:1px;background:#f3f2f2"></span></div><span style="font-size:13px;color:#7d7979">No open window matches</span></div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px">If it is not open, start Claude<span style="width:40px;height:20px;flex:none;box-sizing:border-box;border:1px solid #e1ad66;border-radius:10px;display:flex;align-items:center;justify-content:flex-end;padding:0 3px"><span style="width:12px;height:12px;border-radius:6px;background:#e1ad66"></span></span></div>
+          <div style="margin-top:auto;display:flex;gap:8px;justify-content:flex-end">
+            <span style="height:32px;padding:0 6px 0 12px;display:inline-flex;align-items:center;gap:8px;border:1px solid #444141;border-radius:4px;font-size:13px">Unpin<span style="height:20px;padding:0 5px;display:inline-flex;align-items:center;border:1px solid #444141;border-radius:4px;font-size:12px;color:#bab6b6">Del</span></span>
+            <span style="height:32px;padding:0 6px 0 12px;display:inline-flex;align-items:center;gap:8px;border:1px solid #e1ad66;border-radius:4px;font-size:13px;color:#e1ad66">Done<span style="height:20px;padding:0 5px;display:inline-flex;align-items:center;border:1px solid #444141;border-radius:4px;font-size:12px;color:#bab6b6">↵</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">4 · Empty state</div>
+      <div style="width:660px;box-sizing:border-box;background:#1c1a19;border:1px solid #444141;border-radius:8px;box-shadow:0 16px 48px rgba(0,0,0,0.3);color:#f3f2f2;padding:18px 20px 28px;display:flex;flex-direction:column;gap:18px">
+        <div style="display:flex;align-items:center;gap:12px"><span style="display:flex;color:#e1ad66">{{ ic.pin }}</span><span style="font-size:20px;font-weight:600">Quick access</span><span style="font-size:14px;color:#7d7979">0 of 10</span><span style="margin-left:auto;display:inline-flex;align-items:center;gap:7px;font-size:13px;color:#bab6b6"><span style="height:24px;padding:0 7px;display:inline-flex;align-items:center;border:1px solid #444141;border-radius:5px;font-size:12px">Esc</span>Close</span></div>
+        <div style="display:grid;grid-template-columns:repeat(2,300px);gap:20px">
+          <sc-for list="{{ ghosts }}" as="g" hint-placeholder-count="2">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+              <div style="width:300px;height:250px;box-sizing:border-box;border:2px dashed #444141;border-radius:9px;display:flex;align-items:center;justify-content:center;color:#7d7979">{{ g.icon }}</div>
+              <span style="height:30px;min-width:30px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px dashed #5c5858;border-bottom-width:3px;border-radius:6px;font-size:15px;font-weight:600;color:#7d7979">{{ g.n }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;padding:4px 2px 0">
+          <span style="font-size:18px">No windows yet</span>
+          <span style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:14px;color:#bab6b6">In any window, press
+            <span style="height:26px;min-width:26px;padding:0 7px;box-sizing:border-box;display:inline-flex;align-items:center;border:1px solid #e1ad66;border-bottom-width:2px;border-radius:5px;font-size:13px;font-weight:600;color:#e1ad66">Win</span><span style="height:26px;min-width:26px;padding:0 7px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid #e1ad66;border-bottom-width:2px;border-radius:5px;font-size:13px;font-weight:600;color:#e1ad66">`</span>
+            then
+            <span style="height:26px;min-width:26px;padding:0 7px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid #e1ad66;border-bottom-width:2px;border-radius:5px;font-size:13px;font-weight:600;color:#e1ad66">A</span>
+            to add it here as number 1.</span>
+          <span style="font-size:13px;color:#7d7979">Up to 10 windows, numbered 1–9 and 0 in the order you add them.</span>
+        </div>
+        <span style="align-self:flex-start;height:32px;padding:0 14px;display:inline-flex;align-items:center;gap:8px;border:1px solid #444141;border-radius:4px;font-size:13px">{{ ic.plus }}Add a window to Quick access…</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">5 · Notices with Undo, bottom centre (same spot as the chord tip), 8 s</div>
+      <div style="width:560px;box-sizing:border-box;padding:28px 30px;border-radius:8px;background:#3a4250;display:flex;flex-direction:column;gap:12px">
+        <sc-for list="{{ notices }}" as="n" hint-placeholder-count="4">
+          <div style="min-height:56px;box-sizing:border-box;padding:10px 12px;display:flex;align-items:center;gap:12px;background:#2d2b2b;color:#f3f2f2;border:1px solid #444141;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.45)">
+            <span style="width:28px;height:28px;flex:none;box-sizing:border-box;border-radius:6px;border:1px solid #444141;display:flex;align-items:center;justify-content:center;color:{{ n.c }}">{{ n.icon }}</span>
+            <div style="display:flex;flex-direction:column;gap:1px;min-width:0"><span style="font-size:12px;font-weight:600;color:#7d7979">QuickJump</span><span style="font-size:14px">{{ n.msg }}</span></div>
+            <sc-if value="{{ n.undo }}" hint-placeholder-val="{{ true }}"><span style="margin-left:auto;flex:none;height:30px;padding:0 6px 0 12px;display:inline-flex;align-items:center;gap:8px;border:1px solid #e1ad66;border-radius:4px;font-size:13px;color:#e1ad66">Undo<span style="height:20px;padding:0 5px;display:inline-flex;align-items:center;border:1px solid #444141;border-radius:4px;font-size:12px;color:#bab6b6">Ctrl+Z</span></span></sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">6 · Settings → Plugins → QuickJump</div>
+      <div style="width:620px;box-sizing:border-box;background:#1c1a19;color:#f3f2f2;border:1px solid #444141;border-radius:8px;padding:8px 24px">
+        <sc-for list="{{ settings }}" as="s" hint-placeholder-count="2">
+          <div style="display:flex;align-items:center;gap:16px;padding:16px 0;border-bottom:{{ s.rule }}">
+            <div style="flex:1;display:flex;flex-direction:column;gap:4px"><div style="font-size:15px">{{ s.t }}</div><div style="font-size:13px;color:#bab6b6;text-wrap:pretty">{{ s.h }}</div></div>
+            <span style="flex:none;width:40px;height:20px;box-sizing:border-box;border:1px solid #e1ad66;border-radius:10px;position:relative"><span style="position:absolute;right:3px;top:3px;width:12px;height:12px;border-radius:6px;background:#e1ad66"></span></span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">7 · Palette rows, query "quick"</div>
+    <div style="width:900px;background:#2d2b2b;color:#f3f2f2;border:1px solid #444141;border-radius:8px;overflow:hidden;font-size:14px">
+      <div style="height:52px;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid #444141"><span style="display:flex;color:#7d7979">{{ ic.search }}</span><span style="font-size:16px;display:flex;align-items:center">quick<span style="width:1px;height:20px;margin-left:1px;background:#f3f2f2"></span></span></div>
+      <div style="display:flex;flex-direction:column;padding:4px 8px 8px">
+        <div style="height:28px;display:flex;align-items:flex-end;padding:0 12px 4px;font-size:12px;color:#7d7979">QuickJump</div>
+        <sc-for list="{{ pal }}" as="r" hint-placeholder-count="4">
+          <div style="height:44px;display:flex;align-items:center;gap:12px;padding:0 12px;border-radius:4px;background:{{ r.bg }};box-shadow:{{ r.bar }}">
+            <span style="width:26px;display:flex;justify-content:center;color:{{ r.iconColor }}">{{ r.icon }}</span>
+            <div style="display:flex;flex-direction:column;gap:1px;min-width:0"><span style="font-size:14px">{{ r.title }}</span><span style="font-size:12px;color:#bab6b6">{{ r.sub }}</span></div>
+            <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px">
+              <sc-for list="{{ r.keys }}" as="k" hint-placeholder-count="2"><span style="height:22px;min-width:22px;padding:0 6px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid #444141;border-radius:4px;font-size:12px;color:#bab6b6">{{ k }}</span></sc-for>
+              <sc-if value="{{ r.then }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;color:#7d7979">then</span><span style="height:22px;min-width:22px;padding:0 6px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid #444141;border-radius:4px;font-size:12px;color:#bab6b6">{{ r.then }}</span></sc-if>
+            </span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+
+  <section style="max-width:960px;display:flex;flex-direction:column;gap:8px;font-size:13px;line-height:1.55;color:var(--color-neutral-800);padding-top:24px;border-top:1px solid var(--color-neutral-300)">
+    <h2 style="margin:0;font-family:inherit;font-size:18px;font-weight:600">Rules for the developer</h2>
+    <ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px">
+      <li><b>List.</b> An ordered list of up to ten windows, numbered 1–9 then 0. Unpinning closes the gap: later windows move down one number. Same list on every desktop. The slot strip and fixed slots are gone; the chord tip replaces the strip.</li>
+      <li><b>Keys.</b> See section 1. The pin shortcut (Win+Alt+Shift+Q) has no keys by default; when the user gives it keys, its chord tip lists 1–0, A, ` and U. Warm red tip texts (1.2 s): "Quick access is full", "Already number N", "Not in Quick access", "There is no window to pin". A change that offers Undo removes the tip at once and the notice takes its place.</li>
+      <li><b>Quick access window.</b> As wide as the cards in a row: two at least, four at most (1300 px with four, 660 with two). Padding 18/20/22, header 20 semibold with a 14 px count "N of 10" and key hints at the right. Grid gap 28 × 20. Opens in the middle of the monitor under the mouse each time; with the setting off, where it was last left, kept inside the screen.</li>
+      <li><b>Card.</b> 300 × 250, padding 8, 2 px border, radius 9. Picture area 280 × 175 in panel fill, radius 6. Title 18 px, second line 13 px text secondary: "&lt;app&gt; · Desktop N · &lt;monitor&gt;", or "&lt;app&gt; · not open". Keycap 30 under the card; the 10th reads "0". Selected: accent border, accent 10 % fill, accent keycap. Hovered: text 5 % fill. A grip icon shows right of the title on the selected or hovered card; cards can be dragged to reorder.</li>
+      <li><b>Pictures at true size.</b> One scale for every live picture: the largest that fits every window in 280 × 175. A narrow window shows narrow, a wide one wide, so windows on a portrait or smaller monitor are easy to find. Each picture sits centred in the area with a 1 px text primary 12 % outline that hugs it. A card with no picture (not open) keeps the full box: dimmed panel fill with the app icon (48) at 45 % in the middle.</li>
+      <li><b>Empty state.</b> The window at its two-card width. Two dashed card outlines with dashed keycaps 1 and 2 show where windows will go (Lucide <code>plus</code> 24 in text disabled). Under them "No windows yet" 18 px, the line "In any window, press Win ` then A to add it here as number 1." with accent keycaps, 14 px text secondary, a 13 px text disabled line on numbering, and the Secondary button "Add a window to Quick access…" (opens the picker).</li>
+      <li><b>Details (F2).</b> 360 px panel on the right, panel fill, titled "Number N details". Label, App, Title contains with a live match line, "If it is not open, start &lt;app&gt;". Unpin (Del) and Done (↵).</li>
+      <li><b>Picker.</b> "Add a window to Quick access…" from the palette and the empty state. Adds to the end; footer "↵ Add as number N". Windows already in the list carry a tag "number N".</li>
+      <li><b>Notices.</b> The existing notice with Undo (8 s, Ctrl+Z): "Added X as number N", "Moved X from A to B", "Unpinned X (was number N)". X is the pin's label, else the window title, else the app.</li>
+      <li><b>Window hint.</b> After a jump to a window on another monitor than the one in use, see <a href="Window Hint.dc.html">Window hint</a>. Off with the settings switch "Point to a window on another monitor".</li>
+    </ul>
+  </section>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const h = React.createElement;
+    const P = {
+      pin: ['M12 17v5', 'M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z'],
+      grip: ['M9 5h.01M9 12h.01M9 19h.01M15 5h.01M15 12h.01M15 19h.01'],
+      plus: ['M12 5v14', 'M5 12h14'], down: ['m6 9 6 6 6-6'], search: ['M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z', 'm20 20-3.5-3.5'],
+      jump: ['M5 12h14', 'm12 5 7 7-7 7'], list: ['M8 6h13M8 12h13M8 18h13', 'M3 6h.01M3 12h.01M3 18h.01'],
+      move: ['M8 3 4 7l4 4', 'M4 7h16', 'm16 21 4-4-4-4', 'M20 17H4'], x: ['M18 6 6 18', 'm6 6 12 12'], loader: ['M12 2v4', 'M18 12h4', 'M12 18v4', 'M2 12h4'],
+    };
+    const ico = (k, s = 18) => h('svg', { width: s, height: s, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: k === 'grip' ? 2.5 : 1.75, strokeLinecap: 'round', strokeLinejoin: 'round' }, P[k].map((d, i) => h('path', { key: i, d })));
+    const ic = { pin: ico('pin'), grip: ico('grip', 16), plus: ico('plus', 14), down: ico('down', 16), search: ico('search', 16) };
+
+    const W = [
+      ['Wincraft', 'Windows Terminal', 'term', 2400, 1500, 'Desktop 1 · Centre'],
+      ['telemetrix – Grafana', 'Chrome', 'dash', 2560, 2880, 'Desktop 1 · Right'],
+      ['by_monitor.rs — wincraft', 'Visual Studio Code', 'code', 3840, 2160, 'Desktop 1 · Centre'],
+      ['Release notes 2.4.docx', 'Word', 'doc', 1920, 1080, 'Desktop 1 · Left'],
+      ['rde@RDE-HOME-PC: ~', 'Windows Terminal', 'term', 1600, 1000, 'Desktop 2 · Centre'],
+      ['Claude', 'Claude', 'closed', 0, 0, '', 'C'],
+      ['compact.rs — wincraft', 'Visual Studio Code', 'code', 2560, 1440, 'Desktop 1 · Right'],
+      ['Design review notes.docx', 'Word', 'doc', 1400, 1000, 'Desktop 2 · Left'],
+      ['Playwise analytics', 'Chrome', 'dash', 1800, 1200, 'Desktop 2 · Centre'],
+      ['pwsh · ~/wincraft', 'Windows Terminal', 'term', 1400, 900, 'Desktop 1 · Right'],
+    ];
+    const live = W.filter(w => w[2] !== 'closed');
+    const s = Math.min(...live.map(w => Math.min(280 / w[3], 175 / w[4])));
+    const card = (w, i, sel, num) => {
+      const closed = w[2] === 'closed';
+      return { n: num ?? (i === 9 ? '0' : String(i + 1)), t: w[0], sub: closed ? w[1] + ' · not open' : w[1] + ' · ' + w[5],
+        live: !closed, closed, mono: w[6] || '', term: w[2] === 'term', dash: w[2] === 'dash', code: w[2] === 'code', doc: w[2] === 'doc',
+        pw: Math.round(w[3] * s) + 'px', ph: Math.round(w[4] * s) + 'px', grip: sel, tc: closed ? '#bab6b6' : '#f3f2f2',
+        bd: sel ? '#e1ad66' : 'transparent', bg: sel ? 'rgba(225,173,102,0.10)' : 'rgba(243,242,242,0.04)',
+        nc: sel ? '#e1ad66' : '#f3f2f2', nb: sel ? '#e1ad66' : 'rgba(255,255,255,0.2)' };
+    };
+    const cards = W.map((w, i) => card(w, i, i === 2));
+    const s2 = 175 / 2880;
+    const two = [
+      { ...card(W[1], 0, false, '1'), pw: Math.round(2560 * s2) + 'px', ph: '175px' },
+      { ...card(W[5], 1, true, '2') },
+    ];
+    const ghosts = [{ n: '1', icon: ico('plus', 24) }, { n: '2', icon: ico('plus', 24) }];
+    const hints = [{ k: '1–0', l: 'Switch' }, { k: 'F2', l: 'Details' }, { k: 'Del', l: 'Unpin' }, { k: 'Esc', l: 'Close' }];
+    const keys = [
+      { caps: ['1–9', '0'], what: 'Jump to that window.', then: 'Brings it to the front, restoring it if minimised; switches desktop if needed. Not open: starts the app when the pin allows it.' },
+      { caps: ['`'], what: 'Open Quick access.', then: 'The window opens in the middle of the monitor under the mouse.' },
+      { caps: ['A'], what: 'Add the window in front to the end.', then: 'Notice "Added X as number N" with Undo. With ten: "Quick access is full". Already in it: "Already number N". Neither changes anything.' },
+      { caps: ['Alt', '1–0'], what: 'Put the window in front at that number.', then: 'The window there and later ones move down one. A number past the end means the end. Notice "Moved X from A to B" or "Added X as number N".' },
+      { caps: ['U'], what: 'Unpin the window in front.', then: 'The gap closes. Notice "Unpinned X (was number N)" with Undo. Not in the list: "Not in Quick access".' },
+    ];
+    const notices = [
+      { icon: ico('pin', 16), c: '#e1ad66', msg: 'Added Claude as number 7', undo: true },
+      { icon: ico('move', 16), c: '#e1ad66', msg: 'Moved Claude from 7 to 2', undo: true },
+      { icon: ico('x', 16), c: '#bab6b6', msg: 'Unpinned Claude (was number 2)', undo: true },
+      { icon: ico('loader', 16), c: '#e1ad66', msg: 'Starting Claude for number 6…', undo: false },
+    ];
+    const settings = [
+      { t: 'Open Quick access in the middle of the screen', h: 'Turn off to open it where you last left it.', rule: '1px solid #444141' },
+      { t: 'Point to a window on another monitor', h: 'A short glow around the window, and an arrow on the monitor you were using.', rule: '0' },
+    ];
+    const pal = [
+      { icon: ico('jump'), title: 'QuickJump: Jump to 3 · by_monitor.rs — wincraft', sub: 'Desktop 1 · Centre', keys: ['Win', '`'], then: '3', sel: true },
+      { icon: ico('list'), title: 'QuickJump: Open quick access', sub: '10 of 10 windows', keys: ['Win', '`'], then: '`' },
+      { icon: ico('pin'), title: 'QuickJump: Add this window', sub: 'Adds the window in front to the end', keys: ['Win', '`'], then: 'A' },
+      { icon: ico('plus'), title: 'Add a window to Quick access…', sub: 'Choose from the open windows', keys: [], then: '' },
+    ].map(r => ({ ...r, bg: r.sel ? 'rgba(225,173,102,0.18)' : 'transparent', bar: r.sel ? 'inset 2px 0 0 #e1ad66' : 'none', iconColor: r.sel ? '#e1ad66' : '#bab6b6' }));
+    return { ic, cards, two, ghosts, hints, keys, notices, settings, pal };
+  }
+}
+</script>
+</body>
+</html>

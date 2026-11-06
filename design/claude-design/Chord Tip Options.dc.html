@@ -18,6 +18,78 @@
     @keyframes chordSlot{0%,100%{border-color:rgba(225,173,102,.35)}50%{border-color:rgba(225,173,102,.9)}}
   </style>
 </helmet>
+<section id="6a" style="padding:48px;display:flex;flex-direction:column;gap:32px;border-bottom:1px solid var(--color-neutral-300)">
+  <header style="display:flex;flex-direction:column;gap:6px;max-width:960px">
+    <div style="display:flex;align-items:center;gap:12px">
+      <span style="height:24px;padding:0 8px;display:inline-flex;align-items:center;border:1px solid var(--color-accent);border-radius:4px;font-size:13px;font-weight:600;color:var(--color-accent-700)">6a</span>
+      <span style="font-size:12px;font-weight:600;color:var(--color-accent)">WinCraft · Chord tip · <a href="#5b">5b</a> as built, for every chord</span>
+    </div>
+    <h1 style="margin:0;font-family:inherit;font-size:28px;font-weight:600;line-height:1.15">The chord tip with real keys</h1>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">A host feature: every chord shows it, QuickJump's and the ones set in Settings → Hotkeys. It replaces the old one-line "WinCraft: &lt;keys&gt;, waiting for the next key" panel. The right end names WinCraft, so the user sees who is holding the keys. Colours are theme tokens, so it follows the theme, light or dark.</p>
+  </header>
+
+  <div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start">
+    <sc-for list="{{ built }}" as="b" hint-placeholder-count="3">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <span style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">{{ b.label }}</span>
+        <div style="padding:28px;border-radius:12px;background:{{ b.desk }}">
+          <div style="width:620px;background:{{ b.panel }};border:1px solid {{ b.rim }};border-radius:8px;box-shadow:0 16px 40px rgba(0,0,0,0.35);color:{{ b.text }};overflow:hidden">
+            <div style="display:flex;align-items:center;gap:12px;padding:14px 18px">
+              <span style="display:inline-flex;align-items:center;gap:5px">
+                <sc-for list="{{ b.keys }}" as="k" hint-placeholder-count="2"><span style="height:30px;min-width:30px;padding:0 9px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid {{ b.accent }};border-bottom-width:3px;border-radius:6px;font-size:15px;font-weight:600;color:{{ b.accent }}">{{ k }}</span></sc-for>
+                <span style="font-size:14px;color:{{ b.text3 }}">+</span>
+                {{ b.slot }}
+              </span>
+              <span style="margin-left:auto;display:inline-flex;align-items:center;gap:12px;font-size:14px">
+                <span style="color:{{ b.text3 }}">WinCraft</span>
+                <span style="display:inline-flex;align-items:center;gap:7px;color:{{ b.text2 }}"><span style="height:24px;padding:0 7px;box-sizing:border-box;display:inline-flex;align-items:center;border:1px solid {{ b.border }};border-radius:5px;font-size:13px">Esc</span>Cancel</span>
+              </span>
+            </div>
+            <div style="padding:6px 18px 12px;border-top:1px solid {{ b.border }};display:flex;flex-direction:column">
+              <sc-if value="{{ b.hasPins }}" hint-placeholder-val="{{ false }}">
+                <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px;padding-bottom:6px;margin-bottom:6px;border-bottom:1px solid {{ b.border }}">
+                  <sc-for list="{{ b.pins }}" as="r" hint-placeholder-count="6"><div style="height:34px;display:flex;align-items:center;gap:12px;font-size:15px;min-width:0"><span style="flex:none;height:26px;min-width:26px;padding:0 7px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid {{ b.border }};border-bottom-width:2px;border-radius:5px;font-size:13px;font-weight:600">{{ r.k }}</span><span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.l }}</span></div></sc-for>
+                </div>
+              </sc-if>
+              <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px">
+                <sc-for list="{{ b.cmds }}" as="r" hint-placeholder-count="4"><div style="height:34px;display:flex;align-items:center;gap:12px;font-size:15px;min-width:0"><span style="flex:none;height:26px;min-width:26px;padding:0 7px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid {{ b.border }};border-bottom-width:2px;border-radius:5px;font-size:13px;font-weight:600">{{ r.k }}</span><span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.l }}</span></div></sc-for>
+              </div>
+            </div>
+            <div style="height:3px;margin:0 8px;background:{{ b.track }}"><div style="height:3px;width:62%;background:{{ b.accent }}"></div></div>
+          </div>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <span style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">Closing states: the first line and the bar only, so the panel gets shorter</span>
+    <div style="display:flex;flex-wrap:wrap;gap:16px;padding:28px;border-radius:12px;background:#3a4250">
+      <sc-for list="{{ ends }}" as="s" hint-placeholder-count="6">
+        <div style="width:400px;display:flex;flex-direction:column;gap:8px">
+          <div style="background:rgba(45,43,43,0.96);border:1px solid {{ s.bd }};border-radius:8px;box-shadow:0 16px 40px rgba(0,0,0,0.35);color:#f3f2f2;overflow:hidden">
+            <div style="display:flex;align-items:center;gap:12px;padding:14px 18px">
+              <span style="display:inline-flex;align-items:center;gap:5px"><sc-for list="{{ s.keys }}" as="k" hint-placeholder-count="3"><span style="height:30px;min-width:30px;padding:0 9px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid {{ k.c }};border-bottom-width:3px;border-radius:6px;font-size:15px;font-weight:600;color:{{ k.c }}">{{ k.k }}</span></sc-for></span>
+              <span style="font-size:15px;color:{{ s.tc }};min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.text }}</span>
+            </div>
+            <div style="height:3px;margin:0 8px;background:rgba(255,255,255,0.06)"><div style="height:3px;width:{{ s.bar }};background:{{ s.barC }}"></div></div>
+          </div>
+          <span style="font-size:12px;line-height:1.5;color:#e4e6ea">{{ s.note }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <ul style="margin:0;max-width:960px;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:1.55;color:var(--color-neutral-800)">
+    <li><b>Panel.</b> 620 wide, bottom centre of the monitor with the mouse, 24 px above the work area. Elevated fill at 96 %, 1 px rim, window radius, the shared panel shadow. Never takes focus.</li>
+    <li><b>First line.</b> Keys so far as accent keycaps, "+", then the empty dashed keycap with three moving dots (the border does not pulse). Right end: "WinCraft" 14 px text disabled, 12 px gap, "Esc Cancel".</li>
+    <li><b>Key list.</b> Two columns, rows 34, keycap 26 then the text, cut with "…". QuickJump: one row per pinned window first ("1 Wincraft": label, else window title, else app), a hairline, then "` Open quick access", "A Add this window", "Alt+1–0 Put this window at a number", "U Unpin this window". The pin shortcut (when it has keys): "1–0 Put this window at a number", "A Add this window", "` Open quick access", "U Unpin this window". A chord from Settings → Hotkeys: its second keys and their commands' names, in the order set there.</li>
+    <li><b>Bar.</b> 3 px accent on a faint track, inset by the corner radius at both ends, empties over the wait.</li>
+    <li><b>Timing.</b> A chord that matches or is cancelled within 150 ms shows nothing. A key with nothing assigned shows the red state even then, and is kept from the app in front for host chords too. The first key again (Win+` twice) still goes to Windows.</li>
+    <li><b>Red state</b> (danger colour, 1.2 s): "Nothing assigned to X", "Quick access is full", "Already number N", "Not in Quick access", "There is no window to pin". A key that makes a change with Undo removes the tip at once; the notice takes its place at the same spot.</li>
+  </ul>
+</section>
+
 <section style="padding:48px;display:flex;flex-direction:column;gap:32px">
   <header style="display:flex;flex-direction:column;gap:6px;max-width:960px">
     <div style="font-size:12px;font-weight:600;color:var(--color-accent)">WinCraft · Chord tip · Win+` pressed, waiting for the next key</div>
@@ -119,7 +191,30 @@ class Component extends DCLogic {
     const e = React.createElement;
     const dot = d => e('span', { key: d, style: { width: 5, height: 5, borderRadius: '50%', background: '#e1ad66', animation: `chordDot 1.2s ${d}s infinite ease-in-out` } });
     const slot = e('span', { style: { height: 30, minWidth: 46, boxSizing: 'border-box', padding: '0 9px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, border: '1px dashed rgba(225,173,102,.6)', borderBottomWidth: 3, borderRadius: 6, animation: 'chordSlot 1.6s infinite ease-in-out' } }, [0, 0.15, 0.3].map(dot));
-    return { opts, next, states, slot };
+    const still = (accent, dashC) => e('span', { style: { height: 30, minWidth: 46, boxSizing: 'border-box', padding: '0 9px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, border: `1px dashed ${dashC}`, borderBottomWidth: 3, borderRadius: 6 } }, [0, 0.15, 0.3].map(d => e('span', { key: d, style: { width: 5, height: 5, borderRadius: '50%', background: accent, animation: `chordDot 1.2s ${d}s infinite ease-in-out` } })));
+    const DK = { desk: '#3a4250', panel: 'rgba(45,43,43,0.96)', rim: 'rgba(255,255,255,0.09)', border: '#444141', text: '#f3f2f2', text2: '#bab6b6', text3: '#7d7979', accent: '#e1ad66', track: 'rgba(255,255,255,0.06)' };
+    const LT = { desk: '#c9d3de', panel: 'rgba(250,248,247,0.96)', rim: '#d7d3d3', border: '#d7d3d3', text: '#201f1d', text2: '#605d5d', text3: '#86817f', accent: '#9a6a24', track: 'rgba(32,31,29,0.08)' };
+    const R = (k, l) => ({ k, l });
+    const qjCmds = [R('`', 'Open quick access'), R('A', 'Add this window'), R('Alt+1–0', 'Put this window at a number'), R('U', 'Unpin this window')];
+    const pins = [R('1', 'Wincraft'), R('2', 'telemetrix – Grafana'), R('3', 'by_monitor.rs — wincraft'), R('4', 'Release notes 2.4.docx'), R('5', 'rde@RDE-HOME-PC: ~'), R('6', 'Claude')];
+    const B = (label, T, keys, pinsL, cmds) => ({ label, ...T, keys, pins: pinsL, hasPins: pinsL.length > 0, cmds, slot: still(T.accent, T.accent + '99') });
+    const built = [
+      B('QuickJump · Win+` · six windows pinned · Classic dark', DK, ['Win', '`'], pins, qjCmds),
+      B('Pin shortcut (when the user gave it keys) · Classic dark', DK, ['Win', 'Alt', 'P'], [], [R('1–0', 'Put this window at a number'), R('A', 'Add this window'), R('`', 'Open quick access'), R('U', 'Unpin this window')]),
+      B('A chord from Settings → Hotkeys · Classic light', LT, ['Win', 'Alt', 'L'], [], [R('S', 'LayoutKeeper: Save layout'), R('R', 'LayoutKeeper: Restore layout'), R('D', 'WindowDeck: Open'), R('M', 'Mark all windows as seen')]),
+    ];
+    const kc = (ks, last) => ks.map((k, i) => ({ k, c: i === ks.length - 1 && last ? last : W }));
+    const RED = '#e07a6d', REDB = 'rgba(224,122,109,0.5)';
+    const ends = [
+      { keys: kc(['Win', '`', '3']), text: 'by_monitor.rs — wincraft', tc: '#f3f2f2', bd: W, bar: '100%', barC: W, note: 'Matched: the result for 600 ms, then a 150 ms fade.' },
+      { keys: kc(['Win', '`', 'X'], RED), text: 'Nothing assigned to X', tc: RED, bd: REDB, bar: '0%', barC: W, note: 'Key with nothing assigned: kept from the app, 1.2 s.' },
+      { keys: kc(['Win', '`', 'A'], RED), text: 'Quick access is full', tc: RED, bd: REDB, bar: '0%', barC: W, note: 'A with ten windows. Nothing changes.' },
+      { keys: kc(['Win', '`', 'A'], RED), text: 'Already number 3', tc: RED, bd: REDB, bar: '0%', barC: W, note: 'A on a window already in the list.' },
+      { keys: kc(['Win', '`', 'U'], RED), text: 'Not in Quick access', tc: RED, bd: REDB, bar: '0%', barC: W, note: 'U on a window that is not in the list.' },
+      { keys: kc(['Win', '`', 'A'], RED), text: 'There is no window to pin', tc: RED, bd: REDB, bar: '0%', barC: W, note: 'A or Alt+digit with only the desktop in front.' },
+      { keys: [{ k: 'Win', c: '#7d7979' }, { k: '`', c: '#7d7979' }], text: 'Cancelled', tc: '#bab6b6', bd: N, bar: '0%', barC: W, note: 'Esc or time out: text disabled keycaps, 600 ms.' },
+    ];
+    return { opts, next, states, slot, built, ends };
   }
 }
 </script>

@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="stylesheet" href="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/styles.css">
+  <script src="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/_ds_bundle.js"></script>
+  <style>
+    body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:'Segoe UI Variable Text','Segoe UI',Selawik,'Noto Sans',sans-serif}
+    a{color:var(--color-accent)} a:hover{color:var(--color-accent-700)}
+  </style>
+</helmet>
+<section style="padding:48px;display:flex;flex-direction:column;gap:32px">
+  <header style="display:flex;flex-direction:column;gap:6px;max-width:960px">
+    <div style="font-size:12px;font-weight:600;color:var(--color-accent)">WinCraft · Window deck · Windows Terminal Host, 3 windows on this desktop</div>
+    <h1 style="margin:0;font-family:inherit;font-size:28px;font-weight:600;line-height:1.15">Window deck options</h1>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">All three remove the ghost "R" tiles, put the window count in each monitor header, show a detail line (shell, host, folder) so terminal windows can be told apart, add a "New window" choice and list the other desktops. They differ in how monitors and windows are drawn. <a href="#1a">1a</a> draws a map of the screens, <a href="#1b">1b</a> keeps the current tiles and cleans them up, <a href="#1c">1c</a> uses a list with a large preview.</p>
+  </header>
+
+  <div id="3a" style="display:flex;flex-direction:column;gap:14px;padding-bottom:32px;border-bottom:1px solid var(--color-divider)">
+    <div style="display:flex;align-items:center;gap:12px">
+      <span style="height:24px;padding:0 8px;display:inline-flex;align-items:center;border:1px solid var(--color-accent);border-radius:4px;font-size:13px;font-weight:600;color:var(--color-accent-700)">3a</span>
+      <span style="font-size:22px;font-weight:600">Current view, larger thumbnails</span>
+    </div>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-800);max-width:960px;text-wrap:pretty">Same layout as today. Thumbnails go from about 130 px to 260 px wide on Centre and 210 px on Right, and the "move here" ghost tiles grow with them so their labels fit.</p>
+    <div style="align-self:flex-start;padding:40px;border-radius:12px;background:radial-gradient(55% 75% at 18% 28%, #b8692a 0%, rgba(184,105,42,0) 70%), radial-gradient(50% 70% at 82% 72%, #2b4f94 0%, rgba(43,79,148,0) 70%), #12151c">
+      <div style="background:rgba(30,28,27,0.97);border:1px solid rgba(255,255,255,0.1);border-radius:10px;box-shadow:0 32px 64px rgba(0,0,0,0.38);color:#f3f2f2;font-size:14px">
+        <div style="height:72px;display:flex;align-items:center;gap:20px;padding:0 28px;border-bottom:1px solid rgba(255,255,255,0.08)">
+          <span style="height:46px;width:380px;box-sizing:border-box;padding:0 16px;display:flex;align-items:center;border:1px solid rgba(255,255,255,0.14);border-radius:6px;font-size:19px">Windows Terminal Host<svg style="margin-left:auto" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f3f2f2" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"></path></svg></span>
+          <span style="height:46px;display:flex;border:1px solid rgba(255,255,255,0.14);border-radius:6px;overflow:hidden;font-size:17px"><span style="padding:0 18px;display:flex;align-items:center;color:#e1ad66;border-right:2px solid #e1ad66">By monitor</span><span style="padding:0 18px;display:flex;align-items:center;color:#bab6b6">Flat</span></span>
+          <span style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:15px;color:#bab6b6"><span style="height:24px;padding:0 8px;display:inline-flex;align-items:center;border:1px solid rgba(255,255,255,0.14);border-radius:5px;background:rgba(255,255,255,0.05);font-size:14px">Ctrl + H</span>Hints</span>
+        </div>
+        <div style="padding:22px 28px 0;display:flex;align-items:baseline;gap:12px"><span style="font-size:17px;color:#e1ad66;font-weight:600">This desktop</span><span style="font-size:15px;color:#7d7979">Desktop 2 · 3 windows</span></div>
+        <div style="padding:16px 28px 24px;display:flex;align-items:stretch">
+          <div style="width:52px;flex:none;box-sizing:border-box;border:2px dashed rgba(255,255,255,0.16);border-radius:4px;display:flex;flex-direction:column;align-items:center;padding-top:14px;gap:14px;color:#7d7979">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="2" y="3" width="20" height="14" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>
+            <span style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:15px;white-space:nowrap"><span style="color:#bab6b6;font-weight:600">Left</span>  empty</span>
+          </div>
+          <sc-for list="{{ bigMons }}" as="m" hint-placeholder-count="2">
+            <div style="display:flex;flex-direction:column;gap:14px;padding:0 20px;border-left:{{ m.sep }};margin-left:20px">
+              <div style="display:flex;align-items:center;gap:10px;font-size:15px;color:#bab6b6;white-space:nowrap">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="2" y="3" width="20" height="14" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>
+                <span style="color:#f3f2f2;font-weight:600">{{ m.name }}</span>{{ m.res }}
+                <sc-if value="{{ m.primary }}" hint-placeholder-val="{{ false }}"><span style="height:24px;padding:0 9px;display:inline-flex;align-items:center;border:1px solid rgba(255,255,255,0.16);border-radius:12px;font-size:14px">Primary</span></sc-if>
+                <span style="margin-left:auto;padding-left:24px">{{ m.count }}</span>
+              </div>
+              <div style="display:flex;gap:12px;align-items:stretch">
+                <sc-for list="{{ m.tiles }}" as="t" hint-placeholder-count="2">
+                  <div style="display:flex;flex-direction:column;gap:10px;padding:6px;margin:-6px;border-radius:8px;border:2px solid {{ t.bd }};background:{{ t.bg }}">
+                    <sc-if value="{{ t.ghost }}" hint-placeholder-val="{{ false }}">
+                      <div style="position:relative;width:{{ t.w }};height:{{ t.full }};box-sizing:border-box;border:2px dashed rgba(255,255,255,0.16);border-radius:4px;overflow:hidden">
+                        <div style="position:absolute;left:40px;top:4px;right:4px;bottom:4px;opacity:0.35;background:{{ t.ghostBg }}"></div>
+                        <div style="position:absolute;left:6px;top:8px;bottom:8px;width:30px;display:flex;flex-direction:column;align-items:center;gap:8px">
+                          <span style="width:28px;height:44px;box-sizing:border-box;border:1px solid rgba(255,255,255,0.3);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:13px;color:#bab6b6"><span style="font-size:11px">→</span>R</span>
+                          <span style="flex:1;writing-mode:vertical-rl;transform:rotate(180deg);font-size:15px;color:#bab6b6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.t }}</span>
+                          <span style="height:22px;min-width:22px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;background:rgba(255,255,255,0.1);font-size:13px;color:#bab6b6">{{ t.n }}</span>
+                        </div>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ t.real }}" hint-placeholder-val="{{ true }}">
+                      <div style="width:{{ t.w }};height:{{ t.h }};border-radius:4px;overflow:hidden;border:1px solid rgba(255,255,255,0.1);position:relative">
+                        <sc-if value="{{ t.term }}" hint-placeholder-val="{{ true }}">
+                          <div style="position:absolute;inset:0;background:#0c0c0c;display:flex;flex-direction:column">
+                            <div style="height:10px;background:#1e1e1e"></div>
+                            <div style="padding:10px;display:flex;flex-direction:column;gap:5px">
+                              <span style="height:2px;width:46%;background:#5fb35a"></span><span style="height:2px;width:58%;background:#5fb35a"></span><span style="height:2px;width:34%;background:rgba(255,255,255,0.35)"></span><span style="height:2px;width:52%;background:#5fb35a"></span><span style="height:2px;width:22%;background:rgba(255,255,255,0.35)"></span>
+                            </div>
+                          </div>
+                        </sc-if>
+                        <sc-if value="{{ t.dash }}" hint-placeholder-val="{{ false }}">
+                          <div style="position:absolute;inset:0;background:#0d1117;padding:8px;box-sizing:border-box;display:grid;grid-template-columns:1fr 1.3fr 1fr;gap:6px">
+                            <div style="display:flex;flex-direction:column;gap:6px"><span style="flex:1;border:1px solid rgba(110,150,200,0.45);display:flex;align-items:flex-end;padding:3px"><span style="height:40%;width:100%;background:#7fc66a"></span></span><span style="flex:1;border:1px solid rgba(110,150,200,0.45);display:flex;flex-direction:column;justify-content:flex-end;padding:3px"><span style="height:30%;background:#e8c547"></span><span style="height:40%;background:#7fc66a"></span></span><span style="flex:1.4;border:1px solid rgba(110,150,200,0.45)"></span></div>
+                            <div style="border:1px solid rgba(110,150,200,0.45);padding:5px;display:flex;flex-direction:column;gap:5px"><span style="height:3px;width:70%;background:#4ea1e0"></span><span style="height:3px;width:45%;background:#4ea1e0"></span><span style="height:3px;width:60%;background:#4ea1e0"></span><span style="height:3px;width:30%;background:#7fc66a"></span><span style="height:3px;width:55%;background:#4ea1e0"></span></div>
+                            <div style="display:flex;flex-direction:column;gap:6px"><span style="flex:1;border:1px solid rgba(110,150,200,0.45)"></span><span style="flex:1.5;border:1px solid rgba(110,150,200,0.45);padding:4px;display:flex;flex-direction:column;gap:4px"><span style="height:3px;width:80%;background:#7fc66a"></span><span style="height:3px;width:60%;background:#7fc66a"></span><span style="height:3px;width:70%;background:#7fc66a"></span></span><span style="flex:1;border:1px solid rgba(110,150,200,0.45)"></span></div>
+                          </div>
+                        </sc-if>
+                      </div>
+                      <div style="width:{{ t.w }};display:flex;align-items:center;gap:10px;min-width:0">
+                        <span style="height:24px;min-width:24px;flex:none;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;background:rgba(255,255,255,0.1);font-size:14px;color:#bab6b6">{{ t.n }}</span>
+                        <span style="font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.t }}</span>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+    <ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:1.55;color:var(--color-neutral-800);max-width:960px">
+      <li>Centre thumbnails 260 × 146 (16:9, matching 3840×2160). Right thumbnails 210 × 236, matching the 2560×2880 portrait monitor.</li>
+      <li>Ghost tiles are 120 px wide, as tall as the thumbnail plus its label, with the faded picture behind the badge and vertical title.</li>
+      <li>Titles go up from 15 to 18 px; with the larger cards "rde@RDE-HOME-PC: ~" fits on Right without truncation.</li>
+      <li>The panel grows to about 1300 px wide. Below that width the thumbnails scale down to the current size, never smaller.</li>
+    </ul>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:12px;padding-bottom:32px;border-bottom:1px solid var(--color-divider)">
+    <h2 style="margin:0;font-family:inherit;font-size:22px;font-weight:600">Turn 2: larger, minimal thumbnails</h2>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-700);max-width:960px;text-wrap:pretty">Based on your reference: app name, "↵ Open", then one card per window with a number, the title and a large picture. No resolution, no monitor boxes, no ghost tiles. The three options differ in how cards are sized and arranged.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:56px;align-items:flex-start">
+      <sc-for list="{{ opts2 }}" as="o" hint-placeholder-count="3">
+        <div id="{{ o.id }}" style="flex:none;display:flex;flex-direction:column;gap:14px;max-width:{{ o.colW }}">
+          <div style="display:flex;align-items:center;gap:12px">
+            <span style="height:24px;padding:0 8px;display:inline-flex;align-items:center;border:1px solid var(--color-accent);border-radius:4px;font-size:13px;font-weight:600;color:var(--color-accent-700)">{{ o.id }}</span>
+            <span style="font-size:20px;font-weight:600">{{ o.name }}</span>
+          </div>
+          <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-800);text-wrap:pretty">{{ o.desc }}</p>
+          <div style="padding:40px;border-radius:12px;background:radial-gradient(55% 75% at 18% 28%, #b8692a 0%, rgba(184,105,42,0) 70%), radial-gradient(50% 70% at 82% 72%, #2b4f94 0%, rgba(43,79,148,0) 70%), #12151c">
+            <div style="background:rgba(36,33,32,0.96);border:1px solid rgba(255,255,255,0.1);border-radius:10px;box-shadow:0 32px 64px rgba(0,0,0,0.38);color:#f3f2f2;padding:18px 16px 16px;display:flex;flex-direction:column;gap:14px">
+              <div style="display:flex;align-items:center;gap:12px;padding:0 2px"><span style="font-size:20px;font-weight:600">Windows Terminal Host</span><svg style="margin-left:auto" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f3f2f2" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"></path></svg></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:0 2px;font-size:17px;color:#bab6b6"><span style="width:26px;height:26px;box-sizing:border-box;border-radius:6px;background:rgba(255,255,255,0.08);display:inline-flex;align-items:center;justify-content:center;font-size:14px">↵</span>Open</div>
+              <div style="display:flex;gap:{{ o.gap }};align-items:flex-start">
+                <sc-for list="{{ o.groups }}" as="g" hint-placeholder-count="2">
+                  <div style="display:flex;flex-direction:column;gap:8px">
+                    <sc-if value="{{ g.label }}" hint-placeholder-val="{{ false }}"><span style="padding:0 4px;font-size:13px;color:#7d7979">{{ g.label }}</span></sc-if>
+                    <div style="display:flex;flex-direction:{{ g.dir }};gap:12px">
+                      <sc-for list="{{ g.cards }}" as="c" hint-placeholder-count="2">
+                        <div style="width:{{ c.w }};box-sizing:border-box;padding:10px;border-radius:9px;border:2px solid {{ c.bd }};background:{{ c.bg }};display:flex;flex-direction:column;gap:10px">
+                          <div style="display:flex;align-items:center;gap:10px;min-width:0">
+                            <span style="width:30px;height:30px;flex:none;border-radius:6px;background:rgba(255,255,255,0.08);display:inline-flex;align-items:center;justify-content:center;font-size:15px;color:#bab6b6">{{ c.n }}</span>
+                            <span style="font-size:{{ c.fs }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.t }}</span>
+                          </div>
+                          <div style="height:{{ c.h }};border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,0.08);position:relative">
+                            <sc-if value="{{ c.term }}" hint-placeholder-val="{{ true }}">
+                              <div style="position:absolute;inset:0;background:#0c0c0c;display:flex;flex-direction:column">
+                                <div style="height:9px;background:#1e1e1e"></div>
+                                <div style="padding:8px;display:flex;flex-direction:column;gap:4px">
+                                  <span style="height:2px;width:46%;background:#5fb35a"></span><span style="height:2px;width:58%;background:#5fb35a"></span><span style="height:2px;width:34%;background:rgba(255,255,255,0.35)"></span><span style="height:2px;width:52%;background:#5fb35a"></span><span style="height:2px;width:22%;background:rgba(255,255,255,0.35)"></span>
+                                </div>
+                              </div>
+                            </sc-if>
+                            <sc-if value="{{ c.dash }}" hint-placeholder-val="{{ false }}">
+                              <div style="position:absolute;inset:0;background:#0d1117;padding:7px;box-sizing:border-box;display:grid;grid-template-columns:1fr 1.3fr 1fr;gap:6px">
+                                <div style="display:flex;flex-direction:column;gap:6px"><span style="flex:1;border:1px solid rgba(110,150,200,0.45);display:flex;align-items:flex-end;padding:3px"><span style="height:40%;width:100%;background:#7fc66a"></span></span><span style="flex:1;border:1px solid rgba(110,150,200,0.45);display:flex;flex-direction:column;justify-content:flex-end;padding:3px"><span style="height:30%;background:#e8c547"></span><span style="height:40%;background:#7fc66a"></span></span><span style="flex:1.4;border:1px solid rgba(110,150,200,0.45)"></span></div>
+                                <div style="border:1px solid rgba(110,150,200,0.45);padding:5px;display:flex;flex-direction:column;gap:5px"><span style="height:3px;width:70%;background:#4ea1e0"></span><span style="height:3px;width:45%;background:#4ea1e0"></span><span style="height:3px;width:60%;background:#4ea1e0"></span><span style="height:3px;width:30%;background:#7fc66a"></span><span style="height:3px;width:55%;background:#4ea1e0"></span></div>
+                                <div style="display:flex;flex-direction:column;gap:6px"><span style="flex:1;border:1px solid rgba(110,150,200,0.45)"></span><span style="flex:1.5;border:1px solid rgba(110,150,200,0.45);padding:4px;display:flex;flex-direction:column;gap:4px"><span style="height:3px;width:80%;background:#7fc66a"></span><span style="height:3px;width:60%;background:#7fc66a"></span><span style="height:3px;width:70%;background:#7fc66a"></span></span><span style="flex:1;border:1px solid rgba(110,150,200,0.45)"></span></div>
+                              </div>
+                            </sc-if>
+                          </div>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+          <ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:1.55;color:var(--color-neutral-800)">
+            <sc-for list="{{ o.rules }}" as="t" hint-placeholder-count="2"><li>{{ t }}</li></sc-for>
+          </ul>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <h2 style="margin:0;font-family:inherit;font-size:22px;font-weight:600">Turn 1</h2>
+  <div style="display:flex;flex-wrap:wrap;gap:56px;align-items:flex-start">
+
+    <div id="1a" style="flex:none;width:1056px;display:flex;flex-direction:column;gap:16px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="height:24px;padding:0 8px;display:inline-flex;align-items:center;border:1px solid var(--color-accent);border-radius:4px;font-size:13px;font-weight:600;color:var(--color-accent-700)">1a</span>
+        <span style="font-size:20px;font-weight:600">Screen map</span>
+      </div>
+      <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-800);max-width:960px;text-wrap:pretty">Monitors are drawn at their real shape and arrangement, like Display settings. Each window sits where it actually is, at its real size. The selected window's full title and details are in the strip below the map.</p>
+      <div style="padding:48px;border-radius:12px;background:radial-gradient(55% 75% at 18% 28%, #b8692a 0%, rgba(184,105,42,0) 70%), radial-gradient(50% 70% at 82% 72%, #2b4f94 0%, rgba(43,79,148,0) 70%), #12151c">
+        <div style="width:960px;background:rgba(36,33,32,0.95);border:1px solid rgba(255,255,255,0.09);border-radius:8px;box-shadow:0 32px 64px rgba(0,0,0,0.38);color:#f3f2f2;font-size:14px;overflow:hidden">
+          <div style="height:64px;display:flex;align-items:center;gap:16px;padding:0 20px;border-bottom:1px solid rgba(255,255,255,0.08)">
+            <span style="height:36px;width:340px;box-sizing:border-box;padding:0 12px;display:flex;align-items:center;gap:10px;border:1px solid rgba(255,255,255,0.12);border-radius:6px"><span style="width:20px;height:20px;border-radius:4px;background:#2b2f36;border:1px solid rgba(255,255,255,0.14);font:10px Consolas,monospace;color:#bab6b6;display:flex;align-items:center;justify-content:center">&gt;_</span><span style="font-size:15px">Windows Terminal Host</span><span style="margin-left:auto;font-size:12px;color:#7d7979">6 windows</span><span style="color:#bab6b6;font-size:11px">▾</span></span>
+            <span style="display:flex;border:1px solid rgba(255,255,255,0.12);border-radius:6px;overflow:hidden;font-size:13px"><span style="padding:8px 14px;color:#e1ad66;border-right:2px solid #e1ad66">By monitor</span><span style="padding:8px 14px;color:#bab6b6">Flat</span></span>
+            <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:#bab6b6"><span style="height:20px;padding:0 6px;display:inline-flex;align-items:center;border:1px solid rgba(255,255,255,0.12);border-radius:4px;font-size:11px">Ctrl+H</span>Hints</span>
+          </div>
+          <div style="padding:16px 20px 0;display:flex;align-items:baseline;gap:10px"><span style="color:#e1ad66;font-weight:600">This desktop</span><span style="font-size:13px;color:#7d7979">Desktop 2 · 3 windows</span></div>
+          <div style="padding:16px 20px 20px;display:flex;align-items:flex-end;justify-content:center;gap:16px">
+            <sc-for list="{{ mons }}" as="m" hint-placeholder-count="3">
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;align-items:baseline;gap:6px;font-size:12px;color:#bab6b6;white-space:nowrap"><span style="color:#f3f2f2;font-weight:600">{{ m.name }}</span>{{ m.res }}<span style="color:#7d7979">{{ m.count }}</span></div>
+                <div style="position:relative;width:{{ m.w }};height:{{ m.h }};box-sizing:border-box;border:1px solid {{ m.border }};border-style:{{ m.style }};border-radius:6px;background:rgba(255,255,255,0.025)">
+                  <sc-if value="{{ m.empty }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:#7d7979">No windows</span></sc-if>
+                  <sc-for list="{{ m.wins }}" as="w" hint-placeholder-count="0">
+                    <div style="position:absolute;left:{{ w.x }};top:{{ w.y }};width:{{ w.w }};height:{{ w.h }};box-sizing:border-box;border:{{ w.bd }};border-radius:4px;background:#1c1e22;overflow:hidden;box-shadow:{{ w.glow }}">
+                      <div style="height:22px;display:flex;align-items:center;gap:6px;padding:0 6px;background:rgba(255,255,255,0.06);font-size:12px;white-space:nowrap"><span style="height:16px;min-width:16px;box-sizing:border-box;padding:0 4px;display:inline-flex;align-items:center;justify-content:center;border-radius:3px;background:rgba(255,255,255,0.1);font-size:10px">{{ w.n }}</span><span style="overflow:hidden;text-overflow:ellipsis">{{ w.t }}</span></div>
+                      <div style="padding:8px;display:flex;flex-direction:column;gap:5px"><span style="height:2px;width:60%;background:rgba(255,255,255,0.16)"></span><span style="height:2px;width:42%;background:rgba(255,255,255,0.1)"></span><span style="height:2px;width:52%;background:rgba(255,255,255,0.1)"></span></div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="margin:0 20px;padding:12px 0;border-top:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;gap:12px">
+            <span style="height:20px;min-width:20px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid #e1ad66;border-radius:4px;font-size:11px;color:#e1ad66">1</span>
+            <div style="display:flex;flex-direction:column;gap:2px;min-width:0"><span style="font-size:15px">Wincraft</span><span style="font-size:12px;color:#bab6b6">pwsh · C:\src\wincraft · 3 tabs · used 2 min ago</span></div>
+            <span style="margin-left:auto;display:flex;gap:14px;font-size:12px;color:#bab6b6">
+              <sc-for list="{{ acts }}" as="a" hint-placeholder-count="4"><span style="display:inline-flex;align-items:center;gap:6px;color:{{ a.c }}"><span style="height:20px;min-width:20px;padding:0 5px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid {{ a.b }};border-radius:4px;font-size:11px">{{ a.k }}</span>{{ a.l }}</span></sc-for>
+            </span>
+          </div>
+          <div style="display:flex;flex-direction:column;border-top:1px solid rgba(255,255,255,0.08)">
+            <sc-for list="{{ desks }}" as="d" hint-placeholder-count="2">
+              <div style="height:36px;display:flex;align-items:center;gap:10px;padding:0 20px;border-bottom:1px solid rgba(255,255,255,0.05);font-size:13px;color:#bab6b6"><span style="color:#f3f2f2">{{ d.n }}</span>{{ d.c }}<span style="margin-left:auto;color:#7d7979">›</span></div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+      <ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:1.55;color:var(--color-neutral-800);max-width:960px">
+        <li>Scale is shared across monitors (1 px = 12 screen px), so the 4K centre is the largest and the portrait Right is tall.</li>
+        <li>Arrow keys move to the nearest window in that direction, across monitor edges. 1–9 switch directly.</li>
+        <li>Ctrl+↵ opens a new window on the monitor the selection is on. Shift+→ moves the selected window to the next monitor; the map updates in place.</li>
+        <li>Works best up to about 8 windows per monitor; overlapping windows are offset by 6 px so each title strip stays visible.</li>
+      </ul>
+    </div>
+
+    <div id="1b" style="flex:none;width:1056px;display:flex;flex-direction:column;gap:16px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="height:24px;padding:0 8px;display:inline-flex;align-items:center;border:1px solid var(--color-accent);border-radius:4px;font-size:13px;font-weight:600;color:var(--color-accent-700)">1b</span>
+        <span style="font-size:20px;font-weight:600">Current tiles, cleaned up</span>
+      </div>
+      <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-800);max-width:960px;text-wrap:pretty">Closest to today. Ghost tiles are gone, the empty monitor shrinks to an icon column, and each tile gets a second line with its details. A dashed "New window" tile sits first on the primary monitor.</p>
+      <div style="padding:48px;border-radius:12px;background:radial-gradient(55% 75% at 18% 28%, #b8692a 0%, rgba(184,105,42,0) 70%), radial-gradient(50% 70% at 82% 72%, #2b4f94 0%, rgba(43,79,148,0) 70%), #12151c">
+        <div style="width:960px;background:rgba(36,33,32,0.95);border:1px solid rgba(255,255,255,0.09);border-radius:8px;box-shadow:0 32px 64px rgba(0,0,0,0.38);color:#f3f2f2;font-size:14px;overflow:hidden">
+          <div style="height:64px;display:flex;align-items:center;gap:16px;padding:0 20px;border-bottom:1px solid rgba(255,255,255,0.08)">
+            <span style="height:36px;width:340px;box-sizing:border-box;padding:0 12px;display:flex;align-items:center;gap:10px;border:1px solid rgba(255,255,255,0.12);border-radius:6px"><span style="width:20px;height:20px;border-radius:4px;background:#2b2f36;border:1px solid rgba(255,255,255,0.14);font:10px Consolas,monospace;color:#bab6b6;display:flex;align-items:center;justify-content:center">&gt;_</span><span style="font-size:15px">Windows Terminal Host</span><span style="margin-left:auto;font-size:12px;color:#7d7979">6 windows</span><span style="color:#bab6b6;font-size:11px">▾</span></span>
+            <span style="display:flex;border:1px solid rgba(255,255,255,0.12);border-radius:6px;overflow:hidden;font-size:13px"><span style="padding:8px 14px;color:#e1ad66;border-right:2px solid #e1ad66">By monitor</span><span style="padding:8px 14px;color:#bab6b6">Flat</span></span>
+            <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:#bab6b6"><span style="height:20px;padding:0 6px;display:inline-flex;align-items:center;border:1px solid rgba(255,255,255,0.12);border-radius:4px;font-size:11px">Ctrl+H</span>Hints</span>
+          </div>
+          <div style="padding:16px 20px 0;display:flex;align-items:baseline;gap:10px"><span style="color:#e1ad66;font-weight:600">This desktop</span><span style="font-size:13px;color:#7d7979">Desktop 2 · 3 windows</span></div>
+          <div style="padding:12px 20px 20px;display:flex;gap:16px;align-items:stretch">
+            <div style="width:40px;flex:none;box-sizing:border-box;border:1px dashed rgba(255,255,255,0.16);border-radius:6px;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:12px;color:#7d7979" title="Left · empty">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="2" y="3" width="20" height="14" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>
+              <span style="font-size:11px">L</span><span style="font-size:11px">0</span>
+            </div>
+            <sc-for list="{{ tileMons }}" as="m" hint-placeholder-count="2">
+              <div style="display:flex;flex-direction:column;gap:10px;padding-right:16px;border-right:{{ m.sep }}">
+                <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#bab6b6;white-space:nowrap"><span style="color:#f3f2f2;font-weight:600">{{ m.name }}</span>{{ m.res }}<sc-if value="{{ m.primary }}" hint-placeholder-val="{{ false }}"><span style="height:20px;padding:0 7px;display:inline-flex;align-items:center;border:1px solid rgba(255,255,255,0.14);border-radius:10px;font-size:11px">Primary</span></sc-if><span style="color:#7d7979">· {{ m.count }}</span></div>
+                <div style="display:flex;gap:12px">
+                  <sc-if value="{{ m.primary }}" hint-placeholder-val="{{ false }}">
+                    <div style="width:120px;display:flex;flex-direction:column;gap:8px">
+                      <div style="height:{{ m.th }};box-sizing:border-box;border:1px dashed rgba(255,255,255,0.22);border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#bab6b6"><span style="font-size:22px;line-height:1">+</span><span style="font-size:12px">New window</span></div>
+                      <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#bab6b6"><span style="height:20px;padding:0 5px;box-sizing:border-box;display:inline-flex;align-items:center;border:1px solid rgba(255,255,255,0.12);border-radius:4px;font-size:11px">Ctrl+↵</span>Opens here</div>
+                    </div>
+                  </sc-if>
+                  <sc-for list="{{ m.tiles }}" as="t" hint-placeholder-count="1">
+                    <div style="width:{{ m.tw }};display:flex;flex-direction:column;gap:8px;padding:6px;margin:-6px;border-radius:8px;border:{{ t.bd }};background:{{ t.bg }}">
+                      <div style="height:{{ m.th }};border:1px solid rgba(255,255,255,0.09);border-radius:4px;background:#1c1e22;padding:10px;box-sizing:border-box;display:flex;flex-direction:column;gap:5px"><span style="height:2px;width:60%;background:rgba(255,255,255,0.16)"></span><span style="height:2px;width:40%;background:rgba(255,255,255,0.1)"></span><span style="height:2px;width:52%;background:rgba(255,255,255,0.1)"></span><sc-if value="{{ t.dash }}" hint-placeholder-val="{{ false }}"><span style="display:flex;gap:4px;margin-top:6px"><span style="height:16px;flex:1;background:rgba(143,191,127,0.35)"></span><span style="height:16px;flex:1;background:rgba(225,173,102,0.35)"></span><span style="height:16px;flex:1;background:rgba(95,150,220,0.35)"></span></span></sc-if></div>
+                      <div style="display:flex;align-items:flex-start;gap:8px;min-width:0">
+                        <span style="height:20px;min-width:20px;flex:none;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;background:rgba(255,255,255,0.1);font-size:11px">{{ t.n }}</span>
+                        <div style="display:flex;flex-direction:column;gap:2px;min-width:0"><span style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.t }}</span><span style="font-size:12px;color:#bab6b6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.d }}</span><sc-if value="{{ t.last }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;color:#e1ad66">Last used</span></sc-if></div>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="height:40px;display:flex;align-items:center;gap:16px;padding:0 20px;border-top:1px solid rgba(255,255,255,0.08);font-size:12px;color:#bab6b6">
+            <sc-for list="{{ acts }}" as="a" hint-placeholder-count="4"><span style="display:inline-flex;align-items:center;gap:6px;color:{{ a.c }}"><span style="height:20px;min-width:20px;padding:0 5px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid {{ a.b }};border-radius:4px;font-size:11px">{{ a.k }}</span>{{ a.l }}</span></sc-for>
+            <span style="margin-left:auto;display:flex;gap:16px"><sc-for list="{{ desks }}" as="d" hint-placeholder-count="2"><span><span style="color:#f3f2f2">{{ d.n }}</span> {{ d.c }} ›</span></sc-for></span>
+          </div>
+        </div>
+      </div>
+      <ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:1.55;color:var(--color-neutral-800);max-width:960px">
+        <li>Tile titles drop the shared prefix: "rde@RDE-DEV01: ~/telemetry" becomes the host name, with the folder on the detail line.</li>
+        <li>Portrait monitors get portrait tiles (Right is 2560×2880), so the tile shape hints at the screen.</li>
+        <li>"Last used" marks one tile only. Numbers stay positional so 1–9 keep their place while the deck is open.</li>
+        <li>Other desktops sit in the footer; clicking one switches the deck to that desktop.</li>
+      </ul>
+    </div>
+
+    <div id="1c" style="flex:none;width:1056px;display:flex;flex-direction:column;gap:16px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="height:24px;padding:0 8px;display:inline-flex;align-items:center;border:1px solid var(--color-accent);border-radius:4px;font-size:13px;font-weight:600;color:var(--color-accent-700)">1c</span>
+        <span style="font-size:20px;font-weight:600">List with a large preview</span>
+      </div>
+      <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-800);max-width:960px;text-wrap:pretty">Windows are rows grouped by monitor, with full titles and details. One large preview on the right shows the selected window, which matters for terminals that look alike as small thumbnails. Other desktops are collapsed groups at the end of the same list.</p>
+      <div style="padding:48px;border-radius:12px;background:radial-gradient(55% 75% at 18% 28%, #b8692a 0%, rgba(184,105,42,0) 70%), radial-gradient(50% 70% at 82% 72%, #2b4f94 0%, rgba(43,79,148,0) 70%), #12151c">
+        <div style="width:960px;background:rgba(36,33,32,0.95);border:1px solid rgba(255,255,255,0.09);border-radius:8px;box-shadow:0 32px 64px rgba(0,0,0,0.38);color:#f3f2f2;font-size:14px;overflow:hidden">
+          <div style="height:64px;display:flex;align-items:center;gap:16px;padding:0 20px;border-bottom:1px solid rgba(255,255,255,0.08)">
+            <span style="height:36px;width:340px;box-sizing:border-box;padding:0 12px;display:flex;align-items:center;gap:10px;border:1px solid rgba(255,255,255,0.12);border-radius:6px"><span style="width:20px;height:20px;border-radius:4px;background:#2b2f36;border:1px solid rgba(255,255,255,0.14);font:10px Consolas,monospace;color:#bab6b6;display:flex;align-items:center;justify-content:center">&gt;_</span><span style="font-size:15px">Windows Terminal Host</span><span style="margin-left:auto;font-size:12px;color:#7d7979">6 windows</span><span style="color:#bab6b6;font-size:11px">▾</span></span>
+            <span style="display:flex;border:1px solid rgba(255,255,255,0.12);border-radius:6px;overflow:hidden;font-size:13px"><span style="padding:8px 14px;color:#e1ad66;border-right:2px solid #e1ad66">By monitor</span><span style="padding:8px 14px;color:#bab6b6">Flat</span></span>
+            <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:#bab6b6"><span style="height:20px;padding:0 6px;display:inline-flex;align-items:center;border:1px solid rgba(255,255,255,0.12);border-radius:4px;font-size:11px">Ctrl+H</span>Hints</span>
+          </div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) 400px">
+            <div style="padding:8px;display:flex;flex-direction:column">
+              <div style="height:44px;display:flex;align-items:center;gap:12px;padding:0 12px;border-radius:6px;color:#bab6b6"><span style="width:24px;height:24px;flex:none;box-sizing:border-box;border:1px dashed rgba(255,255,255,0.3);border-radius:5px;display:flex;align-items:center;justify-content:center">+</span>New window on Centre<span style="margin-left:auto;height:20px;padding:0 5px;box-sizing:border-box;display:inline-flex;align-items:center;border:1px solid rgba(255,255,255,0.12);border-radius:4px;font-size:11px">Ctrl+↵</span></div>
+              <sc-for list="{{ listGroups }}" as="g" hint-placeholder-count="3">
+                <div style="display:flex;flex-direction:column">
+                  <div style="height:30px;display:flex;align-items:flex-end;gap:6px;padding:0 12px 6px;font-size:12px;color:#7d7979"><span style="color:{{ g.hc }};font-weight:600">{{ g.name }}</span>{{ g.meta }}<span style="margin-left:auto">{{ g.tail }}</span></div>
+                  <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="2">
+                    <div style="position:relative;height:48px;display:flex;align-items:center;gap:12px;padding:0 12px;border-radius:6px;background:{{ r.bg }}">
+                      <span style="position:absolute;left:0;top:50%;margin-top:-8px;width:3px;height:16px;border-radius:2px;background:{{ r.pill }}"></span>
+                      <span style="height:20px;min-width:20px;flex:none;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;background:rgba(255,255,255,0.1);font-size:11px">{{ r.n }}</span>
+                      <div style="display:flex;flex-direction:column;gap:1px;min-width:0"><span style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.t }}</span><span style="font-size:12px;color:#bab6b6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.d }}</span></div>
+                      <span style="margin-left:auto;font-size:12px;color:#7d7979;white-space:nowrap">{{ r.ago }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-for>
+            </div>
+            <div style="border-left:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);padding:16px;display:flex;flex-direction:column;gap:12px">
+              <div style="height:208px;border:1px solid rgba(255,255,255,0.09);border-radius:6px;background:#1c1e22;padding:14px;box-sizing:border-box;display:flex;flex-direction:column;gap:7px;font:11px Consolas,'Cascadia Mono',monospace;color:#bab6b6">
+                <span>PS C:\src\wincraft&gt; dotnet build</span><span style="color:#7d7979">  Restore complete (0.6s)</span><span style="color:#7d7979">  WinCraft net8.0-windows succeeded</span><span style="color:#8fbf7f">Build succeeded in 4.2s</span><span>PS C:\src\wincraft&gt; <span style="background:#bab6b6">&#160;</span></span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:17px;font-weight:600">Wincraft</span><span style="font-size:12px;color:#bab6b6">pwsh · C:\src\wincraft · 3 tabs</span></div>
+              <div style="display:flex;flex-direction:column;border-top:1px solid rgba(255,255,255,0.08)">
+                <sc-for list="{{ panelActs }}" as="a" hint-placeholder-count="4">
+                  <div style="height:34px;display:flex;align-items:center;border-bottom:1px solid rgba(255,255,255,0.08);font-size:13px;color:{{ a.c }}">{{ a.l }}<span style="margin-left:auto;height:20px;min-width:20px;padding:0 5px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid {{ a.b }};border-radius:4px;font-size:11px">{{ a.k }}</span></div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:1.55;color:var(--color-neutral-800);max-width:960px">
+        <li>Rows are ordered by monitor, then most recent first within a monitor. Empty monitors appear as a one-line group so the layout is still readable.</li>
+        <li>The preview is live and large enough to read terminal text. The detail line comes from the shell: ssh host, working folder, tab count.</li>
+        <li>Other desktops expand in place with → or Enter; their windows are listed but not previewed until selected.</li>
+        <li>Scales to many windows with no extra rules: the list scrolls and typing filters by title, as in the palette's 3a.</li>
+      </ul>
+    </div>
+
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const S = 1 / 12, px = v => Math.round(v * S) + 'px';
+    const sel = '2px solid #e1ad66', norm = '1px solid rgba(255,255,255,0.12)';
+    const mw = (n, t, x, y, w, h, s) => ({ n, t, x, y, w, h, bd: s ? sel : norm, glow: s ? '0 0 0 3px rgba(225,173,102,0.18)' : 'none' });
+    const mons = [
+      { name: 'Left', res: '1920×1080', count: '· 0', w: px(1920), h: px(1080), border: 'rgba(255,255,255,0.16)', style: 'dashed', empty: true, wins: [] },
+      { name: 'Centre', res: '3840×2160 · Primary', count: '· 1', w: px(3840), h: px(2160), border: 'rgba(255,255,255,0.16)', style: 'solid', empty: false, wins: [mw(1, 'Wincraft', '6%', '8%', '62%', '70%', true)] },
+      { name: 'Right', res: '2560×2880', count: '· 2', w: px(2560), h: px(2880), border: 'rgba(255,255,255,0.16)', style: 'solid', empty: false, wins: [mw(2, 'rde-dev01', '4%', '3%', '92%', '45%'), mw(3, 'telemetrix', '4%', '51%', '92%', '46%')] },
+    ];
+    const acts = [
+      { k: '↵', l: 'Switch', c: '#e1ad66', b: '#e1ad66' },
+      { k: 'Ctrl+↵', l: 'New window', c: '#bab6b6', b: 'rgba(255,255,255,0.12)' },
+      { k: 'Shift+→', l: 'Move', c: '#bab6b6', b: 'rgba(255,255,255,0.12)' },
+      { k: 'Ctrl+W', l: 'Close', c: '#bab6b6', b: 'rgba(255,255,255,0.12)' },
+    ];
+    const desks = [{ n: 'Desktop 1', c: '· 2 windows' }, { n: 'Desktop 3', c: '· 1 window' }];
+    const tile = (n, t, d, o = {}) => ({ n, t, d, dash: !!o.dash, last: !!o.sel, bd: o.sel ? sel : '2px solid transparent', bg: o.sel ? 'rgba(225,173,102,0.10)' : 'transparent' });
+    const tileMons = [
+      { name: 'Centre', res: '3840×2160', primary: true, count: '1 window', tw: '200px', th: '120px', sep: '1px solid rgba(255,255,255,0.08)', tiles: [tile(1, 'Wincraft', 'pwsh · C:\\src\\wincraft', { sel: true })] },
+      { name: 'Right', res: '2560×2880', primary: false, count: '2 windows', tw: '132px', th: '150px', sep: 'none', tiles: [tile(2, 'rde-dev01', 'ssh · ~/telemetry'), tile(3, 'telemetrix', 'pwsh · dashboard', { dash: true })] },
+    ];
+    const lr = (n, t, d, ago, s) => ({ n, t, d, ago, bg: s ? 'rgba(225,173,102,0.14)' : 'transparent', pill: s ? '#e1ad66' : 'transparent' });
+    const listGroups = [
+      { name: 'Centre', meta: '3840×2160 · Primary', tail: '1', hc: '#f3f2f2', rows: [lr(1, 'Wincraft', 'pwsh · C:\\src\\wincraft · 3 tabs', '2 min', true)] },
+      { name: 'Right', meta: '2560×2880', tail: '2', hc: '#f3f2f2', rows: [lr(2, 'rde@RDE-DEV01: ~/telemetry', 'ssh rde-dev01 · 1 tab', '14 min'), lr(3, 'telemetrix', 'pwsh · dashboard · 1 tab', '1 h')] },
+      { name: 'Left', meta: '1920×1080 · empty', tail: '0', hc: '#7d7979', rows: [] },
+      { name: 'Desktop 1 ›', meta: '2 windows', tail: '→', hc: '#bab6b6', rows: [] },
+      { name: 'Desktop 3 ›', meta: '1 window', tail: '→', hc: '#bab6b6', rows: [] },
+    ];
+    const panelActs = [
+      { k: '↵', l: 'Switch to window', c: '#e1ad66', b: '#e1ad66' },
+      { k: 'Shift+→', l: 'Move to Right monitor', c: '#f3f2f2', b: 'rgba(255,255,255,0.12)' },
+      { k: 'Ctrl+B', l: 'Bring to this desktop', c: '#f3f2f2', b: 'rgba(255,255,255,0.12)' },
+      { k: 'Ctrl+W', l: 'Close window', c: '#f3f2f2', b: 'rgba(255,255,255,0.12)' },
+    ];
+    const card = (n, t, w, h, o = {}) => ({ n, t, w, h, term: !o.dash, dash: !!o.dash, fs: o.fs ?? '18px', bd: o.sel ? '#e1ad66' : 'transparent', bg: o.sel ? 'rgba(225,173,102,0.10)' : 'rgba(255,255,255,0.04)' });
+    const W = { wc: 'Wincraft', rde: 'rde@RDE-HOME-PC: ~', tm: 'telemetrix' };
+    const opts2 = [
+      { id: '2a', name: 'One row, equal cards', colW: '1100px', gap: '12px',
+        desc: 'All windows of the app in one row at the same size, in a 16:10 picture. Closest to your reference; the number is the shortcut.',
+        groups: [{ label: '', dir: 'row', cards: [card(1, W.wc, '320px', '200px', { sel: true }), card(2, W.rde, '320px', '200px'), card(3, W.tm, '320px', '200px', { dash: true })] }],
+        rules: ['Card 320 px wide, picture 16:10. With more than 3 windows the row wraps; above 6 the cards drop to 240 px.', 'Selected card: 2 px accent border and a warm tint. Others: a faint fill, no border.'] },
+      { id: '2b', name: 'Grouped by monitor, one quiet label', colW: '1100px', gap: '28px',
+        desc: 'Same cards, grouped by monitor with only a small grey label above each group. Pictures keep the shape of the monitor they are on, so the portrait Right monitor gets taller cards.',
+        groups: [
+          { label: 'Centre', dir: 'row', cards: [card(1, W.wc, '360px', '202px', { sel: true })] },
+          { label: 'Right', dir: 'row', cards: [card(2, W.rde, '260px', '292px'), card(3, W.tm, '260px', '292px', { dash: true })] },
+        ],
+        rules: ['Picture height is shared within a group; width follows the monitor\'s aspect ratio.', 'Empty monitors and other desktops are not shown here; they stay in the Flat view.'] },
+      { id: '2c', name: 'Selected window large, others beside it', colW: '1100px', gap: '12px',
+        desc: 'The selected window gets a large picture, big enough to read terminal text. The other windows stack to its right at half size. Moving the selection swaps which one is large.',
+        groups: [
+          { label: '', dir: 'column', cards: [card(1, W.wc, '560px', '330px', { sel: true })] },
+          { label: '', dir: 'column', cards: [card(2, W.rde, '280px', '134px', { fs: '15px' }), card(3, W.tm, '280px', '134px', { dash: true, fs: '15px' })] },
+        ],
+        rules: ['Large card 560 px; side cards 280 px, up to 3 stacked, then they scroll.', 'Swapping sizes animates over 150 ms so the change of selection is easy to follow.'] },
+    ];
+    const termBg = 'linear-gradient(#1e1e1e 0 8px, #0c0c0c 8px)', dashBg = 'repeating-linear-gradient(90deg, #0d1117 0 10px, rgba(78,161,224,0.5) 10px 22px, #0d1117 22px 30px)';
+    const bt = (n, t, w, h, o = {}) => ({ n, t, w, h, full: (parseInt(h) + 34) + 'px', ghost: !!o.ghost, real: !o.ghost, term: !o.dash, dash: !!o.dash, ghostBg: o.dash ? dashBg : termBg, bd: o.sel ? '#e1ad66' : 'transparent', bg: o.sel ? 'rgba(225,173,102,0.12)' : 'transparent' });
+    const bigMons = [
+      { name: 'Centre', res: '3840×2160', primary: true, count: '1', sep: 'none', tiles: [bt(1, 'Wincraft', '260px', '146px', { sel: true }), bt(2, 'rde@RDE-HOME-PC: ~', '120px', '146px', { ghost: true }), bt(3, 'telemetrix', '120px', '146px', { ghost: true, dash: true })] },
+      { name: 'Right', res: '2560×2880', primary: false, count: '2', sep: '1px solid rgba(255,255,255,0.1)', tiles: [bt(2, 'rde@RDE-HOME-PC: ~', '210px', '236px'), bt(3, 'telemetrix', '210px', '236px', { dash: true })] },
+    ];
+    bigMons[0].tiles.forEach(t => { if (t.ghost) t.full = '270px'; });
+    return { mons, acts, desks, tileMons, listGroups, panelActs, opts2, bigMons };
+  }
+}
+</script>
+</body>
+</html>

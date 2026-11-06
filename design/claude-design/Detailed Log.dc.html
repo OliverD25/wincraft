@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="stylesheet" href="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/styles.css">
+  <script src="_ds/classical-51c4cc81-ba9b-4617-baf9-dee620fe6023/_ds_bundle.js"></script>
+  <style>
+    body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:'Segoe UI Variable Text','Segoe UI',Selawik,'Noto Sans',sans-serif}
+    a{color:var(--color-accent)} a:hover{color:var(--color-accent-700)}
+  </style>
+</helmet>
+
+<section style="padding:48px;display:flex;flex-direction:column;gap:40px">
+  <header style="display:flex;flex-direction:column;gap:6px;max-width:880px">
+    <div style="font-size:12px;font-weight:600;color:var(--color-accent)">WinCraft · Detailed log</div>
+    <h1 style="margin:0;font-family:inherit;font-size:28px;font-weight:600;line-height:1.15">Detailed log, everywhere it shows</h1>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--color-neutral-700);text-wrap:pretty">Off by default. While it is on, the user can always see it: a LOG tag in the palette footer, a ticked tray item, the tray tooltip, and a notice at every start. Drawn in Classic dark.</p>
+  </header>
+
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">Palette · the "Detailed log" toggle row on (selected) and off; LOG tag in the footer while on</div>
+    <div style="width:760px;background:#1c1a19;color:#f3f2f2;border:1px solid #444141;border-radius:8px;overflow:hidden;font-size:14px">
+      <div style="height:52px;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid #444141">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#bab6b6" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+        <span style="font-size:16px">log</span>
+      </div>
+      <div style="padding:6px;display:flex;flex-direction:column">
+        <sc-for list="{{ rows }}" as="r" hint-placeholder-count="2">
+          <div style="min-height:44px;display:flex;align-items:center;gap:12px;padding:0 12px;border-radius:4px;background:{{ r.rowBg }}">
+            <span style="flex:none;width:28px;height:28px;margin:0 -1px;box-sizing:border-box;border-radius:6px;display:flex;align-items:center;justify-content:center;background:{{ r.tileBg }};border:1px solid {{ r.tileBorder }};color:{{ r.iconColor }}">
+              <sc-if value="{{ r.on }}" hint-placeholder-val="{{ true }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="1"></circle></svg></sc-if>
+              <sc-if value="{{ r.off }}" hint-placeholder-val="{{ false }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg></sc-if>
+            </span>
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+              <div style="font-size:15px">Detailed log</div>
+              <div style="font-size:12px;color:#bab6b6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.line }}</div>
+            </div>
+            <span style="flex:none;width:40px;height:20px;box-sizing:border-box;border:1px solid {{ r.swBorder }};background:{{ r.swBg }};border-radius:10px;position:relative"><span style="position:absolute;top:3px;left:{{ r.knobLeft }};width:12px;height:12px;border-radius:6px;background:{{ r.knob }}"></span></span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="height:36px;display:flex;align-items:center;padding:0 16px;border-top:1px solid #444141;font-size:12px;color:#bab6b6;white-space:nowrap">
+        <span style="display:flex;gap:16px;align-items:center">
+          <span style="display:inline-flex;gap:6px;align-items:center"><span style="padding:1px 6px;border:1px solid #444141;border-radius:4px">↵</span>Turn off</span>
+          <span style="display:inline-flex;gap:6px;align-items:center"><span style="padding:1px 6px;border:1px solid #444141;border-radius:4px">Esc</span>Close</span>
+        </span>
+        <span style="margin-left:auto;padding-left:16px;display:flex;align-items:center;gap:8px">
+          <span style="height:18px;box-sizing:border-box;padding:0 5px;display:inline-flex;align-items:center;border:1px solid #e88a4a;border-radius:4px;color:#e88a4a;font-size:12px;font-weight:600">LOG</span>
+          <span style="color:#7d7979">WinCraft v0.20.32</span>
+        </span>
+      </div>
+    </div>
+    <div style="max-width:760px;font-size:12px;line-height:1.5;color:var(--color-neutral-700);text-wrap:pretty">LOG tag: 12 px semibold in the warning colour, 18 px high outline of the same colour (line stroke, row radius), 8 px left of the whole name. The key hints end 16 px before it. Enter flips the toggle and the palette stays open. "turn on", "turn off", "toggle", "debug" and "logging" still find the row. On tile #b8483a, the Microphone-muted red, because it records.</div>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:48px;align-items:flex-start">
+    <div style="flex:none;width:760px;display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">Settings → General · new row under Log file (off by default)</div>
+      <div style="background:#1c1a19;color:#f3f2f2;border:1px solid #444141;border-radius:8px;padding:12px 32px;font-size:14px;display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:16px;padding:16px 0;border-bottom:1px solid #444141">
+          <div style="flex:1;display:flex;flex-direction:column;gap:4px"><div style="font-size:15px">Log file</div><div style="font:13px Consolas,'Cascadia Mono',monospace;color:#bab6b6">%LOCALAPPDATA%\WinCraft\logs</div></div>
+          <span style="flex:none;height:34px;padding:0 14px;display:inline-flex;align-items:center;border:1px solid #444141;border-radius:4px">Open folder</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px;padding:16px 0">
+          <div style="flex:1;display:flex;flex-direction:column;gap:4px"><div style="font-size:15px">Detailed log</div><div style="font-size:13px;color:#bab6b6;text-wrap:pretty">Records everything WinCraft does, to find a bug: keys, window titles and palette text. The files stay on this PC. Turn it off when you are done.</div></div>
+          <span style="flex:none;width:40px;height:20px;box-sizing:border-box;border:1px solid #bab6b6;border-radius:10px;position:relative"><span style="position:absolute;left:3px;top:3px;width:12px;height:12px;border-radius:6px;background:#bab6b6"></span></span>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:260px;display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">Tray menu · detailed log on</div>
+      <div style="background:#2d2b2b;color:#f3f2f2;border:1px solid #444141;border-radius:8px;padding:4px;font-size:14px;display:flex;flex-direction:column">
+        <sc-for list="{{ tray }}" as="t" hint-placeholder-count="5">
+          <div style="height:32px;display:flex;align-items:center;gap:8px;padding:0 10px;border-top:{{ t.sep }}">
+            <span style="width:16px;flex:none;color:#f3f2f2">{{ t.tick }}</span><span>{{ t.label }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="align-self:flex-start;padding:4px 8px;background:#2d2b2b;border:1px solid #444141;border-radius:4px;font-size:12px;color:#f3f2f2">WinCraft · detailed log on</div>
+      <div style="font-size:12px;color:var(--color-neutral-700)">Tray tooltip while it is on.</div>
+    </div>
+
+    <div style="flex:none;width:380px;display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:12px;font-weight:600;color:var(--color-neutral-600)">Notice · when it turns on or off, and at every start while on</div>
+      <div style="background:#2d2b2b;color:#f3f2f2;border:1px solid #444141;border-radius:12px;padding:14px 18px;display:flex;gap:12px;align-items:flex-start">
+        <span style="flex:none;width:24px;height:24px;border:1px solid #e1ad66;border-radius:5px;color:#e1ad66;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center">W</span>
+        <div style="display:flex;flex-direction:column;gap:6px;min-width:0">
+          <div style="font-size:14px;font-weight:600">WinCraft: detailed log</div>
+          <div style="font-size:13px;color:#bab6b6;text-wrap:pretty">On. Keys, window titles and palette text are recorded on this PC until you turn it off.</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--color-neutral-700);text-wrap:pretty">Body text is a placeholder: the code entry names only the title.</div>
+    </div>
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const rows = [
+      { on: true, off: false, rowBg: 'rgba(225,173,102,0.18)', tileBg: '#b8483a', tileBorder: 'transparent', iconColor: '#ffffff', line: 'Recording keys, window titles and palette text on this PC', swBorder: '#e1ad66', swBg: '#e1ad66', knob: '#1c1a19', knobLeft: '23px' },
+      { on: false, off: true, rowBg: 'transparent', tileBg: 'rgba(243,242,242,0.05)', tileBorder: '#444141', iconColor: '#bab6b6', line: 'Off. Nothing is recorded', swBorder: '#bab6b6', swBg: 'transparent', knob: '#bab6b6', knobLeft: '3px' },
+    ];
+    const tray = [
+      { label: 'Open palette', tick: '', sep: 'none' },
+      { label: 'Settings', tick: '', sep: 'none' },
+      { label: 'Detailed log', tick: '✓', sep: '1px solid #444141' },
+      { label: 'Quit WinCraft', tick: '', sep: 'none' },
+    ];
+    return { rows, tray };
+  }
+}
+</script>
+</body>
+</html>
