@@ -430,7 +430,7 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   the border width and the fonts come from `core::theme::Tokens`
   (`Tokens::get(ctx)`), never from a number in a widget. Use
   `theme::line(ctx, colour)` for a border, so High contrast can make it
-  2 px. A new theme is one more token set in `core/theme.rs` and one more
+  2 px. A new theme is one more token set in `src/core/theme.rs` and one more
   `ThemeName`.
 - **Log with `log::info!`, `log::warn!`, `log::error!`.** They go to
   `%LOCALAPPDATA%\WinCraft\wincraft.log`. Use `log::debug!` for detail that
