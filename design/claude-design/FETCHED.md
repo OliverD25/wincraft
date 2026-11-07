@@ -133,3 +133,21 @@ The design session's own record (`github.md`, last sync 2026-11-05T23:52Z) says 
 - `design_handoff_window_deck_size/README.md` (1210 bytes): first copy. The 3a sizes and the rollback values.
 - `github.md` (2806 bytes) and the project's `CLAUDE.md` (629 bytes), copied as `design-project-notes.md` so that Claude Code does not load it as instructions for this folder.
 - Left out: `support.js`, `image-slot.js`, `_ds/` bundles, `uploads/`, `.thumbnail`, and pages not named in the design's sync record.
+
+## 2026-11-07: the project moved into a Design artifact
+
+Standalone Claude Design closes by 2026-12-14. Claude's own migrator
+(`artifact-migrator`) moved the whole project to
+https://claude.ai/artifact/S5fEimN5sS6oqHgwJVRxPn at 14:27 UTC: 38 of 38
+pages "ok", none partial, none left out (its `project/compat.json` report).
+All files kept their names, under `project/` (spaces kept): 33 top-level
+pages, the 6 `design_handoff_*` folders, the `_ds/` Classical bundle,
+`support.js`, `image-slot.js`, `CLAUDE.md`, `github.md` and the 24
+`uploads/*.png`. From now on pages are read with the Artifact tool (action
+`read`, `path: "project/<page name>"`), not with DesignSync. The old project
+id 2799b359-… stays behind the move.
+
+Checked against the moved pages the same day (read-only): the 6 rows of
+CODE-CHANGES.md that were "not yet in design". Five are in the design; the
+Quick access app icon (2026-11-07) is in except the first-letter tile for an
+app with no icon.
