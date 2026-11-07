@@ -151,3 +151,12 @@ Checked against the moved pages the same day (read-only): the 6 rows of
 CODE-CHANGES.md that were "not yet in design". Five are in the design; the
 Quick access app icon (2026-11-07) is in except the first-letter tile for an
 app with no icon.
+
+## 2026-11-07: Window Deck Few Windows Options
+
+Drawn from this repo's session at the user's request and published to the
+design artifact as a new page, then copied here byte for byte:
+`Window Deck Few Windows Options.dc.html`. Today, A (grow together), B
+(equal tiles) and C (compact cards). The user chose C, with no toolbar on a
+monitor that is not the main one, a setting "Show the toolbar on other
+monitors" (off by default), and the short header of the compact popup.

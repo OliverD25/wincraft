@@ -171,6 +171,9 @@ pub struct StripLook {
     pub view: ArrangeView,
     /// Whether the By monitor view shows its footer of key hints.
     pub hints: bool,
+    /// Whether a strip opened from the taskbar of a monitor that is not the
+    /// main one shows the toolbar (the app list and the view switch).
+    pub toolbar_on_other_monitors: bool,
 }
 
 /// A window a plugin draws itself with egui, such as a list it keeps. It

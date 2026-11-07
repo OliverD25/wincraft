@@ -7,9 +7,10 @@
 use egui::text::TextWrapping;
 use egui::{pos2, vec2, Rect, Response, Sense, StrokeKind, Ui, Vec2};
 
+use super::tile::{self, THUMB_MIN};
 use super::{
-    by_monitor, card_menu, grown, middle_close, name_card, number_chip, only_visible, paint_badges,
-    rows, taskbar_numbers, thumbnail, visible_flags, Badge, Frame, Pending, Row, Shared,
+    by_monitor, card_menu, grown, middle_close, only_visible, rows, taskbar_numbers, thumbnail,
+    visible_flags, Frame, Pending, Row, Shared,
 };
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{
@@ -21,14 +22,7 @@ use crate::ui::widgets::text;
 const PAD: f32 = 10.0;
 const GAP: f32 = 8.0;
 const HEADER: f32 = 28.0;
-const CARD_WIDTH: f32 = 180.0;
-const CARD_PAD: f32 = 6.0;
-const KEYCAP: f32 = 22.0;
-/// A picture in a monitor's shape is never flatter or taller than these.
-const THUMB_MIN: f32 = 90.0;
-const THUMB_MAX: f32 = 240.0;
-/// The shape of a monitor that is not known.
-const DEFAULT_SHAPE: Vec2 = Vec2::new(16.0, 9.0);
+pub(super) const CARD_WIDTH: f32 = 180.0;
 const BUTTON: f32 = 30.0;
 const HINTS: f32 = 16.0;
 /// "This desktop" and "Desktop 5 · Left" over the cards, once expanded.
@@ -73,12 +67,7 @@ pub fn more_label(others: &[(String, usize)]) -> Option<String> {
 /// How tall a picture 180 wide is in the shape of a monitor `size` big,
 /// held between 90 and 240.
 pub fn thumb_height(size: Option<Vec2>) -> f32 {
-    let shape = size
-        .filter(|size| size.x > 0.0 && size.y > 0.0)
-        .unwrap_or(DEFAULT_SHAPE);
-    (CARD_WIDTH * shape.y / shape.x)
-        .round()
-        .clamp(THUMB_MIN, THUMB_MAX)
+    tile::thumb_height(CARD_WIDTH, size)
 }
 
 /// "Desktop 5 · Left": a desktop's name and the monitors its windows are on.
@@ -241,7 +230,7 @@ impl Layout {
     }
 
     fn card_height(&self) -> f32 {
-        CARD_PAD + self.thumb + CARD_PAD + KEYCAP + CARD_PAD
+        tile::card_height(self.thumb)
     }
 
     fn more(&self) -> bool {
@@ -293,7 +282,11 @@ impl Layout {
 }
 
 /// The monitor shape of the screen a window is on.
-fn monitor_size(group: &ArrangeGroup, member: usize, monitors: &[ArrangeMonitor]) -> Option<Vec2> {
+pub(super) fn monitor_size(
+    group: &ArrangeGroup,
+    member: usize,
+    monitors: &[ArrangeMonitor],
+) -> Option<Vec2> {
     let window = &group.windows[member];
     let monitor = by_monitor::column_of(window, monitors).and_then(|index| monitors.get(index))?;
     let [left, top, right, bottom] = monitor.rect;
@@ -570,7 +563,6 @@ fn card(
     look: CardLook,
 ) {
     let Popup { group, snapshot } = popup;
-    let tokens = Tokens::get(ui.ctx());
     let window = &group.windows[member];
     let leaving = shared.is_leaving(window.hwnd);
     let (scale, fade) = shared.motion(window.hwnd);
@@ -588,137 +580,53 @@ fn card(
     );
     let mut faded_painter = ui.painter().clone();
     faded_painter.multiply_opacity(fade);
-    let painter = &faded_painter;
-    if look.picked {
-        painter.rect_filled(
-            rect,
-            tokens.radius_tile,
-            super::cards::selected_fill(&tokens),
-        );
-        super::cards::paint_ring(
-            painter,
-            ui.ctx(),
-            rect,
-            tokens.radius_tile,
-            super::cards::selected_ring(&tokens),
-        );
-    } else if response.hovered() && shared.pointer.moved() {
-        painter.rect_filled(rect, tokens.radius_tile, tokens.hover_bg);
-    }
-    // The title row is first and the picture last, so the pictures of all
-    // cards sit on one line at the bottom of the popup.
-    let (title_top, thumb_top) = card_rows(rect.top());
-    let thumb = Rect::from_min_size(
-        pos2(rect.left() + CARD_PAD, thumb_top),
-        vec2(rect.width() - 2.0 * CARD_PAD, look.thumb),
-    );
-    painter.rect(
-        thumb,
-        tokens.radius_row,
-        tokens.panel_bg,
-        theme::line(ui.ctx(), tokens.border),
-        StrokeKind::Inside,
-    );
-    let picture = thumb.shrink(1.0);
     let opacity = if look.faded { OTHER_OPACITY } else { 1.0 } * fade;
-    let badges: &[Badge] = if waiting.is_some() {
-        &[Badge::Waiting]
-    } else {
-        &[]
-    };
-    let shown = paint_badges(
-        ui,
-        painter,
-        response.id,
-        thumb,
-        badges,
-        false,
-        waiting.as_deref(),
-    );
     let has_picture = !look.menu_open
         && thumbnail(shared, window.hwnd).is_some_and(|thumb| thumb.source_size().is_some());
+    let hovered = response.hovered() && shared.pointer.moved();
+    let edit = shared
+        .rename
+        .as_mut()
+        .filter(|edit| edit.hwnd == window.hwnd);
+    let painted = tile::paint(
+        ui,
+        &faded_painter,
+        &response,
+        rect,
+        window,
+        tile::Look {
+            thumb: look.thumb,
+            number: look.number,
+            picked: look.picked,
+            faded: look.faded,
+            hovered,
+            attention: window.attention,
+            fill: tile::Fill::Popup,
+            has_picture,
+            opacity,
+            same_title: None,
+            waiting: waiting.as_deref(),
+        },
+        edit,
+    );
     if has_picture {
         frame.pending.push(Pending {
             hwnd: window.hwnd,
-            dest: picture,
+            dest: painted.picture,
             clip: ui.clip_rect(),
             opacity: (255.0 * opacity).round() as u8,
-            clear: shown.clear,
+            clear: painted.clear,
             ghost: false,
         });
-    } else {
-        let mut faded = painter.clone();
-        faded.multiply_opacity(opacity);
-        name_card(&faded, picture, &window.label, "");
     }
-    let chip = number_chip(
-        painter,
-        pos2(rect.left() + CARD_PAD, title_top),
-        KEYCAP,
-        look.number,
-    );
-    let colour = if look.faded {
-        tokens.text_secondary
-    } else {
-        tokens.text_primary
-    };
-    let left = chip.right() + 6.0;
-    // F2: the title is a text box, which owns the mouse on this card.
-    if let Some(edit) = shared
-        .rename
-        .as_mut()
-        .filter(|edit| edit.hwnd == window.hwnd)
-    {
-        let field = Rect::from_min_max(
-            pos2(left, title_top),
-            pos2(rect.right() - CARD_PAD, title_top + KEYCAP),
-        );
-        edit.show(ui, field, 13.0);
+    if painted.editing {
         frame.cards.push((window.hwnd, window.monitor.is_some()));
         return;
-    }
-    let mut job = text::job(&window.label, theme::regular(13.0), colour, None);
-    job.wrap = TextWrapping {
-        max_width: (rect.right() - CARD_PAD - left).max(0.0),
-        max_rows: 1,
-        break_anywhere: true,
-        overflow_character: Some('\u{2026}'),
-    };
-    let galley = painter.layout_job(job);
-    let elided = galley.elided;
-    painter.galley(
-        pos2(left, title_top + (KEYCAP - galley.size().y) / 2.0),
-        galley,
-        colour,
-    );
-    if elided {
-        title_tooltip(&response, title_top, &window.label);
     }
     if leaving {
         return;
     }
     interact(shared, frame, group, snapshot, member, &response);
-}
-
-/// Where a card whose top is `top` starts its title row and its picture.
-fn card_rows(top: f32) -> (f32, f32) {
-    let title = top + CARD_PAD;
-    (title, title + KEYCAP + CARD_PAD)
-}
-
-/// The full title as a tooltip under the title row. Anchored to the row and
-/// not to the whole card: the card ends at the bottom of the popup, so a
-/// tooltip under it would not fit and would open upwards over the button.
-fn title_tooltip(card: &Response, title_top: f32, title: &str) {
-    let mut row = card.clone();
-    row.rect = Rect::from_min_size(
-        pos2(card.rect.left(), title_top),
-        vec2(card.rect.width(), KEYCAP),
-    );
-    egui::Tooltip::for_enabled(&row).show(|ui| {
-        ui.set_max_width(ui.spacing().tooltip_width);
-        ui.add(egui::Label::new(title));
-    });
 }
 
 /// Clicks, the menu and the hover peek of one card, as in the full strip:
@@ -795,7 +703,7 @@ fn more_button(ui: &mut Ui, rect: Rect, words: &str, open: bool) -> Response {
     response
 }
 
-fn hint_line(ui: &mut Ui, at: egui::Pos2, hints: &[(String, String)], room: f32) {
+pub(super) fn hint_line(ui: &mut Ui, at: egui::Pos2, hints: &[(String, String)], room: f32) {
     let tokens = Tokens::get(ui.ctx());
     let painter = ui.painter();
     let mut x = at.x;
@@ -948,6 +856,7 @@ fn keys(
 mod tests {
     use super::*;
     use crate::core::ui_bridge::ArrangeWindow;
+    use tile::{card_rows, CARD_PAD, KEYCAP, THUMB_MAX};
 
     fn desktops() -> Vec<ArrangeDesktop> {
         ["Desktop 1", "Desktop 2", "Desktop 5"]
@@ -1098,6 +1007,7 @@ mod tests {
             plugin: "layout_keeper".to_string(),
             look_plugin: "window_deck".to_string(),
             hints: true,
+            toolbar_on_other_monitors: false,
             keeps_order: true,
             groups: vec![group.clone()],
             desktops,
@@ -1142,6 +1052,7 @@ mod tests {
             plugin: "layout_keeper".to_string(),
             look_plugin: "window_deck".to_string(),
             hints: true,
+            toolbar_on_other_monitors: false,
             keeps_order: true,
             groups: vec![group.clone()],
             desktops,

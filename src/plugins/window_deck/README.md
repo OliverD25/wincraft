@@ -348,6 +348,25 @@ With it on:
   reorders as always; windows that are not shown keep their places. A window
   cannot be dragged to another monitor there, because only one is shown.
   `Win+Alt+A` always shows everything.
+
+  On a monitor that is **not the main one**, such a strip has no toolbar
+  (no app list, no By monitor | Flat switch, no "Ctrl + H Hints"), unless
+  **Show the toolbar on other monitors** is on. It keeps the view picked
+  last. A short header takes the toolbar's place: the app's name, a
+  down-arrow button at the right that shows or hides the other desktops
+  (as D and the "+ N other desktops" link do), and under it "↵ Open", with
+  "Ctrl + M Mark all as seen" when some windows are marked. All keys work
+  as before, Ctrl+H and D included.
+
+  When all of this desktop's cards fit on one line at the compact popup's
+  size (180 px a card), that strip draws them as the compact popup's
+  cards: the number and the title on their own line on top, the picture
+  under them in the monitor's shape (90 to 240 px tall). The cards share
+  the width equally, up to 280 px a card. There is no "This desktop" line;
+  other desktops, when shown, keep their names. Click, drag, the
+  right-click menu, Ctrl+W, Ctrl+N, F2 and the number keys work as on
+  today's cards. When the cards do not fit on one line, the view is the one
+  of today, under the short header.
 - **Apps with one window** keep Windows' own preview. "One window" counts
   the windows that taskbar would list: an app with two windows on the main
   monitor and one on the right monitor keeps Windows' own preview on the
@@ -424,6 +443,8 @@ log says "hiding Windows' taskbar preview skipped". The flag
 | Setting | Default | Meaning |
 |---|---|---|
 | Preview window on hover | on | Resting the mouse on a picture in WindowDeck shows that window on its monitor. |
+| Show key hints | on | Ctrl+H hides or shows them in WindowDeck. |
+| Show the toolbar on other monitors | off | The app list and the By monitor and Flat switch, in the strip that opens from the taskbar of a monitor that is not the main one. Off gives the pictures more room. |
 | Show WindowDeck instead of Windows' taskbar preview | off | Resting the mouse on the taskbar button of an app with 2 or more windows opens WindowDeck above it (see **WindowDeck instead of Windows' taskbar preview**). Also in the tray menu and the palette. |
 | Hover delay (seconds) | 0.15 | How long the mouse rests on a taskbar button before WindowDeck opens, from 0.05 to 1.5. |
 | Open WindowDeck with Win+1…9 | off | Win and a number open WindowDeck for that taskbar button (see **Win+1…9**). Win+Shift, Win+Ctrl and Win+Alt with a number stay with Windows. |
