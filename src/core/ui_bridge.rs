@@ -320,6 +320,9 @@ pub struct ArrangeSnapshot {
     /// The key hints under the view are on, as kept in `look_plugin`'s
     /// `show_hints` setting.
     pub hints: bool,
+    /// A strip limited to a monitor that is not the main one shows the
+    /// toolbar, as kept in `look_plugin`'s `toolbar_on_other_monitors`.
+    pub toolbar_on_other_monitors: bool,
     /// The windows come from a plugin that saves their order (LayoutKeeper),
     /// so a new order for other desktops reaches their taskbar at the next
     /// restore. Without one the strip does not say so.

@@ -99,6 +99,7 @@ impl Host {
             view: look.view,
             look_plugin: look_plugin.to_string(),
             hints: look.hints,
+            toolbar_on_other_monitors: look.toolbar_on_other_monitors,
             keeps_order: id != look_plugin,
             anchor: anchor.map(|(_, rect)| rect),
         };

@@ -46,6 +46,7 @@ const HOVER_DELAY_KEY: &str = "hover_delay_seconds";
 const PREVIEW_KEY: &str = "preview_on_hover";
 const VIEW_KEY: &str = "arrange_view";
 const HINTS_KEY: &str = "show_hints";
+const TOOLBAR_KEY: &str = "toolbar_on_other_monitors";
 const WIN_NUMBER_KEY: &str = "win_number_opens";
 const HOTKEY_NAME: &str = "arrange";
 const HOVER_STRIP_LABEL: &str = "WindowDeck on taskbar hover";
@@ -60,6 +61,8 @@ pub struct WindowDeck {
     view: ArrangeView,
     /// The By monitor view's footer of key hints is shown.
     show_hints: bool,
+    /// "Show the toolbar on other monitors".
+    toolbar_elsewhere: bool,
     /// "Show WindowDeck instead of Windows' taskbar preview".
     hover_strip: bool,
     hover_delay_ms: u64,
@@ -85,6 +88,7 @@ impl Default for WindowDeck {
             preview_on_hover: true,
             view: ArrangeView::Auto,
             show_hints: true,
+            toolbar_elsewhere: false,
             hover_strip: false,
             hover_delay_ms: hover_preview::DEFAULT_DELAY_MS,
             hover: hover_preview::HoverPreview::default(),
@@ -117,6 +121,10 @@ impl WindowDeck {
             .get(HINTS_KEY)
             .and_then(|value| value.as_bool())
             .unwrap_or(true);
+        self.toolbar_elsewhere = settings
+            .get(TOOLBAR_KEY)
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
         self.hover_strip = settings
             .get(HOVER_STRIP_KEY)
             .and_then(|value| value.as_bool())
@@ -326,6 +334,7 @@ impl WinCraftPlugin for WindowDeck {
             PREVIEW_KEY: true,
             VIEW_KEY: ArrangeView::Auto.setting(),
             HINTS_KEY: true,
+            TOOLBAR_KEY: false,
             HOVER_STRIP_KEY: false,
             HOVER_DELAY_KEY: hover_preview::DEFAULT_DELAY_MS as f64 / 1000.0,
             WIN_NUMBER_KEY: false,
@@ -344,6 +353,12 @@ impl WinCraftPlugin for WindowDeck {
                 key: HINTS_KEY,
                 label: "Show key hints",
                 help: "Ctrl+H hides or shows them in WindowDeck.",
+                kind: FieldKind::Toggle,
+            },
+            SettingField {
+                key: TOOLBAR_KEY,
+                label: "Show the toolbar on other monitors",
+                help: "The app list and the By monitor and Flat switch, in the strip that opens from the taskbar of a monitor that is not the main one. Off gives the pictures more room.",
                 kind: FieldKind::Toggle,
             },
             SettingField {
@@ -502,6 +517,7 @@ impl WinCraftPlugin for WindowDeck {
             preview: self.preview_on_hover,
             view: self.view,
             hints: self.show_hints,
+            toolbar_on_other_monitors: self.toolbar_elsewhere,
         })
     }
 
@@ -727,6 +743,26 @@ mod tests {
             .expect("the switch is on the page");
         assert_eq!(field.label, "Show key hints");
         assert_eq!(field.help, "Ctrl+H hides or shows them in WindowDeck.");
+        deck.teardown();
+    }
+
+    #[test]
+    fn the_toolbar_on_other_monitors_is_off_by_default_and_follows_the_setting() {
+        let mut deck = test_deck();
+        assert_eq!(deck.default_settings()[TOOLBAR_KEY], false);
+        deck.apply_settings(&deck.default_settings());
+        assert!(!deck.strip_look().expect("a look").toolbar_on_other_monitors);
+        deck.apply_settings(&serde_json::json!({ TOOLBAR_KEY: true }));
+        assert!(deck.strip_look().expect("a look").toolbar_on_other_monitors);
+        // A file without the key keeps it off.
+        deck.apply_settings(&serde_json::json!({}));
+        assert!(!deck.strip_look().expect("a look").toolbar_on_other_monitors);
+        let field = deck
+            .settings_fields()
+            .into_iter()
+            .find(|field| field.key == TOOLBAR_KEY)
+            .expect("the switch is on the page");
+        assert_eq!(field.label, "Show the toolbar on other monitors");
         deck.teardown();
     }
 
