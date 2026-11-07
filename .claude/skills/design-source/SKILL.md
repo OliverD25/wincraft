@@ -19,12 +19,17 @@ user's decisions.
   above, `path: "project/<page name>"`; it saves the file to the scratchpad.
   Never use DesignSync for it any more. Design system it uses: "classical"
   (the `project/_ds/` bundle).
-- **Converted pages:** the moved artifact is in "compat" mode (whole pages,
-  no canvas). Its "Convert to Artboards" button does not convert in place: a
-  Claude session redraws one page into a new, separate Design artifact, with
-  small changes. So pages are converted one at a time, only when the design
-  session next works on that screen (user's decision, 2026-11-07). Converted
-  so far: Shortcut Manager → https://claude.ai/artifact/UR5HqjDAAoEf12FEbU1fk2
+- **Changing a page:** edit it in place in the moved artifact (type
+  "Migrated Design"). Read `project/compat.json` and the page, edit the page
+  in one scratchpad folder, then ONE Artifact publish: `url`, `root` = that
+  folder, `file_path` = `<root>/project/compat.json` (unchanged), `files` =
+  `{"project/<page>": "project/<page>"}`. Tested 2026-11-07 on `QuickJump
+  v2.dc.html` (version 3); the other pages stayed as they were.
+- **Converted pages:** the "Convert to Artboards" button does not convert in
+  place: a Claude session redraws one page into a new, separate Design
+  artifact (a real canvas), with small changes. Not needed to change a page;
+  use it only when you want that page as a canvas (user's decision,
+  2026-11-07: never all pages at once). Converted so far: Shortcut Manager → https://claude.ai/artifact/UR5HqjDAAoEf12FEbU1fk2
   (`Main.dc.html` the window, `Rules.dc.html` the notes). It has real buttons
   and lighter greys than the source; the user or the design session checks
   those two changes before the code follows them. For any converted page, the
