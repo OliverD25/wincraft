@@ -1,6 +1,6 @@
 ---
 name: design-source
-description: Where WinCraft's design lives and how it reaches the code. The Claude Design project "Wincraft Windows Utilities Design" is the source of truth for how WinCraft looks; copies sit in design/claude-design/. Use before building or changing any screen, theme, layout or wording on screen, when the user mentions the design, Claude Design or a handout, or runs /design-pull.
+description: Where WinCraft's design lives and how it reaches the code. The Design artifact "Wincraft Windows Utilities Design" (moved from Claude Design on 2026-11-07) is the source of truth for how WinCraft looks; copies sit in design/claude-design/. Use before building or changing any screen, theme, layout or wording on screen, when the user mentions the design, Claude Design or a handout, or runs /design-pull.
 ---
 
 # WinCraft design source
@@ -10,10 +10,28 @@ code-changes log) is in the global `design-pull` skill. Tool and login facts
 are in `claude-design-connect`. This file holds only WinCraft's facts and the
 user's decisions.
 
-- **Source of truth:** Claude Design project "Wincraft Windows Utilities
-  Design", id `2799b359-d98e-4741-afbe-67e08618bcf1`,
-  https://claude.ai/design/p/2799b359-d98e-4741-afbe-67e08618bcf1. Type:
-  design project. Design system it uses: "classical" (the `_ds/` bundle).
+- **Source of truth:** the Design artifact "Wincraft Windows Utilities
+  Design", https://claude.ai/artifact/S5fEimN5sS6oqHgwJVRxPn (moved there by
+  Claude's own migrator on 2026-11-07, 38 of 38 pages, because standalone
+  Claude Design closes by 2026-12-14). Every page sits at
+  `project/<page name>` in that artifact, with the same names as before
+  (spaces kept). Read a page with the Artifact tool: action `read`, the url
+  above, `path: "project/<page name>"`; it saves the file to the scratchpad.
+  Never use DesignSync for it any more. Design system it uses: "classical"
+  (the `project/_ds/` bundle).
+- **Converted pages:** the moved artifact is in "compat" mode (whole pages,
+  no canvas). Its "Convert to Artboards" button does not convert in place: a
+  Claude session redraws one page into a new, separate Design artifact, with
+  small changes. So pages are converted one at a time, only when the design
+  session next works on that screen (user's decision, 2026-11-07). Converted
+  so far: Shortcut Manager → https://claude.ai/artifact/UR5HqjDAAoEf12FEbU1fk2
+  (`Main.dc.html` the window, `Rules.dc.html` the notes). It has real buttons
+  and lighter greys than the source; the user or the design session checks
+  those two changes before the code follows them. For any converted page, the
+  converted artifact is the source; for the rest, the moved artifact.
+- **Old project:** Claude Design project id
+  `2799b359-d98e-4741-afbe-67e08618bcf1`. It is now behind the move; read
+  nothing from it and change nothing in it.
 - **Copies:** `design/claude-design/`, committed (user's decision,
   2026-10-27; until then they sat git-ignored in `_dev_docs/claude-design/`).
   Record in `design/claude-design/FETCHED.md`. UI changes made in code go into
