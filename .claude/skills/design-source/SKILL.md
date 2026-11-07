@@ -19,6 +19,16 @@ user's decisions.
   above, `path: "project/<page name>"`; it saves the file to the scratchpad.
   Never use DesignSync for it any more. Design system it uses: "classical"
   (the `project/_ds/` bundle).
+- **Converted pages:** the moved artifact is in "compat" mode (whole pages,
+  no canvas). Its "Convert to Artboards" button does not convert in place: a
+  Claude session redraws one page into a new, separate Design artifact, with
+  small changes. So pages are converted one at a time, only when the design
+  session next works on that screen (user's decision, 2026-11-07). Converted
+  so far: Shortcut Manager → https://claude.ai/artifact/UR5HqjDAAoEf12FEbU1fk2
+  (`Main.dc.html` the window, `Rules.dc.html` the notes). It has real buttons
+  and lighter greys than the source; the user or the design session checks
+  those two changes before the code follows them. For any converted page, the
+  converted artifact is the source; for the rest, the moved artifact.
 - **Old project:** Claude Design project id
   `2799b359-d98e-4741-afbe-67e08618bcf1`. It is now behind the move; read
   nothing from it and change nothing in it.
