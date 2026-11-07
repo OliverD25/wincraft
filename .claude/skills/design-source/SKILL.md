@@ -61,6 +61,7 @@ user's decisions.
 | --- | --- |
 | `Arrange Strip.dc.html`, `design_handoff_arrange_strip/README.md` | `src/ui/arrange.rs`, `src/ui/arrange/`, `src/plugins/window_deck/` |
 | `Arrange Strip Compact Options.dc.html` (8a chosen) | `src/ui/arrange/compact.rs` |
+| `Window Deck Few Windows Options.dc.html` (C chosen 2026-11-07: compact cards and no toolbar on a monitor that is not the main one) | `src/ui/arrange/by_monitor/`, `src/ui/arrange/compact.rs`, `src/plugins/window_deck/` |
 | `About Updates.dc.html` | `src/ui/settings/about.rs`, `src/ui/widgets/row.rs` |
 | `Hotkey Editor Options.dc.html` (1c), `design_handoff_hotkey_editor/README.md` | `src/ui/widgets/hotkey_dialog.rs`, `src/ui/widgets/hotkey_capture.rs` |
 | `Keyboard Shortcuts.dc.html` | `src/ui/settings/shortcuts.rs`, `src/ui/settings/hotkey_status.rs` |
