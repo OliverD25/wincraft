@@ -18,6 +18,10 @@ use super::{app_icon, details_panel, draft, name_card, ListUi, Outcome, DETAILS,
 pub const COLUMNS: usize = 4;
 const PAD_X: f32 = 20.0;
 const PAD_TOP: f32 = 18.0;
+/// The app icon left of a card's title and app line.
+const ICON: f32 = 32.0;
+/// How far the title and app line start right of the icon's left edge.
+const TEXT_SHIFT: f32 = ICON + 10.0;
 const PAD_BOTTOM: f32 = 22.0;
 const HEADER: f32 = 28.0;
 const HEADER_GAP: f32 = 18.0;
@@ -482,7 +486,7 @@ fn draw_card(
         }
         _ => {
             painter.rect_filled(picture, 6, theme::with_alpha(tokens.panel_bg, NOT_OPEN));
-            app_icon(
+            let _ = app_icon(
                 ui,
                 painter,
                 state,
@@ -506,6 +510,16 @@ fn draw_card(
             tokens.text_secondary,
         );
     }
+    let alpha = icon_alpha(card.state);
+    let icon = Rect::from_min_size(
+        pos2(inner.left() + 2.0, picture.bottom() + 14.0),
+        vec2(ICON, ICON),
+    );
+    if !app_icon(ui, painter, state, card, icon, alpha) {
+        letter_icon(painter, icon, &card.app_name, &tokens, alpha);
+    }
+    let text_left = inner.left() + 2.0 + TEXT_SHIFT;
+    let width = width - TEXT_SHIFT;
     let title = super::clip_text(
         painter,
         card.title_line(),
@@ -513,7 +527,7 @@ fn draw_card(
         width - 22.0,
     );
     painter.text(
-        pos2(inner.left() + 2.0, picture.bottom() + 10.0),
+        pos2(text_left, picture.bottom() + 10.0),
         Align2::LEFT_TOP,
         title,
         theme::regular(18.0),
@@ -526,7 +540,7 @@ fn draw_card(
     };
     let second = super::clip_text(painter, &second, theme::regular(13.0), width);
     painter.text(
-        pos2(inner.left() + 2.0, picture.bottom() + 36.0),
+        pos2(text_left, picture.bottom() + 36.0),
         Align2::LEFT_TOP,
         second,
         theme::regular(13.0),
@@ -562,6 +576,37 @@ fn draw_card(
         card.digit.to_string(),
         theme::semibold(15.0),
         cap_text,
+    );
+}
+
+/// A closed window's icon is faded like the rest of its card.
+fn icon_alpha(state: State) -> f32 {
+    match state {
+        State::Open | State::InFront => 1.0,
+        _ => NOT_OPEN,
+    }
+}
+
+/// The first letter of the app, for an app whose exe gave no icon.
+fn first_letter(app: &str) -> String {
+    app.chars()
+        .find(|c| c.is_alphanumeric())
+        .map(|c| c.to_uppercase().collect())
+        .unwrap_or_else(|| "?".to_owned())
+}
+
+fn letter_icon(painter: &Painter, rect: Rect, app: &str, tokens: &Tokens, alpha: f32) {
+    painter.rect_filled(
+        rect,
+        7,
+        theme::with_alpha(tokens.text_primary, 0.10 * alpha),
+    );
+    painter.text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        first_letter(app),
+        theme::semibold(16.0),
+        tokens.text_secondary.gamma_multiply(alpha),
     );
 }
 
@@ -644,5 +689,24 @@ mod tests {
         let second = card_rect(pos2(0.0, 0.0), 4);
         assert_eq!(second.left(), 0.0);
         assert!(second.top() > CARD_H + CAP);
+    }
+
+    #[test]
+    fn a_card_icon_is_faded_only_when_the_window_is_not_open() {
+        assert_eq!(icon_alpha(State::Open), 1.0);
+        assert_eq!(icon_alpha(State::InFront), 1.0);
+        assert_eq!(icon_alpha(State::NotOpen), NOT_OPEN);
+    }
+
+    #[test]
+    fn the_fallback_icon_shows_the_apps_first_letter() {
+        assert_eq!(first_letter("notepad"), "N");
+        assert_eq!(first_letter("  .Ärger"), "Ä");
+        assert_eq!(first_letter(""), "?");
+    }
+
+    #[test]
+    fn the_title_starts_right_of_the_icon_with_a_10_px_gap() {
+        assert_eq!(TEXT_SHIFT, 42.0);
     }
 }

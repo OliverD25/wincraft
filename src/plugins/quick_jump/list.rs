@@ -347,7 +347,7 @@ fn app_icon(
     view: &SlotView,
     rect: Rect,
     alpha: f32,
-) {
+) -> bool {
     let reference = match view.hwnd {
         Some(hwnd) => IconRef::Window {
             hwnd,
@@ -366,7 +366,9 @@ fn app_icon(
             Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
             Color32::WHITE.gamma_multiply(alpha),
         );
+        return true;
     }
+    false
 }
 
 fn name_card(painter: &Painter, area: Rect, name: &str, tokens: &Tokens, alpha: f32) {
