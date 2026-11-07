@@ -97,6 +97,7 @@ pub(super) fn flat(
     desktops: &[ArrangeDesktop],
     content: Rect,
     menu_open: bool,
+    style: other_monitor::Cards,
 ) -> Frame {
     let tokens = Tokens::get(ui.ctx());
     let visible = shared.visible(group);
@@ -110,7 +111,11 @@ pub(super) fn flat(
 
     let numbers = taskbar_numbers(group, desktops);
     let flat: Vec<usize> = rows.iter().flat_map(|row| row.members.clone()).collect();
-    let widths = shared.widths(group, card_width);
+    let widths = match style {
+        other_monitor::Cards::Strip => shared.widths(group, card_width),
+        other_monitor::Cards::Tiles(tiles) => vec![tiles.width; group.windows.len()],
+    };
+    let tiled = style != other_monitor::Cards::Strip;
     if shared
         .cursor
         .is_none_or(|hwnd| !flat.iter().any(|m| group.windows[*m].hwnd == hwnd))
@@ -191,8 +196,14 @@ pub(super) fn flat(
                         ui.add_space(ROW_GAP);
                     }
                     let row_top = ui.cursor().min.y;
-                    text::single(ui, text::section_job(&row.title, tokens.text_secondary));
-                    ui.add_space(HEADER_GAP);
+                    if tiled && row_index == 0 {
+                        // The short header says which app; this desktop
+                        // needs no name of its own.
+                        ui.add_space(other_monitor::RING_ROOM);
+                    } else {
+                        text::single(ui, text::section_job(&row.title, tokens.text_secondary));
+                        ui.add_space(HEADER_GAP);
+                    }
                     let mut cards_here: Vec<Rect> = Vec::new();
                     // Rows wrap rather than scroll sideways, so the one scroll
                     // area left is the vertical one and takes the wheel.
@@ -217,7 +228,7 @@ pub(super) fn flat(
                                 ui.spacing_mut().item_spacing = vec2(CARD_GAP, 0.0);
                                 for slot in &layout[row_index][line] {
                                     let Slot::Window(member) = *slot else {
-                                        gap(ui, gap_width);
+                                        gap(ui, gap_width, style);
                                         continue;
                                     };
                                     let window = &group.windows[member];
@@ -234,28 +245,30 @@ pub(super) fn flat(
                                     let motion = shared.motion(window.hwnd);
                                     let waiting = shared.waiting_note(window.hwnd);
                                     let animate = shared.animate;
-                                    let (response, picture, rename, clear) = card(
-                                        ui,
-                                        widths[member],
-                                        window,
-                                        desktop_name,
-                                        CardInfo {
-                                            number: numbers[member],
-                                            can_rename,
-                                            has_picture,
-                                            is_cursor,
-                                            leaving,
-                                            motion,
-                                            awake: shared.pointer.moved(),
-                                            slides: &mut shared.slides,
-                                            animate,
-                                            waiting,
-                                            edit: shared
-                                                .rename
-                                                .as_mut()
-                                                .filter(|edit| edit.hwnd == window.hwnd),
-                                        },
-                                    );
+                                    let info = CardInfo {
+                                        number: numbers[member],
+                                        can_rename,
+                                        has_picture,
+                                        is_cursor,
+                                        leaving,
+                                        motion,
+                                        awake: shared.pointer.moved(),
+                                        slides: &mut shared.slides,
+                                        animate,
+                                        waiting,
+                                        edit: shared
+                                            .rename
+                                            .as_mut()
+                                            .filter(|edit| edit.hwnd == window.hwnd),
+                                    };
+                                    let (response, picture, rename, clear) = match style {
+                                        other_monitor::Cards::Strip => {
+                                            card(ui, widths[member], window, desktop_name, info)
+                                        }
+                                        other_monitor::Cards::Tiles(tiles) => {
+                                            other_monitor::tile_card(ui, tiles, window, info)
+                                        }
+                                    };
                                     if rename {
                                         frame.actions.push(ArrangeAction::AskName(window.hwnd));
                                     }
@@ -327,21 +340,21 @@ pub(super) fn flat(
 
     // The dragged card rides above everything, following the pointer.
     if let (Some(drag), Some(member), Some(pointer)) = (shared.drag.as_ref(), dragged, pointer) {
-        let rect = Rect::from_min_size(pointer - drag.grab, vec2(widths[member], CARD_HEIGHT));
+        let rect = Rect::from_min_size(pointer - drag.grab, vec2(widths[member], style.height()));
         let window = &group.windows[member];
         let layer = ctx.layer_painter(egui::LayerId::new(
             egui::Order::Tooltip,
             egui::Id::new("arrange-drag"),
         ));
         layer.rect_filled(rect, tokens.radius_tile, tokens.hover_bg);
-        if let Some(monitor) = &window.monitor {
+        if let (Some(monitor), false) = (&window.monitor, tiled) {
             monitor_chip(&layer, rect, monitor);
         }
         float_picture(
             &layer,
             &mut frame,
             window.hwnd,
-            picture_area(rect),
+            style.picture(rect),
             menu_open,
         );
         frame.floating = Some(rect);

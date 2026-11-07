@@ -38,6 +38,7 @@ mod hold;
 mod input;
 mod life;
 mod motion;
+mod other_monitor;
 mod others;
 mod pictures;
 mod pointer;
@@ -49,6 +50,7 @@ mod seen;
 mod sizing;
 mod slide;
 mod strip;
+mod tile;
 mod window;
 pub use cards::*;
 use flat::*;
@@ -367,11 +369,27 @@ impl Shared {
         visible_flags(group, monitors, self.only_monitor)
     }
 
-    fn panel(&self) -> Vec2 {
-        let limit = self
-            .monitor
+    /// What the strip may use on its monitor, in logical points.
+    fn limit(&self) -> Vec2 {
+        self.monitor
             .map(|monitor| monitor.limit())
-            .unwrap_or(vec2(1600.0, 900.0));
+            .unwrap_or(vec2(1600.0, 900.0))
+    }
+
+    fn panel(&self) -> Vec2 {
+        let limit = self.limit();
+        if let (Some(tiles), Some(group), Some(snapshot)) =
+            (self.tiles(), self.group(), &self.snapshot)
+        {
+            let count = self.others_count();
+            let rows = shown_rows(
+                group,
+                &snapshot.desktops,
+                self.others.shown(count),
+                &self.visible(group),
+            );
+            return other_monitor::panel_size(&rows, tiles, count > 0, snapshot.keeps_order, limit);
+        }
         match (self.group(), &self.snapshot) {
             (Some(group), Some(snapshot)) if self.compact() => {
                 compact::panel_size(self, group, snapshot).min(limit)

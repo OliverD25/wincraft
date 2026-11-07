@@ -62,7 +62,10 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
     let tokens = Tokens::get(ui.ctx());
     let panel = ui.max_rect();
     let view = shared.view();
+    // The compact cards of a monitor that is not the main one, when they fit.
+    let tiles = shared.tiles();
     let background = match view {
+        _ if tiles.is_some() => tokens.window_bg,
         ArrangeView::ByMonitor => tokens.window_bg,
         _ => tokens.elevated_bg,
     };
@@ -135,6 +138,10 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
     let visible = shared.visible(&group);
     let compact = compact::applies(&group, &snapshot.desktops, &visible);
     let (chosen_group, chosen_view) = if compact {
+        (None, None)
+    } else if shared.short_header() {
+        let others_count = others::count(&group, &snapshot.desktops, &visible);
+        other_monitor::header(ui, shared, panel, &group, &snapshot, others_count);
         (None, None)
     } else {
         toolbar(ui, bar, &snapshot, &group, view, &visible)
@@ -212,8 +219,8 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
             }
         }
     }
-    if view != ArrangeView::ByMonitor {
-        // The Flat view has no ghosts.
+    if view != ArrangeView::ByMonitor || tiles.is_some() {
+        // The Flat view and the compact cards have no ghosts.
         shared.cursor_ghost = false;
     }
     let mut frame = match view {
@@ -224,11 +231,34 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
             }
             frame
         }
+        _ if tiles.is_some() => {
+            let mut rows_area = content;
+            rows_area.min.y = panel.top() + other_monitor::CARDS_TOP;
+            let style = tiles.map_or(other_monitor::Cards::Strip, other_monitor::Cards::Tiles);
+            flat(
+                ui,
+                shared,
+                &group,
+                &snapshot.desktops,
+                rows_area,
+                menu_open,
+                style,
+            )
+        }
         ArrangeView::ByMonitor => by_monitor::body(ui, shared, &group, &snapshot, panel, menu_open),
         _ => {
             let mut rows_area = content;
             rows_area.min.y += SWITCHER;
-            flat(ui, shared, &group, &snapshot.desktops, rows_area, menu_open)
+            let style = other_monitor::Cards::Strip;
+            flat(
+                ui,
+                shared,
+                &group,
+                &snapshot.desktops,
+                rows_area,
+                menu_open,
+                style,
+            )
         }
     };
     let by_digit = frame.activate.is_none() && digit_card.is_some();

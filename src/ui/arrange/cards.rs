@@ -511,10 +511,10 @@ pub(super) fn monitor_chip(painter: &egui::Painter, card: Rect, text: &str) {
 }
 
 /// The gap a dragged card would land in, as wide as that card.
-pub(super) fn gap(ui: &mut Ui, width: f32) {
+pub(super) fn gap(ui: &mut Ui, width: f32, cards: other_monitor::Cards) {
     let tokens = Tokens::get(ui.ctx());
-    let (rect, _) = ui.allocate_exact_size(vec2(width, CARD_HEIGHT), Sense::hover());
-    let area = picture_area(rect);
+    let (rect, _) = ui.allocate_exact_size(vec2(width, cards.height()), Sense::hover());
+    let area = cards.picture(rect);
     ui.painter().rect(
         area,
         tokens.radius_row,
