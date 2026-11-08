@@ -204,7 +204,7 @@ Opened by: `Win+Alt+S`, Tray menu → **Shortcut manager**, or the palette comma
 Opened by: they show by themselves above the taskbar after a change. They take the mouse but never the keyboard.
 - **Undo**: the button on QuickJump and QuickActions notices (`Ctrl+Z` works while the notice shows).
 - **Put back**: the button on the LayoutKeeper offer "{app} restarted. Put its {n} windows back in order?"; only when **Offer to put windows back after an app restarts** is on.
-- **Layout saved: {app} in {place}.**: LayoutKeeper, after `Win+Alt+J` or Settings → Layout → **Save now**.
+- **Layout saved: {n} windows in {m} apps.**: LayoutKeeper, after `Win+Alt+J` or Settings → Layout → **Save now**.
 - **WinCraft · Putting your windows back — please wait**: the restore progress notice, when **Show restore progress** is on.
 
 ## Hotkeys
