@@ -110,6 +110,14 @@ impl LayoutKeeper {
                 }
             }
         }
+        // The saved order is what Put back restores, so it stays while the
+        // offer is on screen; a manual save is the user's word.
+        let offer_holds = reason != "manual" && self.offers.offered().is_some();
+        if let Some(group) = self.offers.offered().filter(|_| offer_holds) {
+            if !pending.iter().any(|held| held == group) {
+                pending.push(group.to_string());
+            }
+        }
         let plan = plan_save(
             self.writer.last(),
             fresh,
@@ -132,7 +140,8 @@ impl LayoutKeeper {
             write_when(reason),
         )?;
         self.released.clear();
-        if plan.backup {
+        // The copy of the old file is still owed once the offer is gone.
+        if plan.backup && !offer_holds {
             self.guard.wrote(reason == "timer");
         }
         Ok((wrote, plan.count))
@@ -286,20 +295,18 @@ impl LayoutKeeper {
             );
             return;
         }
-        match self.write_layout("manual", true) {
+        let message = match self.write_layout("manual", true) {
             Ok((_, count)) => {
                 log::info!("saved {count} windows (manual)");
                 self.last_saved = Some(clock::now_hours_minutes());
-                host::notify("LayoutKeeper", &format!("Layout saved, {count} windows"));
+                offer::saved_message(count, offer::saved_apps(self.writer.last()))
             }
             Err(err) => {
                 log::error!("could not save the layout: {err}");
-                host::notify(
-                    "LayoutKeeper",
-                    &format!("The layout could not be saved: {err}"),
-                );
+                offer::save_failed_message(&err)
             }
-        }
+        };
+        self.show_save_notice(message);
     }
 }
 

@@ -3,6 +3,7 @@ mod guard;
 mod monitors;
 // The look of the panel is shared with the host's update notice.
 pub(crate) mod notice;
+mod offer;
 mod plugin;
 mod restore;
 mod restore_plan;
@@ -203,6 +204,9 @@ pub struct LayoutKeeper {
     /// The panel has shown and gone in this run; it does not come back for
     /// windows the user opens later.
     panel_closed: bool,
+    /// Offer to put an app's windows back after it restarts.
+    offer_on: bool,
+    offers: offer::Offers,
 }
 
 impl Default for LayoutKeeper {
@@ -251,6 +255,8 @@ impl Default for LayoutKeeper {
             last_placed: None,
             bar_floor: 0,
             panel_closed: false,
+            offer_on: true,
+            offers: offer::Offers::default(),
         }
     }
 }
@@ -289,6 +295,10 @@ impl LayoutKeeper {
         self.front_order = flag(settings, "restore_front_order");
         self.restore_monitors = flag(settings, "restore_monitors");
         self.show_progress = flag(settings, "show_restore_progress");
+        self.offer_on = flag(settings, "offer_put_back");
+        if !self.offer_on && self.offers.offered().is_some() {
+            self.offers.close();
+        }
         if !self.show_progress {
             self.hide_notice();
         }

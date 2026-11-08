@@ -126,15 +126,15 @@ mod tests {
     fn the_messages_name_the_app_and_the_numbers() {
         let added = pinned("Claude", &Pinned::New { at: 2 });
         assert_eq!(added.text, "Added Claude as number 3");
-        assert!(added.undo);
+        assert!(added.has_button());
         let moved = pinned("Claude", &Pinned::Moved { from: 5, to: 2 });
         assert_eq!(moved.text, "Moved Claude from 6 to 3");
-        assert!(moved.undo);
+        assert!(moved.has_button());
         let same = pinned("Claude", &Pinned::Same { at: 9 });
-        assert!(!same.undo);
+        assert!(!same.has_button());
         assert_eq!(same.text, "Already number 10");
         assert_eq!(pinned("Claude", &Pinned::Full).text, FULL);
-        assert!(!pinned("Claude", &Pinned::Full).undo);
+        assert!(!pinned("Claude", &Pinned::Full).has_button());
         assert_eq!(
             pinned("Claude", &Pinned::Full).detail,
             None,

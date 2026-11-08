@@ -1,9 +1,10 @@
 //! The short notice a plugin shows after a change: which plugin is
-//! talking, what was done, and an Undo button when it can be undone. One
+//! talking, what was done, and one button, such as Undo when the change
+//! can be undone or Put back when LayoutKeeper offers a restore. One
 //! notice per plugin at a time; a new one takes the old one's place. It
 //! sits above the taskbar, takes the mouse but never the keyboard, and its
-//! clock stops while the mouse rests on it. QuickJump and QuickActions use
-//! it; the plugin keeps the clock and a hidden window that hears the mouse.
+//! clock stops while the mouse rests on it. QuickJump, QuickActions and
+//! LayoutKeeper use it; the plugin keeps the clock and a hidden window that hears the mouse.
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows_sys::Win32::UI::Controls::WM_MOUSELEAVE;
@@ -52,10 +53,11 @@ pub struct Message {
     pub glyph: Glyph,
     pub text: String,
     pub detail: Option<String>,
-    pub undo: bool,
-    /// The key that undoes it, drawn on the Undo button, when the plugin
+    /// The button's label, such as "Undo"; None for a notice without one.
+    pub button: Option<&'static str>,
+    /// The key that does the same, drawn on the button, when the plugin
     /// listens for one.
-    pub undo_key: Option<&'static str>,
+    pub button_key: Option<&'static str>,
 }
 
 impl Message {
@@ -65,21 +67,29 @@ impl Message {
             glyph,
             text,
             detail: None,
-            undo: false,
-            undo_key: None,
+            button: None,
+            button_key: None,
         }
     }
 
-    pub fn with_undo(mut self) -> Self {
-        self.undo = true;
-        self
+    pub fn with_undo(self) -> Self {
+        self.with_button("Undo")
     }
 
     /// With Undo, and `key` on its button.
     pub fn with_undo_key(mut self, key: &'static str) -> Self {
-        self.undo = true;
-        self.undo_key = Some(key);
+        self.button_key = Some(key);
+        self.with_button("Undo")
+    }
+
+    /// With a button that says `label`.
+    pub fn with_button(mut self, label: &'static str) -> Self {
+        self.button = Some(label);
         self
+    }
+
+    pub fn has_button(&self) -> bool {
+        self.button.is_some()
     }
 
     pub fn detail(mut self, line: String) -> Self {
@@ -100,9 +110,14 @@ pub struct Clock {
 
 impl Clock {
     pub fn new(now: u64, undo: bool) -> Self {
+        Self::lasting(now, if undo { UNDO_MS } else { PLAIN_MS })
+    }
+
+    /// A clock for a notice shown `length` milliseconds.
+    pub fn lasting(now: u64, length: u64) -> Self {
         Self {
             started: now,
-            length: if undo { UNDO_MS } else { PLAIN_MS },
+            length,
             paused: 0,
             hover_since: None,
         }
@@ -145,7 +160,7 @@ const SMALL: usize = 0;
 const SMALL_SEMI: usize = 1;
 const BODY: usize = 2;
 
-/// The picture, and where its Undo button is in its own pixels.
+/// The picture, and where its button is in its own pixels.
 pub fn render(message: &Message, scale: f32, tokens: &Tokens) -> (Canvas, Option<Area>) {
     let px = |logical: f32| logical * scale;
     let fonts = Fonts::new(&[
@@ -197,14 +212,14 @@ pub fn render(message: &Message, scale: f32, tokens: &Tokens) -> (Canvas, Option
 
     let mut right = panel.right() - px(PAD_X);
     let mut button = None;
-    if message.undo {
+    if let Some(caption) = message.button {
         let cap = Cap::new(tokens, SMALL, px(20.0), scale);
-        let cap_w = message.undo_key.map_or(0.0, |key| {
+        let cap_w = message.button_key.map_or(0.0, |key| {
             let (cap_w, _) = fonts.measure(key, SMALL);
             (cap_w as f32 + px(12.0)).max(px(20.0)).round() + px(8.0)
         });
-        let (label_w, label_h) = fonts.measure("Undo", BODY);
-        let tail = if message.undo_key.is_some() {
+        let (label_w, label_h) = fonts.measure(caption, BODY);
+        let tail = if message.button_key.is_some() {
             px(6.0)
         } else {
             px(12.0)
@@ -223,14 +238,14 @@ pub fn render(message: &Message, scale: f32, tokens: &Tokens) -> (Canvas, Option
             tokens.accent,
         );
         let label = fonts.run(
-            "Undo",
+            caption,
             BODY,
             tokens.accent,
             (area.x + px(12.0)).round() as i32,
             (middle - label_h as f32 / 2.0).round() as i32,
         );
         canvas.text(&[label], &fonts.list, 1.0);
-        if let Some(key) = message.undo_key {
+        if let Some(key) = message.button_key {
             look::keycap(
                 &mut canvas,
                 &fonts,
@@ -307,12 +322,9 @@ impl Notice {
         Some(Self { window, button })
     }
 
-    /// Whether a click at this point of the notice was on Undo.
-    pub fn on_undo(&self, x: i32, y: i32) -> bool {
-        self.button.is_some_and(|area| {
-            let (x, y) = (x as f32, y as f32);
-            x >= area.x && x < area.right() && y >= area.y && y < area.bottom()
-        })
+    /// Whether a click at this point of the notice was on its button.
+    pub fn on_button(&self, x: i32, y: i32) -> bool {
+        hits(self.button, x, y)
     }
 }
 
@@ -320,6 +332,13 @@ impl Drop for Notice {
     fn drop(&mut self) {
         self.window.destroy();
     }
+}
+
+fn hits(button: Option<Area>, x: i32, y: i32) -> bool {
+    button.is_some_and(|area| {
+        let (x, y) = (x as f32, y as f32);
+        x >= area.x && x < area.right() && y >= area.y && y < area.bottom()
+    })
 }
 
 unsafe extern "system" fn notice_proc(
@@ -411,7 +430,7 @@ mod tests {
                         .detail("Open the pin list to pin a window.".to_string()),
                 ] {
                     let (canvas, button) = render(&message, 1.5, &tokens);
-                    assert_eq!(message.undo, button.is_some());
+                    assert_eq!(message.has_button(), button.is_some());
                     if let Some(area) = button {
                         assert!(area.right() <= canvas.width as f32);
                     }
@@ -433,5 +452,35 @@ mod tests {
         let (_, keyed) = render(&with_key, 1.0, &tokens);
         let (_, bare) = render(&plain, 1.0, &tokens);
         assert!(bare.expect("a button").w < keyed.expect("a button").w);
+    }
+
+    #[test]
+    fn any_label_draws_on_the_button_and_a_click_on_it_hits() {
+        let tokens = Tokens::of(ThemeName::ALL[0], false);
+        let text = "Chrome restarted. Put its 5 windows back in order?".to_string();
+        let offer = Message::new("LayoutKeeper", Glyph::Monitor, text.clone())
+            .detail("Or press Win+Alt+L".to_string())
+            .with_button("Put back");
+        let undo = Message::new("LayoutKeeper", Glyph::Monitor, text).with_undo();
+        assert_eq!(offer.button, Some("Put back"));
+        assert_eq!(undo.button, Some("Undo"));
+        let (canvas, area) = render(&offer, 1.0, &tokens);
+        let area = area.expect("a button");
+        let (_, undo_area) = render(&undo, 1.0, &tokens);
+        assert!(
+            area.w > undo_area.expect("a button").w,
+            "the longer label is wider"
+        );
+        assert!(area.right() <= canvas.width as f32);
+        let (x, y) = (
+            (area.x + area.w / 2.0) as i32,
+            (area.y + area.h / 2.0) as i32,
+        );
+        assert!(hits(Some(area), x, y));
+        assert!(!hits(Some(area), (area.x - 4.0) as i32, y));
+        assert!(!hits(None, x, y));
+        let clock = Clock::lasting(0, 15_000);
+        assert!(!clock.expired(14_999));
+        assert!(clock.expired(15_000));
     }
 }

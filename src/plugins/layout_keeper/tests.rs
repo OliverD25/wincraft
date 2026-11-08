@@ -1074,6 +1074,8 @@ fn a_crash_burst_keeps_the_saved_windows_and_a_manual_save_copies_the_file_first
 #[test]
 fn the_first_timer_save_after_the_hold_ends_copies_the_file_first() {
     let (mut keeper, path) = keeper_with(Programs::new(), "save-release");
+    // Without the Put back offer, which holds the saved order longer.
+    keeper.offer_on = false;
     let prev = path.with_extension("prev.json");
     save_seen(&mut keeper, &four_tabs(), "timer");
     keeper.ticks = 30;
@@ -2411,4 +2413,171 @@ fn layout_save_timing_on_the_real_desktop() {
     }
     clean_up(&path);
     clean_up(&direct_path);
+}
+
+/// The keeper sees `group` with these window handles at `tick`.
+fn look_at(keeper: &mut LayoutKeeper, tick: u64, group: &str, handles: &[isize]) {
+    keeper.ticks = tick;
+    let live: Vec<windows::LiveWindow> = handles
+        .iter()
+        .map(|hwnd| live_window(*hwnd, &format!("Window {hwnd}"), group))
+        .collect();
+    keeper.watch_bursts(&live);
+}
+
+fn offer_keeper(name: &str) -> (LayoutKeeper, std::path::PathBuf) {
+    let mut programs = Programs::new();
+    for (exe, group) in [("chrome.exe", "Chrome"), ("telegram.exe", "Telegram")] {
+        programs.insert(
+            exe.to_string(),
+            ProgramState {
+                windows: vec![
+                    saved_window("One", group, DESKTOP_A, None),
+                    saved_window("Two", group, DESKTOP_A, None),
+                ],
+            },
+        );
+    }
+    let (mut keeper, path) = keeper_with(programs, name);
+    keeper.read_only = false;
+    (keeper, path)
+}
+
+/// A drop to nothing and a refill with `windows` new windows, settled.
+fn restart(keeper: &mut LayoutKeeper, windows: isize) {
+    let before: Vec<isize> = (1..=windows).collect();
+    let after: Vec<isize> = (101..=100 + windows).collect();
+    look_at(keeper, 0, "Chrome", &before);
+    look_at(keeper, 30, "Chrome", &[]);
+    look_at(keeper, 60, "Chrome", &after);
+    assert_eq!(
+        keeper.offers.offered(),
+        None,
+        "not before the count settles"
+    );
+    look_at(keeper, 90, "Chrome", &after);
+}
+
+#[test]
+fn a_restart_that_settles_offers_put_back() {
+    let (mut keeper, path) = offer_keeper("offer-refill");
+    restart(&mut keeper, 5);
+    assert_eq!(keeper.offers.offered(), Some("Chrome"));
+    let shown = keeper.offers.shown.as_ref().expect("a notice");
+    assert_eq!(
+        shown.message.text,
+        "Chrome restarted. Put its 5 windows back in order?"
+    );
+
+    // Most windows swapped for new ones between two looks.
+    let (mut keeper, _) = offer_keeper("offer-replaced");
+    look_at(&mut keeper, 0, "Chrome", &[1, 2, 3]);
+    look_at(&mut keeper, 10, "Chrome", &[11, 12, 3]);
+    assert_eq!(keeper.offers.offered(), None);
+    look_at(&mut keeper, 40, "Chrome", &[11, 12, 3]);
+    assert_eq!(keeper.offers.offered(), Some("Chrome"));
+    clean_up(&path);
+}
+
+#[test]
+fn no_offer_for_closed_windows_ordinary_use_or_one_window() {
+    let (mut keeper, path) = offer_keeper("offer-none");
+    look_at(&mut keeper, 0, "Chrome", &[1, 2, 3, 4]);
+    look_at(&mut keeper, 30, "Chrome", &[]);
+    look_at(&mut keeper, 300, "Chrome", &[]);
+    assert_eq!(keeper.offers.offered(), None, "closed on purpose");
+
+    look_at(&mut keeper, 400, "Chrome", &[1, 2, 3, 4]);
+    look_at(&mut keeper, 410, "Chrome", &[1, 2, 3, 4, 5]);
+    look_at(&mut keeper, 420, "Chrome", &[1, 2, 4, 5]);
+    look_at(&mut keeper, 600, "Chrome", &[1, 2, 4, 5]);
+    assert_eq!(keeper.offers.offered(), None, "ordinary use");
+
+    let (mut keeper, _) = offer_keeper("offer-one");
+    restart(&mut keeper, 1);
+    assert_eq!(keeper.offers.offered(), None, "a single window");
+    clean_up(&path);
+}
+
+#[test]
+fn no_offer_when_switched_off_never_touched_or_while_restoring() {
+    let (mut keeper, path) = offer_keeper("offer-off");
+    keeper.offer_on = false;
+    restart(&mut keeper, 3);
+    assert_eq!(keeper.offers.offered(), None, "the setting is off");
+
+    let (mut keeper, _) = offer_keeper("offer-excluded");
+    keeper.watch = Watch::new("*", "app.exe");
+    restart(&mut keeper, 3);
+    assert_eq!(keeper.offers.offered(), None, "on the Never touch list");
+
+    // The restore after sign-in, or one asked for, handles the group itself.
+    let (mut keeper, _) = offer_keeper("offer-restoring");
+    keeper.restore.start(0, vec!["Telegram".to_string()]);
+    restart(&mut keeper, 3);
+    assert_eq!(keeper.offers.offered(), None, "a restore is running");
+    clean_up(&path);
+}
+
+#[test]
+fn put_back_restores_only_the_offered_group_and_restore_layout_closes_the_offer() {
+    let (mut keeper, path) = offer_keeper("offer-click");
+    restart(&mut keeper, 3);
+    keeper.put_back("Chrome");
+    assert!(keeper.restore.is_running());
+    assert_eq!(keeper.restore.pending(), ["Chrome"]);
+
+    let (mut keeper, _) = offer_keeper("offer-full");
+    restart(&mut keeper, 3);
+    keeper.start_restore(false);
+    assert_eq!(keeper.offers.offered(), None);
+    let mut pending = keeper.restore.pending();
+    pending.sort();
+    assert_eq!(pending, ["Chrome", "Telegram"]);
+    clean_up(&path);
+}
+
+#[test]
+fn the_offered_group_keeps_its_saved_order_until_a_manual_save() {
+    let (mut keeper, path) = offer_keeper("offer-hold");
+    restart(&mut keeper, 2);
+    let saved = keeper.writer.last().cloned().expect("a layout");
+    let live = vec![
+        live_window(101, "New A", "Chrome"),
+        live_window(102, "New B", "Chrome"),
+    ];
+    let world = World {
+        desktops: &[],
+        monitors: &[],
+        desktop_of: &|_| None,
+        monitor_of: &|_| None,
+        today: None,
+    };
+    keeper.write_seen(&live, &world, "timer", true).unwrap();
+    assert_eq!(
+        keeper.writer.last(),
+        Some(&saved),
+        "a timer save keeps the order Put back restores"
+    );
+    // The offer went unanswered: the next timer save writes the new
+    // windows and keeps the old file aside first.
+    keeper.offers.close();
+    let prev = path.with_extension("prev.json");
+    let (wrote, _) = keeper.write_seen(&live, &world, "timer", true).unwrap();
+    assert!(wrote);
+    assert!(prev.exists(), "the old file is copied aside");
+    assert_ne!(keeper.writer.last(), Some(&saved));
+    clean_up(&path);
+}
+
+#[test]
+fn the_save_notice_takes_the_offers_place() {
+    let (mut keeper, path) = offer_keeper("offer-save");
+    restart(&mut keeper, 3);
+    keeper.show_save_notice(offer::saved_message(4, 2));
+    assert_eq!(keeper.offers.offered(), None);
+    let shown = keeper.offers.shown.as_ref().expect("a notice");
+    assert_eq!(shown.message.text, "Layout saved: 4 windows in 2 apps.");
+    assert_eq!(offer::saved_apps(keeper.writer.last()), 2);
+    clean_up(&path);
 }
