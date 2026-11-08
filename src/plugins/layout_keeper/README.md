@@ -38,7 +38,11 @@ For every window:
 - its place in the front-to-back order, across all apps.
 
 The layout is saved every 30 seconds when it changed, when Windows shuts down
-or restarts, and when you press **Save layout now**. It lives in
+or restarts, and when you press **Save layout now**. After **Save layout now**
+(`Win+Alt+J`, the **Save now** button on the Layout page or the palette
+command) a short notice above the taskbar says what was saved, such as
+"Layout saved: 23 windows in 7 apps.", or "Could not save the layout." with
+the reason. The 30-second saves stay silent. It lives in
 `%LOCALAPPDATA%\WinCraft\plugins\layout_keeper.state.json`; the palette command
 **Open state file** shows it. Its `saved` field is your local time with its
 offset from UTC, such as `2026-09-25T02:48:11+03:00`. Files written before
@@ -88,6 +92,21 @@ LayoutKeeper does not save that scrambled order over the good one:
 
 Other groups are saved as normal during a hold, and **Save layout now** is
 never held. The log says when a hold starts and ends.
+
+When the number of windows has been steady for 30 seconds after a restart,
+WinCraft offers to fix the order: a notice above the taskbar says, for
+example, "Chrome restarted. Put its 5 windows back in order?", with the line
+"Or press Win+Alt+L" (your own Restore layout hotkey) and a **Put back**
+button. Nothing moves until you click it. **Put back** restores only that
+app's windows (their monitors, desktops, taskbar order and front-to-back
+order) from the layout saved before the restart, with the please-wait panel
+as for any restore. `Win+Alt+L` restores every app as usual and closes the
+notice. The notice stays about 15 seconds, longer while the mouse is on it.
+While it shows, the saved order of that app is kept; if it goes unanswered,
+saving goes on as normal. There is no offer for an app with one window, an
+app on the **Never touch** list, after windows were closed on purpose, or
+while a restore runs (such as the one after sign-in). The setting **Offer to
+put windows back after an app restarts** switches it off.
 
 ## Restoring
 
@@ -413,5 +432,6 @@ saved order.
 | Wait for apps to open (minutes) | 30 | How long to wait for an app that has opened no window yet. |
 | Save every (seconds) | 30 | How often the layout is saved when it changed. |
 | Show restore progress | on | The please-wait panel and the tray tooltip while windows are put back. |
+| Offer to put windows back after an app restarts | on | When an app such as Chrome closes and opens all its windows again, WinCraft shows a notice with a **Put back** button. Nothing moves until you click it. |
 | Restore which window is in front | on | Also restore the front-to-back order. |
 | Restore monitors | on | Also move each window back to its saved monitor; a window whose monitor is not connected stays where it is. |
