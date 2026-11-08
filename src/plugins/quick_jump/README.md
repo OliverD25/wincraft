@@ -139,9 +139,24 @@ A spot on a monitor that is gone or smaller is moved onto the nearest screen.
 | ↑ ↓ ← → | Select a card |
 | Enter, double-click, 1 to 0 | Jump, and close Quick access |
 | Ctrl+arrows, drag | Move the window to another place |
-| Del | Unpin the window; the ones after it move up |
+| Del, middle click | Unpin the window; the ones after it move up |
 | F2, click the selected card | Open the details |
-| Esc | Close the details, then Quick access |
+| Right click, Menu key, Shift+F10 | Open the card's menu |
+| Esc | Close the menu, or stop a drag; then the details, then Quick access |
+
+A dragged card lifts above the others and follows the mouse. The other
+cards slide aside to open a gap where it will land, and it slides into the
+gap when you let go. Esc during a drag puts everything back. Ctrl+arrow
+moves slide the same way, and an unpinned card fades out while the cards
+after it close the gap. With the Windows setting "Animation effects" off,
+the cards change places at once.
+
+The card's menu has "Jump to it", "Put at number" (1 to 10, with the
+card's own number marked), "Edit details" (F2), "Unpin" (Del) and, only
+while the window is open, "Close the window". That one closes the real
+window, as its own close button would, and only when you pick it. Every
+move and unpin shows the notice with Undo (Ctrl+Z), whichever way you made
+it.
 
 The details give a pin a label, which the tip and Quick access show instead
 of the window's title, and set how QuickJump finds the window: the app, and

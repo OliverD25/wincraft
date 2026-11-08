@@ -4,6 +4,7 @@ pub mod fuzzy;
 mod palette;
 mod peek;
 pub(crate) mod settings;
+pub(crate) mod slide;
 mod spot;
 pub mod taskbar_badges;
 pub(crate) mod widgets;

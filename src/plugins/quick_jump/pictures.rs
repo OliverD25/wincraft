@@ -70,6 +70,19 @@ impl Pictures {
         pixels_per_point: f32,
         scale: Option<f32>,
     ) -> Option<Rect> {
+        self.show_faded(hwnd, area, pixels_per_point, scale, 1.0)
+    }
+
+    /// `show_scaled` with only `alpha` of the picture showing (0 to 1), for
+    /// a card that fades out.
+    pub fn show_faded(
+        &mut self,
+        hwnd: isize,
+        area: Rect,
+        pixels_per_point: f32,
+        scale: Option<f32>,
+        alpha: f32,
+    ) -> Option<Rect> {
         let source = self.source(hwnd)?;
         let size = match scale {
             Some(scale) => source.size() * scale,
@@ -80,10 +93,16 @@ impl Pictures {
         thumb.place(Some(Placement {
             dest: dwm_thumbs::physical(dest, pixels_per_point),
             source: dwm_thumbs::physical(source, 1.0),
-            opacity: 255,
+            opacity: (alpha.clamp(0.0, 1.0) * 255.0).round() as u8,
         }));
         self.used.insert(hwnd);
         Some(dest)
+    }
+
+    /// Puts the window's picture above the others from the next frame on,
+    /// for a card that is dragged over them: DWM draws the newest on top.
+    pub fn raise(&mut self, hwnd: isize) {
+        self.thumbs.remove(&hwnd);
     }
 
     pub fn end(&mut self) {

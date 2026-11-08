@@ -39,8 +39,18 @@ pub(super) struct Shown {
     pub(super) message: Message,
     notice: Option<Notice>,
     clock: Clock,
-    /// The group Put back restores; None for a notice without the button.
-    pub(super) put_back: Option<String>,
+    /// The groups Put back restores; empty for a notice without the button.
+    pub(super) put_back: Vec<Offered>,
+}
+
+/// One restarted group in the offer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Offered {
+    pub(super) group: String,
+    pub(super) exe: String,
+    /// What the restore panel calls it, for an offer of this group alone.
+    pub(super) label: String,
+    pub(super) windows: usize,
 }
 
 #[derive(Default)]
@@ -53,16 +63,38 @@ pub(super) struct Offers {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Outcome {
     Nothing,
-    /// Put back was clicked for this group.
-    PutBack(String),
-    /// The offer for this group went away unanswered.
-    Expired(String),
+    /// Put back was clicked for these groups.
+    PutBack(Vec<String>),
+    /// The offer for these groups went away unanswered.
+    Expired(Vec<String>),
 }
 
 impl Offers {
+    /// Offers Put back for `entry`. An offer already on screen takes it in,
+    /// so groups that restart together share one notice, and its clock
+    /// starts again. Returns the groups the notice now holds.
+    pub(super) fn offer(&mut self, entry: Offered, key: Option<&str>, now: u64) -> &[Offered] {
+        let mut groups = self
+            .shown
+            .as_ref()
+            .map(|shown| shown.put_back.clone())
+            .unwrap_or_default();
+        groups.retain(|offered| offered.group != entry.group);
+        groups.push(entry);
+        let message = offer_message(&groups, key);
+        self.show_at(message, groups, OFFER_MS, now);
+        self.shown
+            .as_ref()
+            .map_or(&[], |shown| shown.put_back.as_slice())
+    }
+
     /// Shows `message`, in place of any notice shown before. `put_back`
-    /// names the group the button restores.
-    pub(super) fn show(&mut self, message: Message, put_back: Option<String>, length: u64) {
+    /// names the groups the button restores.
+    pub(super) fn show(&mut self, message: Message, put_back: Vec<Offered>, length: u64) {
+        self.show_at(message, put_back, length, now_ms());
+    }
+
+    fn show_at(&mut self, message: Message, put_back: Vec<Offered>, length: u64, now: u64) {
         self.close();
         // A unit test never puts a window on the screen.
         let notice = if cfg!(test) {
@@ -75,7 +107,7 @@ impl Offers {
             #[cfg(test)]
             message,
             notice,
-            clock: Clock::lasting(now_ms(), length),
+            clock: Clock::lasting(now, length),
             put_back,
         });
     }
@@ -84,14 +116,21 @@ impl Offers {
         self.shown = None;
     }
 
-    /// The group an offer on screen is for.
-    pub(super) fn offered(&self) -> Option<&str> {
-        self.shown.as_ref()?.put_back.as_deref()
+    /// The groups an offer on screen is for.
+    pub(super) fn offered(&self) -> Vec<String> {
+        self.shown
+            .iter()
+            .flat_map(|shown| &shown.put_back)
+            .map(|offered| offered.group.clone())
+            .collect()
     }
 
     /// Handles what the notice heard, then lets an expired notice go.
     pub(super) fn step(&mut self) -> Outcome {
-        let now = now_ms();
+        self.step_at(now_ms())
+    }
+
+    fn step_at(&mut self, now: u64) -> Outcome {
         for (msg, lparam) in HEARD.with(|heard| std::mem::take(&mut *heard.borrow_mut())) {
             let Some(shown) = self.shown.as_mut() else {
                 continue;
@@ -104,10 +143,10 @@ impl Offers {
                         .notice
                         .as_ref()
                         .is_some_and(|notice| notice.on_button(point.x, point.y));
-                    let group = shown.put_back.clone();
+                    let groups = self.offered();
                     self.close();
-                    if let (true, Some(group)) = (on_button, group) {
-                        return Outcome::PutBack(group);
+                    if on_button && !groups.is_empty() {
+                        return Outcome::PutBack(groups);
                     }
                 }
                 _ => {}
@@ -118,9 +157,10 @@ impl Offers {
             .as_ref()
             .is_some_and(|shown| shown.clock.expired(now))
         {
-            let group = self.shown.take().and_then(|shown| shown.put_back);
-            if let Some(group) = group {
-                return Outcome::Expired(group);
+            let groups = self.offered();
+            self.close();
+            if !groups.is_empty() {
+                return Outcome::Expired(groups);
             }
         }
         Outcome::Nothing
@@ -221,45 +261,66 @@ impl LayoutKeeper {
             stored_restore_key()
         };
         let label = self.label_of(group);
-        let message = offer_message(&label, mine.len(), key.as_deref());
-        log::info!(
-            "offered to put the {} windows of \"{label}\" back after its restart",
-            mine.len()
-        );
-        self.offers.show(message, Some(group.to_string()), OFFER_MS);
+        let entry = Offered {
+            group: group.to_string(),
+            exe: mine[0].identity.exe.clone(),
+            label: label.clone(),
+            windows: mine.len(),
+        };
+        let groups = self.offers.offer(entry, key.as_deref(), now_ms());
+        if groups.len() == 1 {
+            log::info!(
+                "offered to put the {} windows of \"{label}\" back after its restart",
+                mine.len()
+            );
+        } else {
+            log::info!(
+                "\"{label}\" ({} windows) joined the offer on screen, which now holds {} groups with {} windows",
+                mine.len(),
+                groups.len(),
+                groups.iter().map(|offered| offered.windows).sum::<usize>()
+            );
+        }
     }
 
     /// The mouse on the notice, Put back clicked, or the notice due to go.
     pub(super) fn offer_step(&mut self) {
         match self.offers.step() {
             Outcome::Nothing => {}
-            Outcome::PutBack(group) => self.put_back(&group),
-            Outcome::Expired(group) => log::info!(
-                "the offer to put \"{}\" back went unanswered",
-                self.label_of(&group)
+            Outcome::PutBack(groups) => self.put_back(&groups),
+            Outcome::Expired(groups) => log::info!(
+                "the offer to put {} back went unanswered",
+                self.quoted(&groups)
             ),
         }
     }
 
-    /// Put back was clicked: restores that group alone, from the layout
-    /// saved before its restart.
-    pub(super) fn put_back(&mut self, group: &str) {
-        log::info!(
-            "Put back clicked: restoring \"{}\" only",
-            self.label_of(group)
-        );
-        self.start_restore_of(false, Some(group));
+    /// Put back was clicked: restores those groups and no other, from the
+    /// layout saved before their restart. Each group gets its order once
+    /// its own windows hold still, as in any restore.
+    pub(super) fn put_back(&mut self, groups: &[String]) {
+        log::info!("Put back clicked: restoring {} only", self.quoted(groups));
+        self.start_restore_of(false, Some(groups));
+    }
+
+    fn quoted(&self, groups: &[String]) -> String {
+        groups
+            .iter()
+            .map(|group| format!("\"{}\"", self.label_of(group)))
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     /// The word after Save layout now; it takes the offer's place.
     pub(super) fn show_save_notice(&mut self, message: Message) {
-        if let Some(group) = self.offers.offered() {
+        let groups = self.offers.offered();
+        if !groups.is_empty() {
             log::info!(
-                "the offer to put \"{}\" back gave way to the save notice",
-                self.label_of(group)
+                "the offer to put {} back gave way to the save notice",
+                self.quoted(&groups)
             );
         }
-        self.offers.show(message, None, shared::PLAIN_MS);
+        self.offers.show(message, Vec::new(), shared::PLAIN_MS);
     }
 }
 
@@ -287,11 +348,35 @@ pub(super) fn may_offer(on: bool, restoring: bool, watched: bool, windows: usize
     on && !restoring && watched && windows >= 2
 }
 
-/// The offer for an app with `windows` windows; `key` is the Restore
-/// layout hotkey as stored in the plugin's file, None when nothing is
-/// stored (the default).
-pub(super) fn offer_message(label: &str, windows: usize, key: Option<&str>) -> Message {
-    let text = format!("{label} restarted. Put its {windows} windows back in order?");
+/// The offer for these groups; `key` is the Restore layout hotkey as
+/// stored in the plugin's file, None when nothing is stored (the default).
+/// One group goes by its own label; groups of one program by the program's
+/// name; groups of several programs by up to two names and a count.
+pub(super) fn offer_message(groups: &[Offered], key: Option<&str>) -> Message {
+    let windows: usize = groups.iter().map(|offered| offered.windows).sum();
+    let mut apps: Vec<String> = Vec::new();
+    for offered in groups {
+        let name = identity::program_name(&offered.exe);
+        if !apps.contains(&name) {
+            apps.push(name);
+        }
+    }
+    let text = match (groups, apps.as_slice()) {
+        ([one], _) => format!(
+            "{} restarted. Put its {windows} windows back in order?",
+            one.label
+        ),
+        (_, [app]) => format!("{app} restarted. Put its {windows} windows back in order?"),
+        (_, [first, second]) => format!(
+            "{first} and {second} restarted. Put their {windows} windows back in order?"
+        ),
+        (_, [first, second, rest @ ..]) => format!(
+            "{first}, {second} and {} more {} restarted. Put their {windows} windows back in order?",
+            rest.len(),
+            if rest.len() == 1 { "app" } else { "apps" }
+        ),
+        _ => format!("Apps restarted. Put their {windows} windows back in order?"),
+    };
     let mut message = Message::new(NAME, Glyph::Monitor, text).with_button(PUT_BACK);
     if let Some(line) = key_line(key) {
         message = message.detail(line);
@@ -344,7 +429,7 @@ mod tests {
 
     #[test]
     fn the_offer_names_the_app_its_windows_and_the_key_the_user_set() {
-        let message = offer_message("Chrome", 5, None);
+        let message = offer_message(&[entry("Chrome", "chrome.exe", 5)], None);
         assert_eq!(message.app, "LayoutKeeper");
         assert_eq!(
             message.text,
@@ -352,9 +437,68 @@ mod tests {
         );
         assert_eq!(message.detail.as_deref(), Some("Or press Win+Alt+L"));
         assert_eq!(message.button, Some("Put back"));
-        let rebound = offer_message("Telegram", 2, Some("win+ctrl+r"));
+        let telegram = [entry("Telegram", "telegram.exe", 2)];
+        let rebound = offer_message(&telegram, Some("win+ctrl+r"));
         assert_eq!(rebound.detail.as_deref(), Some("Or press Win+Ctrl+R"));
-        assert_eq!(offer_message("Chrome", 2, Some("")).detail, None);
+        assert_eq!(offer_message(&telegram, Some("")).detail, None);
+    }
+
+    fn entry(group: &str, exe: &str, windows: usize) -> Offered {
+        Offered {
+            group: group.to_string(),
+            exe: exe.to_string(),
+            label: group.to_string(),
+            windows,
+        }
+    }
+
+    #[test]
+    fn groups_of_one_program_go_by_its_name_and_several_programs_by_and() {
+        let main = entry("Chrome · Dmytro (Oliver)", "chrome.exe", 24);
+        let gemini = entry("Chrome · Google Gemini WebAPP", "chrome.exe", 4);
+        let telegram = entry("Telegram", "telegram.exe", 5);
+        let notepad = entry("Notepad", "notepad.exe", 2);
+        let text = |groups: &[Offered]| offer_message(groups, None).text;
+        assert_eq!(
+            text(&[main.clone(), gemini.clone()]),
+            "Chrome restarted. Put its 28 windows back in order?"
+        );
+        assert_eq!(
+            text(&[gemini.clone(), telegram.clone()]),
+            "Chrome and Telegram restarted. Put their 9 windows back in order?"
+        );
+        assert_eq!(
+            text(&[main.clone(), telegram.clone(), notepad.clone(), gemini]),
+            "Chrome, Telegram and 1 more app restarted. Put their 35 windows back in order?"
+        );
+        let paint = entry("Paint", "mspaint.exe", 2);
+        assert!(text(&[main, telegram, notepad, paint]).contains("and 2 more apps restarted"));
+    }
+
+    #[test]
+    fn an_offer_that_comes_while_one_shows_joins_it_and_starts_its_clock_again() {
+        let mut offers = Offers::default();
+        let main = entry("Chrome · Dmytro (Oliver)", "chrome.exe", 24);
+        let gemini = entry("Chrome · Google Gemini WebAPP", "chrome.exe", 4);
+        offers.offer(main.clone(), None, 0);
+        assert_eq!(offers.offer(gemini.clone(), None, 10_000).len(), 2);
+        let shown = offers.shown.as_ref().expect("one notice");
+        assert_eq!(
+            shown.message.text,
+            "Chrome restarted. Put its 28 windows back in order?"
+        );
+        // The same group again takes the place of its own entry.
+        assert_eq!(offers.offer(gemini.clone(), None, 10_000).len(), 2);
+        assert_eq!(
+            offers.step_at(OFFER_MS),
+            Outcome::Nothing,
+            "the join started the clock again"
+        );
+        assert_eq!(
+            offers.step_at(10_000 + OFFER_MS),
+            Outcome::Expired(vec![main.group, gemini.group])
+        );
+        assert!(offers.offered().is_empty(), "expiry lets every group go");
     }
 
     #[test]

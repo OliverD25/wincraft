@@ -112,10 +112,11 @@ impl LayoutKeeper {
         }
         // The saved order is what Put back restores, so it stays while the
         // offer is on screen; a manual save is the user's word.
-        let offer_holds = reason != "manual" && self.offers.offered().is_some();
-        if let Some(group) = self.offers.offered().filter(|_| offer_holds) {
-            if !pending.iter().any(|held| held == group) {
-                pending.push(group.to_string());
+        let offered = self.offers.offered();
+        let offer_holds = reason != "manual" && !offered.is_empty();
+        for group in offered.into_iter().filter(|_| offer_holds) {
+            if !pending.contains(&group) {
+                pending.push(group);
             }
         }
         let plan = plan_save(

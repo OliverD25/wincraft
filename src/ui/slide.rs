@@ -1,7 +1,8 @@
-//! What happens to a card when its window is closed from the strip: the
-//! card shrinks and fades, the cards after it slide into the gap, and a card
-//! whose window refuses to close comes back with a note. The curves and
-//! rules are plain functions; `Slides` remembers where cards were drawn.
+//! Cards that slide to a new place, shared by WindowDeck and Quick access.
+//! When a window is closed from WindowDeck's strip, its card shrinks and
+//! fades, the cards after it slide into the gap, and a card whose window
+//! refuses to close comes back with a note. The curves and rules are plain
+//! functions; `Slides` remembers where cards were drawn.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -94,9 +95,34 @@ pub struct Slides {
     /// A card was just taken out: cards after it start to slide this frame.
     gap: Vec<isize>,
     running: HashMap<SlideKey, Slide>,
+    /// Every card whose place changed slides there, not only the cards
+    /// after a gap (Quick access, where cards trade places).
+    follow: bool,
 }
 
 impl Slides {
+    /// Slides in which every card that moved slides to its new place from
+    /// where it was drawn last.
+    pub fn following() -> Self {
+        Self {
+            follow: true,
+            ..Self::default()
+        }
+    }
+
+    /// Where `key` was drawn last frame.
+    pub fn drawn_last(&self, key: SlideKey) -> Option<Rect> {
+        self.last.iter().find(|(card, _)| *card == key).map(|c| c.1)
+    }
+
+    /// The card `key` is drawn at `rect` by the caller, as a dragged card
+    /// that follows the pointer: it does not slide, and a slide later
+    /// starts from here.
+    pub fn float(&mut self, key: SlideKey, rect: Rect) {
+        self.running.remove(&key);
+        self.drawn.push((key, rect));
+    }
+
     /// Called once at the start of a frame, before any card is drawn.
     pub fn next_frame(&mut self) {
         self.last = std::mem::take(&mut self.drawn);
@@ -135,6 +161,16 @@ impl Slides {
                 self.running.insert(key, start);
             }
         }
+        if self.follow && !self.running.contains_key(&key) {
+            if let Some(from) = seen.filter(|from| from.min != target.min) {
+                let start = Slide {
+                    from,
+                    to: target,
+                    since: now,
+                };
+                self.running.insert(key, start);
+            }
+        }
         let Some(slide) = self.running.get(&key).copied() else {
             return target;
         };
@@ -164,7 +200,10 @@ impl Slides {
     }
 
     pub fn clear(&mut self) {
-        *self = Self::default();
+        *self = Self {
+            follow: self.follow,
+            ..Self::default()
+        };
     }
 }
 
@@ -291,6 +330,37 @@ mod tests {
             card(108.0)
         );
         assert!(!slides.running());
+    }
+
+    #[test]
+    fn following_slides_move_every_card_that_moved_and_start_where_it_floated() {
+        let t0 = Instant::now();
+        let mut slides = Slides::following();
+        for (key, x) in [(1, 0.0), (2, 108.0)] {
+            slides.place((key, false), card(x), t0, true);
+        }
+        slides.next_frame();
+        // The two trade places, with no gap opened.
+        assert_eq!(slides.place((1, false), card(108.0), t0, true), card(0.0));
+        assert_eq!(slides.drawn_last((2, false)), Some(card(108.0)));
+        slides.float((2, false), card(500.0));
+        assert!(slides.running());
+        slides.next_frame();
+        let back = slides.place((2, false), card(0.0), t0 + ms(10), true);
+        assert!(back.min.x > 400.0, "starts where it was dragged: {back:?}");
+        slides.next_frame();
+        assert_eq!(
+            slides.place((2, false), card(0.0), t0 + ms(400), true),
+            card(0.0)
+        );
+        slides.clear();
+        slides.place((1, false), card(0.0), t0, true);
+        slides.next_frame();
+        assert_eq!(
+            slides.place((1, false), card(108.0), t0, true),
+            card(0.0),
+            "clear keeps the following kind"
+        );
     }
 
     #[test]

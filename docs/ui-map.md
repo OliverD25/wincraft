@@ -186,6 +186,7 @@ Opened by: `` Win+` `` twice, or Tray menu → **Open quick access**.
 - Title bar: **QuickJump · Quick access**.
 - Per window: **Unpin** (`Del`), and a details area **How QuickJump finds this window**: **App**, **Title contains**, **Label (optional)**.
 - **Done**: closes the details.
+- Card right-click menu (also the Menu key or `Shift+F10`): **Jump to it**, **Put at number** (submenu 1 to 10), **Edit details** (`F2`), **Unpin** (`Del`), **Close the window** (only while the window is open). A middle click on a card unpins it too.
 - **Add a window to Quick access**: opens the picker **QuickJump · Add a window** with **Search open windows**; **No open window matches** when empty.
 - The chord tip after `` Win+` `` shows: **Add this window**, **Put this window at a number**, **Unpin this window**, **Open quick access**.
 - Notices: **Not in Quick access**, **There is no window to pin**.
@@ -203,7 +204,7 @@ Opened by: `Win+Alt+S`, Tray menu → **Shortcut manager**, or the palette comma
 ## Notices
 Opened by: they show by themselves above the taskbar after a change. They take the mouse but never the keyboard.
 - **Undo**: the button on QuickJump and QuickActions notices (`Ctrl+Z` works while the notice shows).
-- **Put back**: the button on the LayoutKeeper offer "{app} restarted. Put its {n} windows back in order?"; only when **Offer to put windows back after an app restarts** is on.
+- **Put back**: the button on the LayoutKeeper offer "{app} restarted. Put its {n} windows back in order?" (apps that restart together share one notice: "{app} and {app} restarted. Put their {n} windows back in order?"); only when **Offer to put windows back after an app restarts** is on.
 - **Layout saved: {n} windows in {m} apps.**: LayoutKeeper, after `Win+Alt+J` or Settings → Layout → **Save now**.
 - **WinCraft · Putting your windows back — please wait**: the restore progress notice, when **Show restore progress** is on.
 

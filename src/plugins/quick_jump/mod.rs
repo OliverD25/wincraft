@@ -507,6 +507,18 @@ impl Engine {
                 }
             }
             Request::Remove(slot) => self.unpin(slot),
+            Request::CloseWindow(slot) => {
+                self.refresh();
+                let window = self.slots.get(slot).and_then(|pin| find(pin, &self.live));
+                match window.map(|window| window.hwnd) {
+                    Some(hwnd) => {
+                        log::info!("QuickJump: closing the window of number {}", slot + 1);
+                        // The read-only test instance turns this down itself.
+                        actions::perform(&Action::Close(vec![hwnd]), self.hwnd);
+                    }
+                    None => log::info!("QuickJump: the window to close is gone"),
+                }
+            }
             Request::Update { slot, pin } => {
                 let changed = self.slots.get(slot).is_some_and(|old| *old != pin);
                 if !changed {

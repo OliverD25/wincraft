@@ -5,20 +5,20 @@ impl LayoutKeeper {
     /// whose groups get their taskbar order a second time.
     pub(super) fn start_restore(&mut self, sign_in: bool) {
         // The full restore covers what a Put back offer would do.
-        if self.offers.offered().is_some() {
+        if !self.offers.offered().is_empty() {
             self.offers.close();
         }
         self.start_restore_of(sign_in, None);
     }
 
-    /// `start_restore` for every saved group, or only for `only`.
-    pub(super) fn start_restore_of(&mut self, sign_in: bool, only: Option<&str>) {
+    /// `start_restore` for every saved group, or only for those in `only`.
+    pub(super) fn start_restore_of(&mut self, sign_in: bool, only: Option<&[String]>) {
         if self.refuses("restore") {
             return;
         }
         let mut groups = self.saved_groups();
         if let Some(only) = only {
-            groups.retain(|group| group == only);
+            groups.retain(|group| only.contains(group));
         }
         if groups.is_empty() {
             log::info!("no layout has been saved yet, so there is nothing to restore");
