@@ -132,6 +132,9 @@ fn the_label_reader_follows_the_format_rules() {
     assert_eq!(texts, ["Plain", "Dots\u{2026}", "Two"]);
     assert_eq!(found[2].0, 2);
     assert_eq!(parts("Update to {version}"), ["Update to ", ""]);
-    assert!(found_in("format!(\"Update to {}\", x)", &["Update to ", ""]));
+    assert!(found_in(
+        "format!(\"Update to {}\", x)",
+        &["Update to ", ""]
+    ));
     assert!(!found_in("\"Update\"", &["Update to ", ""]));
 }
