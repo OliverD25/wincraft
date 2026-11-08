@@ -33,6 +33,7 @@ use super::shared::{Handle, Request, Shared, View};
 use super::spot::{self, Place, Spot};
 
 mod buttons;
+mod card;
 mod card_menu;
 mod empty;
 mod find;

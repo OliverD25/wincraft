@@ -1,3 +1,5 @@
+use super::super::card::{first_letter, icon_alpha, title_colour};
+use super::super::NOT_OPEN;
 use super::*;
 
 #[test]
