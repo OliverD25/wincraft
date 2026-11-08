@@ -307,7 +307,7 @@ impl Engine {
             .shown
             .as_ref()
             .and_then(|shown| shown.notice.as_ref())
-            .is_some_and(|notice| notice.on_undo(point.x, point.y));
+            .is_some_and(|notice| notice.on_button(point.x, point.y));
         if on_undo {
             self.undo();
         } else {

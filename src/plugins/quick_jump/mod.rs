@@ -401,7 +401,7 @@ impl Engine {
     fn notify(&mut self, message: Message, undo: Option<(Undo, String)>) {
         self.close_notice();
         let notice = Notice::show(&message, &instance::name(notice::CLASS_NAME), self.hwnd);
-        let has_undo = message.undo && undo.is_some();
+        let has_undo = message.has_button() && undo.is_some();
         self.shown = Some(Shown {
             notice,
             clock: Clock::new(self.now_ms(), has_undo),
@@ -439,7 +439,7 @@ impl Engine {
             .shown
             .as_ref()
             .and_then(|shown| shown.notice.as_ref())
-            .is_some_and(|notice| notice.on_undo(point.x, point.y));
+            .is_some_and(|notice| notice.on_button(point.x, point.y));
         if on_undo {
             self.undo();
         } else {
