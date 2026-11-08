@@ -391,6 +391,11 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
 
 ## Rules
 
+- **Keep `docs/ui-map.md` right.** A change that adds, renames or moves a
+  label the user sees (a menu item, a page, a button, a setting) updates
+  `docs/ui-map.md` in the same commit. `cargo test` checks that every bold
+  label in the map is still in `src/`.
+
 - **`core::hotkeys` knows the whole keyboard.** Letters, digits, `F1`–`F24`,
   the navigation and editing keys, the numeric keypad and the punctuation keys
   all parse and format. `hotkeys::all_keys()` returns every one, and it is the

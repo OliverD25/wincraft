@@ -1,0 +1,228 @@
+# UI map: WinCraft
+
+Updated: 2026-11-08. Exact labels are in **bold**, copied from the code.
+Before telling the user where to click, find the label here. A label that
+is missing here: grep the code, then add it here in the same commit.
+
+## Tray menu
+Opened by: left-click or right-click the WinCraft icon in the tray (the
+hidden-icons arrow `^` in the taskbar, if the icon is not shown).
+- **Open palette**: opens the command palette.
+- **Settings…**: opens the settings window.
+- **Update to {version}**: only after an update check found a newer version. This is the only place in the tray menu that updates WinCraft; the **Update now** button is on Settings → About.
+- One primary item per enabled plugin (see "Tray items of the plugins" below).
+- **Detailed log**: a check mark; switches the detailed log on or off.
+- **Quit WinCraft**: closes the app.
+
+### Tray items of the plugins
+Shown only while the plugin is switched on, between two separators.
+- ScreenDimmer: **Wake all monitors**.
+- LayoutKeeper: **Restore layout**.
+- WindowDeck: **WindowDeck: Open**, and a check mark item **WindowDeck on taskbar hover**.
+- QuickJump: **Open quick access**.
+- ShortcutManager: **Shortcut manager**.
+- QuickActions: a check mark item **Keep awake**; while keep awake is on with an end time it reads **Keep awake until {time}**.
+- LanguageIndicator and WindowNamer have no tray item.
+
+## Command palette
+Opened by: the palette hotkey (default `Win+Alt+P`; changed in Settings → General → **Palette hotkey**), or Tray menu → **Open palette**.
+- Search box: type to search; a prefix key at the start filters (`<` windows, `/` folders, `.` files, `'` bookmarks, `=` calculator, `>` terminal, `!` WinCraft commands, `?` prefix list and **Ask AI**).
+- **Recent and suggested**: the group shown under an empty box.
+- **Best match**: the top group while typing.
+- **Update ready**: a row pinned at the top under an empty box, only after an update check found a newer version (and it was not hidden).
+  - **Update now**: `Enter` on that row installs it.
+  - **Release page**: `Ctrl+O` opens the release page.
+  - **Hide until next version**: `Ctrl+Del` hides the row until a newer release.
+- **Update WinCraft**: command (type it): checks now and installs a newer version at once. It carries a badge "{version} available" when one is known.
+- **Ask AI**: row for a question; opens the site chosen in Settings → General → **Ask AI site**.
+- **Nothing matches**: shown when the search finds nothing.
+- Footer: a gear icon opens Settings (`Ctrl+,`); `Ctrl+P` opens Plugins.
+- Row actions in the inspector (the panel beside the list): **Switch to window**, **Move to next monitor**, **Close window**, **Forget this pick**, **Arrange marked in strip**, **Open release page**.
+
+### Commands under WinCraft in the palette
+- **Open settings**, **Plugin store**, **Saved window layout** (opens Settings → Layout), **About WinCraft** (opens Settings → About).
+- **Open the config file**, **Open the log file**, **Update WinCraft**.
+- **Detailed log**, **Detailed log: Mark this moment**, **Detailed log: Save a report**, **Detailed log: Delete the files**.
+- **Palette: Move back to the centre**, **Mark all windows as seen**, **Quit WinCraft**.
+
+### Commands of the plugins in the palette
+- LanguageIndicator: **Show current input language**.
+- LayoutKeeper: **Restore layout**, **Save layout now**, **Move window left in taskbar**, **Move window right in taskbar**.
+- ScreenDimmer: **Test monitors again**, **Wake all monitors**.
+- WindowDeck: **WindowDeck: Open**, **WindowDeck: Switch taskbar hover on or off**.
+- WindowNamer: **Rename the active window**, **Clear all names**.
+- QuickJump: **Jump to a pinned window**, **Pin this window…**.
+- ShortcutManager: **Open shortcut manager**, **Show free combinations**.
+- QuickActions (named Area: Verb):
+  - Window: **Window: Toggle Always on Top**, **Window: Center**, **Window: Resize to 1280 × 720**, **Window: Resize to 1920 × 1080**, **Window: Resize to 80 % of the Monitor**, **Window: Resize…**.
+  - Display: **Display: Toggle Keep Awake**, **Display: Keep Awake for…**.
+  - Switches: **Theme: Toggle Dark Mode**, **Desktop: Show Desktop Icons**, **Taskbar: Toggle Auto-Hide**, **File Explorer: Toggle Hidden Files**, **File Explorer: Toggle File Extensions**, **Audio: Toggle Microphone Mute**.
+  - One-step: **Network: Copy Local IP**, **Network: Flush DNS Cache**, **Clipboard: Convert to Plain Text**, **Clipboard: Copy New UUID**, **System: Empty Recycle Bin**, **Settings: Open Environment Variables**, **Developer: Kill Process on Port**, **Audio: Switch Output Device**, **System: Eject USB Drive**.
+
+## Settings window
+Opened by: Tray menu → **Settings…**, or the palette command **Open settings**, or `Ctrl+,` in the palette.
+The left list has these pages, in this order: **General**, **Themes**, **Plugins**, **Hotkeys**, **Layout**, **Bookmarks**, **Plugin Store**, **About**.
+
+## Settings → General
+Opened by: Settings window → **General** in the left list.
+- **Start with Windows**: toggle; starts WinCraft when you sign in.
+- **Palette hotkey**: the key that opens the palette.
+- **Config file**, **Log file**: rows with an **Open** button.
+- **Palette search** (section):
+  - **Terminal shell**: the shell for the `>` prefix; **Custom command** shows when **Custom** is picked.
+  - **Web search address**: where Search the web goes.
+  - **File search: Everything, then Windows index**: toggle.
+  - **Use the Windows index when Everything is not running**: toggle.
+  - **Remember terminal history**: toggle.
+  - **Ask AI site**: pick the AI site; **Custom AI address** shows for a custom one.
+  - **Learn from my picks**: toggle.
+  - **Usage history**: row with a **Clear usage history** button.
+- **Show tips**: toggle. **Tips seen**: row with a **Show all tips again** button.
+- **Detailed log**: toggle, same as the tray item.
+
+## Settings → Themes
+Opened by: Settings window → **Themes** in the left list.
+- **Theme**: pick a theme (point at one to try it).
+- **Mode**: Light, Dark, or System (follows the Windows app mode).
+
+## Settings → Plugins
+Opened by: Settings window → **Plugins** in the left list.
+- **Search installed plugins**: filter box.
+- A tile per plugin with an on/off toggle. Click the tile to open the plugin's page.
+- **No plugins installed**, **No plugin matches**: empty states.
+
+### Settings → Plugins → a plugin's page
+Opened by: Settings → **Plugins** → click the plugin's tile.
+- **‹ All plugins**: link back to the list.
+- **Enabled**: toggle next to the title.
+- A page button for plugins that have one (for example **WindowDeck: Open**).
+- **Settings** (section): the plugin's own fields, listed per plugin below.
+- **Hotkeys** (section): the plugin's hotkeys; click a row to change it.
+- **Files** (section): **Plugin settings** row with **Open file** and **Reset to defaults** buttons.
+- **About this plugin**: the plugin's README text.
+
+### Fields of each plugin's Settings section
+- LayoutKeeper: **Programs**, **Never touch**, **Restore on start**, **Wait for windows (seconds)**, **Wait for apps to open (minutes)**, **Save every (seconds)**, **Restore which window is in front**, **Restore monitors**, **Show restore progress**, **Offer to put windows back after an app restarts**. Also **Open state file** (a file button).
+- ScreenDimmer: **Darkness**, **Darkness under the pointer**.
+- WindowDeck: **Preview window on hover**, **Show key hints**, **Show the toolbar on other monitors**, **Show WindowDeck instead of Windows' taskbar preview**, **Hover delay (seconds)**, **Open WindowDeck with Win+1…9**.
+- QuickJump: **Open Quick access in the middle of the screen**, **Point to a window on another monitor**.
+- WindowNamer: **Keep names after restart**, **Title shows**.
+- ShortcutManager: **Show free combinations**.
+- LanguageIndicator: **How long it stays**, **Where it appears**, **Show on focus change**, **Show the layout name**.
+- QuickActions: no fields.
+
+## Settings → Hotkeys
+Opened by: Settings window → **Hotkeys** in the left list.
+- **Search by name, plugin or keys**: filter box.
+- **Search by keys**: button; then press keys to find what uses them (**Press keys to find what uses them**).
+- Columns: **Command**, **Hotkey**.
+- Click a row to record a new hotkey: **Change hotkey**; `Enter` saves, `Esc` cancels, `Backspace` clears.
+  - **Remove hotkey**, **Reset to default**, **Cancel**.
+  - **Move here**: shown when another WinCraft command holds the keys; moves them to this command.
+  - **Taken by another app**, **Windows shortcut: {name}**: warnings.
+- **Reset all…**: asks **Reset all hotkeys?** and then **Reset all**.
+- **What is a chord?**: a short help text.
+
+## Settings → Layout
+Opened by: Settings window → **Layout** in the left list, or the palette command **Saved window layout**.
+- **Restore now**: puts the saved layout back now (same as `Win+Alt+L`).
+- **Save now**: saves the layout now (same as `Win+Alt+J`).
+- **Last saved {time}**, **Not saved yet this session**: the state line.
+- A list of saved windows per app; per window **Rename…** and **Forget**.
+- **Nothing is saved yet**, **No saved layout to show**: empty states.
+- **Recent activity** (section): the LayoutKeeper log, with **Refresh** and **Open log file**.
+
+## Settings → Bookmarks
+Opened by: Settings window → **Bookmarks** in the left list.
+- **Add a bookmark** (section): **Phrase**, **Place**, **Add**.
+- **Add bookmark…**: opens the form.
+- Each bookmark row: **Open**, **Edit**, **Delete**; while editing **Save** and **Cancel**.
+- **No bookmarks yet**: empty state.
+
+## Settings → Plugin Store
+Opened by: Settings window → **Plugin Store** in the left list, or the palette command **Plugin store**.
+- **Search the store**: filter box.
+- **Refresh**: loads the index again.
+- A tile per plugin; **Installed** marks one you have; **Open on GitHub** opens its page.
+- **The plugin index could not be loaded**: error state.
+
+## Settings → About
+Opened by: Settings window → **About** in the left list, or the palette command **About WinCraft**.
+- **Version**: the installed version.
+- **Updates** (section):
+  - **Check for updates**: shown when no newer version is known.
+  - **Update now**: shown instead, once a newer version is known.
+  - **Cancel**: shown while a download runs.
+  - **Release page**: link to the release.
+  - **Check for updates automatically**: toggle. **Download updates ahead**: toggle.
+  - Status lines: **Not checked yet**, **Checking…**, **Update failed**.
+- **What's new in {version}**: the release notes.
+- **Links**: **Repository**, **Report an issue**. **Fonts**. **For plugin authors**.
+
+## WindowDeck strip
+Opened by: the hotkey `Win+Alt+A` and then a taskbar number, or Tray menu → **WindowDeck: Open**, or by hovering a taskbar button when **Show WindowDeck instead of Windows' taskbar preview** is on, or `Win+1…9` when **Open WindowDeck with Win+1…9** is on.
+- Toolbar: the app list, and the view switch **By monitor** and **Flat**.
+- **No windows to arrange**: shown when nothing is open.
+- **+ {n} other desktops**: link that shows windows of other desktops (`D`).
+- **Hide other desktops**: the same link while they are shown.
+- **Hide hints**: `Ctrl+H`; hides the key hints (**Show key hints** in the plugin settings brings them back).
+- **Mark all as seen**: `Ctrl+M`; clears the orange marks. **Undo**: `Ctrl+Z`, for a few seconds after.
+- **No windows on this desktop**.
+
+### WindowDeck card, right-click menu
+Opened by: right-click a window card in the strip.
+- **Rename…**: only with WindowNamer on. **Clear name**: only for a window that has a name.
+- **Close window**.
+- **Taskbar place**: submenu; only when the app has more than one window in the row.
+- **Move to desktop**: submenu with the desktops.
+
+### WindowDeck compact popup
+Opened by: the hover popup on a taskbar button, when **Show WindowDeck instead of Windows' taskbar preview** is on (an app with two or more windows).
+- **Open**, **More** (`→`), **Mark all as seen**, **Back to this desktop**, **This desktop**, **Switch to {desktop}**.
+- **Close**: the window close button on a card. **Back**: `Esc` goes back.
+
+## QuickJump Quick access
+Opened by: `` Win+` `` twice, or Tray menu → **Open quick access**.
+- Title bar: **QuickJump · Quick access**.
+- Per window: **Unpin** (`Del`), and a details area **How QuickJump finds this window**: **App**, **Title contains**, **Label (optional)**.
+- **Done**: closes the details.
+- **Add a window to Quick access**: opens the picker **QuickJump · Add a window** with **Search open windows**; **No open window matches** when empty.
+- The chord tip after `` Win+` `` shows: **Add this window**, **Put this window at a number**, **Unpin this window**, **Open quick access**.
+- Notices: **Not in Quick access**, **There is no window to pin**.
+
+## Shortcut manager
+Opened by: `Win+Alt+S`, Tray menu → **Shortcut manager**, or the palette command **Open shortcut manager**.
+- Title bar: **WinCraft · Shortcut manager**.
+- **Search shortcuts, meaning or owner**: filter box.
+- **Check a shortcut**: press keys to see what holds them (**Click, then press keys**, **Press keys…**).
+- **Show free**: lists free combinations. **Free close to it**: free combinations near a taken one.
+- **Copy list**, **Refresh** (`F5`).
+- Answer panel: **Press it for real**, **Change**, **Remove key**, **Save**, **Cancel**, **Back to the full list**.
+- **No shortcuts match.**, **Scanning…**.
+
+## Notices
+Opened by: they show by themselves above the taskbar after a change. They take the mouse but never the keyboard.
+- **Undo**: the button on QuickJump and QuickActions notices (`Ctrl+Z` works while the notice shows).
+- **Put back**: the button on the LayoutKeeper offer "{app} restarted. Put its {n} windows back in order?"; only when **Offer to put windows back after an app restarts** is on.
+- **Layout saved: {app} in {place}.**: LayoutKeeper, after `Win+Alt+J` or Settings → Layout → **Save now**.
+- **WinCraft · Putting your windows back — please wait**: the restore progress notice, when **Show restore progress** is on.
+
+## Hotkeys
+Defaults. Every one can be changed in Settings → Hotkeys.
+
+| Action | Default | Change it in |
+|---|---|---|
+| **Open palette** | `Win+Alt+P` | Settings → General → **Palette hotkey** |
+| **Restore layout** | `Win+Alt+L` | Settings → Hotkeys |
+| **Save layout now** | `Win+Alt+J` | Settings → Hotkeys |
+| **Move window left in taskbar** | `Win+Alt+[` | Settings → Hotkeys |
+| **Move window right in taskbar** | `Win+Alt+]` | Settings → Hotkeys |
+| **WindowDeck: Open** | `Win+Alt+A` | Settings → Hotkeys |
+| **Jump to a pinned window** | `` Win+` `` | Settings → Hotkeys |
+| **Pin this window…** | none | Settings → Hotkeys |
+| **Rename the active window** | `Win+Alt+E` | Settings → Hotkeys |
+| **Open shortcut manager** | `Win+Alt+S` | Settings → Hotkeys |
+| **Cover the monitor** (also **Cover left monitor**, **Cover right monitor**, **Cover monitor 2**, **Cover monitor 3**) | `Win+Alt+F1`, `F2`, `F3` | Settings → Hotkeys |
+| **Turn the monitor off** (also **Turn left monitor off**, **Turn right monitor off**, **Turn monitor 2 off**, **Turn monitor 3 off**) | `Win+Alt+Shift+F1`, `F2`, `F3` | Settings → Hotkeys |
+| **Wake all monitors** | `Win+Alt+F12` | Settings → Hotkeys |
+| QuickActions, LanguageIndicator | none | Settings → Hotkeys |
