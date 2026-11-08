@@ -295,20 +295,18 @@ impl LayoutKeeper {
             );
             return;
         }
-        match self.write_layout("manual", true) {
+        let message = match self.write_layout("manual", true) {
             Ok((_, count)) => {
                 log::info!("saved {count} windows (manual)");
                 self.last_saved = Some(clock::now_hours_minutes());
-                host::notify("LayoutKeeper", &format!("Layout saved, {count} windows"));
+                offer::saved_message(count, offer::saved_apps(self.writer.last()))
             }
             Err(err) => {
                 log::error!("could not save the layout: {err}");
-                host::notify(
-                    "LayoutKeeper",
-                    &format!("The layout could not be saved: {err}"),
-                );
+                offer::save_failed_message(&err)
             }
-        }
+        };
+        self.show_save_notice(message);
     }
 }
 

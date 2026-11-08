@@ -250,6 +250,33 @@ impl LayoutKeeper {
         );
         self.start_restore_of(false, Some(group));
     }
+
+    /// The word after Save layout now; it takes the offer's place.
+    pub(super) fn show_save_notice(&mut self, message: Message) {
+        if let Some(group) = self.offers.offered() {
+            log::info!(
+                "the offer to put \"{}\" back gave way to the save notice",
+                self.label_of(group)
+            );
+        }
+        self.offers.show(message, None, shared::PLAIN_MS);
+    }
+}
+
+/// How many apps the saved layout holds: its taskbar groups, or the
+/// program for a window saved without one.
+pub(super) fn saved_apps(saved: Option<&Programs>) -> usize {
+    let mut apps = BTreeSet::new();
+    for (exe, program) in saved.into_iter().flatten() {
+        for window in &program.windows {
+            apps.insert(if window.group.is_empty() {
+                exe.clone()
+            } else {
+                window.group.clone()
+            });
+        }
+    }
+    apps.len()
 }
 
 /// Whether a group whose restart just settled gets the offer: the setting
@@ -292,6 +319,25 @@ pub(super) fn stored_restore_key() -> Option<String> {
         .map(str::to_string)
 }
 
+/// After Save layout now: how many windows of how many apps were saved.
+pub(super) fn saved_message(windows: usize, apps: usize) -> Message {
+    let plural = |count: usize, one: &str, many: &str| {
+        format!("{count} {}", if count == 1 { one } else { many })
+    };
+    let text = format!(
+        "Layout saved: {} in {}.",
+        plural(windows, "window", "windows"),
+        plural(apps, "app", "apps")
+    );
+    Message::new(NAME, Glyph::Check, text)
+}
+
+/// After Save layout now failed.
+pub(super) fn save_failed_message(reason: &str) -> Message {
+    Message::new(NAME, Glyph::Info, "Could not save the layout.".to_string())
+        .detail(reason.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -318,5 +364,22 @@ mod tests {
         assert!(!may_offer(true, true, true, 5), "a restore is running");
         assert!(!may_offer(true, false, false, 5), "on the Never touch list");
         assert!(!may_offer(true, false, true, 1), "one window");
+    }
+
+    #[test]
+    fn the_save_notice_counts_windows_and_apps() {
+        assert_eq!(
+            saved_message(23, 7).text,
+            "Layout saved: 23 windows in 7 apps."
+        );
+        assert_eq!(saved_message(1, 1).text, "Layout saved: 1 window in 1 app.");
+        let saved = saved_message(2, 1);
+        assert_eq!(saved.text, "Layout saved: 2 windows in 1 app.");
+        assert!(!saved.has_button() && saved.detail.is_none());
+        let failed = save_failed_message("access denied");
+        assert_eq!(failed.text, "Could not save the layout.");
+        assert_eq!(failed.detail.as_deref(), Some("access denied"));
+        assert_eq!(failed.glyph, Glyph::Info);
+        assert_eq!(failed.app, "LayoutKeeper");
     }
 }

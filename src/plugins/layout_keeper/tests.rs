@@ -2569,3 +2569,15 @@ fn the_offered_group_keeps_its_saved_order_until_a_manual_save() {
     assert_ne!(keeper.writer.last(), Some(&saved));
     clean_up(&path);
 }
+
+#[test]
+fn the_save_notice_takes_the_offers_place() {
+    let (mut keeper, path) = offer_keeper("offer-save");
+    restart(&mut keeper, 3);
+    keeper.show_save_notice(offer::saved_message(4, 2));
+    assert_eq!(keeper.offers.offered(), None);
+    let shown = keeper.offers.shown.as_ref().expect("a notice");
+    assert_eq!(shown.message.text, "Layout saved: 4 windows in 2 apps.");
+    assert_eq!(offer::saved_apps(keeper.writer.last()), 2);
+    clean_up(&path);
+}
