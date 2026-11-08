@@ -186,6 +186,7 @@ Opened by: `` Win+` `` twice, or Tray menu → **Open quick access**.
 - Title bar: **QuickJump · Quick access**.
 - Per window: **Unpin** (`Del`), and a details area **How QuickJump finds this window**: **App**, **Title contains**, **Label (optional)**.
 - **Done**: closes the details.
+- Card right-click menu (also the Menu key or `Shift+F10`): **Jump to it**, **Put at number** (submenu 1 to 10), **Edit details** (`F2`), **Unpin** (`Del`), **Close the window** (only while the window is open). A middle click on a card unpins it too.
 - **Add a window to Quick access**: opens the picker **QuickJump · Add a window** with **Search open windows**; **No open window matches** when empty.
 - The chord tip after `` Win+` `` shows: **Add this window**, **Put this window at a number**, **Unpin this window**, **Open quick access**.
 - Notices: **Not in Quick access**, **There is no window to pin**.

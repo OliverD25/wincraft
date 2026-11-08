@@ -33,9 +33,11 @@ use super::shared::{Handle, Request, Shared, View};
 use super::spot::{self, Place, Spot};
 
 mod buttons;
+mod card_menu;
 mod empty;
 mod find;
 mod grid;
+mod motion;
 
 use buttons::Extra;
 use grid::window_size;
@@ -67,7 +69,12 @@ struct ListUi {
     /// the screen; worked out at the start of each frame.
     picture_scale: Option<f32>,
     icons: Option<IconCache>,
-    drag: Option<usize>,
+    /// The drag, the slides and the fading card.
+    motion: motion::Motion,
+    /// Whether the Menu key was down last frame, to see it go down.
+    menu_key_down: bool,
+    /// Where the open card menu stands.
+    menu_at: Option<egui::Pos2>,
     refreshed: Option<Instant>,
     closed: bool,
     size: Option<egui::Vec2>,

@@ -25,6 +25,9 @@ pub enum Request {
         to: usize,
     },
     Remove(usize),
+    /// The card menu's "Close the window": asks the pin's open window to
+    /// close, as its own close button would.
+    CloseWindow(usize),
     /// The details panel's Done: the pin as edited.
     Update {
         slot: usize,

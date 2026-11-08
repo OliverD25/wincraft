@@ -1,17 +1,24 @@
 //! Quick access (design 4a): the pinned windows as cards in rows of four,
 //! in pin order, each with its live picture, title and app, and the key
 //! that reaches it in a keycap under it. ↑↓←→ select, Enter or a double
-//! click jumps, 1–0 jumps, Ctrl+arrows or a drag reorder, Del unpins (the
-//! gap closes), F2 opens the details, Esc closes.
+//! click jumps, 1–0 jumps, Ctrl+arrows or a drag reorder (the other cards
+//! slide aside), Del or a middle click unpins (the card fades and the gap
+//! closes), F2 opens the details, a right click, the Menu key or Shift+F10
+//! opens the card's menu, Esc closes.
 
-use egui::{pos2, vec2, Align2, Key, Painter, Rect, Sense, Stroke, StrokeKind, Ui};
+use std::time::Instant;
 
+use egui::{pos2, vec2, Align2, Key, Painter, Rect, Sense, SetOpenCommand, Stroke, StrokeKind, Ui};
+
+use crate::core::animations;
 use crate::core::theme::{self, Tokens};
 use crate::ui::widgets::icons::{self, Icon};
 
 use super::super::matching::{SlotView, State};
 use super::super::pins::slot_of_digit;
 use super::super::shared::{Request, View};
+use super::card_menu::{self, Choice};
+use super::motion::{card_keys, gap_at, slide_key};
 use super::{app_icon, details_panel, draft, name_card, ListUi, Outcome, DETAILS, NOT_OPEN};
 
 /// Cards in a row.
@@ -212,24 +219,29 @@ pub(super) fn contents(ui: &mut Ui, view: &View, state: &mut ListUi, out: &mut V
     } else {
         full
     };
+    let keys = card_keys(view);
+    let now = Instant::now();
+    state.motion.begin(&keys, now);
+    // A menu that is open has the keys: Esc closes it and nothing else.
+    let menu_open = egui::Popup::is_any_open(ui.ctx());
+    let open_menu = !menu_open && menu_key(ui, state, typing);
 
     // Keys, unless a field of the details panel has them.
-    for key in pressed_keys(ui, typing, details) {
+    let pressed = if menu_open {
+        Vec::new()
+    } else {
+        pressed_keys(ui, typing, details)
+    };
+    for key in pressed {
+        if key == ListKey::Escape && state.motion.dragging() {
+            state.motion.cancel();
+            continue;
+        }
         match step(key, state.selected, count, details) {
             Step::Select(slot) => state.selected = slot,
-            Step::Move { from, to } => {
-                out.push(Outcome::Send(Request::Move { from, to }));
-                state.selected = to;
-                state.details = None;
-            }
-            Step::Jump(slot) => {
-                out.push(Outcome::Send(Request::Jump(slot)));
-                out.push(Outcome::Close);
-            }
-            Step::Remove(slot) => {
-                out.push(Outcome::Send(Request::Remove(slot)));
-                state.details = None;
-            }
+            Step::Move { from, to } => move_card(state, &keys, (from, to), now, out),
+            Step::Jump(slot) => jump(slot, out),
+            Step::Remove(slot) => unpin(view, state, &keys, slot, out),
             Step::Details(slot) => state.details = draft(view, slot),
             Step::CloseDetails => state.details = None,
             Step::Close => out.push(Outcome::Close),
@@ -269,13 +281,28 @@ pub(super) fn contents(ui: &mut Ui, view: &View, state: &mut ListUi, out: &mut V
     state.picture_scale =
         super::super::pictures::common_scale(&sources, vec2(CARD_W - 20.0, PICTURE_H));
 
+    let animate = animations::on();
+    // DWM draws live pictures above everything, so they give way to a menu.
+    let live = !menu_open;
     let pointer = ui.ctx().pointer_interact_pos();
-    let mut rects = Vec::new();
-    for (index, card) in view.slots.iter().enumerate() {
-        let rect = card_rect(origin, index);
-        rects.push(rect);
+    // The gap follows the middle of the dragged card.
+    if let (Some(drag), Some(at)) = (state.motion.drag, pointer) {
+        let centre = at - drag.grab + vec2(CARD_W, CARD_H) / 2.0;
+        state.motion.drag_to(gap_at(origin, centre, count));
+    }
+    let order = state.motion.order(count);
+    let dragged = state
+        .motion
+        .drag
+        .and_then(|drag| order.get(drag.gap).copied());
+    for (place, &index) in order.iter().enumerate() {
+        if dragged == Some(index) {
+            continue;
+        }
+        let card = &view.slots[index];
+        let target = card_rect(origin, place);
         let response = ui.interact(
-            rect,
+            target,
             ui.id().with(("quick-access-card", index)),
             Sense::click_and_drag(),
         );
@@ -290,50 +317,183 @@ pub(super) fn contents(ui: &mut Ui, view: &View, state: &mut ListUi, out: &mut V
             }
         }
         if response.double_clicked() {
-            out.push(Outcome::Send(Request::Jump(index)));
-            out.push(Outcome::Close);
+            jump(index, out);
         }
-        if response.drag_started() {
-            state.drag = Some(index);
+        // A middle click unpins, as Del does.
+        if response.middle_clicked() {
+            unpin(view, state, &keys, place, out);
         }
-        let selected = state.selected == index;
-        draw_card(
-            ui,
-            &painter,
-            rect,
-            card,
-            selected,
-            response.hovered(),
-            state,
-        );
-    }
-    if let Some(from) = state.drag {
-        if let Some(at) = pointer {
-            let target = rects.iter().position(|rect| rect.contains(at));
-            if let Some(rect) = target.map(|index| rects[index]) {
-                painter.vline(
-                    rect.left() - COLUMN_GAP / 2.0,
-                    rect.y_range(),
-                    Stroke::new(2.0, tokens.accent),
-                );
-            }
-            if ui.ctx().input(|i| i.pointer.any_released()) {
-                if let Some(to) = target.filter(|to| *to != from) {
-                    out.push(Outcome::Send(Request::Move { from, to }));
-                    state.selected = to;
+        if response.drag_started_by(egui::PointerButton::Primary) {
+            if let Some(at) = response.interact_pointer_pos() {
+                state.motion.start(place, at - target.min);
+                state.selected = index;
+                if let Some(hwnd) = card.hwnd {
+                    state.pictures.raise(hwnd);
                 }
-                state.drag = None;
             }
         }
-        if !ui.ctx().input(|i| i.pointer.any_down()) {
-            state.drag = None;
+        let opens = response.secondary_clicked() || (open_menu && state.selected == index);
+        if opens {
+            state.selected = index;
+            state.menu_at = Some(match response.interact_pointer_pos() {
+                Some(at) if response.secondary_clicked() => at,
+                _ => target.center(),
+            });
         }
+        let set = if opens {
+            Some(SetOpenCommand::Bool(true))
+        } else if response.clicked() {
+            Some(SetOpenCommand::Bool(false))
+        } else {
+            None
+        };
+        let mut choice = None;
+        egui::Popup::menu(&response)
+            .open_memory(set)
+            .at_position(state.menu_at.unwrap_or(target.center()))
+            .show(|ui| choice = card_menu::show(ui, card, place, count));
+        if choice == Some(Choice::Edit) {
+            state.selected = index;
+            state.details = draft(view, index);
+        }
+        match choice.and_then(|choice| choice.request(place)) {
+            Some(Request::Jump(_)) => jump(index, out),
+            Some(Request::Move { from, to }) => move_card(state, &keys, (from, to), now, out),
+            Some(Request::Remove(slot)) => unpin(view, state, &keys, slot, out),
+            Some(request) => out.push(Outcome::Send(request)),
+            None => {}
+        }
+        let drawn = state
+            .motion
+            .slides
+            .place(slide_key(keys[index]), target, now, animate);
+        let look = Look {
+            selected: state.selected == index,
+            hovered: response.hovered(),
+            live,
+            alpha: 1.0,
+        };
+        draw_card(ui, &painter, drawn, card, look, state);
+    }
+
+    // An unpinned card fades out where it was.
+    if let Some(gone) = state.motion.leaving.clone() {
+        let (rect, alpha) = gone.look(now);
+        let mut faded = painter.clone();
+        faded.multiply_opacity(alpha);
+        let look = Look {
+            selected: false,
+            hovered: false,
+            live,
+            alpha,
+        };
+        draw_card(ui, &faded, rect, &gone.card, look, state);
+    }
+
+    // The dragged card rides above the others, following the pointer.
+    match (dragged, state.motion.drag, pointer) {
+        (Some(index), Some(drag), Some(at)) => {
+            let rect = Rect::from_min_size(at - drag.grab, vec2(CARD_W, CARD_H));
+            let layer = ui.ctx().layer_painter(egui::LayerId::new(
+                egui::Order::Tooltip,
+                egui::Id::new("quick-access-drag"),
+            ));
+            lift(&layer, rect, &tokens);
+            let look = Look {
+                selected: true,
+                hovered: true,
+                live,
+                alpha: 1.0,
+            };
+            draw_card(ui, &layer, rect, &view.slots[index], look, state);
+            state.motion.slides.float(slide_key(keys[index]), rect);
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            if !ui.ctx().input(|i| i.pointer.primary_down()) {
+                if let Some(request) = state.motion.release(&keys, now) {
+                    state.selected = drag.gap;
+                    state.details = None;
+                    out.push(Outcome::Send(request));
+                }
+            }
+        }
+        _ if !ui.ctx().input(|i| i.pointer.any_down()) => state.motion.cancel(),
+        _ => {}
+    }
+    if state.motion.moving() {
+        ui.ctx().request_repaint();
     }
 
     if details {
         let panel = Rect::from_min_max(pos2(full.right() - DETAILS, full.top()), full.max);
         details_panel(ui, view, panel, state, out);
     }
+}
+
+fn jump(slot: usize, out: &mut Vec<Outcome>) {
+    out.push(Outcome::Send(Request::Jump(slot)));
+    out.push(Outcome::Close);
+}
+
+/// Sends a move, and the cards stand in their new order at once.
+fn move_card(
+    state: &mut ListUi,
+    keys: &[isize],
+    (from, to): (usize, usize),
+    now: Instant,
+    out: &mut Vec<Outcome>,
+) {
+    out.push(Outcome::Send(Request::Move { from, to }));
+    state.motion.moved(keys, from, to, now);
+    state.selected = to.min(keys.len().saturating_sub(1));
+    state.details = None;
+}
+
+/// Unpins the card at place `slot`, as Del, a middle click and the menu
+/// do: the engine shows the notice with Undo, and the card fades out.
+fn unpin(view: &View, state: &mut ListUi, keys: &[isize], slot: usize, out: &mut Vec<Outcome>) {
+    out.push(Outcome::Send(Request::Remove(slot)));
+    state.details = None;
+    let leaving = animations::on()
+        .then(|| state.motion.order(keys.len()).get(slot).copied())
+        .flatten()
+        .and_then(|index| {
+            let rect = state.motion.slides.drawn_last(slide_key(keys[index]))?;
+            Some((view.slots.get(index)?.clone(), rect))
+        });
+    state.motion.removed(keys, slot, leaving, Instant::now());
+}
+
+/// The Menu key went down, or Shift+F10 was pressed: the selected card's
+/// menu opens.
+fn menu_key(ui: &Ui, state: &mut ListUi, typing: bool) -> bool {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_APPS};
+    // egui has no Menu key, so its state is read from Windows. It is the
+    // state of this thread's keys, so only a focused window acts on it.
+    let down = unsafe { GetKeyState(i32::from(VK_APPS)) } < 0;
+    let pressed = down && !state.menu_key_down;
+    state.menu_key_down = down;
+    let (focused, shift_f10) = ui.ctx().input(|i| {
+        let shift_f10 = i.events.iter().any(|event| {
+            matches!(event, egui::Event::Key { key: Key::F10, pressed: true, modifiers, .. } if modifiers.shift)
+        });
+        (i.focused, shift_f10)
+    });
+    !typing && ((pressed && focused) || shift_f10)
+}
+
+/// The dragged card's shadow and its solid ground, so the cards it passes
+/// over do not show through.
+fn lift(painter: &Painter, rect: Rect, tokens: &Tokens) {
+    if tokens.shadows {
+        let shadow = egui::Shadow {
+            offset: [0, 8],
+            blur: 24,
+            spread: 0,
+            color: tokens.palette_shadow,
+        };
+        painter.add(shadow.as_shape(rect, 9));
+    }
+    painter.rect_filled(rect, 9, tokens.window_bg);
 }
 
 /// "2 of 10", next to the title.
@@ -436,16 +596,29 @@ fn title_colour(state: State, tokens: &Tokens) -> egui::Color32 {
     }
 }
 
+/// How one card is drawn.
+#[derive(Clone, Copy)]
+struct Look {
+    selected: bool,
+    hovered: bool,
+    /// Whether its live picture may show.
+    live: bool,
+    /// How much of the card shows, for one that fades out.
+    alpha: f32,
+}
+
 fn draw_card(
     ui: &Ui,
     painter: &Painter,
     rect: Rect,
     card: &SlotView,
-    selected: bool,
-    hovered: bool,
+    look: Look,
     state: &mut ListUi,
 ) {
     let tokens = Tokens::get(ui.ctx());
+    let Look {
+        selected, hovered, ..
+    } = look;
     let (fill, edge) = if selected {
         (theme::with_alpha(tokens.accent, 0.10), tokens.accent)
     } else if hovered {
@@ -463,10 +636,12 @@ fn draw_card(
     match (card.state, card.hwnd) {
         (State::Open | State::InFront, Some(hwnd)) => {
             let scale = state.picture_scale;
-            match state
-                .pictures
-                .show_scaled(hwnd, picture, pixels_per_point, scale)
-            {
+            let shown = look.live.then(|| {
+                state
+                    .pictures
+                    .show_faded(hwnd, picture, pixels_per_point, scale, look.alpha)
+            });
+            match shown.flatten() {
                 // A frame that hugs the picture, so its width shows.
                 Some(shown) => {
                     painter.rect_filled(shown.expand(1.0), 4, tokens.panel_bg);
