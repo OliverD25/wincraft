@@ -100,7 +100,12 @@ example, "Chrome restarted. Put its 5 windows back in order?", with the line
 button. Nothing moves until you click it. **Put back** restores only that
 app's windows (their monitors, desktops, taskbar order and front-to-back
 order) from the layout saved before the restart, with the please-wait panel
-as for any restore. `Win+Alt+L` restores every app as usual and closes the
+as for any restore. When several apps or profiles restart together, such
+as Chrome's main windows and a Chrome web app, they share one notice: "Chrome
+restarted. Put its 28 windows back in order?", or "Chrome and Telegram
+restarted. Put their 9 windows back in order?" for different programs. One
+**Put back** then restores all of them, and each new one that joins starts
+the 15 seconds again. `Win+Alt+L` restores every app as usual and closes the
 notice. The notice stays about 15 seconds, longer while the mouse is on it.
 While it shows, the saved order of that app is kept; if it goes unanswered,
 saving goes on as normal. There is no offer for an app with one window, an

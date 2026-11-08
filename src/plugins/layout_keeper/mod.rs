@@ -296,7 +296,7 @@ impl LayoutKeeper {
         self.restore_monitors = flag(settings, "restore_monitors");
         self.show_progress = flag(settings, "show_restore_progress");
         self.offer_on = flag(settings, "offer_put_back");
-        if !self.offer_on && self.offers.offered().is_some() {
+        if !self.offer_on && !self.offers.offered().is_empty() {
             self.offers.close();
         }
         if !self.show_progress {
