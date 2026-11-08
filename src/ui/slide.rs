@@ -1,7 +1,8 @@
-//! What happens to a card when its window is closed from the strip: the
-//! card shrinks and fades, the cards after it slide into the gap, and a card
-//! whose window refuses to close comes back with a note. The curves and
-//! rules are plain functions; `Slides` remembers where cards were drawn.
+//! Cards that slide to a new place, shared by WindowDeck and Quick access.
+//! When a window is closed from WindowDeck's strip, its card shrinks and
+//! fades, the cards after it slide into the gap, and a card whose window
+//! refuses to close comes back with a note. The curves and rules are plain
+//! functions; `Slides` remembers where cards were drawn.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
