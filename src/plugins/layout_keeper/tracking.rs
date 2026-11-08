@@ -199,10 +199,13 @@ impl LayoutKeeper {
                 guard::Event::Released {
                     group,
                     stable_seconds,
-                } => log::info!(
-                    "\"{}\" has been steady for {stable_seconds} s; timer saves resume",
-                    self.label_of(&group)
-                ),
+                } => {
+                    log::info!(
+                        "\"{}\" has been steady for {stable_seconds} s; timer saves resume",
+                        self.label_of(&group)
+                    );
+                    self.consider_offer(&group, live);
+                }
                 guard::Event::Closed { group } => log::info!(
                     "\"{}\" did not come back within {} s, so its windows were closed on purpose; timer saves resume",
                     self.label_of(&group),

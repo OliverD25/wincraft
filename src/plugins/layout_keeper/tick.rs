@@ -3,6 +3,7 @@ use super::*;
 impl LayoutKeeper {
     pub(super) fn tick(&mut self) {
         self.ticks += 1;
+        self.offer_step();
         if !self.reapply.is_empty() {
             self.refresh();
             for exe in std::mem::take(&mut self.reapply) {

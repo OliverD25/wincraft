@@ -26,6 +26,7 @@ impl WinCraftPlugin for LayoutKeeper {
             "restore_front_order": true,
             "restore_monitors": true,
             "show_restore_progress": true,
+            "offer_put_back": true,
         })
     }
 
@@ -92,6 +93,12 @@ impl WinCraftPlugin for LayoutKeeper {
                 key: "show_restore_progress",
                 label: "Show restore progress",
                 help: "While windows are being put back, show a small please-wait panel at the bottom right and the progress in the tray icon's tooltip.",
+                kind: FieldKind::Toggle,
+            },
+            SettingField {
+                key: "offer_put_back",
+                label: "Offer to put windows back after an app restarts",
+                help: "When an app such as Chrome closes and opens all its windows again, WinCraft shows a notice with a Put back button. Nothing moves until you click it.",
                 kind: FieldKind::Toggle,
             },
         ]
@@ -600,6 +607,7 @@ impl WinCraftPlugin for LayoutKeeper {
             WM_TIMER if wparam == TIMER_ID => self.tick(),
             WM_TIMER if wparam == FADE_TIMER_ID => self.fade_step(),
             host::PLUGIN_POST if wparam == TIMER_READ_ID => self.timer_read_arrived(),
+            host::PLUGIN_POST if wparam == offer::OFFER_POST_ID => self.offer_step(),
             WM_QUERYENDSESSION | WM_ENDSESSION if closes_app => self.save("shutdown"),
             WM_QUERYENDSESSION => self.save_at_end("shutdown"),
             WM_ENDSESSION if wparam != 0 => self.save_at_end("shutdown"),
@@ -615,6 +623,7 @@ impl WinCraftPlugin for LayoutKeeper {
             self.save_at_end("teardown");
         }
         self.restore = Restore::new(self.restore.settle_seconds, self.restore.give_up_seconds);
+        self.offers.teardown();
         self.hide_notice();
         if let Some(mut window) = self.notice.take() {
             window.destroy();

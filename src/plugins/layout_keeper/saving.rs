@@ -110,6 +110,14 @@ impl LayoutKeeper {
                 }
             }
         }
+        // The saved order is what Put back restores, so it stays while the
+        // offer is on screen; a manual save is the user's word.
+        let offer_holds = reason != "manual" && self.offers.offered().is_some();
+        if let Some(group) = self.offers.offered().filter(|_| offer_holds) {
+            if !pending.iter().any(|held| held == group) {
+                pending.push(group.to_string());
+            }
+        }
         let plan = plan_save(
             self.writer.last(),
             fresh,
@@ -132,7 +140,8 @@ impl LayoutKeeper {
             write_when(reason),
         )?;
         self.released.clear();
-        if plan.backup {
+        // The copy of the old file is still owed once the offer is gone.
+        if plan.backup && !offer_holds {
             self.guard.wrote(reason == "timer");
         }
         Ok((wrote, plan.count))
