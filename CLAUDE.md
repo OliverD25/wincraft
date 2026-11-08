@@ -27,6 +27,8 @@ must be consistent with it.
   changing code.
 - [docs/design-brief.md](docs/design-brief.md): the look of WinCraft and the
   hard visual limits.
+- [docs/ui-map.md](docs/ui-map.md): where every menu, page and button is, with exact
+  labels; read it before telling the user where to click.
 - [README.md](README.md): what WinCraft does, for users.
 
 @CONSTITUTION.md
