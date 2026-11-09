@@ -337,7 +337,7 @@ impl Draw<'_> {
             frame.activate = Some(window.hwnd);
         }
         if response.middle_clicked() {
-            frame.close.extend(middle_close(window.hwnd, true));
+            frame.close.push(window.hwnd);
         }
         if response.drag_started() {
             if let Some(at) = response.interact_pointer_pos() {
@@ -368,7 +368,7 @@ impl Draw<'_> {
             frame.activate = Some(window.hwnd);
         }
         if response.middle_clicked() {
-            frame.close.extend(middle_close(window.hwnd, false));
+            frame.close.push(window.hwnd);
         }
         if response.drag_started() {
             if let Some(at) = response.interact_pointer_pos() {

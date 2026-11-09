@@ -292,7 +292,7 @@ pub(super) fn flat(
                                         continue;
                                     }
                                     if response.middle_clicked() {
-                                        frame.close.extend(middle_close(window.hwnd, false));
+                                        frame.close.push(window.hwnd);
                                     }
                                     if response.clicked() {
                                         frame.activate = Some(window.hwnd);

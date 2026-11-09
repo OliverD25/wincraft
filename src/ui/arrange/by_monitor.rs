@@ -8,10 +8,9 @@ use egui::{pos2, vec2, Color32, Rect, Response, Sense, Shape, StrokeKind, Ui, Ui
 use super::{
     card_above_or_below, card_look, card_menu, cards_here, ctrl_drop, ctrl_hint, ctrl_mark,
     ctrl_place, ctrl_target, float_picture, ghost_thumbnail, grown, hit_rect, line_width,
-    middle_close, name_card, nudge, number_chip, order_with_place, others, others_link,
-    paint_badges, paint_look, picture_width, place_in_row, selected_fill, selected_ring,
-    taskbar_numbers, thumbnail, visible_flags, wrap, Badge, Drag, Frame, Pending, Shared,
-    NUMBER_GAP, SLACK,
+    name_card, nudge, number_chip, order_with_place, others, others_link, paint_badges, paint_look,
+    picture_width, place_in_row, selected_fill, selected_ring, taskbar_numbers, thumbnail,
+    visible_flags, wrap, Badge, Drag, Frame, Pending, Shared, NUMBER_GAP, SLACK,
 };
 use crate::core::taskbar_scope::MultiMonitor;
 use crate::core::theme::{self, Tokens};

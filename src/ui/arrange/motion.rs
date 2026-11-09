@@ -82,12 +82,6 @@ pub(super) fn grown(rect: Rect, scale: f32) -> Rect {
     Rect::from_center_size(rect.center(), rect.size() * scale)
 }
 
-/// The window a middle-click closes, as in Windows' own taskbar popup: a
-/// card's window, never a ghost's, whose window has a card of its own.
-pub(super) fn middle_close(hwnd: isize, ghost: bool) -> Option<isize> {
-    (!ghost).then_some(hwnd)
-}
-
 /// The card picked after Ctrl+W closes `closed`: the next one in `order`,
 /// else the one before. None when it was the only card.
 pub fn after_close(order: &[isize], closed: isize) -> Option<isize> {
