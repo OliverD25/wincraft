@@ -9,8 +9,8 @@ use egui::{pos2, vec2, Rect, Response, Sense, StrokeKind, Ui, Vec2};
 
 use super::tile::{self, THUMB_MIN};
 use super::{
-    by_monitor, card_menu, grown, middle_close, only_visible, rows, taskbar_numbers, thumbnail,
-    visible_flags, Frame, Pending, Row, Shared,
+    by_monitor, card_menu, grown, only_visible, rows, taskbar_numbers, thumbnail, visible_flags,
+    Frame, Pending, Row, Shared,
 };
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{
@@ -649,7 +649,7 @@ fn interact(
         frame.activate = Some(window.hwnd);
     }
     if response.middle_clicked() {
-        frame.close.extend(middle_close(window.hwnd, false));
+        frame.close.push(window.hwnd);
     }
     let names = snapshot.can_rename.then_some(window.renamed);
     response.context_menu(|ui| {

@@ -1006,12 +1006,6 @@ fn up_and_down_pick_the_nearest_card_on_the_line_above_or_below() {
 }
 
 #[test]
-fn a_middle_click_closes_a_cards_window_but_not_a_ghosts() {
-    assert_eq!(middle_close(7, false), Some(7));
-    assert_eq!(middle_close(7, true), None);
-}
-
-#[test]
 fn new_windows_grow_in_and_gone_ones_stay_until_they_fade() {
     let now = Instant::now();
     let before = group(&["d1", "d1", "d1"]);
