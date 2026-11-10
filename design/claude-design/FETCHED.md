@@ -182,3 +182,10 @@ user's decisions: you make a group yourself (drag onto a card, or Ctrl + G);
 a stack look; open in place; groups remembered by window names; a stack
 stands with most of its windows; one app per group; closing a stack asks
 first. Not built yet.
+
+## 2026-11-11 (later): Window Deck Groups Options, names in a stack
+
+Version 16 of the artifact, copied byte for byte. A closed stack now names
+its other windows: up to two lines under the group name, without the start
+they share with it, ending in "+N more"; and a numbered list under the stack
+while it is selected or under the mouse (user's choice "A + D"). New frame 1b.
