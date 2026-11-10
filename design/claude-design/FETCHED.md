@@ -170,3 +170,15 @@ apart and leave a slot as big as the dragged card; the 2 px accent bar goes
 away. The user chose B: fill `text_primary` at 5 % and a 1 px solid ring in
 `text_primary` at 35 %, never orange, accent or dashed. A and C stay on the
 page for the record.
+
+## 2026-11-11: Window Deck Groups Options
+
+Drawn by the forked design session and published to the design artifact
+(version 15), copied here byte for byte: `Window Deck Groups Options.dc.html`
+(84166 bytes, new), and an entry for it in the artifact's `compat.json` page
+list. Related windows fold into one stack card with one number; the number
+opens the group in place and a second number opens one of its windows. The
+user's decisions: you make a group yourself (drag onto a card, or Ctrl + G);
+a stack look; open in place; groups remembered by window names; a stack
+stands with most of its windows; one app per group; closing a stack asks
+first. Not built yet.
