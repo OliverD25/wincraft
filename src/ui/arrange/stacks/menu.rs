@@ -3,6 +3,28 @@
 
 use super::*;
 
+/// The group part of a card's menu. With `stack_only`, a stack's whole menu
+/// and true when the card is a stack (the card menu is then left out);
+/// otherwise the group items after a window card's own items.
+pub fn group_menu(
+    ui: &mut Ui,
+    shared: &mut Shared,
+    group: &ArrangeGroup,
+    hwnd: isize,
+    stack_only: bool,
+) -> bool {
+    if stack_only {
+        let stack = shared.stacks.closed(hwnd).is_some();
+        if stack {
+            stack_menu(ui, &mut shared.stacks, hwnd);
+        }
+        return stack;
+    }
+    let defs = shared.snapshot.as_ref().and_then(|s| s.deck_groups.clone());
+    card_menu_items(ui, &mut shared.stacks, group, hwnd, defs.as_deref());
+    false
+}
+
 /// The menu of a stack, in place of a window card's menu.
 pub fn stack_menu(ui: &mut Ui, stacks: &mut Stacks, hwnd: isize) {
     let Some(count) = stacks.closed(hwnd).map(|stack| stack.members.len()) else {

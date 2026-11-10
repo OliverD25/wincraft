@@ -10,7 +10,7 @@ use super::*;
 pub const LINES: f32 = 30.0;
 const LINE_FONT: f32 = 12.0;
 /// How far each edge behind a stack peeks out.
-const EDGE_STEP: f32 = 3.0;
+const EDGE_STEP: f32 = 4.0;
 const CHIP_HEIGHT: f32 = 16.0;
 /// Round an open group's cards.
 const FRAME_PAD: f32 = 6.0;
@@ -44,6 +44,14 @@ pub fn behind(painter: &egui::Painter, stacks: &Stacks, hwnd: isize, rect: Rect)
             StrokeKind::Inside,
         );
     }
+    // The card itself hides the edges' lower left parts.
+    painter.rect(
+        rect,
+        4,
+        tokens.window_bg,
+        theme::line(painter.ctx(), tokens.border),
+        StrokeKind::Inside,
+    );
 }
 
 /// The marks on a card's picture: a stack's count chip, a lone group

@@ -142,6 +142,20 @@ fn name_box(ui: &mut Ui, tokens: &Tokens, title: &str, text: &mut String, focuse
     // Asked for on every frame until it arrives: the window may take a
     // frame or two to hand the keyboard over.
     if response.has_focus() {
+        if !*focused {
+            // The first frame with the keyboard: the whole name is picked,
+            // so typing replaces it.
+            if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), response.id) {
+                let end = egui::text::CCursor::new(text.chars().count());
+                state
+                    .cursor
+                    .set_char_range(Some(egui::text::CCursorRange::two(
+                        egui::text::CCursor::new(0),
+                        end,
+                    )));
+                state.store(ui.ctx(), response.id);
+            }
+        }
         *focused = true;
     } else if !*focused {
         response.request_focus();

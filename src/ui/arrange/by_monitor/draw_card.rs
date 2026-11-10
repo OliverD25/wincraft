@@ -392,22 +392,14 @@ impl Draw<'_> {
             }
         }
         let names = self.can_rename.then_some(window.renamed);
-        let defs = shared.snapshot.as_ref().and_then(|s| s.deck_groups.clone());
         response.context_menu(|ui| {
-            if shared.stacks.closed(window.hwnd).is_some() {
-                stacks::stack_menu(ui, &mut shared.stacks, window.hwnd);
+            if stacks::group_menu(ui, shared, self.group, window.hwnd, true) {
                 return;
             }
             if let Some(action) = card_menu(ui, self.group, member, self.desktops, names) {
                 frame.actions.push(action);
             }
-            stacks::card_menu_items(
-                ui,
-                &mut shared.stacks,
-                self.group,
-                window.hwnd,
-                defs.as_deref(),
-            );
+            stacks::group_menu(ui, shared, self.group, window.hwnd, false);
         });
     }
 }
