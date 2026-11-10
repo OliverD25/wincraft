@@ -33,4 +33,7 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
    orange and its taskbar button flash.
 6. Answer the question. The orange mark should go away.
 
+**Done when:** the gap shows in WindowDeck, and a Claude window that asks a
+question turns orange and clears after the answer.
+
 ## Done
