@@ -30,10 +30,6 @@ impl Groups {
         }
     }
 
-    pub fn is_on(&self) -> bool {
-        self.on
-    }
-
     /// The setting changed: the groups are read when it goes on and
     /// forgotten when it goes off.
     pub fn switch(&mut self, on: bool) {

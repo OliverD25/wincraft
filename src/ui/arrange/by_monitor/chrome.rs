@@ -255,6 +255,7 @@ pub(super) fn footer(
     others_key: bool,
     over_ten: bool,
     marked: bool,
+    groups: super::super::stacks::GroupHints,
 ) {
     let tokens = Tokens::get(ui.ctx());
     let painter = ui.painter();
@@ -265,7 +266,8 @@ pub(super) fn footer(
         theme::line(ui.ctx(), tokens.border),
     );
     let centre = area.top() + 1.0 + (FOOTER - 1.0) / 2.0;
-    let mut hints: Vec<Hint> = footer_hints(others_key, over_ten, marked)
+    let listed = footer_hints(others_key, over_ten, marked);
+    let mut hints: Vec<Hint> = super::super::stacks::with_group_hints(listed, groups)
         .into_iter()
         .map(|(key, label)| hint_galleys(painter, key, label, tokens.text_secondary))
         .collect();

@@ -48,6 +48,7 @@ mod routed;
 mod rows;
 mod seen;
 mod sizing;
+mod stacks;
 mod strip;
 mod tile;
 mod window;
@@ -307,6 +308,8 @@ struct Shared {
     routed: Vec<egui::Event>,
     /// Keys go to the strip now, because the mouse is in it.
     keys_routed: bool,
+    /// The groups of related windows: what is folded, open and picked.
+    stacks: stacks::Stacks,
 }
 
 impl Shared {

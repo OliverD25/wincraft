@@ -58,12 +58,13 @@ impl Arrange {
                 parked: false,
                 routed: Vec::new(),
                 keys_routed: false,
+                stacks: stacks::Stacks::default(),
             })),
             palette_hwnd,
         }
     }
 
-    pub fn open(&self, snapshot: ArrangeSnapshot) {
+    pub fn open(&self, mut snapshot: ArrangeSnapshot) {
         let Ok(mut shared) = self.shared.lock() else {
             return;
         };
@@ -108,6 +109,7 @@ impl Arrange {
         shared.note = None;
         shared.seen = seen::Seen::default();
         shared.rename = None;
+        shared.stacks.arrive(&mut snapshot, true);
         shared.snapshot = Some(snapshot);
         shared.holds.clear();
         shared.closed = false;
@@ -155,6 +157,7 @@ impl Arrange {
                 .map(|group| group.key.clone());
         }
         let now = Instant::now();
+        shared.stacks.arrive(&mut snapshot, false);
         hold::filter(&mut shared.holds, &mut snapshot.groups, now);
         let Shared {
             known,
@@ -461,7 +464,10 @@ impl Arrange {
             // Esc ends a title edit, or puts a card dragged in the By
             // monitor view back, and nothing more.
             let putting_back = shared.drag.is_some() && shared.view() == ArrangeView::ByMonitor;
-            let escape = escape && shared.rename.is_none() && !putting_back;
+            let escape = escape
+                && shared.rename.is_none()
+                && !putting_back
+                && !shared.stacks.wants_escape();
             if escape {
                 log::info!("WindowDeck closes: Esc");
                 shared.closed = true;

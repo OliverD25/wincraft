@@ -16,7 +16,7 @@ impl Draw<'_> {
         let rect = shared.slid((window.hwnd, false), rect);
         let waiting = shared.waiting_note(window.hwnd);
         let (scale, fade) = shared.motion(window.hwnd);
-        let alpha = alpha * fade;
+        let alpha = alpha * fade * shared.stacks.dim(window.hwnd);
         let response = ui.interact(
             rect,
             egui::Id::new(("arrange-card", window.hwnd)),
@@ -32,6 +32,7 @@ impl Draw<'_> {
         } else {
             None
         };
+        stacks::behind(&painter, &shared.stacks, window.hwnd, grown(rect, scale));
         paint_look(
             &painter,
             grown(rect, scale),
@@ -50,7 +51,10 @@ impl Draw<'_> {
         let thumb = grown(
             Rect::from_min_size(
                 rect.min + Vec2::splat(CARD_PAD),
-                vec2(rect.width() - 2.0 * CARD_PAD, THUMB_HEIGHT),
+                vec2(
+                    rect.width() - 2.0 * CARD_PAD,
+                    stacks::thumb_height(&shared.stacks, window.hwnd, THUMB_HEIGHT),
+                ),
             ),
             scale,
         );
@@ -95,11 +99,12 @@ impl Draw<'_> {
                 dest: picture,
                 clip: ui.clip_rect(),
                 opacity: (255.0 * alpha).round() as u8,
-                clear: shown.clear,
+                clear: stacks::marks(&painter, &shared.stacks, window.hwnd, thumb, shown.clear),
                 ghost: false,
             });
         } else {
             name_card(&painter, picture, &window.label, "");
+            stacks::marks(&painter, &shared.stacks, window.hwnd, thumb, shown.clear);
         }
 
         let title_top = thumb.bottom() + TITLE_GAP;
@@ -110,6 +115,18 @@ impl Draw<'_> {
             TITLE,
             self.numbers[member],
         );
+        stacks::member_chip(
+            &painter,
+            &shared.stacks,
+            window.hwnd,
+            number,
+            self.numbers[member],
+        );
+        let lines = Rect::from_min_max(
+            pos2(number.left(), title_top + TITLE + 2.0),
+            pos2(right, rect.bottom()),
+        );
+        stacks::lines(&painter, &shared.stacks, window.hwnd, lines);
         let left = number.right() + NUMBER_GAP;
         // F2: the title is a text box, which owns the mouse on this card.
         if let Some(edit) = shared
@@ -177,7 +194,7 @@ impl Draw<'_> {
             return;
         };
         let rect = shared.slid((window.hwnd, true), rect);
-        let alpha = alpha * shared.motion(window.hwnd).1;
+        let alpha = alpha * shared.motion(window.hwnd).1 * shared.stacks.dim(window.hwnd);
         let left = self
             .monitors
             .iter()
@@ -375,10 +392,22 @@ impl Draw<'_> {
             }
         }
         let names = self.can_rename.then_some(window.renamed);
+        let defs = shared.snapshot.as_ref().and_then(|s| s.deck_groups.clone());
         response.context_menu(|ui| {
+            if shared.stacks.closed(window.hwnd).is_some() {
+                stacks::stack_menu(ui, &mut shared.stacks, window.hwnd);
+                return;
+            }
             if let Some(action) = card_menu(ui, self.group, member, self.desktops, names) {
                 frame.actions.push(action);
             }
+            stacks::card_menu_items(
+                ui,
+                &mut shared.stacks,
+                self.group,
+                window.hwnd,
+                defs.as_deref(),
+            );
         });
     }
 }

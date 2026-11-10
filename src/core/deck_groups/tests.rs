@@ -52,13 +52,16 @@ fn names_stay_unique_within_an_app() {
     assert_eq!(second.as_deref(), Some("NewsHQ 2"));
     let other_app = make(&mut groups, "edge", "NewsHQ", &names(&["a", "b"]));
     assert_eq!(other_app.as_deref(), Some("NewsHQ"));
-    assert!(rename(&mut groups, "chrome", "NewsHQ 2", "NewsHQ"));
+    assert_eq!(
+        rename(&mut groups, "chrome", "NewsHQ 2", "NewsHQ").as_deref(),
+        Some("NewsHQ 2")
+    );
     assert_eq!(groups[1].name, "NewsHQ 2", "its own name counts as free");
     // Its own name is not taken from itself.
-    assert!(rename(&mut groups, "chrome", "NewsHQ", "NewsHQ"));
+    assert!(rename(&mut groups, "chrome", "NewsHQ", "NewsHQ").is_some());
     assert_eq!(groups[0].name, "NewsHQ");
-    assert!(!rename(&mut groups, "chrome", "NewsHQ", " "));
-    assert!(!rename(&mut groups, "chrome", "None such", "x"));
+    assert!(rename(&mut groups, "chrome", "NewsHQ", " ").is_none());
+    assert!(rename(&mut groups, "chrome", "None such", "x").is_none());
 }
 
 #[test]

@@ -5,6 +5,7 @@
 use egui::text::TextWrapping;
 use egui::{pos2, vec2, Color32, Rect, Response, Sense, Shape, StrokeKind, Ui, UiBuilder, Vec2};
 
+use super::stacks;
 use super::{
     card_above_or_below, card_look, card_menu, cards_here, ctrl_drop, ctrl_hint, ctrl_mark,
     ctrl_place, ctrl_target, float_picture, ghost_thumbnail, grown, hit_rect, line_width,

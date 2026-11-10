@@ -98,7 +98,12 @@ pub fn body(
     frame.area = area;
     // Esc puts the card back where it was, and nothing moves.
     let escape = dragged.is_some() && ctx.input(|i| i.key_pressed(egui::Key::Escape));
-    let target = dragged.and_then(|member| {
+    // Over the middle of another card a drop groups the two; over a gap it
+    // stays a move.
+    let dragged_hwnd = dragged.filter(|_| !ctrl).map(|m| group.windows[m].hwnd);
+    let group_card =
+        super::super::stacks::group_drop_target(shared, ctx.pointer_latest_pos(), dragged_hwnd);
+    let target = dragged.filter(|_| group_card.is_none()).and_then(|member| {
         let pointer = ctx.pointer_latest_pos();
         landing(pointer, area, escape, &shared.zones, member, home(member))
     });
@@ -132,6 +137,11 @@ pub fn body(
                 frame.actions.extend(
                     ctrl_card.and_then(|card| ctrl_drop(group, &snapshot.desktops, member, card)),
                 );
+            } else if super::super::stacks::group_dropped(
+                shared,
+                group_card,
+                group.windows[member].hwnd,
+            ) {
             } else if let Some(spot) = target {
                 frame.actions.extend(drop_item_actions(
                     group,
@@ -200,7 +210,9 @@ pub fn body(
         model: &model,
         menu_open,
         can_rename: snapshot.can_rename,
-        numbers: taskbar_numbers(group, &snapshot.desktops),
+        numbers: shared
+            .stacks
+            .numbers(group, taskbar_numbers(group, &snapshot.desktops)),
         dragged: dragged.filter(|_| dragging),
         lift,
         target: target.filter(|_| dragging && !ctrl),
@@ -210,6 +222,7 @@ pub fn body(
         hits: Vec::new(),
         items: Vec::new(),
     };
+    super::super::stacks::open_frame(&ui.painter().with_clip_rect(area), shared);
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
         egui::ScrollArea::vertical()
             .id_salt("arrange-bands")
@@ -232,6 +245,7 @@ pub fn body(
     shared.zones = std::mem::take(&mut draw.zones);
     shared.card_hits = std::mem::take(&mut draw.hits);
     shared.items = std::mem::take(&mut draw.items);
+    super::super::stacks::after_cards(&ctx, shared, group, snapshot, &mut frame, dragging);
     frame.dragged = dragged.map(|m| group.windows[m].hwnd);
     if let (Some(lift), Some(grab), Some(pointer)) = (lift, grab, ctx.pointer_latest_pos()) {
         let member = lift.item.member();
@@ -267,6 +281,7 @@ pub fn body(
             others_count > 0,
             cards_here(group, &snapshot.desktops) > 10,
             super::super::seen::any_marked(snapshot),
+            shared.stacks.hints(snapshot),
         );
     }
 

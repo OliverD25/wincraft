@@ -125,12 +125,12 @@ pub fn remove(groups: &mut Vec<DeckGroup>, app: &str, label: &str) {
     take_out(groups, app, label);
 }
 
-/// Gives the group a new name (made unique). False when the name is empty
-/// or there is no such group.
-pub fn rename(groups: &mut [DeckGroup], app: &str, old: &str, new: &str) -> bool {
+/// Gives the group a new name (made unique) and returns it. None when the
+/// name is empty or there is no such group.
+pub fn rename(groups: &mut [DeckGroup], app: &str, old: &str, new: &str) -> Option<String> {
     let new = new.trim();
     if new.is_empty() {
-        return false;
+        return None;
     }
     let free = free_name(groups, app, new, Some(old));
     match groups
@@ -138,10 +138,10 @@ pub fn rename(groups: &mut [DeckGroup], app: &str, old: &str, new: &str) -> bool
         .find(|group| group.app == app && group.name == old)
     {
         Some(group) => {
-            group.name = free;
-            true
+            group.name = free.clone();
+            Some(free)
         }
-        None => false,
+        None => None,
     }
 }
 

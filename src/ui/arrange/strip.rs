@@ -186,6 +186,8 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
     let others_count = others::count(&group, &snapshot.desktops, &visible);
     // While the title box has the keyboard, no strip key acts.
     let typing = shared.rename.is_some();
+    let quiet = menu_open || typing || shared.drag.is_some();
+    stacks::before_frame(&ctx, shared, &group, panel, quiet);
     if others_count > 0
         && !menu_open
         && !typing
@@ -213,7 +215,9 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
             .map(|digit| typed_number(digit, true))
             .or_else(|| typed(egui::Modifiers::NONE).map(|digit| typed_number(digit, false)));
         if let Some(number) = number {
-            digit_card = card_for_digit(&group, &snapshot.desktops, &visible, number);
+            digit_card = stacks::digit_card(shared, &group, number, || {
+                card_for_digit(&group, &snapshot.desktops, &visible, number)
+            });
             if digit_card.is_none() {
                 log::info!("number {number} typed in the strip: no card has it");
             }
@@ -373,6 +377,7 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
         }
     }
 
+    stacks::after_frame(&ctx, shared, &group, &mut frame);
     place_pictures(shared, &frame.pending, frame.floating, frame.dragged, ppp);
 
     let actions = std::mem::take(&mut frame.actions);
