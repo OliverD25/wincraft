@@ -28,6 +28,11 @@ every name with a title of its own more than five times a second,
 WindowNamer lets it be for ten seconds and then tries again, so the two
 never fight without end.
 
+Claude is the one exception. A Claude window shows one chat, and its title
+is that chat's, so a name given to a Claude window is the chat's name. When
+the window shows another chat, the name goes away. It comes back on
+whichever Claude window shows that chat again.
+
 **Title shows** chooses what a renamed window's title says: the name alone
 (the default), or the name followed by the app's own title, like
 "Mail — Inbox - Gmail - Google Chrome".

@@ -585,6 +585,10 @@ impl WindowNamer {
     /// with the name again.
     fn check_title(&mut self, hwnd: isize, now: u64) {
         let style = self.style;
+        let follows = self
+            .saved
+            .iter()
+            .any(|saved| saved.window == Some(hwnd) && rules::follows_title(&saved.rule.group));
         let Some(live) = self.live.get_mut(&hwnd) else {
             return;
         };
@@ -596,6 +600,18 @@ impl WindowNamer {
             return;
         }
         let app_title = style.app_part(&live.names.custom, &shown).to_string();
+        if follows && app_title != live.names.app_title {
+            // The window shows another chat now. Its title is already the
+            // app's, so there is nothing to put back.
+            if let Some(live) = self.unbind(hwnd) {
+                log::info!(
+                    "the window called \"{}\" shows \"{app_title}\" now; the name waits for its own chat",
+                    live.names.custom
+                );
+                self.changed();
+            }
+            return;
+        }
         if app_title != live.names.app_title {
             log::debug!("a named window's app title is now \"{app_title}\"");
             live.names.app_title = app_title.clone();
@@ -689,24 +705,31 @@ impl WindowNamer {
             return;
         }
         for hwnd in closed {
-            let Some(live) = self.live.remove(&hwnd) else {
+            let Some(live) = self.unbind(hwnd) else {
                 continue;
             };
-            window_names::remove(hwnd);
-            self.unwatch_if_unused(live.pid);
-            if let Some(saved) = self.saved_of(hwnd) {
-                saved.window = None;
-                saved.rested = true;
-                saved.rule.last_used = unix_now();
-            }
             log::info!(
                 "the window called \"{}\" closed; the name is kept for when it opens again",
                 live.names.custom
             );
-            self.dirty = true;
         }
         self.groups.retain(|hwnd, (pid, _)| alive(*hwnd, *pid));
         self.changed();
+    }
+
+    /// Takes the name off `hwnd` and keeps the saved name: from now on only
+    /// a window with its title brings it back.
+    fn unbind(&mut self, hwnd: isize) -> Option<Live> {
+        let live = self.live.remove(&hwnd)?;
+        window_names::remove(hwnd);
+        self.unwatch_if_unused(live.pid);
+        if let Some(saved) = self.saved_of(hwnd) {
+            saved.window = None;
+            saved.rested = true;
+            saved.rule.last_used = unix_now();
+        }
+        self.dirty = true;
+        Some(live)
     }
 
     /// Puts saved names back on the windows they belong to.

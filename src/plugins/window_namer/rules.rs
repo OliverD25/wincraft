@@ -102,6 +102,17 @@ pub fn stable_group(group: &str) -> String {
     }
 }
 
+/// Whether a name belongs to what the window shows, not to the window. A
+/// Claude window shows one chat and its title is that chat's, so a name
+/// given to it is the chat's name: when the window shows another chat the
+/// name goes, and it comes back on the window that shows its chat again.
+/// In other apps the name stays on the window: a Chrome window keeps its
+/// name on every tab change.
+pub fn follows_title(group: &str) -> bool {
+    let group = group.to_lowercase();
+    group.contains(r"windowsapps\claude_") && group.ends_with(r"\claude.exe")
+}
+
 /// Brings saved names written by older versions up to date: Store app keys
 /// lose their version (`stable_group`), and of two names that want the same
 /// window (same app, same title) only the newer one stays, since the two
@@ -353,6 +364,19 @@ mod tests {
     const CLAUDE_OLD: &str = r"d:\windowsapps\claude_4.4212.0.0_x64__pzs8sxrjxfjjc\app\claude.exe";
     const CLAUDE_NEW: &str =
         r"c:\program files\windowsapps\claude_4.16336.0.0_x64__pzs8sxrjxfjjc\app\claude.exe";
+
+    #[test]
+    fn only_a_claude_windows_name_follows_its_title() {
+        assert!(follows_title(
+            r"windowsapps\claude_pzs8sxrjxfjjc\app\claude.exe"
+        ));
+        assert!(follows_title(CLAUDE_OLD));
+        assert!(!follows_title(CHROME));
+        assert!(!follows_title(NOTEPAD));
+        assert!(!follows_title(
+            r"windowsapps\microsoft.windowsterminal_8wekyb3d8bbwe\windowsterminal.exe"
+        ));
+    }
 
     #[test]
     fn a_store_app_keeps_its_key_across_an_update() {
