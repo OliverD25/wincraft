@@ -88,12 +88,14 @@ pub fn encode(title: &str) -> Vec<u16> {
 /// for a copy that is not ours or has no title.
 pub fn decode(code: usize, bytes: &[u8]) -> Option<(Kind, String)> {
     let kind = Kind::from_code(code)?;
-    if bytes.len() % 2 != 0 || bytes.len() > MOST_TITLE_CHARS * 4 {
+    if !bytes.len().is_multiple_of(2) || bytes.len() > MOST_TITLE_CHARS * 4 {
         return None;
     }
     let units: Vec<u16> = bytes
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_le_bytes(*pair))
         .collect();
     let title = String::from_utf16_lossy(&units).trim().to_string();
     (!title.is_empty()).then_some((kind, title))
