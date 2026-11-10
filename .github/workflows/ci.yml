@@ -4,10 +4,8 @@ name: CI
 # locally (fmt, tests, clippy, release build) before it is pushed, and docs-only
 # changes need no Windows build.
 on:
-  pull_request:
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
+  # Manual only (decided 2026-11-01): the local checks are the merge gate, so CI
+  # never runs by itself. Start it with "Run workflow" or `gh workflow run ci.yml`.
   workflow_dispatch:
 
 concurrency:
