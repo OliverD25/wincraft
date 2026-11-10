@@ -108,6 +108,18 @@ pub fn is_claude_app(path_or_group: &str) -> bool {
     lower.contains(r"windowsapps\claude_") && lower.ends_with(r"\claude.exe")
 }
 
+/// A window named by its handle, `hwnd:<number>` (decimal or `0x` hex),
+/// instead of a title. A hook that found the window itself (a popped-out
+/// window, a renamed one) names it this way.
+pub fn window_handle(name: &str) -> Option<isize> {
+    let number = name.trim().strip_prefix("hwnd:")?;
+    let parsed = match number.strip_prefix("0x") {
+        Some(hex) => isize::from_str_radix(hex, 16).ok(),
+        None => number.parse().ok(),
+    };
+    parsed.filter(|hwnd| *hwnd != 0)
+}
+
 /// Whether a window with this program and app title shows the session
 /// `wanted`: a Claude window whose title is exactly that, after trimming.
 pub fn shows_session(exe_path: &str, window_title: &str, wanted: &str) -> bool {

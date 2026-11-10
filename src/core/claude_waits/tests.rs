@@ -111,3 +111,12 @@ fn the_reply_counts_windows_and_zero_means_not_taken() {
         0
     );
 }
+
+#[test]
+fn a_window_can_be_named_by_its_handle() {
+    assert_eq!(window_handle("hwnd:265740"), Some(265740));
+    assert_eq!(window_handle(" hwnd:0x40e0c "), Some(0x40e0c));
+    assert_eq!(window_handle("hwnd:0"), None);
+    assert_eq!(window_handle("hwnd:abc"), None);
+    assert_eq!(window_handle("WinCraft Rust"), None);
+}

@@ -446,6 +446,7 @@ WinCraft fills in every missing key on startup: start it once, then open the fil
 The Claude desktop app flashes its taskbar button only when the app is not in front. So when you work in one Claude window, a question in another Claude window gives no sign. A [Claude Code hook](https://docs.claude.com/en/docs/claude-code/hooks) can tell WinCraft instead:
 
 * `wincraft.exe --waiting "<title>"` marks every Claude window whose title is exactly `<title>` (after trimming spaces): its WindowDeck card turns orange, and its taskbar button flashes and stays orange. A window you renamed with WindowNamer still matches by the title Claude gave it.
+* `<title>` may also be `hwnd:<number>` (decimal or `0x` hex): it names one window by its handle, for a hook that found the window itself. Only a Claude window is ever marked this way.
 * The mark stays when you only switch to the window. It goes when the hook runs `wincraft.exe --answered "<title>"`, when the window closes, or when you press `Ctrl+M` in WindowDeck (`Ctrl+Z` brings it back).
 * Each mark and each clear writes one line to `wincraft.log`, with how many windows matched. `0 windows matched` means no Claude window had that title.
 

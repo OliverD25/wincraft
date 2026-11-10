@@ -35,11 +35,18 @@ pub(super) fn copy_data(lparam: LPARAM) -> LRESULT {
     claude_waits::reply_for(touched)
 }
 
-/// The visible Claude windows whose app title is `title`.
+/// The visible Claude windows whose app title is `title`, or the one named
+/// by `hwnd:<number>`.
 fn session_windows(title: &str) -> Vec<isize> {
     windows_list::app_window_records(&|_| true)
         .into_iter()
         .filter(|(hwnd, record)| {
+            if let Some(wanted) = claude_waits::window_handle(title) {
+                let mut pid = 0u32;
+                unsafe { GetWindowThreadProcessId(*hwnd, &mut pid) };
+                return *hwnd as isize == wanted
+                    && claude_waits::is_claude_app(&windows_list::exe_path(pid));
+            }
             if record.title.trim() != title {
                 return false;
             }
