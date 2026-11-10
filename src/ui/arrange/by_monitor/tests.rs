@@ -806,6 +806,7 @@ fn a_limited_strip_has_one_column_with_only_that_monitors_windows() {
         look_plugin: "window_deck".to_string(),
         hints: true,
         toolbar_on_other_monitors: false,
+        deck_groups: None,
         keeps_order: true,
         groups: vec![group.clone()],
         desktops: vec![ArrangeDesktop {
@@ -1288,6 +1289,7 @@ fn spread() -> (ArrangeGroup, ArrangeSnapshot) {
         look_plugin: "window_deck".to_string(),
         hints: true,
         toolbar_on_other_monitors: false,
+        deck_groups: None,
         keeps_order: true,
         groups: vec![group.clone()],
         desktops: vec![ArrangeDesktop {

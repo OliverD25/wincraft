@@ -11,6 +11,7 @@ pub mod clipboard;
 pub mod clock;
 pub mod com;
 pub mod config;
+pub mod deck_groups;
 pub mod desktop_manager;
 pub mod detailed;
 pub mod glass;

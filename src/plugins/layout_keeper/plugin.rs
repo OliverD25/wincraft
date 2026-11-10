@@ -323,7 +323,8 @@ impl WinCraftPlugin for LayoutKeeper {
             // strip's own plugin; they never come here.
             ArrangeAction::Rename { .. }
             | ArrangeAction::AskName(_)
-            | ArrangeAction::NewWindow { .. } => return,
+            | ArrangeAction::NewWindow { .. }
+            | ArrangeAction::SetGroups(_) => return,
         };
         if self.refuses(what) {
             return;
@@ -378,7 +379,8 @@ impl WinCraftPlugin for LayoutKeeper {
             }
             ArrangeAction::Rename { .. }
             | ArrangeAction::AskName(_)
-            | ArrangeAction::NewWindow { .. } => {}
+            | ArrangeAction::NewWindow { .. }
+            | ArrangeAction::SetGroups(_) => {}
         }
     }
 
