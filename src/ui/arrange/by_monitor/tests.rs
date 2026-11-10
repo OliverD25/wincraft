@@ -281,11 +281,18 @@ fn a_rail_row_is_at_least_150_high() {
     // 18 + 8 + 112 high.
     const { assert!(LABEL + LABEL_GAP + EMPTY < RAIL_MIN_HEIGHT) };
     assert_eq!(
-        row_height(&band, 0, &[rail_col(), col(200.0, 1)], &tracks, &SAME),
+        row_height(&band, 0, &[rail_col(), col(200.0, 1)], &tracks, &SAME, None),
         RAIL_MIN_HEIGHT
     );
     assert_eq!(
-        row_height(&band, 0, &[col(200.0, 0), col(200.0, 1)], &tracks, &SAME),
+        row_height(
+            &band,
+            0,
+            &[col(200.0, 0), col(200.0, 1)],
+            &tracks,
+            &SAME,
+            None
+        ),
         LABEL + LABEL_GAP + EMPTY
     );
 }
@@ -1684,4 +1691,226 @@ fn a_ghost_of_a_window_that_wants_attention_is_tinted_with_orange_dashes() {
     assert!(fill.is_some());
     assert_eq!(outline, tokens.warning);
     assert_eq!(ghost_colours(&tokens, false), (None, tokens.border));
+}
+
+/// A column that holds three 100 wide cards on a line.
+const THREE_WIDE: f32 = INSET + 3.0 * 100.0 + 2.0 * CARD_GAP;
+
+fn lift(item: Item, band: usize, cell: (usize, usize), index: usize, width: f32) -> Lift {
+    Lift {
+        item,
+        spot: spot(band, cell, index),
+        width,
+    }
+}
+
+fn at(x: f32, line: usize, width: f32) -> Rect {
+    Rect::from_min_size(
+        pos2(x, line as f32 * (CARD_HEIGHT + CARD_GAP)),
+        vec2(width, CARD_HEIGHT),
+    )
+}
+
+#[test]
+fn a_dragged_card_opens_a_gap_at_the_drop_index() {
+    let flow = [Item::Card(0), Item::Card(1), Item::Card(2)];
+    let widths = [100.0, 100.0, 100.0, 120.0];
+    let dragged = lift(Item::Card(3), 0, (0, 0), 1, 120.0);
+    let placed = cell_places(
+        &flow,
+        (0, (0, 0)),
+        Some(dragged),
+        &widths,
+        1000.0,
+        pos2(0.0, 0.0),
+    );
+    assert_eq!(
+        placed,
+        vec![
+            (Some(Item::Card(0)), at(0.0, 0, 100.0)),
+            (None, at(108.0, 0, 120.0)),
+            (Some(Item::Card(1)), at(236.0, 0, 100.0)),
+            (Some(Item::Card(2)), at(344.0, 0, 100.0)),
+        ]
+    );
+    // Another cell, and no drag, keep their cards as they are.
+    let still = vec![
+        (Some(Item::Card(0)), at(0.0, 0, 100.0)),
+        (Some(Item::Card(1)), at(108.0, 0, 100.0)),
+        (Some(Item::Card(2)), at(216.0, 0, 100.0)),
+    ];
+    assert_eq!(
+        cell_places(
+            &flow,
+            (0, (0, 1)),
+            Some(dragged),
+            &widths,
+            1000.0,
+            pos2(0.0, 0.0)
+        ),
+        still
+    );
+    assert_eq!(
+        cell_places(&flow, (0, (0, 0)), None, &widths, 1000.0, pos2(0.0, 0.0)),
+        still
+    );
+}
+
+#[test]
+fn the_gap_pushes_the_last_card_across_a_line_break() {
+    let flow = [Item::Card(0), Item::Card(1), Item::Card(2)];
+    let widths = [100.0; 4];
+    let dragged = lift(Item::Card(3), 0, (0, 0), 1, 100.0);
+    let placed = cell_places(
+        &flow,
+        (0, (0, 0)),
+        Some(dragged),
+        &widths,
+        THREE_WIDE,
+        pos2(0.0, 0.0),
+    );
+    assert_eq!(
+        placed,
+        vec![
+            (Some(Item::Card(0)), at(0.0, 0, 100.0)),
+            (None, at(108.0, 0, 100.0)),
+            (Some(Item::Card(1)), at(216.0, 0, 100.0)),
+            (Some(Item::Card(2)), at(0.0, 1, 100.0)),
+        ]
+    );
+    // The column grows a line only when the gap needs it.
+    let one_line = CARD_HEIGHT;
+    let two_lines = 2.0 * CARD_HEIGHT + CARD_GAP;
+    assert_eq!(
+        lifted_height(&flow, (0, (0, 0)), None, &widths, THREE_WIDE),
+        one_line
+    );
+    assert_eq!(
+        lifted_height(&flow, (0, (0, 0)), Some(dragged), &widths, THREE_WIDE),
+        two_lines
+    );
+    let own = lift(Item::Card(1), 0, (0, 0), 1, 100.0);
+    assert_eq!(
+        lifted_height(&flow, (0, (0, 0)), Some(own), &widths, THREE_WIDE),
+        one_line
+    );
+}
+
+#[test]
+fn a_picked_up_card_leaves_its_place_as_the_first_gap_and_the_hole_closes_when_it_leaves() {
+    let flow = [Item::Card(0), Item::Card(1), Item::Card(2)];
+    let widths = [100.0; 3];
+    let home = locate_item(
+        &[Band {
+            desktop: "d1".to_string(),
+            title: "This desktop".to_string(),
+            number: Some(1),
+            current: true,
+            cells: vec![vec![vec![0, 1, 2]]],
+            ghost_cell: None,
+            ghosts: Vec::new(),
+        }],
+        Item::Card(1),
+    )
+    .expect("its place");
+    assert_eq!(home, spot(0, (0, 0), 1));
+    let picked = Lift {
+        item: Item::Card(1),
+        spot: home,
+        width: 100.0,
+    };
+    assert_eq!(
+        cell_places(
+            &flow,
+            (0, (0, 0)),
+            Some(picked),
+            &widths,
+            1000.0,
+            pos2(0.0, 0.0)
+        ),
+        vec![
+            (Some(Item::Card(0)), at(0.0, 0, 100.0)),
+            (None, at(108.0, 0, 100.0)),
+            (Some(Item::Card(2)), at(216.0, 0, 100.0)),
+        ]
+    );
+    // Over another monitor's column: its own column closes up.
+    let away = lift(Item::Card(1), 0, (0, 1), 0, 100.0);
+    assert_eq!(
+        cell_places(
+            &flow,
+            (0, (0, 0)),
+            Some(away),
+            &widths,
+            1000.0,
+            pos2(0.0, 0.0)
+        ),
+        vec![
+            (Some(Item::Card(0)), at(0.0, 0, 100.0)),
+            (Some(Item::Card(2)), at(108.0, 0, 100.0)),
+        ]
+    );
+}
+
+#[test]
+fn a_dragged_ghost_gets_a_gap_a_full_card_wide_and_other_ghosts_move_aside() {
+    // The primary column: card 0, the ghost of window 1, card 2, the ghost
+    // of window 3.
+    let flow = [Item::Card(0), Item::Ghost(1), Item::Card(2), Item::Ghost(3)];
+    let widths = [100.0, 150.0, 100.0, 150.0];
+    let dragged = lift(Item::Ghost(3), 0, (0, 0), 1, 150.0);
+    let placed = cell_places(
+        &flow,
+        (0, (0, 0)),
+        Some(dragged),
+        &widths,
+        1000.0,
+        pos2(0.0, 0.0),
+    );
+    assert_eq!(
+        placed,
+        vec![
+            (Some(Item::Card(0)), at(0.0, 0, 100.0)),
+            (None, at(108.0, 0, 150.0)),
+            (Some(Item::Ghost(1)), at(266.0, 0, GHOST_WIDTH)),
+            (Some(Item::Card(2)), at(274.0 + GHOST_WIDTH, 0, 100.0)),
+        ]
+    );
+}
+
+#[test]
+fn a_column_with_no_windows_keeps_its_drop_box_instead_of_a_gap() {
+    let dragged = lift(Item::Card(0), 0, (0, 1), 0, 100.0);
+    assert!(cell_places(
+        &[],
+        (0, (0, 1)),
+        Some(dragged),
+        &[100.0],
+        1000.0,
+        pos2(0.0, 0.0)
+    )
+    .is_empty());
+}
+
+#[test]
+fn esc_or_a_drop_outside_the_columns_lands_nowhere() {
+    let zones = vec![Zone {
+        band: 0,
+        cell: Some((0, 0)),
+        rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(300.0, 400.0)),
+        open: true,
+        cards: vec![(0, at(13.0, 0, 100.0)), (1, at(121.0, 0, 100.0))],
+    }];
+    let area = Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 400.0));
+    let inside = Some(pos2(200.0, 60.0));
+    assert_eq!(
+        landing(inside, area, false, &zones, 0, (0, 0)),
+        Some(spot(0, (0, 0), 1))
+    );
+    assert_eq!(landing(inside, area, true, &zones, 0, (0, 0)), None);
+    assert_eq!(
+        landing(Some(pos2(200.0, 450.0)), area, false, &zones, 0, (0, 0)),
+        None
+    );
+    assert_eq!(landing(None, area, false, &zones, 0, (0, 0)), None);
 }

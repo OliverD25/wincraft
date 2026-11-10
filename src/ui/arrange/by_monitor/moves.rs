@@ -61,6 +61,29 @@ pub fn locate(bands: &[Band], member: usize) -> Option<Spot> {
     })
 }
 
+/// Where a card or a ghost stands now, as a drop counts places: its band,
+/// its cell, and how many of the cell's items of other windows come
+/// before it. A dragged item's gap opens here first.
+pub fn locate_item(bands: &[Band], item: Item) -> Option<Spot> {
+    bands.iter().enumerate().find_map(|(b, band)| {
+        band.cells.iter().enumerate().find_map(|(r, row)| {
+            (0..row.len()).find_map(|c| {
+                let flow = band.flow((r, c));
+                let at = flow.iter().position(|other| *other == item)?;
+                let index = flow[..at]
+                    .iter()
+                    .filter(|other| other.member() != item.member())
+                    .count();
+                Some(Spot {
+                    band: b,
+                    cell: (r, c),
+                    index,
+                })
+            })
+        })
+    })
+}
+
 /// The group's windows in their new taskbar order once `moved` is put at
 /// `spot`: right before the window at `spot.index` among the other cards
 /// and ghosts of the cell, or right after the last of them. In a cell with
@@ -245,6 +268,22 @@ pub(super) fn drop_spot(
         cell: zone.cell.unwrap_or(home),
         index: if zone.cell.is_some() { index } else { 0 },
     })
+}
+
+/// Where a dragged card lands when it is dropped now: as `drop_spot` says,
+/// but nowhere after Esc, or while the pointer is outside `area`, the
+/// columns' part of the view. Landing nowhere, everything slides back and
+/// nothing moves.
+pub(super) fn landing(
+    pointer: Option<egui::Pos2>,
+    area: Rect,
+    escape: bool,
+    zones: &[Zone],
+    dragged: usize,
+    home: (usize, usize),
+) -> Option<Spot> {
+    let pointer = pointer.filter(|pointer| !escape && area.contains(*pointer))?;
+    drop_spot(pointer, zones, dragged, home)
 }
 
 /// Where Ctrl+← (`forward` false) or Ctrl+→ puts window `member`'s ghost:

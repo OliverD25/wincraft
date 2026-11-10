@@ -110,6 +110,13 @@ impl Slides {
         }
     }
 
+    /// Turns on or off the sliding of every card whose place changed (see
+    /// `following`): WindowDeck's By monitor view wants it only while a card
+    /// is dragged and while the cards settle after it.
+    pub fn set_follow(&mut self, follow: bool) {
+        self.follow = follow;
+    }
+
     /// Where `key` was drawn last frame.
     pub fn drawn_last(&self, key: SlideKey) -> Option<Rect> {
         self.last.iter().find(|(card, _)| *card == key).map(|c| c.1)

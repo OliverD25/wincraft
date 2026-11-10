@@ -458,8 +458,10 @@ impl Arrange {
             if let Some(left) = grace {
                 ui.ctx().request_repaint_after(left);
             }
-            // Esc ends a title edit and nothing more.
-            let escape = escape && shared.rename.is_none();
+            // Esc ends a title edit, or puts a card dragged in the By
+            // monitor view back, and nothing more.
+            let putting_back = shared.drag.is_some() && shared.view() == ArrangeView::ByMonitor;
+            let escape = escape && shared.rename.is_none() && !putting_back;
             if escape {
                 log::info!("WindowDeck closes: Esc");
                 shared.closed = true;

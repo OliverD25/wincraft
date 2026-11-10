@@ -239,3 +239,94 @@ pub(super) fn cell_height(widths: &[f32], track: f32) -> f32 {
     let lines = cell_lines(widths, track).len() as f32;
     lines * CARD_HEIGHT + (lines - 1.0) * CARD_GAP
 }
+
+/// A card or ghost being dragged: what was picked up, the place it lands
+/// in when it is dropped now, and how wide the gap for it is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Lift {
+    pub item: Item,
+    pub spot: Spot,
+    /// The window's full card width, also for a ghost: a drop makes it a
+    /// card.
+    pub width: f32,
+}
+
+/// The cell `here` (band, cell) of `flow` while `lift` is dragged: None is
+/// the gap. The lifted item leaves its own place. In the cell it lands in,
+/// every other item of its window steps out too, as a drop counts them,
+/// and the gap opens at the drop index. A cell with nothing in it keeps its
+/// drop box instead of a gap.
+pub(super) fn lifted_flow(
+    flow: &[Item],
+    here: (usize, (usize, usize)),
+    lift: Option<Lift>,
+) -> Vec<Option<Item>> {
+    let Some(lift) = lift else {
+        return flow.iter().copied().map(Some).collect();
+    };
+    let target = (lift.spot.band, lift.spot.cell) == here;
+    let mut places: Vec<Option<Item>> = flow
+        .iter()
+        .copied()
+        .filter(|item| *item != lift.item)
+        .filter(|item| !target || item.member() != lift.item.member())
+        .map(Some)
+        .collect();
+    if target && !flow.is_empty() {
+        places.insert(lift.spot.index.min(places.len()), None);
+    }
+    places
+}
+
+/// The widths of a cell's places: the gap is `gap` wide.
+pub(super) fn place_widths(places: &[Option<Item>], widths: &[f32], gap: f32) -> Vec<f32> {
+    places
+        .iter()
+        .map(|place| match place {
+            Some(Item::Card(member)) => widths[*member],
+            Some(Item::Ghost(_)) => GHOST_WIDTH,
+            None => gap,
+        })
+        .collect()
+}
+
+/// Where each card, ghost and gap of the cell `here` stands while `lift`
+/// is dragged, in lines that fit in a column `track` wide, from `origin`.
+pub(super) fn cell_places(
+    flow: &[Item],
+    here: (usize, (usize, usize)),
+    lift: Option<Lift>,
+    widths: &[f32],
+    track: f32,
+    origin: egui::Pos2,
+) -> Vec<(Option<Item>, Rect)> {
+    let places = lifted_flow(flow, here, lift);
+    let sizes = place_widths(&places, widths, lift.map_or(0.0, |lift| lift.width));
+    let mut placed = Vec::with_capacity(places.len());
+    for (line, items) in cell_lines(&sizes, track).into_iter().enumerate() {
+        let mut x = origin.x;
+        for at in items {
+            let min = pos2(x, origin.y + line as f32 * (CARD_HEIGHT + CARD_GAP));
+            x += sizes[at] + CARD_GAP;
+            placed.push((
+                places[at],
+                Rect::from_min_size(min, vec2(sizes[at], CARD_HEIGHT)),
+            ));
+        }
+    }
+    placed
+}
+
+/// The height of the cell `here` while `lift` is dragged: one line more
+/// only when the gap needs it.
+pub(super) fn lifted_height(
+    flow: &[Item],
+    here: (usize, (usize, usize)),
+    lift: Option<Lift>,
+    widths: &[f32],
+    track: f32,
+) -> f32 {
+    let places = lifted_flow(flow, here, lift);
+    let sizes = place_widths(&places, widths, lift.map_or(0.0, |lift| lift.width));
+    cell_height(&sizes, track)
+}

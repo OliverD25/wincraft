@@ -21,8 +21,8 @@ pub(super) struct Draw<'a> {
     /// Each window's place in Windows' taskbar row, indexed like the group.
     pub(super) numbers: Vec<usize>,
     pub(super) dragged: Option<usize>,
-    /// The dragged window was picked up by its ghost.
-    pub(super) dragged_ghost: bool,
+    /// The dragged card or ghost, and where its gap is.
+    pub(super) lift: Option<Lift>,
     pub(super) target: Option<Spot>,
     /// How far each rail is unfolded, shaped like `rows`.
     pub(super) open: Vec<Vec<f32>>,
@@ -76,6 +76,14 @@ pub fn body(
         shared.drag = None;
     }
     let dragged_ghost = shared.drag.as_ref().is_some_and(|drag| drag.ghost);
+    let grab = shared.drag.as_ref().map(|drag| drag.grab);
+    let lifted = dragged.map(|member| {
+        if dragged_ghost {
+            Item::Ghost(member)
+        } else {
+            Item::Card(member)
+        }
+    });
     let home = |member: usize| {
         locate(&model.bands, member)
             .map(|spot| spot.cell)
@@ -83,10 +91,17 @@ pub fn body(
             .unwrap_or_else(|| primary_cell(&snapshot.monitors, &model.rows))
     };
     let ctrl = ctx.input(|i| i.modifiers.ctrl);
-    let target = match (dragged, ctx.pointer_latest_pos()) {
-        (Some(member), Some(pointer)) => drop_spot(pointer, &shared.zones, member, home(member)),
-        _ => None,
-    };
+    let area = Rect::from_min_max(
+        pos2(panel.min.x, panel.min.y + TOOLBAR),
+        pos2(panel.max.x, panel.max.y - footer_height(snapshot.hints)),
+    );
+    frame.area = area;
+    // Esc puts the card back where it was, and nothing moves.
+    let escape = dragged.is_some() && ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    let target = dragged.and_then(|member| {
+        let pointer = ctx.pointer_latest_pos();
+        landing(pointer, area, escape, &shared.zones, member, home(member))
+    });
     // With Ctrl the drop only changes the number: the card under the
     // pointer says which, and the window stays on its monitor and desktop.
     let ctrl_card = match (dragged, ctx.pointer_latest_pos(), ctrl) {
@@ -95,18 +110,29 @@ pub fn body(
         }
         _ => None,
     };
-    if let Some(member) = dragged {
+    // The gap: where the card lands, or its own place while it would land
+    // nowhere and while Ctrl only changes the number.
+    let mut lift = lifted.and_then(|item| {
+        let spot = target
+            .filter(|_| !ctrl)
+            .or_else(|| locate_item(&model.bands, item))?;
+        Some(Lift {
+            item,
+            spot,
+            width: model.widths[item.member()],
+        })
+    });
+    if escape {
+        shared.drag = None;
+        lift = None;
+    }
+    if let (Some(member), Some(moved)) = (dragged.filter(|_| !escape), lifted) {
         if !ctx.input(|i| i.pointer.primary_down()) {
             if ctrl {
                 frame.actions.extend(
                     ctrl_card.and_then(|card| ctrl_drop(group, &snapshot.desktops, member, card)),
                 );
             } else if let Some(spot) = target {
-                let moved = if dragged_ghost {
-                    Item::Ghost(member)
-                } else {
-                    Item::Card(member)
-                };
                 frame.actions.extend(drop_item_actions(
                     group,
                     &snapshot.desktops,
@@ -117,6 +143,8 @@ pub fn body(
                     spot,
                 ));
             }
+            // This frame still shows the gap and the card above it; the next
+            // one shows the move, and the card slides into its place.
             shared.drag = None;
         }
     }
@@ -124,12 +152,12 @@ pub fn body(
     if dragging {
         ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
     }
+    // While a card is dragged, and until the cards are still again, every
+    // card whose place changed slides there.
+    if lift.is_some() || escape {
+        shared.slides.set_follow(true);
+    }
 
-    let area = Rect::from_min_max(
-        pos2(panel.min.x, panel.min.y + TOOLBAR),
-        pos2(panel.max.x, panel.max.y - footer_height(snapshot.hints)),
-    );
-    frame.area = area;
     let rails: Vec<usize> = model
         .rows
         .iter()
@@ -174,7 +202,7 @@ pub fn body(
         can_rename: snapshot.can_rename,
         numbers: taskbar_numbers(group, &snapshot.desktops),
         dragged: dragged.filter(|_| dragging),
-        dragged_ghost,
+        lift,
         target: target.filter(|_| dragging && !ctrl),
         open,
         rail_focus: shared.rail_focus,
@@ -205,30 +233,31 @@ pub fn body(
     shared.card_hits = std::mem::take(&mut draw.hits);
     shared.items = std::mem::take(&mut draw.items);
     frame.dragged = dragged.map(|m| group.windows[m].hwnd);
-    if let (Some(drag), Some(member), Some(pointer)) =
-        (shared.drag.as_ref(), dragged, ctx.pointer_latest_pos())
-    {
-        ghost(
-            &ctx,
-            &mut frame,
-            &group.windows[member],
-            Rect::from_min_size(pointer - drag.grab, vec2(model.widths[member], CARD_HEIGHT)),
-            menu_open,
-        );
-        if ctrl {
-            let ghost = Rect::from_min_size(
-                ctx.pointer_latest_pos().unwrap_or_default() - drag.grab,
-                vec2(model.widths[member], CARD_HEIGHT),
-            );
+    if let (Some(lift), Some(grab), Some(pointer)) = (lift, grab, ctx.pointer_latest_pos()) {
+        let member = lift.item.member();
+        let window = &group.windows[member];
+        let rect = Rect::from_min_size(pointer - grab, vec2(lift.width, CARD_HEIGHT));
+        let ghost = matches!(lift.item, Item::Ghost(_));
+        lifted_card(&ctx, &mut frame, window, rect, ghost, menu_open);
+        // A slide into the gap, or back, starts where the card is now. A
+        // ghost dropped on another monitor lands as the window's card.
+        shared.slides.float((window.hwnd, ghost), rect);
+        if ghost {
+            shared.slides.float((window.hwnd, false), rect);
+        }
+        if ctrl && dragging {
             let place =
                 ctrl_card.and_then(|card| ctrl_place(group, &snapshot.desktops, member, card));
             let outlined = ctrl_card
                 .filter(|_| place.is_some())
                 .and_then(|card| hit_rect(&shared.card_hits, card));
-            let hint = ctrl_mark(&ctx, ghost, outlined, &ctrl_hint(place));
-            frame.floating = Some(ghost.union(hint));
+            let hint = ctrl_mark(&ctx, rect, outlined, &ctrl_hint(place));
+            frame.floating = Some(rect.union(hint));
         }
     }
+    shared
+        .slides
+        .set_follow(lift.is_some() || escape || shared.slides.running());
 
     if snapshot.hints {
         footer(
@@ -256,13 +285,15 @@ pub fn body(
 }
 
 /// The dragged card riding above everything at the pointer, grabbed where
-/// it was picked up, as big as its card. Its old place stays behind, faded,
-/// as the "from" mark.
-pub(super) fn ghost(
+/// it was picked up: lifted (a shadow under it, 3 % bigger) with the
+/// selected look, or a ghost's dashed look when a ghost was picked up. Its
+/// old place keeps no copy; the gap is the only landing mark.
+pub(super) fn lifted_card(
     ctx: &egui::Context,
     frame: &mut Frame,
     window: &ArrangeWindow,
     rect: Rect,
+    ghost: bool,
     menu_open: bool,
 ) {
     let tokens = Tokens::get(ctx);
@@ -270,7 +301,33 @@ pub(super) fn ghost(
         egui::Order::Tooltip,
         egui::Id::new("arrange-drag"),
     ));
-    layer.rect_filled(rect, tokens.radius_row, tokens.hover_bg);
+    let rect = Rect::from_center_size(rect.center(), rect.size() * LIFT_SCALE);
+    if tokens.shadows {
+        let shadow = egui::Shadow {
+            offset: [0, 8],
+            blur: 24,
+            spread: 0,
+            color: tokens.palette_shadow,
+        };
+        layer.add(shadow.as_shape(rect, CARD_RADIUS));
+    }
+    // A solid ground, so the cards it passes over do not show through.
+    layer.rect_filled(rect, CARD_RADIUS, tokens.window_bg);
+    if ghost {
+        let (fill, outline) = ghost_colours(&tokens, window.attention);
+        if let Some(fill) = fill {
+            layer.rect_filled(rect, CARD_RADIUS, fill);
+        }
+        dashed_outline(&layer, rect, outline);
+    } else {
+        layer.rect_filled(rect, CARD_RADIUS, selected_fill(&tokens));
+        layer.rect_stroke(
+            rect,
+            CARD_RADIUS,
+            theme::stroke(ctx, 2.0, selected_ring(&tokens)),
+            StrokeKind::Inside,
+        );
+    }
     let thumb = Rect::from_min_size(
         rect.min + Vec2::splat(CARD_PAD),
         vec2(rect.width() - 2.0 * CARD_PAD, THUMB_HEIGHT),

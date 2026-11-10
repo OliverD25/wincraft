@@ -113,19 +113,18 @@ pub(super) fn drop_box(ui: &Ui, painter: &egui::Painter, rect: Rect, target: boo
     );
 }
 
-/// The 2 px accent bar where a dragged card would land: before the card at
-/// `index` among `others`, after the last of them, or at `start` in a cell
-/// with none.
-pub(super) fn insertion_bar(ui: &Ui, others: &[Rect], index: usize, start: egui::Pos2) {
+/// The empty place a dragged card lands in: a faint fill and a 1 px ring
+/// in the text colour, with a card's corners. Never orange (a window that
+/// wants attention), never the accent, never dashed (a ghost).
+pub(super) fn gap_slot(ui: &Ui, painter: &egui::Painter, rect: Rect) {
     let tokens = Tokens::get(ui.ctx());
-    let stroke = theme::stroke(ui.ctx(), 2.0, tokens.accent);
-    let (x, top) = match (others.get(index), others.last()) {
-        (Some(next), _) => (next.left() - CARD_GAP / 2.0, next.top()),
-        (None, Some(last)) => (last.right() + CARD_GAP / 2.0, last.top()),
-        (None, None) => (start.x - CARD_GAP / 2.0, start.y),
-    };
-    ui.painter()
-        .vline(x, egui::Rangef::new(top, top + CARD_HEIGHT), stroke);
+    painter.rect(
+        rect,
+        CARD_RADIUS,
+        theme::with_alpha(tokens.text_primary, 0.05),
+        theme::stroke(ui.ctx(), 1.0, theme::with_alpha(tokens.text_primary, 0.35)),
+        StrokeKind::Inside,
+    );
 }
 
 /// The Shift and digit hint, for a desktop with more than ten cards.

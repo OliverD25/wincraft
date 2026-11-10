@@ -160,3 +160,13 @@ design artifact as a new page, then copied here byte for byte:
 (equal tiles) and C (compact cards). The user chose C, with no toolbar on a
 monitor that is not the main one, a setting "Show the toolbar on other
 monitors" (off by default), and the short header of the compact popup.
+
+## 2026-11-10: Window Deck Drop Gap Options
+
+Drawn by the forked design session ("Design the WindowDeck drop gap") and
+copied here byte for byte: `Window Deck Drop Gap Options.dc.html` (144730
+bytes, new). While a card is dragged in By monitor, the other cards slide
+apart and leave a slot as big as the dragged card; the 2 px accent bar goes
+away. The user chose B: fill `text_primary` at 5 % and a 1 px solid ring in
+`text_primary` at 35 %, never orange, accent or dashed. A and C stay on the
+page for the record.

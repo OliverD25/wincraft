@@ -126,9 +126,11 @@ at all, keeps ordinary columns.
 - **Drag** a picture to another monitor's column to move the window there
   now, at the same size and place relative to the screen (a maximized
   window is maximized there). Dropping it in another desktop's band moves
-  it to that desktop too. A 2-pixel accent bar shows where it will land, and
-  the order goes to the taskbar at once (and is saved, with LayoutKeeper
-  on).
+  it to that desktop too. The picture lifts and follows the mouse, and the
+  other pictures slide apart to open an empty place where it will land.
+  Drop it and it slides into that place; the order goes to the taskbar at
+  once (and is saved, with LayoutKeeper on). Esc, or a drop outside the
+  columns, puts everything back and moves nothing.
 - A window that is on another monitor than in the last saved layout has a
   **Moved** chip in its title line: you moved it since the last save (saves
   run every 30 seconds), or a restore has not put it back yet. Only with
