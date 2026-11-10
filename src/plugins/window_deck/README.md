@@ -313,6 +313,52 @@ taskbar at the next restore; the strip says so while other desktops are
 shown. Without LayoutKeeper there is no restore, so such an order stays in
 WindowDeck only.
 
+## Groups of related windows
+
+With **Group related windows** on (the default), you can keep windows that
+belong together as one card, for example the three windows of one project.
+WindowDeck never groups windows by itself.
+
+- **Make a group.** Drag a card onto the middle of another card: the card
+  shows "Drop to group", and the drop opens a small name box. Over the gap
+  between cards the drag moves the window as before. Or pick cards with
+  Ctrl + click or Shift and an arrow key (a white check mark shows), then
+  press **Ctrl+G**. The name box ("Group 3 windows") suggests the start
+  the window names share; Enter makes the group, Esc cancels. Dropping a
+  card on a group adds it to the group.
+- **A closed group** is one stack card with one number. Its picture is the
+  window you used last, a chip on it says how many windows it holds, and
+  under the group's name are the other windows' names without the start
+  they share with it ("+2 more" when they do not fit). The numbers after a
+  stack move up. The orange frame shows on the stack when any of its
+  windows wants attention. While the stack is picked or under the mouse, a
+  list shows all its windows with the numbers they get when it opens.
+- **Open a group** with its number, Enter or a click. Its cards slide out
+  in place inside a light frame, its windows are numbered 1, 2, 3, and the
+  other cards dim. So 6 then 2 opens the second window of the group on
+  card 6. **Esc** closes the group; Esc again closes WindowDeck.
+- **Change a group.** Ctrl+G on a window in an open group takes it out of
+  the group. Ctrl+G on a stack ungroups it. **F2** on a stack renames the
+  group.
+- **Close a group's windows.** Ctrl+W or a middle click on a stack asks
+  first: "Close 3 windows in NewsHQ?". Inside an open group they close one
+  window, as before.
+- **Right-click** a window card for **Add to group** and **New group…**;
+  right-click a stack for **Open the group**, **Rename the group**,
+  **Ungroup** and **Close 3 windows…**.
+- A group lives in one app's list. Groups are remembered by the names of
+  their windows (the WindowNamer name, else the title), so a window that
+  opens again with the same name joins its group by itself. A group with
+  one window open shows as a normal card with a small stack mark; a group
+  with none waits until a window comes back.
+- The stack stands on the monitor that holds most of its windows. The Flat
+  view shows the same stacks, and the compact popup shows a stack as a
+  normal card with the count chip.
+
+The groups are kept in `plugins\window_deck.groups.json`. With the setting
+off, every window is its own card again and nothing reads the file; your
+groups come back when you switch it on.
+
 ## WindowDeck instead of Windows' taskbar preview
 
 This is off until you switch it on. Turn on **Show WindowDeck instead of
@@ -448,6 +494,7 @@ log says "hiding Windows' taskbar preview skipped". The flag
 | Preview window on hover | on | Resting the mouse on a picture in WindowDeck shows that window on its monitor. |
 | Show key hints | on | Ctrl+H hides or shows them in WindowDeck. |
 | Show the toolbar on other monitors | off | The app list and the By monitor and Flat switch, in the strip that opens from the taskbar of a monitor that is not the main one. Off gives the pictures more room. |
+| Group related windows | on | Keeps windows you group as one card (see **Groups of related windows**). Off shows every window as its own card; your groups are kept for when you switch it on again. |
 | Show WindowDeck instead of Windows' taskbar preview | off | Resting the mouse on the taskbar button of an app with 2 or more windows opens WindowDeck above it (see **WindowDeck instead of Windows' taskbar preview**). Also in the tray menu and the palette. |
 | Hover delay (seconds) | 0.15 | How long the mouse rests on a taskbar button before WindowDeck opens, from 0.05 to 1.5. |
 | Open WindowDeck with Win+1…9 | off | Win and a number open WindowDeck for that taskbar button (see **Win+1…9**). Win+Shift, Win+Ctrl and Win+Alt with a number stay with Windows. |
