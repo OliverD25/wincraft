@@ -109,8 +109,7 @@ pub fn stable_group(group: &str) -> String {
 /// In other apps the name stays on the window: a Chrome window keeps its
 /// name on every tab change.
 pub fn follows_title(group: &str) -> bool {
-    let group = group.to_lowercase();
-    group.contains(r"windowsapps\claude_") && group.ends_with(r"\claude.exe")
+    crate::core::claude_waits::is_claude_app(group)
 }
 
 /// Brings saved names written by older versions up to date: Store app keys

@@ -66,6 +66,7 @@ mod seen;
 mod taskbar_cache;
 mod updates;
 mod view;
+mod waits;
 mod wndproc;
 
 pub use api::*;
