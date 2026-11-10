@@ -7,8 +7,9 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ### 1. Install 0.20.90 and test the drop gap and the "waiting for you" marks
 
-- **State:** Ready to test (steps 1-3 now). Release 0.20.90 published 2026-11-10;
-  the hook events are registered after step 4.
+- **State:** Ready to test. 0.20.90 installed and the hook events registered
+  2026-11-10; the live test in this window marked and cleared it. Left: step 3
+  and steps 5-6 with two windows.
 - **Kind:** test · **Added:** 2026-11-10 (PC, branch claude/wincraft-design-artifact-move-4b267d)
 - **Why:** two features of 0.20.90 need a check on the real windows: the
   WindowDeck drop gap, and the orange mark on a Claude window whose session
