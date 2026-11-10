@@ -27,8 +27,8 @@ log at that time.
 
 ### 4. Install the attention hook fix: next-step box questions stay orange
 
-- **State:** Ready to do. The fix is built and tested; this session may not
-  write into `C:\Users\Admin\.claude\hooks\` (a guard blocks it).
+- **State:** Ready to test. Installed 2026-11-10 (config commit c4ea72d);
+  left: see a card stay orange while its next-step box question waits.
 - **Kind:** install · **Added:** 2026-11-10 (PC, branch claude/wincraft-design-artifact-move-4b267d)
 - **Why:** a question in the next-step box (buttons like "It's gone" /
   "Still blocks") marked the window, but a late tool event from the same
