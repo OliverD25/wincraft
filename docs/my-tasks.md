@@ -5,6 +5,29 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ## Open
 
+### 6. Review the WindowDeck groups design
+
+- **State:** Ready to do. Page published 2026-11-11 (design artifact version 15).
+- **Kind:** decision · **Added:** 2026-11-11 (PC, branch claude/gracious-panini-4299ca, design session)
+- **Why:** the code work on groups waits until you accept the page or ask
+  for changes.
+
+**Steps**
+
+1. Open https://claude.ai/artifact/S5fEimN5sS6oqHgwJVRxPn.
+2. Click the page name at the top left and pick
+   **Window Deck Groups Options**. You should see "WindowDeck: groups of
+   related windows" as the page title.
+3. Look at frames 1-7 and the "Rules" list under them. Check three rules
+   the agent chose by itself: the orange frame shows on a stack when any
+   window inside wants you; a group with one window left becomes a normal
+   card with a small stack mark; the Flat view and the compact popup show
+   stacks too.
+4. Tell the agent "change the page: ..." with what to change, or
+   "plan the build".
+
+**Done when:** you accepted the page or asked for changes.
+
 ## Done
 
 - **1. Install 0.20.90 and test the drop gap and the "waiting for you" marks**: done 2026-11-10. The user confirmed step 3 ("1.3 is passed") and steps 5-6 ("Orange, cleared after").
