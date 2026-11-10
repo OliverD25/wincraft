@@ -81,7 +81,10 @@ const CARD_GAP: f32 = 8.0;
 const MIN_PANEL: f32 = 680.0;
 const NOT_CURRENT: f32 = 0.85;
 const DISCONNECTED: f32 = 0.45;
-const DRAGGED: f32 = 0.6;
+/// A dragged card is drawn this much bigger, lifted above the others.
+const LIFT_SCALE: f32 = 1.03;
+/// The corner radius of a card, and of the gap a dragged card leaves.
+const CARD_RADIUS: u8 = 4;
 /// A stand-in in the primary column for a window on another monitor.
 const GHOST_WIDTH: f32 = 84.0;
 /// Its name strip: the monitor pill, the title written upward and the

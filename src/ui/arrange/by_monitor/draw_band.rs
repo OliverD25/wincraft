@@ -76,7 +76,15 @@ impl Draw<'_> {
             if r > 0 {
                 ui.add_space(ROW_GAP);
             }
-            let height = row_height(band, r, &self.model.cols[r], row_tracks, &self.model.widths);
+            let lift = self.lift.map(|lift| (b, lift));
+            let height = row_height(
+                band,
+                r,
+                &self.model.cols[r],
+                row_tracks,
+                &self.model.widths,
+                lift,
+            );
             let needed = 2.0 * SIDE
                 + row_tracks.iter().sum::<f32>()
                 + COLUMN_GAP * row_tracks.len().saturating_sub(1) as f32;
@@ -156,17 +164,36 @@ impl Draw<'_> {
             );
 
             let top = inner.top() + LABEL + LABEL_GAP;
-            let widths = flow_widths(&flow, &self.model.widths);
-            let mut placed: Vec<(Item, Rect)> = Vec::new();
-            for (line, items) in cell_lines(&widths, *track).into_iter().enumerate() {
-                let mut x = inner.left();
-                for at in items {
-                    let min = pos2(x, top + line as f32 * (CARD_HEIGHT + CARD_GAP));
-                    x += widths[at] + CARD_GAP;
-                    placed.push((
-                        flow[at],
-                        Rect::from_min_size(min, vec2(widths[at], CARD_HEIGHT)),
-                    ));
+            let placed = cell_places(
+                &flow,
+                (b, (r, c)),
+                self.lift,
+                &self.model.widths,
+                *track,
+                pos2(inner.left(), top),
+            );
+            let mut zone_cards: Vec<(usize, Rect)> = Vec::new();
+            let placed: Vec<(Item, Rect)> = placed
+                .into_iter()
+                .filter_map(|(item, rect)| match (item, self.lift) {
+                    (Some(item), _) => {
+                        zone_cards.push((item.member(), rect));
+                        Some((item, rect))
+                    }
+                    (None, Some(lift)) => {
+                        gap_slot(ui, &painter, rect);
+                        zone_cards.push((lift.item.member(), rect));
+                        None
+                    }
+                    (None, None) => None,
+                })
+                .collect();
+            // The column a card was picked up from stays its own, so it
+            // can go back there even on a disconnected monitor.
+            if let Some(lift) = self.lift.filter(|lift| flow.contains(&lift.item)) {
+                let member = lift.item.member();
+                if !zone_cards.iter().any(|(m, _)| *m == member) {
+                    zone_cards.push((member, Rect::NOTHING));
                 }
             }
             let cards: Vec<(usize, Rect)> = placed
@@ -186,9 +213,6 @@ impl Draw<'_> {
                 if !monitor.connected {
                     card_alpha *= DISCONNECTED;
                 }
-                if self.dragged == Some(member) && !self.dragged_ghost {
-                    card_alpha *= DRAGGED;
-                }
                 self.card(ui, shared, frame, member, card_rect, card_alpha);
             }
             for (item, ghost_rect) in &placed {
@@ -199,11 +223,6 @@ impl Draw<'_> {
             let target_here = self
                 .target
                 .filter(|spot| spot.band == b && spot.cell == (r, c));
-            let others: Vec<Rect> = placed
-                .iter()
-                .filter(|(item, _)| Some(item.member()) != self.dragged)
-                .map(|(_, rect)| *rect)
-                .collect();
             if flow.is_empty() && monitor.connected {
                 let empty =
                     Rect::from_min_size(pos2(inner.left(), top), vec2(inner.width(), EMPTY));
@@ -215,18 +234,12 @@ impl Draw<'_> {
                     "Drop a window here to move it to this monitor",
                 );
             }
-            if let Some(spot) = target_here {
-                insertion_bar(ui, &others, spot.index, pos2(inner.left(), top));
-            }
             self.zones.push(Zone {
                 band: b,
                 cell: Some((r, c)),
                 rect: column,
                 open: monitor.connected,
-                cards: placed
-                    .iter()
-                    .map(|(item, rect)| (item.member(), *rect))
-                    .collect(),
+                cards: zone_cards,
             });
         }
     }

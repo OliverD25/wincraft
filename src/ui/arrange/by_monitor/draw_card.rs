@@ -189,12 +189,6 @@ impl Draw<'_> {
             item_sense(Item::Ghost(member), false),
         );
         let mut painter = ui.painter().clone();
-        // Its old place stays behind, faded, while it is dragged.
-        let alpha = if self.dragged == Some(member) && self.dragged_ghost {
-            alpha * DRAGGED
-        } else {
-            alpha
-        };
         painter.multiply_opacity(alpha);
         ghost_box(ui, &painter, rect, window.attention);
         if shared.cursor == Some(window.hwnd) && shared.cursor_ghost {
@@ -445,7 +439,7 @@ fn ghost_box(ui: &Ui, painter: &egui::Painter, rect: Rect, attention: bool) {
     if let Some(fill) = fill {
         painter.rect_filled(rect, 4, fill);
     }
-    dashed_outline(ui, painter, rect, outline);
+    dashed_outline(painter, rect, outline);
 }
 
 /// A ghost's fill and dash colour.
@@ -462,11 +456,11 @@ pub(super) fn ghost_colours(tokens: &Tokens, attention: bool) -> (Option<Color32
 pub(super) fn dashed_box(ui: &Ui, painter: &egui::Painter, rect: Rect, lit: bool) {
     let tokens = Tokens::get(ui.ctx());
     let colour = if lit { tokens.accent } else { tokens.border };
-    dashed_outline(ui, painter, rect, colour);
+    dashed_outline(painter, rect, colour);
 }
 
-fn dashed_outline(ui: &Ui, painter: &egui::Painter, rect: Rect, colour: Color32) {
-    let stroke = theme::line(ui.ctx(), colour);
+pub(super) fn dashed_outline(painter: &egui::Painter, rect: Rect, colour: Color32) {
+    let stroke = theme::line(painter.ctx(), colour);
     let r = rect.shrink(0.5);
     let corners = [
         r.left_top(),

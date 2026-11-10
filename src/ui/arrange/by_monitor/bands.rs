@@ -232,24 +232,31 @@ pub(super) fn band_height(
         if r > 0 {
             height += ROW_GAP;
         }
-        height += row_height(band, r, cols, tracks, widths);
+        height += row_height(band, r, cols, tracks, widths, None);
     }
     height
 }
 
 /// A band's row `r` of monitor columns: the label, then the tallest column,
-/// but tall enough for a rail to be a rail.
+/// but tall enough for a rail to be a rail. `lift` is a dragged card, with
+/// this band's place among the bands: its gap can need a line more.
 pub(super) fn row_height(
     band: &Band,
     r: usize,
     cols: &[Col],
     tracks: &[f32],
     widths: &[f32],
+    lift: Option<(usize, Lift)>,
 ) -> f32 {
     let tallest = tracks
         .iter()
         .enumerate()
-        .map(|(c, track)| cell_height(&flow_widths(&band.flow((r, c)), widths), *track))
+        .map(|(c, track)| match lift {
+            Some((b, lift)) => {
+                lifted_height(&band.flow((r, c)), (b, (r, c)), Some(lift), widths, *track)
+            }
+            None => cell_height(&flow_widths(&band.flow((r, c)), widths), *track),
+        })
         .fold(0.0, f32::max);
     let height = LABEL + LABEL_GAP + tallest;
     if cols.iter().any(|col| col.rail) {
