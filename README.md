@@ -432,12 +432,25 @@ WinCraft fills in every missing key on startup: start it once, then open the fil
 | `--open-settings` | Opens the settings window at startup. |
 | `--open-detector` | Opens the ShortcutManager window at startup. |
 | `--quit` | Asks the running WinCraft to shut down cleanly and waits up to 10 s (exit codes: `0` closed, `1` none running, `2` still running). |
+| `--waiting "<title>"` / `--answered "<title>"` | Marks the Claude windows whose title is exactly `<title>` as waiting for your answer, or clears that mark. See [Claude windows that wait for you](#claude-windows-that-wait-for-you) (exit codes: `0` taken, `1` none running or no answer, `2` no title). |
 | `--install` | Copies this exe to `%LOCALAPPDATA%\Programs\WinCraft`, adds the Start menu shortcut, points the logon task at it, and starts it (`0` done, `1` failed, `2` refused inside another app's package). |
 | `--uninstall` | Closes WinCraft and removes the shortcut and logon task while keeping the program and settings. |
 | `--restarted` / `--updated-from <v>` / `--update-failed <v>` | Used by Windows and WinCraft's self-updater across restarts and rollbacks. |
 | `--write-plugin-index` | Regenerates `plugins.json` (for contributors). |
 
 *(Tip: Turn on the [Detailed log](#detailed-log) or set `WINCRAFT_DEBUG=1` for more detail in the log, or `WINCRAFT_INSTANCE=<suffix>` to run a separate test instance with its own `WinCraft.<suffix>` logon task.)*
+
+
+### Claude windows that wait for you
+
+The Claude desktop app flashes its taskbar button only when the app is not in front. So when you work in one Claude window, a question in another Claude window gives no sign. A [Claude Code hook](https://docs.claude.com/en/docs/claude-code/hooks) can tell WinCraft instead:
+
+* `wincraft.exe --waiting "<title>"` marks every Claude window whose title is exactly `<title>` (after trimming spaces): its WindowDeck card turns orange, and its taskbar button flashes and stays orange. A window you renamed with WindowNamer still matches by the title Claude gave it.
+* `<title>` may also be `hwnd:<number>` (decimal or `0x` hex): it names one window by its handle, for a hook that found the window itself. Only a Claude window is ever marked this way.
+* The mark stays when you only switch to the window. It goes when the hook runs `wincraft.exe --answered "<title>"`, when the window closes, or when you press `Ctrl+M` in WindowDeck (`Ctrl+Z` brings it back).
+* Each mark and each clear writes one line to `wincraft.log`, with how many windows matched. `0 windows matched` means no Claude window had that title.
+
+An example hook runs `--waiting` when a session asks a question (`AskUserQuestion`) or asks to approve a tool (`PermissionRequest`), and `--answered` on the next `PostToolUse`, `UserPromptSubmit` or `Stop` of that session. It reads the session title from the session's transcript. The command returns in well under a second, so the hook does not slow Claude down.
 
 ---
 

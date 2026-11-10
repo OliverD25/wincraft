@@ -562,6 +562,9 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
             }
             0
         }
+        // Carries a pointer that is gone after the return, so it never
+        // waits for the host; the marks live outside Host anyway.
+        windows_sys::Win32::UI::WindowsAndMessaging::WM_COPYDATA => super::waits::copy_data(lparam),
         WM_DISPLAYCHANGE => {
             with_host_or_later(hwnd, msg, wparam, lparam, |host| {
                 // The palette was placed against a monitor layout that no

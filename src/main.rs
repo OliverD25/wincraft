@@ -71,6 +71,18 @@ fn main() {
         std::process::exit(outcome.exit_code());
     }
 
+    // A Claude Code hook: a session waits for the user, or was answered.
+    // Before the single-instance guard and logging::init for the same
+    // reasons as --quit, and fast, because the hook waits for it.
+    if let Some(parsed) = core::claude_waits::parse_args(&args) {
+        let (outcome, title) = match parsed {
+            Ok((kind, title)) => (core::claude_waits::run(kind, &title), title),
+            Err(line) => (core::claude_waits::Outcome::BadArgs(line), String::new()),
+        };
+        let _ = writeln!(std::io::stdout(), "{}", outcome.message(&title));
+        std::process::exit(outcome.exit_code());
+    }
+
     // Before the single-instance guard, because they close the WinCraft
     // that holds it, and before logging::init, which would empty its log.
     if has_flag(&args, "--install") {
