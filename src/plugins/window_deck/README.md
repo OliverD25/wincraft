@@ -332,11 +332,19 @@ WindowDeck never groups windows by itself.
   they share with it ("+2 more" when they do not fit). The numbers after a
   stack move up. The orange frame shows on the stack when any of its
   windows wants attention. While the stack is picked or under the mouse, a
-  list shows all its windows with the numbers they get when it opens.
+  list shows all its windows with the numbers they get when it opens. The
+  list stays open while the mouse moves from the stack into it; a row
+  lights up under the mouse, and a click on a row switches to that window.
+  A name that starts like the group's is cut only between whole words:
+  "WinCraft Rust (fork) - Design" in "WinCraft Rust" shows as
+  "fork - Design".
 - **Open a group** with its number, Enter or a click. Its cards slide out
   in place inside a light frame, its windows are numbered 1, 2, 3, and the
   other cards dim. So 6 then 2 opens the second window of the group on
-  card 6. **Esc** closes the group; Esc again closes WindowDeck.
+  card 6. **Esc** closes only the group, and WindowDeck stays open with
+  the stack selected; Esc again closes WindowDeck. A click outside the
+  group's frame also closes the group and does nothing else, so the card
+  under the mouse does not open.
 - **Change a group.** Ctrl+G on a window in an open group takes it out of
   the group. Ctrl+G on a stack ungroups it. **F2** on a stack renames the
   group.
