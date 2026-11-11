@@ -390,6 +390,8 @@ impl Model {
     }
 }
 
+/// The panel's size. `scope` comes with the open group, whose ghosts take
+/// room in its column.
 pub fn panel_for(
     group: &ArrangeGroup,
     snapshot: &ArrangeSnapshot,
@@ -397,8 +399,7 @@ pub fn panel_for(
     shown: bool,
     link: bool,
     limit: Vec2,
-    scope: Scope,
-    open: &super::super::stacks::OpenMembers,
+    (scope, open): (Scope, &super::super::stacks::OpenMembers),
 ) -> Vec2 {
     let (model, _) = Model::new(group, snapshot, widths, shown, scope).with_open_group(
         group,
