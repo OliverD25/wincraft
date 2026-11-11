@@ -40,6 +40,25 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 **Done when:** steps 5 and 6 look as described.
 
+### 12. Try both ways an open group shows, and pick one
+
+- **State:** Ready to test. Release v0.20.97 is built and published (2026-11-11, with wincraft.exe and SHA256SUMS.txt).
+- **Kind:** test + decision · **Added:** 2026-11-11 (PC)
+- **Why:** you asked that opening a group moves nothing, and you wanted to try options B and C of the design page "Window Deck Group Opens In Place". Both are built; the setting **Open a group as** switches between them. Only a real screen shows which one feels right.
+
+**Steps**
+
+1. Right-click the WinCraft icon in the tray and click **Settings…**.
+2. Click **About** in the left list, then **Check for updates**, then **Update now**. WinCraft restarts; About shows 0.20.97.
+3. Open WindowDeck on an app that has a group (for example your Claude windows with the NewsHQ group).
+4. Click the stack. Its windows show on a layer over the row, as a row centred on the stack (option B). No other card moves, nothing wraps to a second line, and the WindowDeck window keeps its size.
+5. Press a number from 1 to 3, or click a window on the layer: that window comes to the front. Open the group again, then press `Esc` or click outside the layer: the group closes and every card is where it was.
+6. Open Settings… → **Plugins** → click the **WindowDeck** tile. In the **Settings** section, set **Open a group as** to **A fan**.
+7. Open WindowDeck and click the stack again. The windows now overlap like a fan on the stack's place (option C). `←` and `→` bring another window to the front; resting the mouse on a window's strip does too.
+8. Tell the agent which one to keep: "keep the row", "keep the fan", or "keep both as a setting".
+
+**Done when:** you said which option to keep, or what looked wrong.
+
 ## Done
 
 - **7. Release and test WindowDeck groups with the fixes**: done 2026-11-11. The user tested steps 1-10 on 0.20.93 and 0.20.95; the hidden "Drop to group" mark was fixed in 0.20.95. Follow-up: list rows show their window (task 11).
