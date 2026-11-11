@@ -53,26 +53,9 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 **Done when:** steps 4-10 behave as written, or you report what did not.
 
-### 9. Install 0.20.92 and test Custom WindowDeck on your Claude windows
-
-- **State:** Ready to test. Release v0.20.92 is built and published (2026-11-11, with wincraft.exe and SHA256SUMS.txt).
-- **Kind:** test · **Added:** 2026-11-11 (PC, away run)
-- **Why:** the status chips, ages, counters and Board were checked only on a test instance with WindowNamer off. Your real WinCraft has WindowNamer names and your real chats.
-- **Agent can check:** the WinCraft log (`%LOCALAPPDATA%\WinCraft\wincraft.log`).
-
-**Steps**
-
-1. Right-click the WinCraft icon in the tray and click **Settings…**.
-2. Click **About** in the left list, then **Update now** (after the check finds 0.20.92). WinCraft restarts; About shows 0.20.92.
-3. Open WindowDeck on the Claude app (hover its taskbar button, or Tray menu → **WindowDeck: Open**). Each Claude card should show a chip at the top left of its picture: **Waiting** (orange), **Working** (blue, turning ring) or **Idle**, and its age at the end of the title line.
-4. Click the counter **Waiting** in the toolbar, or press `S`. Only the waiting cards stay bright; nothing moves. Press `Esc`: the highlight clears.
-5. Press `B`. The **Claude board** opens with the columns **Waiting for you**, **Working**, **Idle** and **Cold**. `Esc` goes back to the deck as it was.
-6. Tell the agent which cards show no chip or a wrong status. The main window titled "Claude" never shows one.
-
-**Done when:** the chips match what your chats are doing, and S, B and Esc work as described.
-
 ## Done
 
+- **9. Install 0.20.92 and test Custom WindowDeck on your Claude windows**: done 2026-11-11. The user said "task 9 done". Found while testing: a chat with a background task still running shows "Idle"; that is new work, not a failed test.
 - **1. Install 0.20.90 and test the drop gap and the "waiting for you" marks**: done 2026-11-10. The user confirmed step 3 ("1.3 is passed") and steps 5-6 ("Orange, cleared after").
 - **2. Install the new attention hook: plain-text questions turn orange too**: done 2026-11-10. Installed in config commit dfbc258; the user saw the orange card, and the log shows "Stop (reply asks)" marking and UserPromptSubmit clearing 4 of 4 targets.
 - **4. Install the attention hook fix: next-step box questions stay orange**: done 2026-11-11. Installed in config commit c4ea72d; the user saw the card stay orange ("Stays orange"), and the log shows the mark cleared by the user's message.
