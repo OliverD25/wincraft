@@ -83,6 +83,7 @@ pub(super) fn card(
         slides,
         animate,
         waiting,
+        claude,
         stacks,
     } = info;
     let label = window.label.as_str();
@@ -131,6 +132,9 @@ pub(super) fn card(
         theme::line(ui.ctx(), border),
         StrokeKind::Inside,
     );
+    if let Some(mark) = &claude {
+        claude::paint_tint(painter, &tokens, area, mark);
+    }
     let picture = area.shrink(1.0);
     if !has_picture {
         name_card(painter, picture, label, desktop);
@@ -151,6 +155,10 @@ pub(super) fn card(
         same_title.unwrap_or(false),
         waiting.as_deref(),
     );
+    let chip = claude.as_ref().map_or(Rect::NOTHING, |mark| {
+        claude::paint_chip(ui, painter, area, mark)
+    });
+    let clear = claude::clear_union(shown.clear, chip);
 
     let name_top = area.bottom() + CARD_INSET;
     let chip = number_chip(painter, pos2(area.left(), name_top), NAME_HEIGHT, number);
@@ -168,9 +176,19 @@ pub(super) fn card(
         );
         edit.show(ui, field, 12.0);
     } else {
+        let right = match &claude {
+            Some(mark) => claude::paint_age(
+                painter,
+                &tokens,
+                area.right(),
+                name_top + NAME_HEIGHT / 2.0,
+                mark,
+            ),
+            None => area.right(),
+        };
         let mut job = text::job(label, theme::regular(12.0), tokens.text_primary, None);
         job.wrap = TextWrapping {
-            max_width: (area.right() - name_left).max(0.0),
+            max_width: (right - name_left).max(0.0),
             max_rows: 1,
             break_anywhere: true,
             overflow_character: Some('\u{2026}'),
@@ -182,7 +200,7 @@ pub(super) fn card(
         response.on_hover_cursor(egui::CursorIcon::Grab),
         picture,
         shown.renamed,
-        shown.clear,
+        clear,
     )
 }
 
@@ -207,6 +225,9 @@ pub(super) struct CardInfo<'a> {
     pub(super) animate: bool,
     /// "Waiting for <app>": the window did not close when asked.
     pub(super) waiting: Option<String>,
+    /// Custom WindowDeck: the Claude chat's status chip and age. Its dimming
+    /// is already in `motion`.
+    pub(super) claude: Option<claude::Mark>,
     /// The groups: a stack's card looks like one.
     pub(super) stacks: &'a super::stacks::Stacks,
 }

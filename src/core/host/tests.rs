@@ -266,6 +266,7 @@ impl WinCraftPlugin for FakePlugin {
                     renamed: false,
                     same_title: false,
                     attention: false,
+                    claude: None,
                 }],
             }],
             desktops: Vec::new(),
@@ -285,6 +286,8 @@ impl WinCraftPlugin for FakePlugin {
             view: ArrangeView::Flat,
             hints: true,
             toolbar_on_other_monitors: false,
+            claude_cards: false,
+            claude_animate: false,
             groups: None,
         })
     }

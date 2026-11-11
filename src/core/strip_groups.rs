@@ -69,6 +69,7 @@ pub fn group<'a>(
                 saved_monitor: saved_monitor(hwnd),
                 same_title: false,
                 attention: false,
+                claude: None,
             }
         })
         .collect();

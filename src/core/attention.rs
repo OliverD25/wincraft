@@ -11,6 +11,7 @@
 //! answered, the window closes, or the user marks all as seen.
 
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     FlashWindowEx, FLASHWINFO, FLASHW_STOP, HSHELL_HIGHBIT, HSHELL_REDRAW, HSHELL_WINDOWACTIVATED,
@@ -26,11 +27,12 @@ const HSHELL_RUDEAPPACTIVATED: u32 = HSHELL_WINDOWACTIVATED | HSHELL_HIGHBIT;
 #[derive(Debug, Default)]
 pub struct Attention {
     windows: HashSet<isize>,
-    /// Windows a hook said wait for an answer, with the session title.
-    waiting: HashMap<isize, String>,
+    /// Windows a hook said wait for an answer, with the session title and
+    /// when the mark was set.
+    waiting: HashMap<isize, (String, Instant)>,
     /// The waiting marks the last `clear_all` took, so its undo can bring
     /// them back as waiting marks.
-    cleared_waiting: HashMap<isize, String>,
+    cleared_waiting: HashMap<isize, (String, Instant)>,
 }
 
 impl Attention {
@@ -56,12 +58,24 @@ impl Attention {
     }
 
     /// Marks these windows as waiting for an answer in the session `title`.
-    /// Returns how many were not marked as waiting before.
+    /// Returns how many were not marked as waiting before. A window that
+    /// already waited keeps the time of its first mark.
     pub fn wait(&mut self, windows: &[isize], title: &str) -> usize {
+        let now = Instant::now();
         windows
             .iter()
-            .filter(|hwnd| self.waiting.insert(**hwnd, title.to_string()).is_none())
+            .filter(|hwnd| {
+                let since = self.waiting.get(*hwnd).map_or(now, |(_, since)| *since);
+                self.waiting
+                    .insert(**hwnd, (title.to_string(), since))
+                    .is_none()
+            })
             .count()
+    }
+
+    /// Since when a hook has said this window waits for an answer.
+    pub fn waiting_since(&self, hwnd: isize) -> Option<Instant> {
+        self.waiting.get(&hwnd).map(|(_, since)| *since)
     }
 
     /// The session `title` was answered: every window waiting for it, and
@@ -72,7 +86,7 @@ impl Attention {
         let mut cleared: Vec<isize> = self
             .waiting
             .iter()
-            .filter(|(hwnd, waits_for)| waits_for.as_str() == title || windows.contains(hwnd))
+            .filter(|(hwnd, (waits_for, _))| waits_for.as_str() == title || windows.contains(hwnd))
             .map(|(hwnd, _)| *hwnd)
             .collect();
         for hwnd in &cleared {
@@ -118,8 +132,8 @@ impl Attention {
     pub fn restore(&mut self, windows: &[isize]) {
         for hwnd in windows {
             match self.cleared_waiting.get(hwnd) {
-                Some(title) => {
-                    self.waiting.insert(*hwnd, title.clone());
+                Some(mark) => {
+                    self.waiting.insert(*hwnd, mark.clone());
                 }
                 None => {
                     self.windows.insert(*hwnd);
@@ -253,6 +267,21 @@ mod tests {
         let mut other = Attention::default();
         other.restore(&[]);
         assert_eq!(other.count(), 0);
+    }
+
+    #[test]
+    fn a_waiting_mark_keeps_the_time_it_was_first_set() {
+        let mut attention = Attention::default();
+        assert_eq!(attention.waiting_since(10), None);
+        attention.wait(&[10], "Chat");
+        let first = attention.waiting_since(10).expect("marked");
+        attention.wait(&[10], "Chat");
+        assert_eq!(attention.waiting_since(10), Some(first));
+        // A flash alone is not a waiting mark.
+        attention.mark(20);
+        assert_eq!(attention.waiting_since(20), None);
+        attention.answered("Chat", &[]);
+        assert_eq!(attention.waiting_since(10), None);
     }
 
     #[test]

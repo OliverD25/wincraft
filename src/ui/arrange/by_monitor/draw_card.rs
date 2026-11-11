@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::arrange::claude;
 
 impl Draw<'_> {
     pub(super) fn card(
@@ -16,7 +17,12 @@ impl Draw<'_> {
         let rect = shared.slid((window.hwnd, false), rect);
         let waiting = shared.waiting_note(window.hwnd);
         let (scale, fade) = shared.motion(window.hwnd);
-        let alpha = alpha * fade * shared.stacks.dim_card(window.hwnd);
+        // Custom WindowDeck: a Claude card dims while another status is lit.
+        let mark = shared.claude_mark(window);
+        let alpha = alpha
+            * fade
+            * shared.stacks.dim_card(window.hwnd)
+            * mark.as_ref().map_or(1.0, claude::Mark::card_alpha);
         let response = ui.interact(
             rect,
             egui::Id::new(("arrange-card", window.hwnd)),
@@ -65,6 +71,9 @@ impl Draw<'_> {
             theme::line(ui.ctx(), tokens.border),
             StrokeKind::Inside,
         );
+        if let Some(mark) = &mark {
+            claude::paint_tint(&painter, &tokens, thumb, mark);
+        }
         let picture = thumb.shrink(1.0);
         let mut badges = Vec::new();
         if waiting.is_some() {
@@ -88,6 +97,11 @@ impl Draw<'_> {
         if shown.renamed {
             frame.actions.push(ArrangeAction::AskName(window.hwnd));
         }
+        let chip = mark.as_ref().map_or(Rect::NOTHING, |mark| {
+            claude::paint_chip(ui, &painter, thumb, mark)
+        });
+        let clear = claude::clear_union(shown.clear, chip);
+        let picture_alpha = mark.as_ref().map_or(1.0, claude::Mark::picture_alpha);
         // The one live picture of a dragged window is the ghost's, so its
         // old place shows the name instead.
         let has_picture = !self.menu_open
@@ -98,8 +112,8 @@ impl Draw<'_> {
                 hwnd: window.hwnd,
                 dest: picture,
                 clip: ui.clip_rect(),
-                opacity: (255.0 * alpha).round() as u8,
-                clear: stacks::marks(&painter, &shared.stacks, window.hwnd, thumb, shown.clear),
+                opacity: (255.0 * alpha * picture_alpha).round() as u8,
+                clear: stacks::marks(&painter, &shared.stacks, window.hwnd, thumb, clear),
                 ghost: false,
             });
         } else {
@@ -140,6 +154,12 @@ impl Draw<'_> {
             frame.cards.push((window.hwnd, window.monitor.is_some()));
             return;
         }
+        let right = match &mark {
+            Some(mark) => {
+                claude::paint_age(&painter, &tokens, right, title_top + TITLE / 2.0, mark)
+            }
+            None => right,
+        };
         let mut job = text::job(
             &window.label,
             theme::regular(13.0),

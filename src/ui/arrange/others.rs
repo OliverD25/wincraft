@@ -167,6 +167,7 @@ mod tests {
             renamed: false,
             same_title: false,
             attention: false,
+            claude: None,
         };
         let group = ArrangeGroup {
             key: String::new(),

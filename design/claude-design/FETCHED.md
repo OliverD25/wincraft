@@ -171,6 +171,36 @@ away. The user chose B: fill `text_primary` at 5 % and a 1 px solid ring in
 `text_primary` at 35 %, never orange, accent or dashed. A and C stay on the
 page for the record.
 
+## 2026-11-11 — Window Deck Claude Status (proposal, written from Claude Code)
+
+`Window Deck Claude Status.dc.html` (74,457 bytes, new; artifact version 17).
+A WindowDeck app profile for the Claude desktop app: a status chip on each
+card (Waiting in the attention orange, Working with a turning `info` ring,
+Idle in grey), an age line with four steps (fresh, cooling after 1 hour,
+cold after 1 day, frozen after 3 days), toolbar counters that light up cards
+in place (key S), a separate Board view (key B), and a small score for
+today. The user's rule: cards are never sorted by status. Waiting for the
+user's approval; no code yet.
+
+## 2026-11-11 — Window Deck Claude Status, four styles (artifact version 18)
+
+`Window Deck Claude Status.dc.html` (161,888 bytes, changed). The user asked
+for the card look to be a setting: Classic (the first proposal, default) and
+three fun styles to study: Quest board (quest tags, a draining wait bar, chat
+levels, daily XP), Chat pets (a small face per chat whose mood shows the
+status) and Arcade (glowing clocks, combo, a scoreboard). A switch at the top
+of the page changes the style; the setting "Claude card style" sits in
+Settings › WindowDeck. Waiting for the user's choice; no code yet.
+
+## 2026-11-11 — Window Deck Claude Status: crabs in, Arcade out (artifact version 19)
+
+`Window Deck Claude Status.dc.html` (188269 bytes, changed). The user kept
+Classic, Quest board and Chat pets, dropped Arcade, and asked for animated
+Claude crabs. Each crab takes its status colour, not Claude's orange, so
+orange still means only "wants you". Classic now shows even when the design
+viewer drops the default selection of the style switch. The page always
+animates the crabs; the legend notes that in the app they stand still when
+Windows animations are off.
 ## 2026-11-11: Window Deck Groups Options
 
 Drawn by the forked design session and published to the design artifact

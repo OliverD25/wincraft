@@ -58,6 +58,7 @@ use crate::ui;
 mod api;
 mod arrange;
 mod bindings;
+mod claude;
 mod detailed_log;
 mod plugins;
 mod prepared;

@@ -284,6 +284,11 @@ impl Host {
                 }
             }
             HostRequest::LayoutRefresh => self.send_layout(),
+            HostRequest::ClaudeRefresh => {
+                if crate::core::ui_bridge::arrange_window().is_some() {
+                    self.send_arrange(false);
+                }
+            }
             HostRequest::Layout { plugin, action } => {
                 match self.plugins.index_of(&plugin) {
                     Some(index) if self.plugins.slots[index].enabled => {

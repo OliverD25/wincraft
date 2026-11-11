@@ -58,6 +58,7 @@ impl Arrange {
                 parked: false,
                 routed: Vec::new(),
                 keys_routed: false,
+                claude: claude::Deck::default(),
                 stacks: stacks::Stacks::default(),
             })),
             palette_hwnd,
@@ -109,6 +110,11 @@ impl Arrange {
         shared.note = None;
         shared.seen = seen::Seen::default();
         shared.rename = None;
+        // Each opening starts with nothing lit and the deck, not the Board.
+        shared.claude = claude::Deck {
+            asked: Some(Instant::now()),
+            ..claude::Deck::default()
+        };
         shared.stacks.arrive(&mut snapshot, true);
         shared.snapshot = Some(snapshot);
         shared.holds.clear();
@@ -464,10 +470,29 @@ impl Arrange {
             // Esc ends a title edit, or puts a card dragged in the By
             // monitor view back, and nothing more.
             let putting_back = shared.drag.is_some() && shared.view() == ArrangeView::ByMonitor;
-            let escape = escape
-                && shared.rename.is_none()
-                && !putting_back
-                && !shared.stacks.wants_escape();
+            let escape = escape && shared.rename.is_none() && !putting_back;
+            // Esc goes, in this order, to: the Claude board; an open group
+            // or its dialog (the strip's group code takes the key); the lit
+            // Claude status. Only then does it close WindowDeck.
+            let escape = if !escape {
+                false
+            } else if shared.claude.board.is_some() {
+                shared.claude.escape();
+                ui.ctx()
+                    .input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+                ui.ctx().request_repaint();
+                false
+            } else if shared.stacks.wants_escape() {
+                false
+            } else if shared.claude.takes_escape() {
+                shared.claude.escape();
+                ui.ctx()
+                    .input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+                ui.ctx().request_repaint();
+                false
+            } else {
+                true
+            };
             if escape {
                 log::info!("WindowDeck closes: Esc");
                 shared.closed = true;

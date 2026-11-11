@@ -206,6 +206,11 @@ pub struct ArrangeWindow {
     /// taskbar button is orange. The host fills it in; plugins leave it
     /// false.
     pub attention: bool,
+    /// Custom WindowDeck: what the Claude chat in this window is doing and
+    /// how old it is. The host fills it in for every window of the Claude
+    /// desktop app while the "Claude card style" is not Off; None for every
+    /// other window. Plugins leave it None.
+    pub claude: Option<crate::core::claude_sessions::Card>,
 }
 
 /// A monitor for the strip's columns: every connected one in the order
@@ -334,6 +339,9 @@ pub struct ArrangeSnapshot {
     /// (left, top, right, bottom in physical pixels). The strip then sits
     /// above it and leaves the keyboard with the window in front.
     pub anchor: Option<[i32; 4]>,
+    /// Custom WindowDeck's "Animate the Claude cards": the working ring
+    /// turns. It ignores the Windows animation setting on purpose.
+    pub claude_animate: bool,
 }
 
 static ARRANGE_WINDOW: AtomicIsize = AtomicIsize::new(0);
@@ -703,6 +711,9 @@ pub enum HostRequest {
     },
     /// The Layout page wants fresh data.
     LayoutRefresh,
+    /// WindowDeck shows Claude cards: send it fresh data, so their status
+    /// and age stay current while it is open.
+    ClaudeRefresh,
     Layout {
         plugin: String,
         action: LayoutAction,
@@ -805,6 +816,9 @@ pub struct FieldInfo {
     pub help: String,
     pub kind: FieldKind,
     pub value: Value,
+    /// The heading this field sits under, from the plugin's
+    /// `settings_group`; None for the plain "Settings" heading.
+    pub group: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]

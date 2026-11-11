@@ -58,6 +58,9 @@ impl Host {
                 window.attention = attention.wants(window.hwnd);
             }
         });
+        if look.claude_cards {
+            super::claude::fill_claude_cards(&mut groups.groups);
+        }
         let mut focus = groups.focus;
         if open {
             let asked = self.arrange_focus.take().and_then(|wanted| {
@@ -103,6 +106,7 @@ impl Host {
             deck_groups: look.groups,
             keeps_order: id != look_plugin,
             anchor: anchor.map(|(_, rect)| rect),
+            claude_animate: look.claude_animate,
         };
         if open {
             self.deck_app = snapshot

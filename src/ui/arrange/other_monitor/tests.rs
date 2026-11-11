@@ -36,6 +36,7 @@ fn group_on(count: usize, on: usize) -> ArrangeGroup {
                 renamed: false,
                 same_title: false,
                 attention: false,
+                claude: None,
             })
             .collect(),
     }
@@ -58,6 +59,7 @@ fn snapshot(group: ArrangeGroup, setting: bool) -> ArrangeSnapshot {
         deck_groups: None,
         keeps_order: false,
         anchor: None,
+        claude_animate: false,
     }
 }
 

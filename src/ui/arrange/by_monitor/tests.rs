@@ -386,6 +386,7 @@ fn group(windows: &[(&str, Option<usize>, Option<usize>)]) -> ArrangeGroup {
                 renamed: false,
                 same_title: false,
                 attention: false,
+                claude: None,
             })
             .collect(),
     }
@@ -749,6 +750,7 @@ fn a_new_number_keeps_the_window_in_its_column() {
         renamed: false,
         same_title: false,
         attention: false,
+        claude: None,
     };
     let mut group = ArrangeGroup {
         key: "claude.exe".to_string(),
@@ -802,6 +804,7 @@ fn a_limited_strip_has_one_column_with_only_that_monitors_windows() {
         renamed: false,
         same_title: false,
         attention: false,
+        claude: None,
     };
     let group = ArrangeGroup {
         key: "claude.exe".to_string(),
@@ -828,6 +831,7 @@ fn a_limited_strip_has_one_column_with_only_that_monitors_windows() {
         monitors,
         view: crate::core::ui_bridge::ArrangeView::ByMonitor,
         anchor: None,
+        claude_animate: false,
     };
     let widths = [179.0; 5];
     let all = Model::new(
@@ -1285,6 +1289,7 @@ fn spread() -> (ArrangeGroup, ArrangeSnapshot) {
         renamed: false,
         same_title: false,
         attention: false,
+        claude: None,
     };
     let group = ArrangeGroup {
         key: "claude.exe".to_string(),
@@ -1311,6 +1316,7 @@ fn spread() -> (ArrangeGroup, ArrangeSnapshot) {
         monitors: desk(),
         view: crate::core::ui_bridge::ArrangeView::ByMonitor,
         anchor: None,
+        claude_animate: false,
     };
     (group, snapshot)
 }

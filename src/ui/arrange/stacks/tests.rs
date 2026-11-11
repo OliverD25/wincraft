@@ -12,6 +12,7 @@ fn window(hwnd: isize, label: &str, monitor: Option<usize>) -> ArrangeWindow {
         renamed: false,
         same_title: false,
         attention: false,
+        claude: None,
     }
 }
 
@@ -160,6 +161,7 @@ fn snapshot() -> ArrangeSnapshot {
         deck_groups: Some(news()),
         keeps_order: false,
         anchor: None,
+        claude_animate: false,
     }
 }
 
