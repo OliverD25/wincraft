@@ -53,6 +53,24 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 **Done when:** steps 4-10 behave as written, or you report what did not.
 
+### 10. Install 0.20.94 and check the Background chip on a Claude chat
+
+- **State:** Ready to test. Release v0.20.94 is built and published (2026-11-11, with wincraft.exe and SHA256SUMS.txt).
+- **Kind:** test · **Added:** 2026-11-11 (PC)
+- **Why:** the Background chip was checked only by unit tests, not on a live chat.
+- **Agent can check:** the WinCraft log (`%LOCALAPPDATA%\WinCraft\wincraft.log`).
+
+**Steps**
+
+1. Right-click the WinCraft icon in the tray and click **Settings…**.
+2. Click **About** in the left list, then **Update now**. WinCraft restarts; About shows 0.20.94.
+3. In a Claude chat, ask for a job in the background, for example: "run `sleep 120` in the background and tell me when it ends".
+4. When the chat's reply ends, open WindowDeck on the Claude app. That chat's card should show a blue chip **Background … · 1 job** with a still ring (not turning).
+5. Press `B`. The chat should be in the **Working** column, below any real Working chats.
+6. After the job ends and the chat answers, the chip should go back to **Idle** within a few seconds.
+
+**Done when:** steps 4 to 6 look as described.
+
 ## Done
 
 - **9. Install 0.20.92 and test Custom WindowDeck on your Claude windows**: done 2026-11-11. The user said "task 9 done". Found while testing: a chat with a background task still running shows "Idle"; that is new work, not a failed test.
