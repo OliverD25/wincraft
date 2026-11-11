@@ -164,13 +164,17 @@ impl Draw<'_> {
             );
 
             let top = inner.top() + LABEL + LABEL_GAP;
-            let placed = cell_places(
-                &flow,
-                (b, (r, c)),
-                self.lift,
-                &self.model.widths,
-                *track,
-                pos2(inner.left(), top),
+            let placed = led_places(
+                cell_places(
+                    &flow,
+                    (b, (r, c)),
+                    self.lift,
+                    &self.model.widths,
+                    *track,
+                    pos2(inner.left(), top),
+                ),
+                top,
+                band.lead,
             );
             let mut zone_cards: Vec<(usize, Rect)> = Vec::new();
             let placed: Vec<(Item, Rect)> = placed

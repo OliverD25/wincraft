@@ -263,6 +263,7 @@ pub(super) fn apply_locally(shared: &mut Shared, action: &ArrangeAction) {
         ArrangeAction::Rename { name: None, .. }
         | ArrangeAction::AskName(_)
         | ArrangeAction::NewWindow { .. }
+        | ArrangeAction::SetGroups(_)
         | ArrangeAction::Activate(_) => {}
     }
 }

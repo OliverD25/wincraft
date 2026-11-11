@@ -83,6 +83,7 @@ pub(super) fn card(
         slides,
         animate,
         waiting,
+        stacks,
     } = info;
     let label = window.label.as_str();
     let monitor = window.monitor.as_deref();
@@ -106,6 +107,7 @@ pub(super) fn card(
         tokens.hover_bg
     };
     let look = card_look(&tokens, lit.then_some(fill), window.attention);
+    super::stacks::behind(painter, stacks, window.hwnd, grown(rect, scale));
     paint_look(painter, grown(rect, scale), 6, look);
     if selected {
         paint_ring(painter, ui.ctx(), rect, 6, selected_ring(&tokens));
@@ -113,7 +115,10 @@ pub(super) fn card(
     if let Some(monitor) = monitor {
         monitor_chip(painter, rect, monitor);
     }
-    let area = grown(picture_area(rect), scale);
+    let area = grown(
+        super::stacks::flat_picture(stacks, window.hwnd, picture_area(rect)),
+        scale,
+    );
     let border = if lit {
         selected_ring(&tokens)
     } else {
@@ -149,6 +154,12 @@ pub(super) fn card(
 
     let name_top = area.bottom() + CARD_INSET;
     let chip = number_chip(painter, pos2(area.left(), name_top), NAME_HEIGHT, number);
+    super::stacks::member_chip(painter, stacks, window.hwnd, chip, number);
+    let names = Rect::from_min_max(
+        pos2(area.left(), name_top + NAME_HEIGHT + 2.0),
+        pos2(area.right(), rect.bottom()),
+    );
+    super::stacks::lines(painter, stacks, window.hwnd, names);
     let name_left = chip.right() + NUMBER_GAP;
     if let Some(edit) = edit {
         let field = Rect::from_min_max(
@@ -196,6 +207,8 @@ pub(super) struct CardInfo<'a> {
     pub(super) animate: bool,
     /// "Waiting for <app>": the window did not close when asked.
     pub(super) waiting: Option<String>,
+    /// The groups: a stack's card looks like one.
+    pub(super) stacks: &'a super::stacks::Stacks,
 }
 
 /// The gap between the taskbar number and the name after it.

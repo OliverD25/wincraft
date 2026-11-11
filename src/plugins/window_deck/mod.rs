@@ -5,6 +5,7 @@
 //! its windows in their saved order; otherwise WindowDeck lists the open
 //! windows itself (`own_windows`).
 
+mod groups;
 mod hover_keys;
 pub mod hover_preview;
 mod new_window;
@@ -79,6 +80,8 @@ pub struct WindowDeck {
     own: own_windows::OwnWindows,
     /// The new window Ctrl+N started, while it is awaited.
     new_window: Option<new_window::Wait>,
+    /// "Group related windows" and the groups it keeps.
+    groups: groups::Groups,
 }
 
 impl Default for WindowDeck {
@@ -97,6 +100,7 @@ impl Default for WindowDeck {
             read_only: instance::is_test(),
             own: own_windows::OwnWindows::new(instance::is_test()),
             new_window: None,
+            groups: groups::Groups::new((!cfg!(test)).then(groups::path)),
         }
     }
 }
@@ -125,6 +129,12 @@ impl WindowDeck {
             .get(TOOLBAR_KEY)
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
+        self.groups.switch(
+            settings
+                .get(groups::KEY)
+                .and_then(|value| value.as_bool())
+                .unwrap_or(true),
+        );
         self.hover_strip = settings
             .get(HOVER_STRIP_KEY)
             .and_then(|value| value.as_bool())
@@ -335,6 +345,7 @@ impl WinCraftPlugin for WindowDeck {
             VIEW_KEY: ArrangeView::Auto.setting(),
             HINTS_KEY: true,
             TOOLBAR_KEY: false,
+            groups::KEY: true,
             HOVER_STRIP_KEY: false,
             HOVER_DELAY_KEY: hover_preview::DEFAULT_DELAY_MS as f64 / 1000.0,
             WIN_NUMBER_KEY: false,
@@ -359,6 +370,12 @@ impl WinCraftPlugin for WindowDeck {
                 key: TOOLBAR_KEY,
                 label: "Show the toolbar on other monitors",
                 help: "The app list and the By monitor and Flat switch, in the strip that opens from the taskbar of a monitor that is not the main one. Off gives the pictures more room.",
+                kind: FieldKind::Toggle,
+            },
+            SettingField {
+                key: groups::KEY,
+                label: "Group related windows",
+                help: "Drag a card onto another card, or pick cards with Ctrl + click and press Ctrl + G, to keep related windows together as one card. Off shows every window as its own card; your groups are kept for when you switch it on again.",
                 kind: FieldKind::Toggle,
             },
             SettingField {
@@ -518,6 +535,7 @@ impl WinCraftPlugin for WindowDeck {
             view: self.view,
             hints: self.show_hints,
             toolbar_on_other_monitors: self.toolbar_elsewhere,
+            groups: self.groups.for_strip(),
         })
     }
 
@@ -533,6 +551,10 @@ impl WinCraftPlugin for WindowDeck {
         }
         if let ArrangeAction::NewWindow { group, hwnd } = action {
             self.start_new_window(group, *hwnd);
+            return;
+        }
+        if let ArrangeAction::SetGroups(list) = action {
+            self.groups.set(list);
             return;
         }
         if self.own.act(action) == own_windows::After::Refresh {
@@ -763,6 +785,25 @@ mod tests {
             .find(|field| field.key == TOOLBAR_KEY)
             .expect("the switch is on the page");
         assert_eq!(field.label, "Show the toolbar on other monitors");
+        deck.teardown();
+    }
+
+    #[test]
+    fn grouping_is_on_by_default_and_follows_the_setting() {
+        let mut deck = test_deck();
+        assert_eq!(deck.default_settings()[groups::KEY], true);
+        deck.apply_settings(&deck.default_settings());
+        assert_eq!(deck.strip_look().expect("a look").groups, Some(Vec::new()));
+        deck.apply_settings(&serde_json::json!({ groups::KEY: false }));
+        assert_eq!(deck.strip_look().expect("a look").groups, None);
+        // A file without the key keeps it on.
+        deck.apply_settings(&serde_json::json!({}));
+        assert!(deck.strip_look().expect("a look").groups.is_some());
+        let fields = deck.settings_fields();
+        let at = |key: &str| fields.iter().position(|field| field.key == key);
+        let field = &fields[at(groups::KEY).expect("the switch is on the page")];
+        assert_eq!(field.label, "Group related windows");
+        assert_eq!(at(groups::KEY), at(TOOLBAR_KEY).map(|at| at + 1));
         deck.teardown();
     }
 

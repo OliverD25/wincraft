@@ -285,6 +285,7 @@ impl WinCraftPlugin for FakePlugin {
             view: ArrangeView::Flat,
             hints: true,
             toolbar_on_other_monitors: false,
+            groups: None,
         })
     }
 

@@ -60,10 +60,26 @@ pub(super) fn refresh_sources(shared: &mut Shared, group: &ArrangeGroup) -> bool
 /// Puts every picture where its card is. DWM draws pictures on top of
 /// everything in the window, so one under the dragged card is hidden, and
 /// pictures of windows without a card this frame are hidden too.
+/// What is drawn over the cards this frame: the dragged card, and the
+/// covers that hide every picture they touch.
+pub(super) struct Over<'a> {
+    pub(super) floating: Option<Rect>,
+    pub(super) covers: &'a [Rect],
+}
+
+/// Whether a picture hides this frame: under the dragged card (except the
+/// dragged window's own picture, which rides with it) or under any cover.
+pub(super) fn is_covered(item: &Pending, over: &Over<'_>, dragged: Option<isize>) -> bool {
+    let under_drag = over.floating.is_some_and(|rect| {
+        (item.ghost || Some(item.hwnd) != dragged) && rect.intersects(item.dest)
+    });
+    under_drag || over.covers.iter().any(|rect| rect.intersects(item.dest))
+}
+
 pub(super) fn place_pictures(
     shared: &mut Shared,
     pending: &[Pending],
-    floating: Option<Rect>,
+    over: Over<'_>,
     dragged: Option<isize>,
     pixels_per_point: f32,
 ) {
@@ -81,9 +97,7 @@ pub(super) fn place_pictures(
     for item in pending {
         // The dragged window's own picture rides with the pointer; its
         // ghost stays behind like any other.
-        let covered = floating.is_some_and(|rect| {
-            (item.ghost || Some(item.hwnd) != dragged) && rect.intersects(item.dest)
-        });
+        let covered = is_covered(item, &over, dragged);
         let known = shared.sources.get(&item.hwnd).copied();
         let thumb = if item.ghost {
             ghost_thumbnail(shared, item.hwnd)

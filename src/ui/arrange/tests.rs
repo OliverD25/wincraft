@@ -24,6 +24,7 @@ fn ctrl_h_flips_the_hints_now_and_asks_the_look_plugin_to_save_them() {
         look_plugin: "window_deck".to_string(),
         hints: true,
         toolbar_on_other_monitors: false,
+        deck_groups: None,
         keeps_order: false,
         anchor: None,
     });
@@ -1118,6 +1119,7 @@ fn snapshot_of(group: ArrangeGroup, monitors: Vec<ArrangeMonitor>) -> ArrangeSna
         look_plugin: "window_deck".to_string(),
         hints: true,
         toolbar_on_other_monitors: false,
+        deck_groups: None,
         keeps_order: false,
         anchor: None,
     }

@@ -5,36 +5,11 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ## Open
 
-### 1. Install 0.20.90 and test the drop gap and the "waiting for you" marks
-
-- **State:** Ready to test. 0.20.90 installed and the hook events registered
-  2026-11-10; the live test in this window marked and cleared it. Left: step 3
-  and steps 5-6 with two windows.
-- **Kind:** test · **Added:** 2026-11-10 (PC, branch claude/wincraft-design-artifact-move-4b267d)
-- **Why:** two features of 0.20.90 need a check on the real windows: the
-  WindowDeck drop gap, and the orange mark on a Claude window whose session
-  asks a question.
-- **Known, do not report:** a window that waited before the update is not
-  marked; only new questions are.
-- **Agent can check:** the WinCraft log (`%LOCALAPPDATA%\WinCraft\wincraft.log`,
-  lines `attention: Claude session`) and `~/.claude/claude-attention.log`.
-
-**Steps**
-
-1. Right-click the WinCraft icon in the tray and click **Settings…**.
-2. Click **About** in the left list, then **Check for updates**, then
-   **Update now**. WinCraft restarts; About shows 0.20.90.
-3. Open WindowDeck and drag a window card next to a card with an orange
-   frame. You should see the other cards slide apart and an empty slot
-   with a thin grey line where the card will land. Esc puts it back.
-4. Tell the agent "installed". The agent registers the hook events.
-5. In one Claude window, ask the session something that makes it ask you
-   a question back. Switch to another Claude window before the question
-   appears. You should see the waiting window's WindowDeck card turn
-   orange and its taskbar button flash.
-6. Answer the question. The orange mark should go away.
-
-**Done when:** the gap shows in WindowDeck, and a Claude window that asks a
-question turns orange and clears after the answer.
-
 ## Done
+
+- **1. Install 0.20.90 and test the drop gap and the "waiting for you" marks**: done 2026-11-10. The user confirmed step 3 ("1.3 is passed") and steps 5-6 ("Orange, cleared after").
+- **2. Install the new attention hook: plain-text questions turn orange too**: done 2026-11-10. Installed in config commit dfbc258; the user saw the orange card, and the log shows "Stop (reply asks)" marking and UserPromptSubmit clearing 4 of 4 targets.
+- **4. Install the attention hook fix: next-step box questions stay orange**: done 2026-11-11. Installed in config commit c4ea72d; the user saw the card stay orange ("Stays orange"), and the log shows the mark cleared by the user's message.
+- **3. Screenshot WindowDeck when a card is orange with no question waiting**: done 2026-11-11. The screenshot showed card "WinCraft Rust" (this chat); the log showed the hook marked it at 00:17:43 because the reply ended with the "On you:" line. Fixed in task 5.
+- **5. Install the attention hook fix: the task reminder line no longer marks a window**: done 2026-11-11. Installed in config commit 6104161, identical to the tested copy; the test of the reminder line passed.
+- **6. Review the WindowDeck groups design**: done 2026-11-11. The user accepted the page ("ok build it") and added a settings toggle to switch groups off.

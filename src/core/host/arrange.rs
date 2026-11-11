@@ -100,6 +100,7 @@ impl Host {
             look_plugin: look_plugin.to_string(),
             hints: look.hints,
             toolbar_on_other_monitors: look.toolbar_on_other_monitors,
+            deck_groups: look.groups,
             keeps_order: id != look_plugin,
             anchor: anchor.map(|(_, rect)| rect),
         };
