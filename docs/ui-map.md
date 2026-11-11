@@ -104,7 +104,7 @@ Opened by: Settings → **Plugins** → click the plugin's tile.
 ### Fields of each plugin's Settings section
 - LayoutKeeper: **Programs**, **Never touch**, **Restore on start**, **Wait for windows (seconds)**, **Wait for apps to open (minutes)**, **Save every (seconds)**, **Restore which window is in front**, **Restore monitors**, **Show restore progress**, **Offer to put windows back after an app restarts**. Also **Open state file** (a file button).
 - ScreenDimmer: **Darkness**, **Darkness under the pointer**.
-- WindowDeck: **Preview window on hover**, **Show key hints**, **Show the toolbar on other monitors**, **Show WindowDeck instead of Windows' taskbar preview**, **Hover delay (seconds)**, **Open WindowDeck with Win+1…9**. Under the heading **Custom WindowDeck**: **Claude card style** (**Classic** or **Off**) and **Animate the Claude cards**.
+- WindowDeck: **Preview window on hover**, **Show key hints**, **Show the toolbar on other monitors**, **Group related windows**, **Show WindowDeck instead of Windows' taskbar preview**, **Hover delay (seconds)**, **Open WindowDeck with Win+1…9**. Under the heading **Custom WindowDeck**: **Claude card style** (**Classic** or **Off**) and **Animate the Claude cards**.
 - QuickJump: **Open Quick access in the middle of the screen**, **Point to a window on another monitor**.
 - WindowNamer: **Keep names after restart**, **Title shows**.
 - ShortcutManager: **Show free combinations**.
@@ -181,6 +181,19 @@ Opened by: right-click a window card in the strip.
 - **Close window**.
 - **Taskbar place**: submenu; only when the app has more than one window in the row.
 - **Move to desktop**: submenu with the desktops.
+- **Add to group**: submenu with the app's groups and their open window counts, then **New group…**; only with **Group related windows** on and when the app has a group.
+- **New group…  (Ctrl + G)**: the name box for this card and the picked ones (Ctrl + click picks).
+
+### WindowDeck stack, right-click menu
+Opened by: right-click a stack card (a closed group), with **Group related windows** on.
+- **Open the group** (`Enter`), **Rename the group** (`F2`), **Ungroup** (`Ctrl+G`).
+- **Close {n} windows…** (`Ctrl+W`, or a middle click on the stack): asks first.
+
+### WindowDeck group dialogs
+- Name box for a new group: title **Group {n} windows**, buttons **Cancel** and **Make the group**. Enter makes it, Esc cancels.
+- After `F2` on a stack: **Rename the group**, buttons **Cancel** and **Rename**.
+- Before closing a group's windows: title **Close {n} windows in {group}?**, buttons **Cancel** and **Close {n} windows**. Esc is Cancel.
+- While a card is dragged over the middle of another card: **Drop to group**.
 
 ### WindowDeck compact popup
 Opened by: the hover popup on a taskbar button, when **Show WindowDeck instead of Windows' taskbar preview** is on (an app with two or more windows).

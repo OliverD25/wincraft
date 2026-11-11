@@ -5,6 +5,7 @@
 use egui::text::TextWrapping;
 use egui::{pos2, vec2, Color32, Rect, Response, Sense, Shape, StrokeKind, Ui, UiBuilder, Vec2};
 
+use super::stacks;
 use super::{
     card_above_or_below, card_look, card_menu, cards_here, ctrl_drop, ctrl_hint, ctrl_mark,
     ctrl_place, ctrl_target, float_picture, ghost_thumbnail, grown, hit_rect, line_width,
@@ -25,6 +26,8 @@ mod columns;
 mod draw;
 mod draw_band;
 mod draw_card;
+mod group_ghosts;
+use group_ghosts::{led_height, led_places, GROUP_LEAD};
 mod keys;
 mod moves;
 pub use bands::*;
@@ -139,7 +142,12 @@ pub(super) fn move_keys(
         only: shared.only_monitor,
         taskbars: shared.taskbars,
     };
-    let model = Model::new(group, snapshot, &widths, shown, scope);
+    let open = shared.stacks.open_members(group);
+    let (model, _) = Model::new(group, snapshot, &widths, shown, scope).with_open_group(
+        group,
+        &snapshot.monitors,
+        &open,
+    );
     shared.cursor_ghost = false;
     keyboard(
         ctx,

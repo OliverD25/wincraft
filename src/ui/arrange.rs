@@ -49,6 +49,7 @@ mod routed;
 mod rows;
 mod seen;
 mod sizing;
+mod stacks;
 mod strip;
 mod tile;
 mod window;
@@ -310,6 +311,8 @@ struct Shared {
     keys_routed: bool,
     /// Custom WindowDeck: the lit status and the Board.
     claude: claude::Deck,
+    /// The groups of related windows: what is folded, open and picked.
+    stacks: stacks::Stacks,
 }
 
 impl Shared {
@@ -406,10 +409,13 @@ impl Shared {
                     self.others.shown(count),
                     count > 0,
                     limit,
-                    by_monitor::Scope {
-                        only: self.only_monitor,
-                        taskbars: self.taskbars,
-                    },
+                    (
+                        by_monitor::Scope {
+                            only: self.only_monitor,
+                            taskbars: self.taskbars,
+                        },
+                        &self.stacks.open_members(group),
+                    ),
                 )
             }
             (Some(group), Some(snapshot)) => {

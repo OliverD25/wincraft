@@ -179,6 +179,9 @@ pub struct StripLook {
     pub claude_cards: bool,
     /// "Animate the Claude cards": the working ring turns.
     pub claude_animate: bool,
+    /// The saved groups of related windows while "Group related windows" is
+    /// on; None while it is off, so the strip shows every window as a card.
+    pub groups: Option<Vec<crate::core::deck_groups::DeckGroup>>,
 }
 
 /// A window a plugin draws itself with egui, such as a list it keeps. It

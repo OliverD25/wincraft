@@ -7,6 +7,7 @@
 use egui::text::TextWrapping;
 use egui::{pos2, vec2, Rect, Response, Sense, StrokeKind, Ui, Vec2};
 
+use super::stacks;
 use super::tile::{self, THUMB_MIN};
 use super::{
     by_monitor, card_menu, grown, only_visible, rows, taskbar_numbers, thumbnail, visible_flags,
@@ -389,7 +390,9 @@ pub fn body(
     );
     let top = content.top() + layout.cards_top(open);
 
-    let numbers = taskbar_numbers(group, &snapshot.desktops);
+    let numbers = shared
+        .stacks
+        .numbers(group, taskbar_numbers(group, &snapshot.desktops));
     let card_height = layout.card_height();
     let mut x = content.left();
     let mut cards_area = Rect::NOTHING;
@@ -588,7 +591,7 @@ fn card(
         .rename
         .as_mut()
         .filter(|edit| edit.hwnd == window.hwnd);
-    let painted = tile::paint(
+    let mut painted = tile::paint(
         ui,
         &faded_painter,
         &response,
@@ -608,6 +611,13 @@ fn card(
             waiting: waiting.as_deref(),
         },
         edit,
+    );
+    painted.clear = stacks::marks(
+        &faded_painter,
+        &shared.stacks,
+        window.hwnd,
+        painted.picture,
+        painted.clear,
     );
     if has_picture {
         frame.pending.push(Pending {
@@ -653,8 +663,11 @@ fn interact(
     }
     let names = snapshot.can_rename.then_some(window.renamed);
     response.context_menu(|ui| {
-        if let Some(action) = card_menu(ui, group, member, &snapshot.desktops, names) {
-            frame.actions.push(action);
+        if !stacks::group_menu(ui, shared, group, window.hwnd, true) {
+            if let Some(action) = card_menu(ui, group, member, &snapshot.desktops, names) {
+                frame.actions.push(action);
+            }
+            stacks::group_menu(ui, shared, group, window.hwnd, false);
         }
     });
 }
@@ -1009,6 +1022,7 @@ mod tests {
             look_plugin: "window_deck".to_string(),
             hints: true,
             toolbar_on_other_monitors: false,
+            deck_groups: None,
             keeps_order: true,
             groups: vec![group.clone()],
             desktops,
@@ -1055,6 +1069,7 @@ mod tests {
             look_plugin: "window_deck".to_string(),
             hints: true,
             toolbar_on_other_monitors: false,
+            deck_groups: None,
             keeps_order: true,
             groups: vec![group.clone()],
             desktops,

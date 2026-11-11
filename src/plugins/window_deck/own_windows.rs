@@ -203,7 +203,7 @@ impl OwnWindows {
             // The host sends names to WindowNamer; they never come here.
             ArrangeAction::Rename { .. } | ArrangeAction::AskName(_) => return After::Nothing,
             // WindowDeck itself starts new windows; see `new_window`.
-            ArrangeAction::NewWindow { .. } => return After::Nothing,
+            ArrangeAction::NewWindow { .. } | ArrangeAction::SetGroups(_) => return After::Nothing,
         };
         if self.refuses(what) {
             return After::Nothing;
@@ -240,7 +240,8 @@ impl OwnWindows {
             }
             ArrangeAction::Rename { .. }
             | ArrangeAction::AskName(_)
-            | ArrangeAction::NewWindow { .. } => After::Nothing,
+            | ArrangeAction::NewWindow { .. }
+            | ArrangeAction::SetGroups(_) => After::Nothing,
         }
     }
 

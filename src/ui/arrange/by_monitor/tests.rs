@@ -235,6 +235,7 @@ fn a_strip_of_one_column_or_of_empty_columns_has_no_rails() {
             cells: vec![vec![Vec::new(); row.len()]],
             ghost_cell: None,
             ghosts: Vec::new(),
+            lead: 0.0,
         };
         columns(&[band], &[row], &monitors, &widths)
     };
@@ -259,6 +260,7 @@ fn a_disconnected_monitor_is_never_a_rail() {
         cells: vec![vec![vec![0], vec![], vec![], vec![]]],
         ghost_cell: None,
         ghosts: Vec::new(),
+        lead: 0.0,
     };
     let cols = columns(&[band], &rows, &monitors, &[179.0]);
     let rails: Vec<bool> = cols[0].iter().map(|col| col.rail).collect();
@@ -275,6 +277,7 @@ fn a_rail_row_is_at_least_150_high() {
         cells: vec![vec![Vec::new(), Vec::new()]],
         ghost_cell: None,
         ghosts: Vec::new(),
+        lead: 0.0,
     };
     let tracks = [40.0, 300.0];
     // Windows are only on another desktop: this band's row would be
@@ -306,6 +309,7 @@ fn one_busy_monitor() -> Vec<Band> {
         cells: vec![vec![vec![], vec![0, 1], vec![]]],
         ghost_cell: None,
         ghosts: Vec::new(),
+        lead: 0.0,
     }]
 }
 
@@ -577,6 +581,7 @@ fn mixed_cards_wrap_by_their_widths_inside_a_column() {
         cells: vec![vec![vec![0, 1, 2]]],
         ghost_cell: None,
         ghosts: Vec::new(),
+        lead: 0.0,
     };
     let cols = columns(&[band], &[vec![0]], &desk(), &widths);
     let width = natural_width(&cols);
@@ -682,6 +687,7 @@ fn three_columns() -> Vec<Band> {
             cells: vec![vec![vec![0, 1], vec![2, 3, 4], vec![]]],
             ghost_cell: None,
             ghosts: Vec::new(),
+            lead: 0.0,
         },
         Band {
             desktop: "d0".to_string(),
@@ -691,6 +697,7 @@ fn three_columns() -> Vec<Band> {
             cells: vec![vec![vec![], vec![5], vec![]]],
             ghost_cell: None,
             ghosts: Vec::new(),
+            lead: 0.0,
         },
     ]
 }
@@ -809,6 +816,7 @@ fn a_limited_strip_has_one_column_with_only_that_monitors_windows() {
         look_plugin: "window_deck".to_string(),
         hints: true,
         toolbar_on_other_monitors: false,
+        deck_groups: None,
         keeps_order: true,
         groups: vec![group.clone()],
         desktops: vec![ArrangeDesktop {
@@ -1293,6 +1301,7 @@ fn spread() -> (ArrangeGroup, ArrangeSnapshot) {
         look_plugin: "window_deck".to_string(),
         hints: true,
         toolbar_on_other_monitors: false,
+        deck_groups: None,
         keeps_order: true,
         groups: vec![group.clone()],
         desktops: vec![ArrangeDesktop {
@@ -1815,6 +1824,7 @@ fn a_picked_up_card_leaves_its_place_as_the_first_gap_and_the_hole_closes_when_i
             cells: vec![vec![vec![0, 1, 2]]],
             ghost_cell: None,
             ghosts: Vec::new(),
+            lead: 0.0,
         }],
         Item::Card(1),
     )

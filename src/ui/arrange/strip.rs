@@ -32,6 +32,9 @@ pub(super) struct Frame {
     pub(super) area: Rect,
     /// The dragged card when it follows the pointer above the others.
     pub(super) floating: Option<Rect>,
+    /// Other things drawn over the cards (a group's header line, a list,
+    /// a dialog): the pictures under each hide, whatever the drag does.
+    pub(super) covers: Vec<Rect>,
     pub(super) dragged: Option<isize>,
 }
 
@@ -47,6 +50,7 @@ impl Default for Frame {
             activate: None,
             area: Rect::NOTHING,
             floating: None,
+            covers: Vec::new(),
             dragged: None,
         }
     }
@@ -223,7 +227,11 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
         let area = Rect::from_min_max(pos2(content.left(), bar.bottom() + 12.0), content.max);
         let opened = claude::board(ui, shared, &group, &snapshot.desktops, area);
         shared.hide_peek();
-        place_pictures(shared, &[], None, None, ppp);
+        let over = Over {
+            floating: None,
+            covers: &[],
+        };
+        place_pictures(shared, &[], over, None, ppp);
         if let Some(hwnd) = opened {
             log::info!("WindowDeck switches to window {hwnd:#x} (the Claude board) and closes");
             shared.to_host.send(HostRequest::Arrange {
@@ -237,7 +245,10 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
     let others_count = others::count(&group, &snapshot.desktops, &visible);
     // While the title box has the keyboard, no strip key acts.
     let typing = shared.rename.is_some();
-    if claude_cards && !menu_open && !typing && shared.drag.is_none() {
+    let quiet = menu_open || typing || shared.drag.is_some();
+    stacks::before_frame(&ctx, shared, &group, panel, quiet);
+    // After the groups: while their dialog is up it has taken every key.
+    if claude_cards && !quiet {
         claude::keys(&ctx, shared);
     }
     if others_count > 0
@@ -267,7 +278,9 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
             .map(|digit| typed_number(digit, true))
             .or_else(|| typed(egui::Modifiers::NONE).map(|digit| typed_number(digit, false)));
         if let Some(number) = number {
-            digit_card = card_for_digit(&group, &snapshot.desktops, &visible, number);
+            digit_card = stacks::digit_card(shared, &group, number, || {
+                card_for_digit(&group, &snapshot.desktops, &visible, number)
+            });
             if digit_card.is_none() {
                 log::info!("number {number} typed in the strip: no card has it");
             }
@@ -427,7 +440,12 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
         }
     }
 
-    place_pictures(shared, &frame.pending, frame.floating, frame.dragged, ppp);
+    stacks::after_frame(&ctx, shared, &group, &mut frame);
+    let over = Over {
+        floating: frame.floating,
+        covers: &frame.covers,
+    };
+    place_pictures(shared, &frame.pending, over, frame.dragged, ppp);
     let mut order: Vec<isize> = Vec::new();
     for (hwnd, _) in &frame.cards {
         if !order.contains(hwnd) {

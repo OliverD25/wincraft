@@ -201,3 +201,21 @@ orange still means only "wants you". Classic now shows even when the design
 viewer drops the default selection of the style switch. The page always
 animates the crabs; the legend notes that in the app they stand still when
 Windows animations are off.
+## 2026-11-11: Window Deck Groups Options
+
+Drawn by the forked design session and published to the design artifact
+(version 15), copied here byte for byte: `Window Deck Groups Options.dc.html`
+(84166 bytes, new), and an entry for it in the artifact's `compat.json` page
+list. Related windows fold into one stack card with one number; the number
+opens the group in place and a second number opens one of its windows. The
+user's decisions: you make a group yourself (drag onto a card, or Ctrl + G);
+a stack look; open in place; groups remembered by window names; a stack
+stands with most of its windows; one app per group; closing a stack asks
+first. Not built yet.
+
+## 2026-11-11 (later): Window Deck Groups Options, names in a stack
+
+Version 16 of the artifact, copied byte for byte. A closed stack now names
+its other windows: up to two lines under the group name, without the start
+they share with it, ending in "+N more"; and a numbered list under the stack
+while it is selected or under the mouse (user's choice "A + D"). New frame 1b.

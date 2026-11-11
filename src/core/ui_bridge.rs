@@ -328,6 +328,9 @@ pub struct ArrangeSnapshot {
     /// A strip limited to a monitor that is not the main one shows the
     /// toolbar, as kept in `look_plugin`'s `toolbar_on_other_monitors`.
     pub toolbar_on_other_monitors: bool,
+    /// WindowDeck's groups of related windows, as kept in `look_plugin`;
+    /// None while its "Group related windows" is off.
+    pub deck_groups: Option<Vec<crate::core::deck_groups::DeckGroup>>,
     /// The windows come from a plugin that saves their order (LayoutKeeper),
     /// so a new order for other desktops reaches their taskbar at the next
     /// restore. Without one the strip does not say so.
@@ -425,6 +428,9 @@ pub enum ArrangeAction {
         group: String,
         hwnd: isize,
     },
+    /// WindowDeck's groups of related windows, all of them, after the user
+    /// changed one. The strip sends it to its look plugin, which saves them.
+    SetGroups(Vec<crate::core::deck_groups::DeckGroup>),
 }
 
 impl ArrangeAction {

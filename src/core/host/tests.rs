@@ -288,6 +288,7 @@ impl WinCraftPlugin for FakePlugin {
             toolbar_on_other_monitors: false,
             claude_cards: false,
             claude_animate: false,
+            groups: None,
         })
     }
 

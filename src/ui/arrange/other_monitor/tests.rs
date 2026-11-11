@@ -56,6 +56,7 @@ fn snapshot(group: ArrangeGroup, setting: bool) -> ArrangeSnapshot {
         look_plugin: "window_deck".to_string(),
         hints: true,
         toolbar_on_other_monitors: setting,
+        deck_groups: None,
         keeps_order: false,
         anchor: None,
         claude_animate: false,
