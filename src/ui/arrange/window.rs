@@ -273,6 +273,7 @@ impl Arrange {
             shared.closed = false;
             shared.window = 0;
             ui_bridge::set_arrange_window(0);
+            ui_bridge::set_arrange_keeps_escape(false);
             shared.anchor = None;
             shared.reveal = reveal::Reveal::Shown;
             shared.reveal_window = 0;
@@ -470,29 +471,36 @@ impl Arrange {
             // Esc ends a title edit, or puts a card dragged in the By
             // monitor view back, and nothing more.
             let putting_back = shared.drag.is_some() && shared.view() == ArrangeView::ByMonitor;
-            let escape = escape && shared.rename.is_none() && !putting_back;
-            // Esc goes, in this order, to: the Claude board; an open group
-            // or its dialog (the strip's group code takes the key); the lit
-            // Claude status. Only then does it close WindowDeck.
-            let escape = if !escape {
-                false
-            } else if shared.claude.board.is_some() {
-                shared.claude.escape();
-                ui.ctx()
-                    .input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
-                ui.ctx().request_repaint();
-                false
-            } else if shared.stacks.wants_escape() {
-                false
-            } else if shared.claude.takes_escape() {
-                shared.claude.escape();
-                ui.ctx()
-                    .input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
-                ui.ctx().request_repaint();
-                false
-            } else {
-                true
-            };
+            // Esc goes, in this order, to: a title edit or a drag; the
+            // Claude board; an open group or its dialog (the strip's group
+            // code takes the key); the lit Claude status. Only then does it
+            // close WindowDeck.
+            let goes_to = escape::escape_to(escape::Open {
+                rename: shared.rename.is_some(),
+                putting_back,
+                board: shared.claude.board.is_some(),
+                group: shared.stacks.wants_escape(),
+                status: shared.claude.takes_escape(),
+            });
+            // The hover strip's watcher closes the strip on Esc unless
+            // WindowDeck keeps the key for something open in it.
+            ui_bridge::set_arrange_keeps_escape(goes_to != escape::EscapeTo::Close);
+            if escape && goes_to != escape::EscapeTo::Close {
+                ui_bridge::note_escape_taken();
+            }
+            let escape = escape
+                && match goes_to {
+                    escape::EscapeTo::Board | escape::EscapeTo::Status => {
+                        shared.claude.escape();
+                        ui.ctx().input_mut(|i| {
+                            i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                        });
+                        ui.ctx().request_repaint();
+                        false
+                    }
+                    escape::EscapeTo::Edit | escape::EscapeTo::Group => false,
+                    escape::EscapeTo::Close => true,
+                };
             if escape {
                 log::info!("WindowDeck closes: Esc");
                 shared.closed = true;

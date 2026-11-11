@@ -357,6 +357,33 @@ pub fn arrange_window() -> Option<isize> {
     Some(ARRANGE_WINDOW.load(Ordering::Relaxed)).filter(|hwnd| *hwnd != 0)
 }
 
+static ARRANGE_KEEPS_ESCAPE: AtomicBool = AtomicBool::new(false);
+static ESCAPE_TAKEN_AT: AtomicU64 = AtomicU64::new(0);
+/// How long after WindowDeck kept an Esc for itself the hover strip's
+/// watcher still treats that press as WindowDeck's.
+const ESCAPE_TAKEN_MS: u64 = 600;
+
+/// WindowDeck would keep an Esc now for something open in it (an open
+/// group, the Claude board, a title edit), instead of closing.
+pub fn set_arrange_keeps_escape(keeps: bool) {
+    ARRANGE_KEEPS_ESCAPE.store(keeps, Ordering::Relaxed);
+}
+
+/// WindowDeck just kept an Esc for itself.
+pub fn note_escape_taken() {
+    let now = unsafe { windows_sys::Win32::System::SystemInformation::GetTickCount64() };
+    ESCAPE_TAKEN_AT.store(now, Ordering::Relaxed);
+}
+
+/// Whether an Esc pressed at `now` (`GetTickCount64`) belongs to WindowDeck
+/// and must not close the hover strip. The watcher may look at the key
+/// before or after WindowDeck's frame acted on it, so both count.
+pub fn arrange_keeps_escape(now: u64) -> bool {
+    let taken = ESCAPE_TAKEN_AT.load(Ordering::Relaxed);
+    ARRANGE_KEEPS_ESCAPE.load(Ordering::Relaxed)
+        || (taken != 0 && now.saturating_sub(taken) < ESCAPE_TAKEN_MS)
+}
+
 /// When a Windows key last went down and last came up, in
 /// `GetTickCount64` milliseconds (0: not seen), as WindowDeck's keyboard
 /// hook saw it. The hook sees the key before any window can react to it,

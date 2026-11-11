@@ -81,6 +81,9 @@ pub struct Look {
     /// The strip's window has the keyboard: the user clicked into it.
     pub strip_focused: bool,
     pub answer: Option<Answer>,
+    /// WindowDeck keeps an Esc for something open in it (an open group,
+    /// the Claude board, a title edit): Esc does not close the strip.
+    pub strip_keeps_escape: bool,
     /// "Open WindowDeck with Win+1…9" is on and its hook runs.
     pub win_number: bool,
     /// Win and a digit were taken during the Windows key's last press.
@@ -519,6 +522,7 @@ impl Machine {
         // A middle-click on the strip's own button: Windows opens a new
         // window of the app, and the strip stays to show it arrive.
         let new_window = pressed && look.keys.middle_down && on_button;
+        let escape = escape && !look.strip_keeps_escape;
         if escape || keyboard || (pressed && !in_strip && !new_window) {
             out.push(Command::Close);
             return done;
@@ -940,6 +944,32 @@ mod tests {
             machine.step(&with_strip(now + 1200, DESKTOP)),
             [Command::Close]
         );
+    }
+
+    // The user saw Esc in an open group close the hover strip too (0.20.91).
+    #[test]
+    fn escape_that_windowdeck_keeps_leaves_the_strip_open() {
+        let mut machine = on();
+        let now = open_strip(&mut machine);
+        let escape = Look {
+            keys: KeyState {
+                escape: true,
+                ..KeyState::default()
+            },
+            strip_keeps_escape: true,
+            ..with_strip(now + 16, ON_BUTTON)
+        };
+        assert!(machine.step(&escape).is_empty());
+        assert!(machine.is_open());
+        assert!(machine.step(&with_strip(now + 32, ON_BUTTON)).is_empty());
+        let second = Look {
+            keys: KeyState {
+                escape: true,
+                ..KeyState::default()
+            },
+            ..with_strip(now + 48, ON_BUTTON)
+        };
+        assert_eq!(machine.step(&second), [Command::Close]);
     }
 
     #[test]

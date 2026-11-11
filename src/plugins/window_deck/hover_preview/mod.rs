@@ -183,6 +183,10 @@ impl HoverPreview {
             keys,
             strip,
             strip_focused,
+            // Only an Esc that reaches WindowDeck (it has the keyboard, or
+            // the keys follow the mouse into it) can be kept there.
+            strip_keeps_escape: (strip_focused || strip.is_some_and(|rect| contains(rect, cursor)))
+                && ui_bridge::arrange_keeps_escape(now),
             answer: self.take_answer(windows_of),
             win_number: super::win_digit::is_running(),
             win_digit_taken: super::win_digit::took_digit_this_press(),
