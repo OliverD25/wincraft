@@ -151,7 +151,7 @@ pub fn after_frame(
         ctx.request_repaint();
     }
     for cover in &shared.stacks.covers {
-        frame.floating = Some(frame.floating.map_or(*cover, |f| f.union(*cover)));
+        frame.covers.push(*cover);
     }
 }
 

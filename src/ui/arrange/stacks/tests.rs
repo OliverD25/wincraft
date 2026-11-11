@@ -325,3 +325,34 @@ fn the_flat_view_lists_a_stack_as_one_card_and_an_open_group_together() {
         }
     );
 }
+
+#[test]
+fn a_cover_hides_pictures_also_while_a_card_is_dragged() {
+    let picture = |x: f32| Pending {
+        hwnd: 7,
+        dest: Rect::from_min_size(pos2(x, 0.0), vec2(100.0, 60.0)),
+        clip: Rect::EVERYTHING,
+        opacity: 255,
+        clear: Rect::NOTHING,
+        ghost: false,
+    };
+    let tab = [Rect::from_min_size(pos2(0.0, -8.0), vec2(200.0, 10.0))];
+    let dragged_card = Some(Rect::from_min_size(pos2(500.0, 0.0), vec2(100.0, 60.0)));
+    let over = Over {
+        floating: dragged_card,
+        covers: &tab,
+    };
+    assert!(
+        is_covered(&picture(0.0), &over, Some(3)),
+        "under the header line"
+    );
+    assert!(!is_covered(&picture(250.0), &over, Some(3)));
+    assert!(
+        is_covered(&picture(520.0), &over, Some(3)),
+        "under the dragged card"
+    );
+    assert!(
+        !is_covered(&picture(520.0), &over, Some(7)),
+        "its own picture rides along"
+    );
+}

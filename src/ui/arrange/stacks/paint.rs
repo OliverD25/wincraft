@@ -333,7 +333,7 @@ fn open_tab(ctx: &egui::Context, shared: &Shared, frame: &mut Frame) {
 }
 
 fn cover(frame: &mut Frame, rect: Rect) {
-    frame.floating = Some(frame.floating.map_or(rect, |f| f.union(rect)));
+    frame.covers.push(rect);
 }
 
 /// After the cards are drawn: the open group's tab, the list under a

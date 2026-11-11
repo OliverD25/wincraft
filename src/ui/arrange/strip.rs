@@ -32,6 +32,9 @@ pub(super) struct Frame {
     pub(super) area: Rect,
     /// The dragged card when it follows the pointer above the others.
     pub(super) floating: Option<Rect>,
+    /// Other things drawn over the cards (a group's header line, a list,
+    /// a dialog): the pictures under each hide, whatever the drag does.
+    pub(super) covers: Vec<Rect>,
     pub(super) dragged: Option<isize>,
 }
 
@@ -47,6 +50,7 @@ impl Default for Frame {
             activate: None,
             area: Rect::NOTHING,
             floating: None,
+            covers: Vec::new(),
             dragged: None,
         }
     }
@@ -378,7 +382,11 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
     }
 
     stacks::after_frame(&ctx, shared, &group, &mut frame);
-    place_pictures(shared, &frame.pending, frame.floating, frame.dragged, ppp);
+    let over = Over {
+        floating: frame.floating,
+        covers: &frame.covers,
+    };
+    place_pictures(shared, &frame.pending, over, frame.dragged, ppp);
 
     let actions = std::mem::take(&mut frame.actions);
     for action in &actions {
