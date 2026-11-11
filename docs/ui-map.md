@@ -189,6 +189,12 @@ Opened by: right-click a stack card (a closed group), with **Group related windo
 - **Open the group** (`Enter`), **Rename the group** (`F2`), **Ungroup** (`Ctrl+G`).
 - **Close {n} windows…** (`Ctrl+W`, or a middle click on the stack): asks first.
 
+### WindowDeck open group
+Opened by: a click on a stack, its number, or **Open the group** (`Enter`).
+- Frame header: **{group} · 1 – {n} opens a window · Esc closes the group**.
+- Footer hints: **Window in the group** (`1 – 9`), **Close the group** (`Esc`), **Take out of the group** (`Ctrl + G`).
+- A click outside the frame closes the group; WindowDeck stays open.
+
 ### WindowDeck group dialogs
 - Name box for a new group: title **Group {n} windows**, buttons **Cancel** and **Make the group**. Enter makes it, Esc cancels.
 - After `F2` on a stack: **Rename the group**, buttons **Cancel** and **Rename**.
