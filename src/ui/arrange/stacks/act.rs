@@ -40,6 +40,11 @@ pub fn before_frame(
         ctx.request_repaint();
         return;
     }
+    if outside_click(ctx, shared, panel) {
+        close_group(shared);
+        ctx.request_repaint();
+        return;
+    }
     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::G)) {
         ctrl_g(shared, group);
         ctx.request_repaint();
@@ -110,6 +115,11 @@ pub fn after_frame(
         open_group(shared, hwnd);
         ctx.request_repaint();
     }
+    // A row of a stack's list switches to its window, even the one the
+    // stack shows, which a click on the stack itself would open.
+    if let Some(hwnd) = shared.stacks.list_chosen.take() {
+        frame.activate = Some(hwnd);
+    }
     let closing: Vec<isize> = frame
         .close
         .iter()
@@ -153,6 +163,33 @@ pub fn after_frame(
     for cover in &shared.stacks.covers {
         frame.covers.push(*cover);
     }
+}
+
+/// While a group is open and the mouse is outside its frame, a cover over
+/// the whole strip takes the mouse: a click there closes the group and
+/// does nothing else (the card under it does not open). True on that click.
+fn outside_click(ctx: &egui::Context, shared: &Shared, panel: Rect) -> bool {
+    if shared.stacks.open.is_none() {
+        return false;
+    }
+    let runs = open_runs(shared);
+    let Some(at) = ctx.input(|i| i.pointer.hover_pos()) else {
+        return false;
+    };
+    if !panel.contains(at) || !outside_open_group(at, &runs, shared.stacks.head) {
+        return false;
+    }
+    let id = egui::Id::new("deck-group-outside");
+    egui::Area::new(id)
+        .order(egui::Order::Foreground)
+        .fixed_pos(panel.min)
+        .movable(false)
+        .constrain(false)
+        .show(ctx, |ui| {
+            let response = ui.interact(panel, id.with("cover"), egui::Sense::click_and_drag());
+            response.clicked() || response.secondary_clicked() || response.middle_clicked()
+        })
+        .inner
 }
 
 fn pick(stacks: &mut Stacks, hwnd: isize, on: bool) {

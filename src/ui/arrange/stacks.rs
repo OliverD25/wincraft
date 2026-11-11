@@ -15,6 +15,7 @@ use crate::core::deck_groups::{self, DeckGroup};
 mod act;
 mod dialogs;
 mod fold;
+mod list;
 mod menu;
 mod paint;
 pub(super) use act::*;
@@ -92,6 +93,10 @@ pub(super) struct Stacks {
     /// The room the view leaves above each line of cards for an open
     /// group's header line; 0 where it leaves none (the Flat view).
     head: f32,
+    /// The stack's window list shown last frame.
+    list: Option<list::Shown>,
+    /// A row of that list was clicked: switch to this window.
+    list_chosen: Option<isize>,
 }
 
 /// The open group of the app on screen: its windows and the one used last.
@@ -120,6 +125,8 @@ impl Stacks {
             self.dialog = None;
             self.drop_on = None;
             self.asked.clear();
+            self.list = None;
+            self.list_chosen = None;
         }
         self.found.clear();
         self.fold_all(snapshot);

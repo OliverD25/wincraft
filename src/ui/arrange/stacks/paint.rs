@@ -15,9 +15,6 @@ const CHIP_HEIGHT: f32 = 16.0;
 /// Round an open group's cards.
 const FRAME_PAD: f32 = 6.0;
 pub const TAB_HEIGHT: f32 = 16.0;
-const LIST_WIDTH: f32 = 260.0;
-const LIST_ROW: f32 = 20.0;
-const LIST_PAD: f32 = 8.0;
 
 /// A card's picture height: shorter on a stack, to make room for its lines.
 pub fn thumb_height(stacks: &Stacks, hwnd: isize, full: f32) -> f32 {
@@ -284,6 +281,35 @@ pub fn tab_at(frame: Rect, head: f32) -> Pos2 {
     }
 }
 
+/// Where a click keeps an open group open: the frames round its runs of
+/// cards, with the header line across the top edge of a frame.
+pub fn open_zones(runs: &[Rect], head: f32) -> Vec<Rect> {
+    runs.iter()
+        .map(|run| {
+            let mut zone = frame_rect(*run, head);
+            if head <= 0.0 {
+                zone.min.y -= TAB_HEIGHT / 2.0;
+            }
+            zone
+        })
+        .collect()
+}
+
+/// A click at `at` is outside the open group: it closes the group and does
+/// nothing else.
+pub fn outside_open_group(at: Pos2, runs: &[Rect], head: f32) -> bool {
+    !runs.is_empty() && !open_zones(runs, head).iter().any(|zone| zone.contains(at))
+}
+
+/// The open group's runs of cards, from last frame's card places.
+pub fn open_runs(shared: &Shared) -> Vec<Rect> {
+    shared
+        .stacks
+        .open_stack()
+        .map(|stack| runs(&member_rects(shared, stack)))
+        .unwrap_or_default()
+}
+
 /// The frame round an open group, behind its cards: a light fill and a
 /// ring. Drawn from last frame's card places, before the cards.
 pub fn open_frame(painter: &egui::Painter, shared: &Shared) {
@@ -403,95 +429,10 @@ pub fn after_cards(
         cover(frame, rect);
     }
     if dragging || shared.stacks.dialog.is_some() {
+        shared.stacks.list = None;
         return;
     }
-    let shown = frame
-        .hovered
-        .filter(|hwnd| shared.stacks.closed(*hwnd).is_some())
-        .or(shared
-            .cursor
-            .filter(|hwnd| !shared.cursor_ghost && shared.stacks.closed(*hwnd).is_some()));
-    let Some(hwnd) = shown else {
-        return;
-    };
-    let (Some(stack), Some(card)) = (
-        shared.stacks.closed(hwnd).cloned(),
-        hit_rect(&shared.card_hits, hwnd),
-    ) else {
-        return;
-    };
-    let numbers = taskbar_numbers(group, desktops);
-    let number = group
-        .windows
-        .iter()
-        .position(|w| w.hwnd == hwnd)
-        .map_or(0, |at| numbers[at]);
-    let height = LIST_PAD * 2.0 + LIST_ROW * (stack.members.len() + 1) as f32;
-    let screen = ctx.content_rect();
-    let left = card
-        .left()
-        .min(screen.right() - LIST_WIDTH - 4.0)
-        .max(screen.left() + 4.0);
-    let top = if card.bottom() + 6.0 + height <= screen.bottom() {
-        card.bottom() + 6.0
-    } else {
-        (card.top() - 6.0 - height).max(screen.top())
-    };
-    let list = Rect::from_min_size(pos2(left, top), vec2(LIST_WIDTH, height));
-    let painter = ctx.layer_painter(egui::LayerId::new(
-        egui::Order::Foreground,
-        egui::Id::new("deck-stack-list"),
-    ));
-    painter.rect(
-        list,
-        6,
-        tokens.window_bg,
-        theme::line(ctx, tokens.border),
-        StrokeKind::Inside,
-    );
-    let row = |at: usize| {
-        Rect::from_min_size(
-            pos2(
-                list.left() + LIST_PAD,
-                list.top() + LIST_PAD + LIST_ROW * at as f32,
-            ),
-            vec2(LIST_WIDTH - 2.0 * LIST_PAD, LIST_ROW),
-        )
-    };
-    let header = format!("In {} \u{b7} press {number}, then a number", stack.name);
-    let one_line = |text: &str, colour: Color32, width: f32| {
-        let mut job = text::job(text, theme::regular(12.0), colour, None);
-        job.wrap = TextWrapping {
-            max_width: width,
-            max_rows: 1,
-            break_anywhere: true,
-            overflow_character: Some('\u{2026}'),
-        };
-        painter.layout_job(job)
-    };
-    let first = row(0);
-    let galley = one_line(&header, tokens.text_secondary, first.width());
-    painter.galley(
-        pos2(first.left(), first.center().y - galley.size().y / 2.0),
-        galley,
-        tokens.text_secondary,
-    );
-    for (at, window) in stack.members.iter().enumerate() {
-        let line = row(at + 1);
-        let chip = number_chip(&painter, line.min + vec2(0.0, 1.0), LIST_ROW - 2.0, at + 1);
-        let mut left = chip.right() + NUMBER_GAP;
-        if window.attention {
-            painter.circle_filled(pos2(left + 4.0, line.center().y), 4.0, tokens.warning);
-            left += 12.0;
-        }
-        let galley = one_line(&window.label, tokens.text_primary, line.right() - left);
-        painter.galley(
-            pos2(left, line.center().y - galley.size().y / 2.0),
-            galley,
-            tokens.text_primary,
-        );
-    }
-    cover(frame, list);
+    super::list::show(ctx, shared, group, desktops, frame);
 }
 
 /// The Flat view's part before its cards: it has no ghosts and no "Drop to
