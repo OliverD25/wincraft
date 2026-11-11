@@ -420,12 +420,7 @@ pub fn after_cards(
             theme::stroke(ctx, 2.0, tokens.accent),
             StrokeKind::Inside,
         );
-        let label = painter.layout_no_wrap(
-            "Drop to group".to_string(),
-            theme::semibold(12.0),
-            Color32::WHITE,
-        );
-        painter.galley(rect.min + vec2(8.0, 6.0), label, Color32::WHITE);
+        drop_badge(ctx, &tokens, rect);
         cover(frame, rect);
     }
     if dragging || shared.stacks.dialog.is_some() {
@@ -433,6 +428,34 @@ pub fn after_cards(
         return;
     }
     super::list::show(ctx, shared, group, desktops, frame);
+}
+
+/// The "Drop to group" badge: an accent pill on the stack's top edge. It is
+/// painted above the dragged card (which sits on the Tooltip layer), so the
+/// card under the mouse never hides it.
+fn drop_badge(ctx: &egui::Context, tokens: &Tokens, rect: Rect) {
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Debug,
+        egui::Id::new("deck-drop-to-group-badge"),
+    ));
+    let label = painter.layout_no_wrap(
+        "Drop to group".to_string(),
+        theme::semibold(14.0),
+        Color32::WHITE,
+    );
+    let size = label.size() + vec2(24.0, 12.0);
+    let screen = ctx.content_rect();
+    let top = (rect.min.y - size.y / 2.0).max(screen.min.y + 4.0);
+    let badge = Rect::from_min_size(pos2(rect.center().x - size.x / 2.0, top), size);
+    painter.rect_filled(badge, size.y / 2.0, tokens.accent);
+    painter.rect_stroke(
+        badge,
+        size.y / 2.0,
+        theme::stroke(ctx, 1.0, Color32::from_white_alpha(90)),
+        StrokeKind::Inside,
+    );
+    let at = badge.center() - label.size() / 2.0;
+    painter.galley(at, label, Color32::WHITE);
 }
 
 /// The Flat view's part before its cards: it has no ghosts and no "Drop to
