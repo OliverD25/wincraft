@@ -233,6 +233,36 @@ pub fn runs(rects: &[Rect]) -> Vec<Rect> {
     runs
 }
 
+/// Where the open group's windows were drawn last frame: a window with a
+/// ghost in the group's column counts by its ghost, not its own card.
+fn member_rects(shared: &Shared, stack: &Found) -> Vec<Rect> {
+    let ghost_at = |hwnd: isize| {
+        let group = shared.group()?;
+        shared
+            .items
+            .iter()
+            .find(|(item, _)| {
+                matches!(item, super::super::by_monitor::Item::Ghost(_))
+                    && group
+                        .windows
+                        .get(item.member())
+                        .is_some_and(|w| w.hwnd == hwnd)
+            })
+            .map(|(_, rect)| *rect)
+    };
+    stack
+        .members
+        .iter()
+        .filter_map(|w| {
+            if shared.stacks.is_ghosted(w.hwnd) {
+                ghost_at(w.hwnd)
+            } else {
+                hit_rect(&shared.card_hits, w.hwnd)
+            }
+        })
+        .collect()
+}
+
 /// The frame round an open group, behind its cards: a light fill and a
 /// ring. Drawn from last frame's card places, before the cards.
 pub fn open_frame(painter: &egui::Painter, shared: &Shared) {
@@ -240,11 +270,7 @@ pub fn open_frame(painter: &egui::Painter, shared: &Shared) {
         return;
     };
     let tokens = Tokens::get(painter.ctx());
-    let rects: Vec<Rect> = stack
-        .members
-        .iter()
-        .filter_map(|w| hit_rect(&shared.card_hits, w.hwnd))
-        .collect();
+    let rects = member_rects(shared, stack);
     for run in runs(&rects) {
         painter.rect(
             run.expand(FRAME_PAD),
@@ -261,11 +287,7 @@ fn open_tab(ctx: &egui::Context, shared: &Shared, frame: &mut Frame) {
     let Some(stack) = shared.stacks.open_stack() else {
         return;
     };
-    let rects: Vec<Rect> = stack
-        .members
-        .iter()
-        .filter_map(|w| hit_rect(&shared.card_hits, w.hwnd))
-        .collect();
+    let rects = member_rects(shared, stack);
     let Some(first) = runs(&rects).first().map(|run| run.expand(FRAME_PAD)) else {
         return;
     };
@@ -303,7 +325,11 @@ fn open_tab(ctx: &egui::Context, shared: &Shared, frame: &mut Frame) {
         galley,
         tokens.text_primary,
     );
-    cover(frame, tab);
+    // Only the part above the cards: a picture starts right at a ghost's
+    // top, and covering it would hide it.
+    let mut covered = tab;
+    covered.max.y = covered.max.y.min(first.top() + FRAME_PAD - 1.0);
+    cover(frame, covered);
 }
 
 fn cover(frame: &mut Frame, rect: Rect) {

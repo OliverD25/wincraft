@@ -26,6 +26,7 @@ mod columns;
 mod draw;
 mod draw_band;
 mod draw_card;
+mod group_ghosts;
 mod keys;
 mod moves;
 pub use bands::*;
@@ -140,7 +141,12 @@ pub(super) fn move_keys(
         only: shared.only_monitor,
         taskbars: shared.taskbars,
     };
-    let model = Model::new(group, snapshot, &widths, shown, scope);
+    let open = shared.stacks.open_members(group);
+    let (model, _) = Model::new(group, snapshot, &widths, shown, scope).with_open_group(
+        group,
+        &snapshot.monitors,
+        &open,
+    );
     shared.cursor_ghost = false;
     keyboard(
         ctx,

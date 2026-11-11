@@ -410,6 +410,7 @@ impl Shared {
                         only: self.only_monitor,
                         taskbars: self.taskbars,
                     },
+                    &self.stacks.open_members(group),
                 )
             }
             (Some(group), Some(snapshot)) => {

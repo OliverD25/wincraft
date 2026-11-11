@@ -52,7 +52,21 @@ pub fn body(
         only: shared.only_monitor,
         taskbars: shared.taskbars,
     };
-    let model = Model::new(group, snapshot, &widths, shown, scope);
+    let open = shared.stacks.open_members(group);
+    let (model, ghosted) = Model::new(group, snapshot, &widths, shown, scope).with_open_group(
+        group,
+        &snapshot.monitors,
+        &open,
+    );
+    shared.stacks.set_ghosted(ghosted);
+    // In an open group the keys are on a window's ghost, not on its dimmed
+    // card.
+    if shared
+        .cursor
+        .is_some_and(|hwnd| shared.stacks.is_ghosted(hwnd))
+    {
+        shared.cursor_ghost = true;
+    }
     let mut frame = Frame::default();
     let items = walk_items(&model.bands);
     let member_of = |hwnd: isize| group.windows.iter().position(|w| w.hwnd == hwnd);

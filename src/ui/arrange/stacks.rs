@@ -86,6 +86,16 @@ pub(super) struct Stacks {
     /// Shift and an arrow were pressed: the card the keys go to is picked
     /// too.
     pick_follow: bool,
+    /// The open group's windows that show as a ghost in the group's column
+    /// (By monitor view), as drawn last.
+    ghosted: Vec<isize>,
+}
+
+/// The open group of the app on screen: its windows and the one used last.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OpenMembers {
+    pub hwnds: Vec<isize>,
+    pub rep: Option<isize>,
 }
 
 /// When each window was last used, from the z-order: 0 is the latest.
@@ -176,6 +186,36 @@ impl Stacks {
         self.found
             .iter()
             .find(|stack| stack.members.iter().any(|w| w.hwnd == hwnd))
+    }
+
+    /// The open group of `group`'s app, if one is open.
+    pub fn open_members(&self, group: &ArrangeGroup) -> OpenMembers {
+        match self.open_stack().filter(|stack| stack.app == group.key) {
+            Some(stack) => OpenMembers {
+                hwnds: stack.hwnds(),
+                rep: Some(stack.rep),
+            },
+            None => OpenMembers::default(),
+        }
+    }
+
+    pub fn set_ghosted(&mut self, ghosted: Vec<isize>) {
+        self.ghosted = ghosted;
+    }
+
+    /// The window shows as a ghost inside the open group; its own card
+    /// dims and gives its number to the ghost.
+    pub fn is_ghosted(&self, hwnd: isize) -> bool {
+        self.open.is_some() && self.ghosted.contains(&hwnd)
+    }
+
+    /// How much of a window's own card shows.
+    pub fn dim_card(&self, hwnd: isize) -> f32 {
+        if self.is_ghosted(hwnd) {
+            DIMMED
+        } else {
+            self.dim(hwnd)
+        }
     }
 
     /// How much of a card shows: the cards outside an open group dim.

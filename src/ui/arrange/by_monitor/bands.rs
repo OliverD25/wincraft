@@ -398,8 +398,13 @@ pub fn panel_for(
     link: bool,
     limit: Vec2,
     scope: Scope,
+    open: &super::super::stacks::OpenMembers,
 ) -> Vec2 {
-    let model = Model::new(group, snapshot, widths, shown, scope);
+    let (model, _) = Model::new(group, snapshot, widths, shown, scope).with_open_group(
+        group,
+        &snapshot.monitors,
+        open,
+    );
     panel_size(
         &model.bands,
         &model.cols,

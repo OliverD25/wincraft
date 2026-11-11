@@ -16,7 +16,7 @@ impl Draw<'_> {
         let rect = shared.slid((window.hwnd, false), rect);
         let waiting = shared.waiting_note(window.hwnd);
         let (scale, fade) = shared.motion(window.hwnd);
-        let alpha = alpha * fade * shared.stacks.dim(window.hwnd);
+        let alpha = alpha * fade * shared.stacks.dim_card(window.hwnd);
         let response = ui.interact(
             rect,
             egui::Id::new(("arrange-card", window.hwnd)),
@@ -109,12 +109,13 @@ impl Draw<'_> {
 
         let title_top = thumb.bottom() + TITLE_GAP;
         let right = rect.right() - CARD_PAD - 2.0;
-        let number = number_chip(
-            &painter,
-            pos2(rect.left() + CARD_PAD + 2.0, title_top),
-            TITLE,
-            self.numbers[member],
-        );
+        let at = pos2(rect.left() + CARD_PAD + 2.0, title_top);
+        // A window with a ghost in the open group has its number there.
+        let number = if shared.stacks.is_ghosted(window.hwnd) {
+            Rect::from_min_size(at, vec2(0.0, TITLE))
+        } else {
+            number_chip(&painter, at, TITLE, self.numbers[member])
+        };
         stacks::member_chip(
             &painter,
             &shared.stacks,
