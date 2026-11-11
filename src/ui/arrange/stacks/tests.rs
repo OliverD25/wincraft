@@ -478,3 +478,87 @@ fn a_click_on_a_row_of_the_stacks_list_chooses_that_window() {
     assert!(shared.stacks.list.is_some(), "the list stays open");
     assert_eq!(shared.stacks.list_chosen, Some(members[1]));
 }
+
+/// Draws the open group's layer for `frames`, one list of events each, and
+/// gives back what the last frame asked for.
+fn run_layer(
+    shared: &mut Shared,
+    data: &ArrangeSnapshot,
+    frames: Vec<Vec<egui::Event>>,
+) -> Option<isize> {
+    let ctx = egui::Context::default();
+    crate::ui::theme::install_fonts(&ctx);
+    let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(1200.0, 600.0));
+    let mut activate = None;
+    for events in frames {
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            events,
+            ..Default::default()
+        };
+        let mut frame = Frame::default();
+        let mut output = ctx.run_ui(input, |ui| {
+            overlay::show(
+                ui.ctx(),
+                shared,
+                &data.groups[0],
+                &data.desktops,
+                &mut frame,
+            );
+        });
+        output.textures_delta.clear();
+        activate = frame.activate.or(activate);
+    }
+    activate
+}
+
+fn click_at(at: Pos2) -> Vec<Vec<egui::Event>> {
+    let button = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    vec![
+        vec![egui::Event::PointerMoved(at)],
+        vec![egui::Event::PointerMoved(at)],
+        vec![button(true)],
+        vec![button(false)],
+    ]
+}
+
+// The user asked that an open group moves nothing and its windows can be
+// picked on the layer, in both styles (0.20.97).
+#[test]
+fn a_click_on_the_open_groups_layer_switches_to_that_window() {
+    for fan in [false, true] {
+        let bridge = crate::core::ui_bridge::create();
+        let arrange = crate::ui::arrange::Arrange::new(bridge.to_host.clone(), 0);
+        let mut shared = arrange.shared.lock().expect("the strip's state");
+        let mut data = snapshot();
+        data.group_fan = fan;
+        shared.stacks.arrive(&mut data, true);
+        shared.snapshot = Some(data.clone());
+        let rep = shared.stacks.found[0].rep;
+        let card = Rect::from_min_size(pos2(400.0, 100.0), vec2(162.0, 124.0));
+        shared.card_hits = vec![(rep, card)];
+        super::act::open_group(&mut shared, rep);
+        let stack = shared.stacks.open_stack().cloned().expect("an open group");
+        let style = if fan {
+            overlay::Style::Fan
+        } else {
+            overlay::Style::Row
+        };
+        let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(1200.0, 600.0));
+        let placed = overlay::place(card, stack.members.len(), card.size(), screen, style);
+        // The last window: in a fan its strip shows on the right.
+        let last = stack.members.len() - 1;
+        let at = pos2(
+            placed.cards[last].right() - 10.0,
+            placed.cards[last].center().y,
+        );
+        let activate = run_layer(&mut shared, &data, click_at(at));
+        assert_eq!(activate, Some(stack.members[last].hwnd), "fan: {fan}");
+        assert_eq!(shared.stacks.layer, Some(placed.panel), "fan: {fan}");
+    }
+}
