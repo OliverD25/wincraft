@@ -7,10 +7,11 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ### 7. Release and test WindowDeck groups with the fixes
 
-- **State:** Ready to test. Release v0.20.93 is built and published
-  (2026-11-11, with wincraft.exe and SHA256SUMS.txt). It has the groups and
-  the fixes for Esc, the click outside, the clickable stack list and
-  whole-word names.
+- **State:** Wait: 0.20.95 is being checked and released. Steps 1-5
+  passed on 0.20.93 (2026-11-11). Step 6 showed "Drop to group" hidden
+  under the dragged card; 0.20.95 makes it an orange badge on the stack's
+  top edge, above the dragged card. Go on from step 6 after updating to
+  0.20.95 (step 2 again).
 - **Fixes to look at after the release:** step 7: `Esc` closes only the
   open group, WindowDeck stays; a click outside the group frame closes the
   group, WindowDeck stays. Step 5: move the mouse from the stack down into
