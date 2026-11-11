@@ -54,7 +54,7 @@ impl Filter {
     pub fn matches(self, card: &Card, now: u64) -> bool {
         match self {
             Filter::Waiting => card.status == Some(Status::Waiting),
-            Filter::Working => card.status == Some(Status::Working),
+            Filter::Working => matches!(card.status, Some(Status::Working | Status::Background)),
             Filter::Idle => card.status == Some(Status::Idle),
             Filter::Cold => {
                 card.status == Some(Status::Idle) && age(card, now).is_some_and(Age::is_cold)
@@ -81,8 +81,17 @@ pub fn counts<'a>(cards: impl Iterator<Item = &'a Card>, now: u64) -> [usize; 4]
     counts
 }
 
-/// The chip's words: "Waiting 4 min", "Working 40 s", "Idle". None for a
-/// card without a status.
+/// "1 job" or "2 jobs".
+pub fn jobs_text(jobs: usize) -> String {
+    if jobs == 1 {
+        "1 job".to_string()
+    } else {
+        format!("{jobs} jobs")
+    }
+}
+
+/// The chip's words: "Waiting 4 min", "Working 40 s", "Background 3 min
+/// and 1 job", "Idle". None for a card without a status.
 pub fn chip_text(card: &Card, now: u64) -> Option<String> {
     let status = card.status?;
     let lasted = card
@@ -93,6 +102,10 @@ pub fn chip_text(card: &Card, now: u64) -> Option<String> {
         (Status::Waiting, None) => "Waiting".to_string(),
         (Status::Working, Some(time)) => format!("Working {time}"),
         (Status::Working, None) => "Working".to_string(),
+        (Status::Background, Some(time)) => {
+            format!("Background {time} \u{b7} {}", jobs_text(card.jobs))
+        }
+        (Status::Background, None) => format!("Background \u{b7} {}", jobs_text(card.jobs)),
         (Status::Idle, _) => "Idle".to_string(),
     })
 }

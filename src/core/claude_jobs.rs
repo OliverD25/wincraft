@@ -1,0 +1,272 @@
+//! Background jobs of a Claude Code chat, for Custom WindowDeck's
+//! "Background" status. The session file does not list them, but the chat's
+//! transcript does: `%USERPROFILE%\.claude\projects\<folder>\<cliSessionId>.jsonl`.
+//! A job starts with a tool result that holds `"backgroundTaskId":"<id>"`
+//! (a background command) or `"status":"async_launched"` with
+//! `"agentId":"<id>"` (a background subagent). It ends with a task notice
+//! (`<task-id><id></task-id>` and a `<status>`), or when the chat stops it
+//! with the `TaskStop` tool.
+//!
+//! The transcript can be 20 MB or more, so it is read once and then only
+//! what was appended (Principle 5). Text is searched, not parsed as JSON,
+//! so a line of an unknown shape means "no job", never a wrong status.
+
+use std::collections::HashMap;
+use std::io::{Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+/// A job that started this long ago and never ended is ignored: the app may
+/// have been closed while it ran, and then no end notice is ever written.
+pub const MAX_JOB_AGE_MS: u64 = 3 * 60 * 60 * 1000;
+
+/// How far after a `<task-id>` its `<status>` may be, in bytes.
+const STATUS_REACH: usize = 400;
+
+/// What was read of one transcript: how far, and which jobs are open.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Scan {
+    /// Bytes of the file already read.
+    offset: u64,
+    /// The unfinished last line, kept for the next read.
+    partial: Vec<u8>,
+    /// Open jobs: id and start time in Unix milliseconds.
+    open: HashMap<String, u64>,
+}
+
+impl Scan {
+    /// Reads bytes appended to the transcript. `seen_ms` is the start time
+    /// of a job whose line has no `"timestamp"`.
+    pub fn feed(&mut self, bytes: &[u8], seen_ms: u64) {
+        self.offset += bytes.len() as u64;
+        self.partial.extend_from_slice(bytes);
+        let mut start = 0;
+        while let Some(end) = self.partial[start..].iter().position(|b| *b == b'\n') {
+            let line = String::from_utf8_lossy(&self.partial[start..start + end]).into_owned();
+            self.line(&line, seen_ms);
+            start += end + 1;
+        }
+        self.partial.drain(..start);
+    }
+
+    /// Forgets everything, for a file that got shorter.
+    pub fn reset(&mut self) {
+        *self = Scan::default();
+    }
+
+    pub fn offset(&self) -> u64 {
+        self.offset
+    }
+
+    fn line(&mut self, line: &str, seen_ms: u64) {
+        let started = line.contains("backgroundTaskId") || line.contains("async_launched");
+        let ended = line.contains("<task-id>") || line.contains("TaskStop");
+        if !started && !ended {
+            return;
+        }
+        // A result may hold its JSON as an escaped string.
+        let text = line.replace("\\\"", "\"");
+        let at = timestamp_ms(&text).unwrap_or(seen_ms);
+        if started {
+            for id in values_after(&text, "\"backgroundTaskId\":\"") {
+                self.open.entry(id).or_insert(at);
+            }
+            if text.contains("\"status\":\"async_launched\"") {
+                for id in values_after(&text, "\"agentId\":\"") {
+                    self.open.entry(id).or_insert(at);
+                }
+            }
+        }
+        if text.contains("\"name\":\"TaskStop\"") {
+            for id in values_after(&text, "\"task_id\":\"") {
+                self.open.remove(&id);
+            }
+        }
+        let mut rest = text.as_str();
+        while let Some(found) = rest.find("<task-id>") {
+            rest = &rest[found + "<task-id>".len()..];
+            let Some(close) = rest.find("</task-id>") else {
+                break;
+            };
+            let id = &rest[..close];
+            let after = &rest[close..];
+            let mut reach = after.len().min(STATUS_REACH);
+            while !after.is_char_boundary(reach) {
+                reach -= 1;
+            }
+            let window = &after[..reach];
+            let window = window
+                .find("<task-id>")
+                .map_or(window, |next| &window[..next]);
+            if window.contains("<status>") && is_id(id) {
+                self.open.remove(id);
+            }
+        }
+    }
+
+    /// The jobs still running at `now`: how many, and the start of the
+    /// oldest. Jobs older than `MAX_JOB_AGE_MS` are ignored.
+    pub fn running(&self, now: u64) -> (usize, Option<u64>) {
+        self.open
+            .values()
+            .filter(|start| now.saturating_sub(**start) < MAX_JOB_AGE_MS)
+            .fold((0, None::<u64>), |(count, oldest), start| {
+                (count + 1, Some(oldest.map_or(*start, |o| o.min(*start))))
+            })
+    }
+}
+
+fn is_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// The ids written right after `key` (which ends with an opening quote).
+fn values_after(text: &str, key: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut rest = text;
+    while let Some(at) = rest.find(key) {
+        rest = &rest[at + key.len()..];
+        let end = rest.find('"').unwrap_or(rest.len());
+        let id = &rest[..end];
+        if is_id(id) {
+            found.push(id.to_string());
+        }
+    }
+    found
+}
+
+/// The line's `"timestamp":"2026-11-11T08:30:00.123Z"` as Unix ms.
+fn timestamp_ms(text: &str) -> Option<u64> {
+    let key = "\"timestamp\":\"";
+    let at = text.find(key)? + key.len();
+    let stamp = text.get(at..at + 19)?;
+    let num = |from: usize, to: usize| -> Option<i64> { stamp.get(from..to)?.parse().ok() };
+    let (year, month, day) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
+    let (hour, minute, second) = (num(11, 13)?, num(14, 16)?, num(17, 19)?);
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    let millis = text
+        .get(at + 19..)
+        .and_then(|s| s.strip_prefix('.'))
+        .and_then(|s| s.get(..3))
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0);
+    // Days since 1970-01-01 (the civil-date algorithm).
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let secs = days * 86_400 + hour * 3600 + minute * 60 + second;
+    u64::try_from(secs * 1000 + millis).ok()
+}
+
+/// A transcript found on disk, with what was read of it.
+#[derive(Default)]
+struct Entry {
+    path: Option<PathBuf>,
+    scan: Scan,
+}
+
+static CACHE: Mutex<Option<HashMap<String, Entry>>> = Mutex::new(None);
+static WANTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Names the chats whose windows are shown now (their `cliSessionId`s);
+/// only these are read at the next `refresh`.
+pub fn want(ids: Vec<String>) {
+    if let Ok(mut wanted) = WANTED.lock() {
+        *wanted = ids;
+    }
+}
+
+fn projects_folder() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE").map(|home| PathBuf::from(home).join(".claude").join("projects"))
+}
+
+/// `<projects>\*\<cli_session_id>.jsonl`; the folder name can change, so
+/// every folder is looked in.
+fn find_transcript(projects: &Path, cli_session_id: &str) -> Option<PathBuf> {
+    let name = format!("{cli_session_id}.jsonl");
+    std::fs::read_dir(projects)
+        .ok()?
+        .flatten()
+        .map(|folder| folder.path().join(&name))
+        .find(|path| path.is_file())
+}
+
+/// Reads what was appended to the transcript of each wanted chat, and
+/// forgets the chats not wanted. Runs on the session reader's thread. A
+/// missing transcript means no jobs.
+pub fn refresh(now: u64) {
+    let ids = WANTED
+        .lock()
+        .map(|wanted| wanted.clone())
+        .unwrap_or_default();
+    let Some(projects) = projects_folder() else {
+        return;
+    };
+    let mut entries = CACHE
+        .lock()
+        .ok()
+        .and_then(|mut cache| cache.take())
+        .unwrap_or_default();
+    entries.retain(|id, _| ids.contains(id));
+    for id in ids.iter().filter(|id| !id.is_empty()) {
+        let entry = entries.entry(id.clone()).or_default();
+        if entry.path.as_ref().is_none_or(|path| !path.is_file()) {
+            entry.path = find_transcript(&projects, id);
+            entry.scan.reset();
+        }
+        let Some(path) = entry.path.clone() else {
+            continue;
+        };
+        if let Err(err) = read_new(&path, &mut entry.scan, now) {
+            log::debug!("Custom WindowDeck: could not read a chat transcript: {err}");
+        }
+    }
+    if let Ok(mut cache) = CACHE.lock() {
+        *cache = Some(entries);
+    }
+}
+
+fn read_new(path: &Path, scan: &mut Scan, now: u64) -> std::io::Result<()> {
+    let mut file = std::fs::File::open(path)?;
+    let len = file.metadata()?.len();
+    if len < scan.offset() {
+        scan.reset();
+    }
+    if len == scan.offset() {
+        return Ok(());
+    }
+    let from = scan.offset();
+    file.seek(SeekFrom::Start(from))?;
+    let mut bytes = Vec::new();
+    file.take(len - from).read_to_end(&mut bytes)?;
+    scan.feed(&bytes, now);
+    Ok(())
+}
+
+/// The running jobs of the chat with this `cliSessionId`, as read last:
+/// how many, and the start of the oldest.
+pub fn running(cli_session_id: &str, now: u64) -> (usize, Option<u64>) {
+    CACHE
+        .lock()
+        .ok()
+        .and_then(|cache| {
+            cache
+                .as_ref()
+                .and_then(|entries| entries.get(cli_session_id))
+                .map(|entry| entry.scan.running(now))
+        })
+        .unwrap_or((0, None))
+}
+
+#[cfg(test)]
+mod tests;

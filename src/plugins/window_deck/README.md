@@ -503,6 +503,10 @@ WinCraft never sorts or moves them by status.
     something. The time is how long it has waited.
   - "Working 2 min" (blue, with a turning ring): Claude works on your last
     message. The time is how long this turn has run.
+  - "Background 3 min · 1 job" (blue, with a still, empty ring): the turn
+    ended, but a background job of the chat still runs (a background
+    command or a background subagent). The time is how long the oldest job
+    has run. It is never orange, because nothing waits for you.
   - "Idle" (grey): the turn ended and nothing waits for you.
 - **The age**, at the end of the title line: the time since the chat's last
   activity. Under 1 hour the picture looks as always; from 1 hour it fades
@@ -511,12 +515,13 @@ WinCraft never sorts or moves them by status.
   is only shown: WinCraft never closes, archives or moves it.
 - **The counters** in the toolbar: Waiting, Working, Idle and Cold (idle for
   1 day or more). Click one, or press `S`, and its cards stay bright while
-  the others dim. `S` steps Waiting, Working, Idle, Cold, then none. While a
+  the others dim. Background chats count under Working and light with it.
+  `S` steps Waiting, Working, Idle, Cold, then none. While a
   status is lit the arrow keys move only between the lit cards. `Esc` clears
   the light first, then closes WindowDeck as before.
 - **The Board** (`B`, or the Board button): a panel over the deck that
   lists the same chats in four columns: Waiting for you (longest wait
-  first), Working (longest run first), Idle (under 1 day, newest first) and
+  first), Working (longest run first, then the Background chats), Idle (under 1 day, newest first) and
   Cold (1 day or more, oldest first). Arrows move, `Enter` opens the chat,
   `Esc` goes back to the deck exactly as it was.
 
@@ -524,8 +529,11 @@ The waiting mark comes from the Claude Code hook that runs
 `wincraft.exe --waiting`. Working, idle and the age come from the Claude
 app's own session files (`%APPDATA%\Claude\claude-code-sessions`), which
 WinCraft only reads, a few seconds apart and only while WindowDeck is open.
-Nothing leaves your PC. If a Claude update changes those files, the cards
-simply show no status.
+The background jobs come from the chat's own transcript
+(`%USERPROFILE%\.claude\projects`), read only for the chats WindowDeck
+shows, and only what was added since the last look. A job with no end
+after 3 hours is ignored. Nothing leaves your PC. If a Claude update
+changes those files, the cards simply show no status.
 
 ## Hotkeys
 

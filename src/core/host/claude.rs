@@ -5,6 +5,7 @@
 //! was read last, so opening WindowDeck never waits for the disk.
 
 use super::*;
+use crate::core::claude_jobs;
 use crate::core::claude_sessions::{self, ShownWindow};
 use crate::core::ui_bridge::ArrangeWindow;
 use crate::core::{claude_waits, windows_list};
@@ -47,6 +48,8 @@ pub(super) fn fill_claude_cards(groups: &mut [ArrangeGroup]) {
         })
         .collect();
     let by_size = claude_sessions::match_by_size(&shown, &sessions, &popouts);
+    let now = claude_sessions::now_ms();
+    let mut wanted: Vec<String> = Vec::new();
     ATTENTION.with(|attention| {
         let attention = attention.borrow();
         for (window, seen) in windows.iter_mut().zip(&shown) {
@@ -57,7 +60,14 @@ pub(super) fn fill_claude_cards(groups: &mut [ArrangeGroup]) {
             let waiting = attention
                 .waiting_since(window.hwnd)
                 .map(claude_sessions::instant_ms);
-            window.claude = Some(claude_sessions::card(session, waiting));
+            let jobs = session.map_or((0, None), |s| {
+                if !s.cli_session_id.is_empty() && !wanted.contains(&s.cli_session_id) {
+                    wanted.push(s.cli_session_id.clone());
+                }
+                claude_jobs::running(&s.cli_session_id, now)
+            });
+            window.claude = Some(claude_sessions::card(session, waiting, jobs));
         }
     });
+    claude_jobs::want(wanted);
 }

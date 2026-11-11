@@ -6,7 +6,7 @@ use super::*;
 pub(in crate::ui::arrange) fn status_colour(tokens: &Tokens, status: Status) -> Color32 {
     match status {
         Status::Waiting => tokens.warning,
-        Status::Working => tokens.info,
+        Status::Working | Status::Background => tokens.info,
         Status::Idle => tokens.text_secondary,
     }
 }
@@ -55,6 +55,13 @@ pub(in crate::ui::arrange) fn paint_chip(
                 0.0
             };
             ring_mark(painter, mark_rect, colour, turn);
+        }
+        Status::Background => {
+            painter.circle_stroke(
+                mark_rect.center(),
+                MARK_SIZE / 2.0 - 2.0,
+                egui::Stroke::new(2.0, colour),
+            );
         }
         Status::Waiting => {
             painter.circle_filled(mark_rect.center(), 4.0, colour);

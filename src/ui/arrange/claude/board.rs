@@ -29,9 +29,15 @@ pub(in crate::ui::arrange) fn columns(
         time,
     };
     let lasted = |card: &Card| {
-        card.since
+        let time = card
+            .since
             .map(|since| claude_sessions::duration_text(now.saturating_sub(since)))
-            .unwrap_or_default()
+            .unwrap_or_default();
+        if card.status == Some(Status::Background) {
+            format!("{time} \u{b7} {}", jobs_text(card.jobs))
+        } else {
+            time
+        }
     };
     let aged = |card: &Card| {
         card.last_activity
@@ -53,7 +59,10 @@ pub(in crate::ui::arrange) fn columns(
     let since = |card: &Card| i128::from(card.since.unwrap_or(u64::MAX));
     let activity = |card: &Card| i128::from(card.last_activity.unwrap_or(0));
     let waiting = sorted(Filter::Waiting, &since);
-    let working = sorted(Filter::Working, &since);
+    let mut working = sorted(Filter::Working, &since);
+    // Stable: Background rows follow the real Working rows, each kept in
+    // its own order.
+    working.sort_by_key(|(_, _, _, card)| card.status == Some(Status::Background));
     let idle = sorted(Filter::Idle, &|card| -activity(card));
     let cold = sorted(Filter::Cold, &activity);
     [
