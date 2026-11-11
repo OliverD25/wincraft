@@ -219,3 +219,13 @@ Version 16 of the artifact, copied byte for byte. A closed stack now names
 its other windows: up to two lines under the group name, without the start
 they share with it, ending in "+N more"; and a numbered list under the stack
 while it is selected or under the mouse (user's choice "A + D"). New frame 1b.
+
+## 2026-11-11 (evening): Window Deck Group Opens In Place, options
+
+Version 21 of the artifact, copied byte for byte. A new page for the user's
+ask "nothing should jump": today an open group pushes the cards after it
+right, wraps the last cards onto a second line and grows the window. Three
+options, all drawn on the 11-card Centre row from the user's 0.20.96
+screenshot: A cover to the right (window 1 on the stack's place, slides left
+at the column end; recommended), B centred on the stack, C a fan on the
+stack's place. A "Rules for every option" list. Not picked yet.
