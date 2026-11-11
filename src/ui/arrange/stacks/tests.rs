@@ -162,6 +162,7 @@ fn snapshot() -> ArrangeSnapshot {
         keeps_order: false,
         anchor: None,
         claude_animate: false,
+        group_fan: false,
     }
 }
 

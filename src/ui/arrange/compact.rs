@@ -1034,6 +1034,7 @@ mod tests {
             view: crate::core::ui_bridge::ArrangeView::ByMonitor,
             anchor: None,
             claude_animate: false,
+            group_fan: false,
         };
         let layout = Layout::new(&group, &snapshot, &[true; 2]);
         assert!(layout.more());
@@ -1081,6 +1082,7 @@ mod tests {
             view: crate::core::ui_bridge::ArrangeView::ByMonitor,
             anchor: None,
             claude_animate: false,
+            group_fan: false,
         };
         let layout = Layout::new(&group, &snapshot, &[true; 4]);
         assert_eq!(layout.here, [0]);

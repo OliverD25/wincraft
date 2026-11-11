@@ -832,6 +832,7 @@ fn a_limited_strip_has_one_column_with_only_that_monitors_windows() {
         view: crate::core::ui_bridge::ArrangeView::ByMonitor,
         anchor: None,
         claude_animate: false,
+        group_fan: false,
     };
     let widths = [179.0; 5];
     let all = Model::new(
@@ -1317,6 +1318,7 @@ fn spread() -> (ArrangeGroup, ArrangeSnapshot) {
         view: crate::core::ui_bridge::ArrangeView::ByMonitor,
         anchor: None,
         claude_animate: false,
+        group_fan: false,
     };
     (group, snapshot)
 }

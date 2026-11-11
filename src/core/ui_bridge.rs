@@ -342,6 +342,8 @@ pub struct ArrangeSnapshot {
     /// Custom WindowDeck's "Animate the Claude cards": the working ring
     /// turns. It ignores the Windows animation setting on purpose.
     pub claude_animate: bool,
+    /// WindowDeck's "Open a group as" is "A fan".
+    pub group_fan: bool,
 }
 
 static ARRANGE_WINDOW: AtomicIsize = AtomicIsize::new(0);
