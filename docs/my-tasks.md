@@ -7,7 +7,7 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ### 7. Release and test WindowDeck groups with the fixes
 
-- **State:** Wait: 0.20.95 is being checked and released. Steps 1-5
+- **State:** Ready to test (0.20.95 released 2026-11-11). Steps 1-5
   passed on 0.20.93 (2026-11-11). Step 6 showed "Drop to group" hidden
   under the dragged card; 0.20.95 makes it an orange badge on the stack's
   top edge, above the dragged card. Go on from step 6 after updating to
