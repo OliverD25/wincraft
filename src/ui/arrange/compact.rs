@@ -390,12 +390,11 @@ pub fn body(
     );
     let top = content.top() + layout.cards_top(open);
 
-    let numbers = shared
-        .stacks
-        .numbers(group, taskbar_numbers(group, &snapshot.desktops));
+    let numbers = taskbar_numbers(group, &snapshot.desktops);
     let card_height = layout.card_height();
     let mut x = content.left();
     let mut cards_area = Rect::NOTHING;
+    let mut hits: Vec<(isize, Rect)> = Vec::new();
     if open {
         label(ui, pos2(x, top - LABEL), "This desktop", tokens.accent);
     }
@@ -409,6 +408,7 @@ pub fn body(
             let rect = Rect::from_min_size(pos2(*x, top), vec2(CARD_WIDTH, card_height));
             *x += CARD_WIDTH + GAP;
             cards_area = cards_area.union(rect);
+            hits.push((group.windows[*member].hwnd, rect));
             let picked = selected == Some(*member);
             card(
                 ui,
@@ -455,6 +455,10 @@ pub fn body(
         }
     }
     frame.area = cards_area;
+    // An open group shows on its layer, anchored on its card, as in the
+    // full strip.
+    shared.card_hits = hits;
+    stacks::show_open_group(&ctx, shared, group, &snapshot.desktops, &mut frame);
 
     if !menu_open && shared.rename.is_none() {
         keys(&ctx, shared, popup, &layout, &order, picker_id, &mut frame);
@@ -627,6 +631,7 @@ fn card(
             opacity: (255.0 * opacity).round() as u8,
             clear: painted.clear,
             ghost: false,
+            layer: false,
         });
     }
     if painted.editing {

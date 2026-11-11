@@ -1,10 +1,11 @@
 //! WindowDeck's groups of related windows in the strip ("Group related
 //! windows", on by default). A closed group is one stack card with one
-//! number; its number, Enter or a click opens it in place, where its
-//! windows are numbered 1, 2, 3 and the other cards dim. The groups
+//! number; its number, Enter or a click opens it in place: its windows show
+//! on a layer above the row, numbered 1, 2, 3, and the cards under it dim.
+//! Nothing in the row moves while a group is open. The groups
 //! themselves live in `core::deck_groups` and are saved by WindowDeck.
 //!
-//! The strip keeps its data folded: each closed group's windows are one
+//! The strip keeps its data folded: each group's windows are one
 //! card (`fold`), so every view, number and key treats a group as one
 //! window. The rest of the strip calls in here at a few points: when data
 //! arrives, to draw a card's marks, and before and after each frame.
@@ -17,10 +18,12 @@ mod dialogs;
 mod fold;
 mod list;
 mod menu;
+mod overlay;
 mod paint;
 pub(super) use act::*;
 pub(super) use fold::{Found, Kind};
 pub(super) use menu::*;
+pub(super) use overlay::show as show_open_group;
 pub(super) use paint::*;
 
 /// The other cards while a group is open.
@@ -87,23 +90,17 @@ pub(super) struct Stacks {
     /// Shift and an arrow were pressed: the card the keys go to is picked
     /// too.
     pick_follow: bool,
-    /// The open group's windows that show as a ghost in the group's column
-    /// (By monitor view), as drawn last.
-    ghosted: Vec<isize>,
-    /// The room the view leaves above each line of cards for an open
-    /// group's header line; 0 where it leaves none (the Flat view).
-    head: f32,
+    /// The open group's selected window, as a place among its windows.
+    front: usize,
+    /// Where the open group's layer was drawn last frame: a click outside
+    /// it closes the group.
+    layer: Option<Rect>,
+    /// Ctrl+W on a window of the open group: it closes after the frame.
+    close_member: Option<isize>,
     /// The stack's window list shown last frame.
     list: Option<list::Shown>,
     /// A row of that list was clicked: switch to this window.
     list_chosen: Option<isize>,
-}
-
-/// The open group of the app on screen: its windows and the one used last.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct OpenMembers {
-    pub hwnds: Vec<isize>,
-    pub rep: Option<isize>,
 }
 
 /// When each window was last used, from the z-order: 0 is the latest.
@@ -127,6 +124,9 @@ impl Stacks {
             self.asked.clear();
             self.list = None;
             self.list_chosen = None;
+            self.front = 0;
+            self.layer = None;
+            self.close_member = None;
         }
         self.found.clear();
         self.fold_all(snapshot);
@@ -191,6 +191,23 @@ impl Stacks {
         self.found.iter().find(|stack| stack.kind == Kind::Open)
     }
 
+    /// The stack (closed, or open on its layer) whose card is `hwnd`: it
+    /// looks like a stack in the row either way.
+    pub fn card_stack(&self, hwnd: isize) -> Option<&Found> {
+        self.found
+            .iter()
+            .find(|stack| stack.kind.is_card() && stack.rep == hwnd)
+    }
+
+    /// The open group's selected window: the one in front, that Enter opens.
+    pub fn front(&self) -> Option<isize> {
+        let stack = self.open_stack()?;
+        stack
+            .members
+            .get(self.front.min(stack.members.len().saturating_sub(1)))
+            .map(|w| w.hwnd)
+    }
+
     /// The group (closed, open or lone) that `hwnd` belongs to.
     fn stack_of(&self, hwnd: isize) -> Option<&Found> {
         self.found
@@ -198,73 +215,25 @@ impl Stacks {
             .find(|stack| stack.members.iter().any(|w| w.hwnd == hwnd))
     }
 
-    /// The open group of `group`'s app, if one is open.
-    pub fn open_members(&self, group: &ArrangeGroup) -> OpenMembers {
-        match self.open_stack().filter(|stack| stack.app == group.key) {
-            Some(stack) => OpenMembers {
-                hwnds: stack.hwnds(),
-                rep: Some(stack.rep),
-            },
-            None => OpenMembers::default(),
-        }
-    }
-
-    pub fn set_ghosted(&mut self, ghosted: Vec<isize>, head: f32) {
-        self.ghosted = ghosted;
-        self.head = head;
-    }
-
-    /// The window shows as a ghost inside the open group; its own card
-    /// dims and gives its number to the ghost.
-    pub fn is_ghosted(&self, hwnd: isize) -> bool {
-        self.open.is_some() && self.ghosted.contains(&hwnd)
-    }
-
-    /// How much of a window's own card shows.
-    pub fn dim_card(&self, hwnd: isize) -> f32 {
-        if self.is_ghosted(hwnd) {
+    /// How much of a card shows: every card in the row dims while a group
+    /// is open on its layer.
+    pub fn dim(&self) -> f32 {
+        if self.open_stack().is_some() {
             DIMMED
         } else {
-            self.dim(hwnd)
+            1.0
         }
-    }
-
-    /// How much of a card shows: the cards outside an open group dim.
-    pub fn dim(&self, hwnd: isize) -> f32 {
-        match self.open_stack() {
-            Some(stack) if !stack.members.iter().any(|w| w.hwnd == hwnd) => DIMMED,
-            _ => 1.0,
-        }
-    }
-
-    /// The cards' numbers: an open group's windows are 1, 2, 3.
-    pub fn numbers(&self, group: &ArrangeGroup, mut numbers: Vec<usize>) -> Vec<usize> {
-        if let Some(stack) = self.open_stack().filter(|stack| stack.app == group.key) {
-            let mut next = 1;
-            for (place, window) in group.windows.iter().enumerate() {
-                if stack.members.iter().any(|w| w.hwnd == window.hwnd) {
-                    numbers[place] = next;
-                    next += 1;
-                }
-            }
-        }
-        numbers
     }
 
     /// The window a typed number opens while a group is open: Some(None)
     /// when the number is none of its windows, None when no group is open.
     pub fn digit(&self, group: &ArrangeGroup, number: usize) -> Option<Option<isize>> {
         let stack = self.open_stack().filter(|stack| stack.app == group.key)?;
-        let members: Vec<isize> = group
-            .windows
-            .iter()
-            .map(|w| w.hwnd)
-            .filter(|hwnd| stack.members.iter().any(|w| w.hwnd == *hwnd))
-            .collect();
         Some(
             number
                 .checked_sub(1)
-                .and_then(|at| members.get(at).copied()),
+                .and_then(|at| stack.members.get(at))
+                .map(|w| w.hwnd),
         )
     }
 

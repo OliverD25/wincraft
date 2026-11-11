@@ -69,7 +69,11 @@ pub(super) struct Over<'a> {
 
 /// Whether a picture hides this frame: under the dragged card (except the
 /// dragged window's own picture, which rides with it) or under any cover.
+/// A picture on the open group's layer is above them all.
 pub(super) fn is_covered(item: &Pending, over: &Over<'_>, dragged: Option<isize>) -> bool {
+    if item.layer {
+        return false;
+    }
     let under_drag = over.floating.is_some_and(|rect| {
         (item.ghost || Some(item.hwnd) != dragged) && rect.intersects(item.dest)
     });
