@@ -191,7 +191,67 @@ pub fn shared_start(names: &[&str]) -> String {
             .map_or(0, |(at, _)| at);
         &first[..back]
     };
-    start.trim_end_matches(is_separator).to_string()
+    keep_brackets_whole(start)
+}
+
+const BRACKETS: [(char, char); 3] = [('(', ')'), ('[', ']'), ('{', '}')];
+
+/// `start` without the separators at its end, but never with half a
+/// bracket: "Rust (fork) -" is "Rust (fork)", and "Rust (fork" is "Rust".
+fn keep_brackets_whole(start: &str) -> String {
+    let trimmed = start.trim_end_matches(is_separator);
+    let Some(open) = unclosed(trimmed) else {
+        return trimmed.to_string();
+    };
+    let close = BRACKETS.iter().find(|(o, _)| *o == open.1).map(|b| b.1);
+    let rest = &start[trimmed.len()..];
+    if rest.starts_with(|c| Some(c) == close) {
+        let with = &start[..trimmed.len() + rest.chars().next().map_or(0, char::len_utf8)];
+        if unclosed(with).is_none() {
+            return with.to_string();
+        }
+    }
+    keep_brackets_whole(&trimmed[..open.0])
+}
+
+/// The last bracket in `text` that opens and is not closed, with its place.
+fn unclosed(text: &str) -> Option<(usize, char)> {
+    let mut open: Vec<(usize, char)> = Vec::new();
+    for (at, c) in text.char_indices() {
+        if BRACKETS.iter().any(|(o, _)| *o == c) {
+            open.push((at, c));
+        } else if let Some((o, _)) = BRACKETS.iter().find(|(_, cl)| *cl == c) {
+            if open.last().is_some_and(|(_, last)| last == o) {
+                open.pop();
+            }
+        }
+    }
+    open.pop()
+}
+
+/// The rest of a name after the shared start, without the separators at its
+/// front. A bracket that holds the whole first word loses both its halves:
+/// "(fork) - Design" is "fork - Design", never "fork) - Design".
+fn after_start(rest: &str) -> String {
+    let rest =
+        rest.trim_start_matches(|c| is_separator(c) && !BRACKETS.iter().any(|(o, _)| *o == c));
+    let Some(open) = rest.chars().next() else {
+        return String::new();
+    };
+    let Some(&(_, close)) = BRACKETS.iter().find(|(o, _)| *o == open) else {
+        return rest.to_string();
+    };
+    let inner = &rest[open.len_utf8()..];
+    match inner.find(close) {
+        Some(end)
+            if end > 0
+                && !inner[..end].contains(char::is_whitespace)
+                && !inner[..end].contains(open) =>
+        {
+            format!("{}{}", &inner[..end], &inner[end + close.len_utf8()..])
+        }
+        _ => rest.to_string(),
+    }
 }
 
 /// A window's name without the start it shares with the group's name:
@@ -199,11 +259,11 @@ pub fn shared_start(names: &[&str]) -> String {
 /// nothing would be left.
 pub fn short_name(label: &str, group: &str) -> String {
     let start = shared_start(&[label, group]);
-    let rest = label[start.len()..].trim_start_matches(is_separator);
-    if start.is_empty() || rest.is_empty() {
+    let rest = after_start(&label[start.len()..]);
+    if start.is_empty() || rest.trim().is_empty() {
         label.to_string()
     } else {
-        rest.to_string()
+        rest
     }
 }
 

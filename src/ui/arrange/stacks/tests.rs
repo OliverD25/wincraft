@@ -358,3 +358,70 @@ fn a_cover_hides_pictures_also_while_a_card_is_dragged() {
         "its own picture rides along"
     );
 }
+
+// The user asked that a click outside an open group's frame closes the
+// group and keeps WindowDeck open (0.20.91).
+#[test]
+fn a_click_outside_the_open_groups_frame_closes_it() {
+    let run = Rect::from_min_size(pos2(100.0, 100.0), vec2(300.0, 120.0));
+    // The Flat view: no room above the line; the header crosses the edge.
+    assert!(
+        !paint::outside_open_group(pos2(200.0, 150.0), &[run], 0.0),
+        "a card"
+    );
+    assert!(
+        !paint::outside_open_group(pos2(97.0, 97.0), &[run], 0.0),
+        "the frame"
+    );
+    assert!(
+        !paint::outside_open_group(pos2(120.0, 100.0 - 6.0 - 7.0), &[run], 0.0),
+        "the header line"
+    );
+    assert!(paint::outside_open_group(pos2(50.0, 150.0), &[run], 0.0));
+    assert!(paint::outside_open_group(pos2(200.0, 240.0), &[run], 0.0));
+    // By monitor: the frame reaches up into the room for the header.
+    assert!(!paint::outside_open_group(pos2(120.0, 80.0), &[run], 24.0));
+    assert!(paint::outside_open_group(pos2(120.0, 70.0), &[run], 24.0));
+    // Two runs: inside either counts; no group, nothing is outside.
+    let second = run.translate(vec2(0.0, 300.0));
+    assert!(!paint::outside_open_group(
+        pos2(200.0, 450.0),
+        &[run, second],
+        0.0
+    ));
+    assert!(!paint::outside_open_group(pos2(0.0, 0.0), &[], 0.0));
+}
+
+// The user asked that the stack's list stays open while the mouse moves
+// into it, so its rows can be clicked (0.20.91).
+#[test]
+fn the_stacks_list_stays_open_on_the_way_into_it() {
+    let card = Rect::from_min_size(pos2(100.0, 100.0), vec2(200.0, 150.0));
+    let list = Rect::from_min_size(pos2(100.0, 256.0), vec2(260.0, 90.0));
+    let keeps = list::keep_area(card, list);
+    let shown = list::Shown {
+        hwnd: 7,
+        keeps: keeps.clone(),
+        cursor: Some(3),
+    };
+    let held = |at: Pos2| list::which(Some(&shown), Some(at), Some(3), None, None);
+    assert_eq!(held(pos2(150.0, 200.0)), Some(7), "on the stack");
+    assert_eq!(held(pos2(150.0, 253.0)), Some(7), "in the gap");
+    assert_eq!(held(pos2(330.0, 300.0)), Some(7), "on a row");
+    assert_eq!(held(pos2(330.0, 253.0)), None, "beside the gap");
+    assert_eq!(held(pos2(500.0, 500.0)), None, "the mouse left both");
+    assert_eq!(
+        list::which(Some(&shown), Some(pos2(150.0, 300.0)), Some(4), None, None),
+        None,
+        "the selection moved on"
+    );
+    assert_eq!(
+        list::which(None, Some(pos2(150.0, 200.0)), Some(3), Some(9), Some(3)),
+        Some(9),
+        "a stack under the mouse before the selected one"
+    );
+    assert_eq!(list::which(None, None, Some(3), None, Some(3)), Some(3));
+    // A list drawn above its card keeps the gap above the card.
+    let above = list::keep_area(card, list.translate(vec2(0.0, -250.0)));
+    assert!(above[2].contains(pos2(150.0, 98.0)));
+}
