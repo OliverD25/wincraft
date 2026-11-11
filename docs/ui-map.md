@@ -191,7 +191,8 @@ Opened by: right-click a stack card (a closed group), with **Group related windo
 
 ### WindowDeck open group
 Opened by: a click on a stack, its number, or **Open the group** (`Enter`).
-- Frame header: **{group} · 1 – {n} opens a window · Esc closes the group**.
+- It opens on a layer over the row, on the stack's place; no card moves. The setting **Open a group as** picks a row centred on the stack or a fan.
+- Frame header: **{group} · 1 – {n} opens a window · Esc closes the group** (row), or **{group} · 1 – {n} or ← → · Esc closes** (fan).
 - Footer hints: **Window in the group** (`1 – 9`), **Close the group** (`Esc`), **Take out of the group** (`Ctrl + G`).
 - A click outside the frame closes the group; WindowDeck stays open.
 
