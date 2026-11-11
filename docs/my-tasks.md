@@ -17,7 +17,9 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 2. Click the title "Wincraft Windows Utilities Design" at the top left. The page list opens.
 3. Click "Window Deck Claude Status". You should see four frames: "At rest",
    "Counter Waiting pressed", "Board (B)" and "What the marks mean".
-4. Tell the agent "approve", or say what to change. Also answer the two open
+4. Click the four style buttons at the top ("Classic (default)", "Quest board",
+   "Chat pets", "Arcade") and pick the fun style or styles to keep.
+5. Tell the agent "approve" with your picks, or say what to change. Also answer the two open
    points at the end of the page: is the Claude view on by default, and does
    Flat view show the chips too.
 

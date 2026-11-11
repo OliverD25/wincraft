@@ -181,3 +181,13 @@ cold after 1 day, frozen after 3 days), toolbar counters that light up cards
 in place (key S), a separate Board view (key B), and a small score for
 today. The user's rule: cards are never sorted by status. Waiting for the
 user's approval; no code yet.
+
+## 2026-11-11 — Window Deck Claude Status, four styles (artifact version 18)
+
+`Window Deck Claude Status.dc.html` (161,888 bytes, changed). The user asked
+for the card look to be a setting: Classic (the first proposal, default) and
+three fun styles to study: Quest board (quest tags, a draining wait bar, chat
+levels, daily XP), Chat pets (a small face per chat whose mood shows the
+status) and Arcade (glowing clocks, combo, a scoreboard). A switch at the top
+of the page changes the style; the setting "Claude card style" sits in
+Settings › WindowDeck. Waiting for the user's choice; no code yet.
