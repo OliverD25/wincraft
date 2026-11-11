@@ -104,7 +104,7 @@ Opened by: Settings → **Plugins** → click the plugin's tile.
 ### Fields of each plugin's Settings section
 - LayoutKeeper: **Programs**, **Never touch**, **Restore on start**, **Wait for windows (seconds)**, **Wait for apps to open (minutes)**, **Save every (seconds)**, **Restore which window is in front**, **Restore monitors**, **Show restore progress**, **Offer to put windows back after an app restarts**. Also **Open state file** (a file button).
 - ScreenDimmer: **Darkness**, **Darkness under the pointer**.
-- WindowDeck: **Preview window on hover**, **Show key hints**, **Show the toolbar on other monitors**, **Show WindowDeck instead of Windows' taskbar preview**, **Hover delay (seconds)**, **Open WindowDeck with Win+1…9**.
+- WindowDeck: **Preview window on hover**, **Show key hints**, **Show the toolbar on other monitors**, **Show WindowDeck instead of Windows' taskbar preview**, **Hover delay (seconds)**, **Open WindowDeck with Win+1…9**. Under the heading **Custom WindowDeck**: **Claude card style** (**Classic** or **Off**) and **Animate the Claude cards**.
 - QuickJump: **Open Quick access in the middle of the screen**, **Point to a window on another monitor**.
 - WindowNamer: **Keep names after restart**, **Title shows**.
 - ShortcutManager: **Show free combinations**.
@@ -168,6 +168,12 @@ Opened by: the hotkey `Win+Alt+A` and then a taskbar number, or Tray menu → **
 - **Hide hints**: `Ctrl+H`; hides the key hints (**Show key hints** in the plugin settings brings them back).
 - **Mark all as seen**: `Ctrl+M`; clears the orange marks. **Undo**: `Ctrl+Z`, for a few seconds after.
 - **No windows on this desktop**.
+
+### Custom WindowDeck: the Claude desktop app's cards
+Shown when WindowDeck is on the Claude desktop app and **Claude card style** is **Classic** (the default). Other apps look as before.
+- Each Claude card: a status chip in the top left corner of the picture (**Waiting** with the wait time, **Working** with the run time and a turning ring, or **Idle**), and the chat's age at the end of the title line ("now", "12 min", "5 h", "2 days"; a snowflake from 3 days).
+- Toolbar, after **By monitor** and **Flat**: the counters **Waiting**, **Working**, **Idle**, **Cold**. A click on one, or `S`, lights up its cards in place and dims the others; `S` steps Waiting → Working → Idle → Cold → none. While one is lit the arrows move only between lit cards, and the toolbar says "Showing: Waiting · S next · Esc clears" (with the lit status). `Esc` clears it.
+- **Board** button (`B`): opens **Claude board** over the deck, with the columns **Waiting for you**, **Working**, **Idle** and **Cold**. Arrows move between rows and columns, `Enter` or a click opens the chat, `Esc` goes back to the deck as it was.
 
 ### WindowDeck card, right-click menu
 Opened by: right-click a window card in the strip.
