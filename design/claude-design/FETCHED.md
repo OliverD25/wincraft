@@ -191,3 +191,13 @@ levels, daily XP), Chat pets (a small face per chat whose mood shows the
 status) and Arcade (glowing clocks, combo, a scoreboard). A switch at the top
 of the page changes the style; the setting "Claude card style" sits in
 Settings › WindowDeck. Waiting for the user's choice; no code yet.
+
+## 2026-11-11 — Window Deck Claude Status: crabs in, Arcade out (artifact version 19)
+
+`Window Deck Claude Status.dc.html` (188269 bytes, changed). The user kept
+Classic, Quest board and Chat pets, dropped Arcade, and asked for animated
+Claude crabs. Each crab takes its status colour, not Claude's orange, so
+orange still means only "wants you". Classic now shows even when the design
+viewer drops the default selection of the style switch. The page always
+animates the crabs; the legend notes that in the app they stand still when
+Windows animations are off.
