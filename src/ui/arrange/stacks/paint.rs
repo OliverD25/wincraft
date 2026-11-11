@@ -14,7 +14,7 @@ const EDGE_STEP: f32 = 4.0;
 const CHIP_HEIGHT: f32 = 16.0;
 /// Round an open group's cards.
 const FRAME_PAD: f32 = 6.0;
-const TAB_HEIGHT: f32 = 16.0;
+pub const TAB_HEIGHT: f32 = 16.0;
 const LIST_WIDTH: f32 = 260.0;
 const LIST_ROW: f32 = 20.0;
 const LIST_PAD: f32 = 8.0;
@@ -263,6 +263,27 @@ fn member_rects(shared: &Shared, stack: &Found) -> Vec<Rect> {
         .collect()
 }
 
+/// The frame round a run of an open group's cards. With `head` (the room
+/// the By monitor view leaves above each line while a group is open) the
+/// frame reaches up into that room, so the header line sits inside it.
+pub fn frame_rect(run: Rect, head: f32) -> Rect {
+    let mut frame = run.expand(FRAME_PAD);
+    if head > 0.0 {
+        frame.min.y = run.top() - head - 2.0;
+    }
+    frame
+}
+
+/// Where the header line goes on `frame`: inside its top padding when
+/// there is room for it, else across its top edge.
+pub fn tab_at(frame: Rect, head: f32) -> Pos2 {
+    if head > 0.0 {
+        pos2(frame.left() + 8.0, frame.top() + 2.0)
+    } else {
+        pos2(frame.left() + 8.0, frame.top() - TAB_HEIGHT / 2.0)
+    }
+}
+
 /// The frame round an open group, behind its cards: a light fill and a
 /// ring. Drawn from last frame's card places, before the cards.
 pub fn open_frame(painter: &egui::Painter, shared: &Shared) {
@@ -273,7 +294,7 @@ pub fn open_frame(painter: &egui::Painter, shared: &Shared) {
     let rects = member_rects(shared, stack);
     for run in runs(&rects) {
         painter.rect(
-            run.expand(FRAME_PAD),
+            frame_rect(run, shared.stacks.head),
             8,
             theme::with_alpha(tokens.text_primary, 0.05),
             theme::line(painter.ctx(), theme::with_alpha(tokens.text_primary, 0.35)),
@@ -288,9 +309,10 @@ fn open_tab(ctx: &egui::Context, shared: &Shared, frame: &mut Frame) {
         return;
     };
     let rects = member_rects(shared, stack);
-    let Some(first) = runs(&rects).first().map(|run| run.expand(FRAME_PAD)) else {
+    let Some(run) = runs(&rects).first().copied() else {
         return;
     };
+    let first = frame_rect(run, shared.stacks.head);
     let tokens = Tokens::get(ctx);
     let painter = ctx.layer_painter(egui::LayerId::new(
         egui::Order::Middle,
@@ -310,7 +332,7 @@ fn open_tab(ctx: &egui::Context, shared: &Shared, frame: &mut Frame) {
     };
     let galley = painter.layout_job(job);
     let tab = Rect::from_min_size(
-        pos2(first.left() + 8.0, first.top() - TAB_HEIGHT / 2.0),
+        tab_at(first, shared.stacks.head),
         vec2(galley.size().x + 12.0, TAB_HEIGHT),
     );
     painter.rect(
@@ -328,7 +350,7 @@ fn open_tab(ctx: &egui::Context, shared: &Shared, frame: &mut Frame) {
     // Only the part above the cards: a picture starts right at a ghost's
     // top, and covering it would hide it.
     let mut covered = tab;
-    covered.max.y = covered.max.y.min(first.top() + FRAME_PAD - 1.0);
+    covered.max.y = covered.max.y.min(run.top() - 1.0);
     cover(frame, covered);
 }
 
@@ -476,6 +498,7 @@ pub fn after_cards(
 /// group", and the open group's frame goes behind the cards.
 pub fn before_flat_cards(ui: &Ui, shared: &mut Shared, area: Rect) {
     shared.stacks.ghosted.clear();
+    shared.stacks.head = 0.0;
     shared.stacks.drop_on = None;
     open_frame(&ui.painter().with_clip_rect(area), shared);
 }

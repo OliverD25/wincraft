@@ -89,6 +89,9 @@ pub(super) struct Stacks {
     /// The open group's windows that show as a ghost in the group's column
     /// (By monitor view), as drawn last.
     ghosted: Vec<isize>,
+    /// The room the view leaves above each line of cards for an open
+    /// group's header line; 0 where it leaves none (the Flat view).
+    head: f32,
 }
 
 /// The open group of the app on screen: its windows and the one used last.
@@ -199,8 +202,9 @@ impl Stacks {
         }
     }
 
-    pub fn set_ghosted(&mut self, ghosted: Vec<isize>) {
+    pub fn set_ghosted(&mut self, ghosted: Vec<isize>, head: f32) {
         self.ghosted = ghosted;
+        self.head = head;
     }
 
     /// The window shows as a ghost inside the open group; its own card

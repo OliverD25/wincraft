@@ -27,6 +27,7 @@ mod draw;
 mod draw_band;
 mod draw_card;
 mod group_ghosts;
+use group_ghosts::{led_height, led_places, GROUP_LEAD};
 mod keys;
 mod moves;
 pub use bands::*;

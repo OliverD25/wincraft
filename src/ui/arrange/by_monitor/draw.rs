@@ -58,7 +58,12 @@ pub fn body(
         &snapshot.monitors,
         &open,
     );
-    shared.stacks.set_ghosted(ghosted);
+    let head = if model.bands.first().is_some_and(|band| band.lead > 0.0) {
+        GROUP_LEAD
+    } else {
+        0.0
+    };
+    shared.stacks.set_ghosted(ghosted, head);
     // In an open group the keys are on a window's ghost, not on its dimmed
     // card.
     if shared

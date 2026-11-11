@@ -312,7 +312,7 @@ fn the_flat_view_lists_a_stack_as_one_card_and_an_open_group_together() {
     let numbers = stacks.numbers(group, taskbar_numbers(group, &data.desktops));
     assert_eq!(numbers, [1, 1, 2, 3, 5]);
     // The Flat view has no ghosts: every window keeps its own card.
-    stacks.set_ghosted(vec![5]);
+    stacks.set_ghosted(vec![5], 0.0);
     assert_eq!(stacks.dim_card(5), DIMMED);
     stacks.ghosted.clear();
     assert_eq!(stacks.dim_card(5), 1.0);

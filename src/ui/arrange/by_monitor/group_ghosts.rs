@@ -76,6 +76,39 @@ pub fn add_group_ghosts(
     ghosted
 }
 
+/// The room above each line of cards while a group is open: the group's
+/// header line and a little air.
+pub const GROUP_LEAD: f32 = 20.0;
+
+/// A cell's height with `lead` above each of its lines. An empty cell (its
+/// drop box) has no lines.
+pub(super) fn led_height(height: f32, lead: f32) -> f32 {
+    if height == EMPTY {
+        return height;
+    }
+    let lines = ((height + CARD_GAP) / (CARD_HEIGHT + CARD_GAP)).round();
+    height + lines * lead
+}
+
+/// A cell's places, from `top`, each line moved down by `lead` more than
+/// the line above.
+pub(super) fn led_places(
+    placed: Vec<(Option<Item>, Rect)>,
+    top: f32,
+    lead: f32,
+) -> Vec<(Option<Item>, Rect)> {
+    if lead == 0.0 {
+        return placed;
+    }
+    placed
+        .into_iter()
+        .map(|(item, rect)| {
+            let line = ((rect.top() - top) / (CARD_HEIGHT + CARD_GAP)).round();
+            (item, rect.translate(vec2(0.0, (line + 1.0) * lead)))
+        })
+        .collect()
+}
+
 impl Model {
     /// The model with the open group's ghosts, and the windows that got
     /// one (as handles).
@@ -87,6 +120,9 @@ impl Model {
     ) -> (Self, Vec<isize>) {
         if open.hwnds.is_empty() {
             return (self, Vec::new());
+        }
+        for band in self.bands.iter_mut().chain(self.all.iter_mut()) {
+            band.lead = GROUP_LEAD;
         }
         let place = |hwnd: &isize| group.windows.iter().position(|w| w.hwnd == *hwnd);
         let members: Vec<usize> = open.hwnds.iter().filter_map(place).collect();
