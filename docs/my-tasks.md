@@ -5,6 +5,24 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ## Open
 
+### 6. Review the design "Window Deck Claude Status" and approve it or ask for changes
+
+- **State:** Ready to do. The page is published in the WinCraft design artifact (version 17).
+- **Kind:** decision · **Added:** 2026-11-11 (PC, branch of worktree optimistic-benz-67acd6)
+- **Why:** the Claude status view for WindowDeck is built only after you approve the design.
+
+**Steps**
+
+1. Open https://claude.ai/artifact/S5fEimN5sS6oqHgwJVRxPn in your browser.
+2. Click the title "Wincraft Windows Utilities Design" at the top left. The page list opens.
+3. Click "Window Deck Claude Status". You should see four frames: "At rest",
+   "Counter Waiting pressed", "Board (B)" and "What the marks mean".
+4. Tell the agent "approve", or say what to change. Also answer the two open
+   points at the end of the page: is the Claude view on by default, and does
+   Flat view show the chips too.
+
+**Done when:** you approved the page, or the agent has your list of changes.
+
 ## Done
 
 - **1. Install 0.20.90 and test the drop gap and the "waiting for you" marks**: done 2026-11-10. The user confirmed step 3 ("1.3 is passed") and steps 5-6 ("Orange, cleared after").
