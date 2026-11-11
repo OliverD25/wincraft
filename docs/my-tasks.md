@@ -5,10 +5,19 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ## Open
 
-### 7. Install 0.20.91 and test WindowDeck groups
+### 7. Release and test WindowDeck groups with the fixes
 
-- **State:** Ready to test. v0.20.91 released 2026-11-11 (build passed,
-  wincraft.exe and SHA256SUMS.txt published).
+- **State:** Wait: the fixes for Esc, the click outside, the clickable
+  stack list and whole-word names are merged to main (c82050d, 2026-11-11,
+  away mode) but not released. Away mode releases only when you ask. Tell
+  the agent "release"; it builds 0.20.93 and says "Ready to test:" when the
+  release is live. Then do the steps below (they work on 0.20.93 too).
+- **Fixes to look at after the release:** step 7: `Esc` closes only the
+  open group, WindowDeck stays; a click outside the group frame closes the
+  group, WindowDeck stays. Step 5: move the mouse from the stack down into
+  its list; the list stays open, a row lights up under the mouse, and a
+  click on a row brings that window to the front. Names under a stack keep
+  whole words ("fork - Design Session", not "fork) - Design Session").
 - **Kind:** test · **Added:** 2026-11-11 (PC, branch claude/gracious-panini-4299ca)
 - **Why:** these parts need a real mouse and the Ctrl key, which the coder's
   test copy could not use: picking cards, Ctrl+G, dropping a card onto a
