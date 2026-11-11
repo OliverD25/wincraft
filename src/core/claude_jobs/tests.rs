@@ -149,3 +149,9 @@ fn a_job_older_than_three_hours_is_ignored() {
         "the border job at exactly 3 hours is out, one ms younger is in"
     );
 }
+
+#[test]
+fn a_quoted_start_after_the_end_does_not_reopen_the_job() {
+    let text = start("b1") + &end("b1", "completed") + &start("b1");
+    assert_eq!(scan(&text).running(NOW), (0, None));
+}

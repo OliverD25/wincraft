@@ -11,7 +11,7 @@
 //! what was appended (Principle 5). Text is searched, not parsed as JSON,
 //! so a line of an unknown shape means "no job", never a wrong status.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -32,6 +32,9 @@ pub struct Scan {
     partial: Vec<u8>,
     /// Open jobs: id and start time in Unix milliseconds.
     open: HashMap<String, u64>,
+    /// Jobs that ended. A later line that only quotes such an id (a grep
+    /// result, a log) must not open it again.
+    ended: HashSet<String>,
 }
 
 impl Scan {
@@ -69,17 +72,17 @@ impl Scan {
         let at = timestamp_ms(&text).unwrap_or(seen_ms);
         if started {
             for id in values_after(&text, "\"backgroundTaskId\":\"") {
-                self.open.entry(id).or_insert(at);
+                self.start(id, at);
             }
             if text.contains("\"status\":\"async_launched\"") {
                 for id in values_after(&text, "\"agentId\":\"") {
-                    self.open.entry(id).or_insert(at);
+                    self.start(id, at);
                 }
             }
         }
         if text.contains("\"name\":\"TaskStop\"") {
             for id in values_after(&text, "\"task_id\":\"") {
-                self.open.remove(&id);
+                self.end(&id);
             }
         }
         let mut rest = text.as_str();
@@ -99,9 +102,20 @@ impl Scan {
                 .find("<task-id>")
                 .map_or(window, |next| &window[..next]);
             if window.contains("<status>") && is_id(id) {
-                self.open.remove(id);
+                self.end(id);
             }
         }
+    }
+
+    fn start(&mut self, id: String, at: u64) {
+        if !self.ended.contains(&id) {
+            self.open.entry(id).or_insert(at);
+        }
+    }
+
+    fn end(&mut self, id: &str) {
+        self.open.remove(id);
+        self.ended.insert(id.to_string());
     }
 
     /// The jobs still running at `now`: how many, and the start of the
