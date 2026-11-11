@@ -122,9 +122,19 @@ fn from_file(file: SessionFile) -> Session {
     }
 }
 
-/// The popped-out windows: (session id, the window's title). Empty for
-/// text of another shape.
-pub fn parse_popouts(text: &str) -> Vec<(String, String)> {
+/// A popped-out chat window, as `session-popouts.json` lists it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Popout {
+    pub session_id: String,
+    /// The title the window had when it opened; may be empty.
+    pub title: String,
+    /// The window's saved size in pixels; 0 when not known.
+    pub width: i32,
+    pub height: i32,
+}
+
+/// The popped-out windows. Empty for text of another shape.
+pub fn parse_popouts(text: &str) -> Vec<Popout> {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
         return Vec::new();
     };
@@ -134,9 +144,22 @@ pub fn parse_popouts(text: &str) -> Vec<(String, String)> {
         .map(|list| {
             list.iter()
                 .filter_map(|popout| {
-                    let id = popout.get("sessionId")?.as_str()?;
-                    let title = popout.get("title")?.as_str()?.trim();
-                    (!title.is_empty()).then(|| (id.to_string(), title.to_string()))
+                    let id = popout.get("sessionId")?.as_str()?.trim();
+                    let title = popout.get("title").and_then(|t| t.as_str()).unwrap_or("");
+                    let size = |key: &str| {
+                        popout
+                            .get("bounds")
+                            .and_then(|b| b.get(key))
+                            .and_then(|v| v.as_f64())
+                            .filter(|v| v.is_finite() && *v > 0.0)
+                            .map_or(0, |v| v.round() as i32)
+                    };
+                    (!id.is_empty()).then(|| Popout {
+                        session_id: id.to_string(),
+                        title: title.trim().to_string(),
+                        width: size("width"),
+                        height: size("height"),
+                    })
                 })
                 .collect()
         })
@@ -227,7 +250,7 @@ pub fn shows(session: &Session, extra: &[&str], window_title: &str) -> bool {
 /// match.
 pub fn find<'a>(
     sessions: &'a [Session],
-    popouts: &[(String, String)],
+    popouts: &[Popout],
     window_title: &str,
 ) -> Option<&'a Session> {
     let wanted = window_title.trim();
@@ -237,8 +260,8 @@ pub fn find<'a>(
         .filter_map(|session| {
             let extra: Vec<&str> = popouts
                 .iter()
-                .filter(|(id, _)| !id.is_empty() && *id == session.id)
-                .map(|(_, title)| title.as_str())
+                .filter(|p| !p.title.is_empty() && p.session_id == session.id)
+                .map(|p| p.title.as_str())
                 .collect();
             shows(session, &extra, wanted).then(|| {
                 let current = session.title == wanted || extra.contains(&wanted);
@@ -247,6 +270,97 @@ pub fn find<'a>(
         })
         .max_by_key(|(session, current)| (*current, session.last_activity.unwrap_or(0)))
         .map(|(session, _)| session)
+}
+
+/// How far a window's size may be from a popout's saved size and still be
+/// that popout: 3 %, as the attention hook allows.
+pub const SIZE_SLACK: f64 = 0.03;
+
+/// A Claude window as `match_by_size` sees it: its handle, title, size in
+/// physical pixels, and its monitor's scale (1.5 at 150 %).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShownWindow {
+    pub hwnd: isize,
+    pub title: String,
+    pub width: i32,
+    pub height: i32,
+    pub scale: f64,
+}
+
+/// How far a window is from a popout's saved size, as a share of it. The
+/// saved size is in scaled pixels (2576 x 1408 for a window of 3864 x 2112
+/// at 150 %).
+fn size_off(window: &ShownWindow, popout: &Popout) -> f64 {
+    let scale = if window.scale > 0.0 {
+        window.scale
+    } else {
+        1.0
+    };
+    let want_w = f64::from(popout.width) * scale;
+    let want_h = f64::from(popout.height) * scale;
+    let off_w = (f64::from(window.width) - want_w).abs() / want_w;
+    let off_h = (f64::from(window.height) - want_h).abs() / want_h;
+    off_w.max(off_h)
+}
+
+/// Popped-out windows whose title is in no session file (seen: "Verdict
+/// AI" for a session titled "VerdictAI - UA Legal AI platform"), matched
+/// by size as the attention hook does it: for each popout that no window
+/// shows by title, the windows a session or a popout claims by title are
+/// set aside (and the main window, titled "Claude"), and of the rest the
+/// ones within `SIZE_SLACK` of the popout's saved size are candidates.
+///
+/// Unlike the hook, which knows which session it looks for, a guess here
+/// could give a card a wrong status, so a match counts only when it is
+/// sure: the popout has exactly one candidate window, and that window is a
+/// candidate of no other popout. Several maximized windows of the same size
+/// therefore match nothing. Returns (window, the popout's session id).
+pub fn match_by_size(
+    windows: &[ShownWindow],
+    sessions: &[Session],
+    popouts: &[Popout],
+) -> Vec<(isize, String)> {
+    let mut claimed: Vec<&str> = vec!["Claude"];
+    claimed.extend(popouts.iter().map(|p| p.title.as_str()));
+    let free: Vec<&ShownWindow> = windows
+        .iter()
+        .filter(|w| !claimed.contains(&w.title.trim()))
+        .filter(|w| find(sessions, popouts, &w.title).is_none())
+        .collect();
+    let candidates: Vec<(&Popout, Vec<isize>)> = popouts
+        .iter()
+        .filter(|p| p.width > 0 && p.height > 0)
+        .filter_map(|popout| {
+            let session = sessions
+                .iter()
+                .find(|s| !s.archived && s.id == popout.session_id)?;
+            let shown = windows
+                .iter()
+                .any(|w| shows(session, &[popout.title.as_str()], &w.title));
+            if shown {
+                return None;
+            }
+            let near: Vec<isize> = free
+                .iter()
+                .filter(|w| size_off(w, popout) <= SIZE_SLACK)
+                .map(|w| w.hwnd)
+                .collect();
+            Some((popout, near))
+        })
+        .collect();
+    candidates
+        .iter()
+        .filter_map(|(popout, near)| {
+            let [hwnd] = near.as_slice() else {
+                return None;
+            };
+            let wanted_by = candidates
+                .iter()
+                .filter(|(_, other)| other.contains(hwnd))
+                .count();
+            (wanted_by == 1).then(|| (*hwnd, popout.session_id.clone()))
+        })
+        .collect()
 }
 
 /// How old a chat is, by the time since its last activity.
@@ -333,7 +447,7 @@ pub fn instant_ms(at: Instant) -> u64 {
 #[derive(Default)]
 struct Cache {
     files: HashMap<PathBuf, (SystemTime, Option<Session>)>,
-    popouts: Vec<(String, String)>,
+    popouts: Vec<Popout>,
     read_at: Option<Instant>,
 }
 
@@ -347,7 +461,7 @@ fn app_folder() -> Option<PathBuf> {
 
 /// The sessions read last, without archived ones, and the popped-out
 /// windows. Empty until the first read has finished.
-pub fn sessions() -> (Vec<Session>, Vec<(String, String)>) {
+pub fn sessions() -> (Vec<Session>, Vec<Popout>) {
     let Ok(cache) = CACHE.lock() else {
         return (Vec::new(), Vec::new());
     };
