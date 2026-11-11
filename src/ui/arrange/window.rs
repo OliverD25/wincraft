@@ -58,6 +58,7 @@ impl Arrange {
                 parked: false,
                 routed: Vec::new(),
                 keys_routed: false,
+                claude: claude::Deck::default(),
             })),
             palette_hwnd,
         }
@@ -108,6 +109,11 @@ impl Arrange {
         shared.note = None;
         shared.seen = seen::Seen::default();
         shared.rename = None;
+        // Each opening starts with nothing lit and the deck, not the Board.
+        shared.claude = claude::Deck {
+            asked: Some(Instant::now()),
+            ..claude::Deck::default()
+        };
         shared.snapshot = Some(snapshot);
         shared.holds.clear();
         shared.closed = false;
@@ -462,6 +468,15 @@ impl Arrange {
             // monitor view back, and nothing more.
             let putting_back = shared.drag.is_some() && shared.view() == ArrangeView::ByMonitor;
             let escape = escape && shared.rename.is_none() && !putting_back;
+            // Esc closes the Board, then clears the lit status, and only
+            // then closes WindowDeck.
+            let escape = if escape && shared.claude.takes_escape() {
+                shared.claude.escape();
+                ui.ctx().request_repaint();
+                false
+            } else {
+                escape
+            };
             if escape {
                 log::info!("WindowDeck closes: Esc");
                 shared.closed = true;

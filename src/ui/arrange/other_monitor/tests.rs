@@ -36,6 +36,7 @@ fn group_on(count: usize, on: usize) -> ArrangeGroup {
                 renamed: false,
                 same_title: false,
                 attention: false,
+                claude: None,
             })
             .collect(),
     }
@@ -57,6 +58,7 @@ fn snapshot(group: ArrangeGroup, setting: bool) -> ArrangeSnapshot {
         toolbar_on_other_monitors: setting,
         keeps_order: false,
         anchor: None,
+        claude_animate: false,
     }
 }
 

@@ -48,6 +48,12 @@ const VIEW_KEY: &str = "arrange_view";
 const HINTS_KEY: &str = "show_hints";
 const TOOLBAR_KEY: &str = "toolbar_on_other_monitors";
 const WIN_NUMBER_KEY: &str = "win_number_opens";
+/// Custom WindowDeck: how the Claude desktop app's cards look.
+const CLAUDE_STYLE_KEY: &str = "claude_card_style";
+const CLAUDE_ANIMATE_KEY: &str = "claude_animate";
+const CLAUDE_STYLES: &[&str] = &["Classic", "Off"];
+/// The settings group of the Claude card fields.
+const CUSTOM_GROUP: &str = "Custom WindowDeck";
 const HOTKEY_NAME: &str = "arrange";
 const HOVER_STRIP_LABEL: &str = "WindowDeck on taskbar hover";
 
@@ -69,6 +75,10 @@ pub struct WindowDeck {
     hover: hover_preview::HoverPreview,
     /// "Open WindowDeck with Win+1…9".
     win_number: bool,
+    /// Custom WindowDeck: "Claude card style" is Classic, not Off.
+    claude_cards: bool,
+    /// "Animate the Claude cards".
+    claude_animate: bool,
     /// The switch is on but Windows refused the keyboard hook.
     hook_refused: bool,
     /// A test instance (WINCRAFT_INSTANCE) never hides Windows' preview
@@ -93,6 +103,8 @@ impl Default for WindowDeck {
             hover_delay_ms: hover_preview::DEFAULT_DELAY_MS,
             hover: hover_preview::HoverPreview::default(),
             win_number: false,
+            claude_cards: true,
+            claude_animate: true,
             hook_refused: false,
             read_only: instance::is_test(),
             own: own_windows::OwnWindows::new(instance::is_test()),
@@ -137,6 +149,11 @@ impl WindowDeck {
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
         self.apply_win_number();
+        self.claude_cards = claude_cards_on(settings);
+        self.claude_animate = settings
+            .get(CLAUDE_ANIMATE_KEY)
+            .and_then(|value| value.as_bool())
+            .unwrap_or(true);
         popup_guard::configure(self.host_hwnd, self.hover.may_hide, self.win_number);
     }
 
@@ -314,6 +331,15 @@ fn take_over_from_keeper(old: &mut PluginConfig, new: &mut PluginConfig) -> bool
     true
 }
 
+/// Whether the Claude card style is on: anything but "Off". A value this
+/// version does not know (from a later version's style) shows Classic.
+fn claude_cards_on(settings: &serde_json::Value) -> bool {
+    settings
+        .get(CLAUDE_STYLE_KEY)
+        .and_then(|value| value.as_str())
+        != Some("Off")
+}
+
 impl WinCraftPlugin for WindowDeck {
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
@@ -338,6 +364,8 @@ impl WinCraftPlugin for WindowDeck {
             HOVER_STRIP_KEY: false,
             HOVER_DELAY_KEY: hover_preview::DEFAULT_DELAY_MS as f64 / 1000.0,
             WIN_NUMBER_KEY: false,
+            CLAUDE_STYLE_KEY: CLAUDE_STYLES[0],
+            CLAUDE_ANIMATE_KEY: true,
         })
     }
 
@@ -383,7 +411,25 @@ impl WinCraftPlugin for WindowDeck {
                 help: "Win and a number open WindowDeck for that taskbar button, even for an app with one window; press the number again with Win still held to pick the next window. A pinned app that is not running starts as before. Win+Shift, Win+Ctrl and Win+Alt with a number stay with Windows.",
                 kind: FieldKind::Toggle,
             },
+            SettingField {
+                key: CLAUDE_STYLE_KEY,
+                label: "Claude card style",
+                help: "How WindowDeck shows the Claude desktop app's chats: who waits for you, who works, and how old each chat is. Off shows them like any other app. Other apps are not changed.",
+                kind: FieldKind::Choice(CLAUDE_STYLES),
+            },
+            SettingField {
+                key: CLAUDE_ANIMATE_KEY,
+                label: "Animate the Claude cards",
+                help: "The ring on a working chat's card turns. This does not follow the Windows setting for animation effects.",
+                kind: FieldKind::Toggle,
+            },
         ]
+    }
+
+    fn settings_group(&self, key: &str) -> Option<&'static str> {
+        [CLAUDE_STYLE_KEY, CLAUDE_ANIMATE_KEY]
+            .contains(&key)
+            .then_some(CUSTOM_GROUP)
     }
 
     fn migrate_settings(&self, settings: &mut serde_json::Value) {
@@ -518,6 +564,8 @@ impl WinCraftPlugin for WindowDeck {
             view: self.view,
             hints: self.show_hints,
             toolbar_on_other_monitors: self.toolbar_elsewhere,
+            claude_cards: self.claude_cards,
+            claude_animate: self.claude_animate,
         })
     }
 
@@ -584,6 +632,40 @@ mod tests {
             read_only: true,
             ..WindowDeck::default()
         }
+    }
+
+    #[test]
+    fn the_claude_cards_are_on_by_default_and_off_only_when_set_off() {
+        let deck = test_deck();
+        let defaults = deck.default_settings();
+        assert!(claude_cards_on(&defaults));
+        assert_eq!(defaults[CLAUDE_ANIMATE_KEY], serde_json::json!(true));
+        assert!(claude_cards_on(&serde_json::json!({})));
+        assert!(claude_cards_on(
+            &serde_json::json!({ CLAUDE_STYLE_KEY: "Quest board" })
+        ));
+        assert!(!claude_cards_on(
+            &serde_json::json!({ CLAUDE_STYLE_KEY: "Off" })
+        ));
+        let mut deck = test_deck();
+        deck.apply_settings(
+            &serde_json::json!({ CLAUDE_STYLE_KEY: "Off", CLAUDE_ANIMATE_KEY: false }),
+        );
+        assert!(!deck.claude_cards && !deck.claude_animate);
+    }
+
+    #[test]
+    fn the_claude_fields_sit_under_custom_windowdeck() {
+        let deck = test_deck();
+        assert_eq!(
+            deck.settings_group(CLAUDE_STYLE_KEY),
+            Some("Custom WindowDeck")
+        );
+        assert_eq!(
+            deck.settings_group(CLAUDE_ANIMATE_KEY),
+            Some("Custom WindowDeck")
+        );
+        assert_eq!(deck.settings_group(PREVIEW_KEY), None);
     }
 
     #[test]

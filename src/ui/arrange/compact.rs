@@ -887,6 +887,7 @@ mod tests {
                     renamed: false,
                     same_title: false,
                     attention: false,
+                    claude: None,
                 })
                 .collect(),
         }
@@ -1018,6 +1019,7 @@ mod tests {
             monitors: Vec::new(),
             view: crate::core::ui_bridge::ArrangeView::ByMonitor,
             anchor: None,
+            claude_animate: false,
         };
         let layout = Layout::new(&group, &snapshot, &[true; 2]);
         assert!(layout.more());
@@ -1063,6 +1065,7 @@ mod tests {
             monitors: Vec::new(),
             view: crate::core::ui_bridge::ArrangeView::ByMonitor,
             anchor: None,
+            claude_animate: false,
         };
         let layout = Layout::new(&group, &snapshot, &[true; 4]);
         assert_eq!(layout.here, [0]);

@@ -174,6 +174,11 @@ pub struct StripLook {
     /// Whether a strip opened from the taskbar of a monitor that is not the
     /// main one shows the toolbar (the app list and the view switch).
     pub toolbar_on_other_monitors: bool,
+    /// Custom WindowDeck: the Claude desktop app's cards show each chat's
+    /// status and age ("Claude card style" is not Off).
+    pub claude_cards: bool,
+    /// "Animate the Claude cards": the working ring turns.
+    pub claude_animate: bool,
 }
 
 /// A window a plugin draws itself with egui, such as a list it keeps. It
@@ -296,6 +301,13 @@ pub trait WinCraftPlugin {
 
     fn settings_fields(&self) -> Vec<SettingField> {
         Vec::new()
+    }
+
+    /// The group a field of `settings_fields` belongs to, by its key: the
+    /// settings page puts a heading with this name above the first field of
+    /// each group. None keeps the field under "Settings".
+    fn settings_group(&self, _key: &str) -> Option<&'static str> {
+        None
     }
 
     /// Settings drawn after `settings_fields`, built from what the plugin

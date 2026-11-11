@@ -26,6 +26,7 @@ fn ctrl_h_flips_the_hints_now_and_asks_the_look_plugin_to_save_them() {
         toolbar_on_other_monitors: false,
         keeps_order: false,
         anchor: None,
+        claude_animate: false,
     });
     toggle_hints(shared);
     assert!(!shared.snapshot.as_ref().is_some_and(|s| s.hints));
@@ -70,6 +71,7 @@ fn group(desktops: &[&str]) -> ArrangeGroup {
                 renamed: false,
                 same_title: false,
                 attention: false,
+                claude: None,
             })
             .collect(),
     }
@@ -1120,6 +1122,7 @@ fn snapshot_of(group: ArrangeGroup, monitors: Vec<ArrangeMonitor>) -> ArrangeSna
         toolbar_on_other_monitors: false,
         keeps_order: false,
         anchor: None,
+        claude_animate: false,
     }
 }
 

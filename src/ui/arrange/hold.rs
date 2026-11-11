@@ -164,6 +164,7 @@ mod tests {
             renamed: false,
             same_title: false,
             attention: false,
+            claude: None,
         }
     }
 

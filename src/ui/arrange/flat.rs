@@ -1,8 +1,10 @@
 use super::*;
 
 /// The group list, the view switch and, where there is room, how many
-/// monitors, desktops and windows there are. Returns the group and the view
-/// picked on this frame.
+/// monitors, desktops and windows there are. `claude` is the room the
+/// Claude counters need after the switch and the line to show instead of
+/// the counts, if any. Returns the group and the view picked on this frame,
+/// and where the switch ends.
 pub(super) fn toolbar(
     ui: &mut Ui,
     area: Rect,
@@ -10,7 +12,8 @@ pub(super) fn toolbar(
     group: &ArrangeGroup,
     view: ArrangeView,
     visible: &[bool],
-) -> (Option<usize>, Option<ArrangeView>) {
+    claude: Option<(f32, Option<String>)>,
+) -> (Option<usize>, Option<ArrangeView>, f32) {
     let tokens = Tokens::get(ui.ctx());
     let labels: Vec<&str> = snapshot.groups.iter().map(|g| g.label.as_str()).collect();
     let current = snapshot.groups.iter().position(|g| g.key == group.key);
@@ -47,7 +50,8 @@ pub(super) fn toolbar(
     } else {
         connected
     };
-    let line = summary(monitors, snapshot.desktops.len(), shown);
+    let (reserved, lit) = claude.unwrap_or((0.0, None));
+    let line = lit.unwrap_or_else(|| summary(monitors, snapshot.desktops.len(), shown));
     let galley = ui
         .painter()
         .layout_no_wrap(line, theme::regular(13.0), tokens.text_secondary);
@@ -58,7 +62,7 @@ pub(super) fn toolbar(
         let used = by_monitor::paint_toolbar_hint(ui.painter(), &tokens, end, area.top() + 16.0);
         end -= used + 16.0;
     }
-    if right + 24.0 + galley.size().x <= end {
+    if right + reserved + 24.0 + galley.size().x <= end {
         ui.painter().galley(
             pos2(
                 end - galley.size().x,
@@ -68,7 +72,7 @@ pub(super) fn toolbar(
             tokens.text_secondary,
         );
     }
-    (picked, switched)
+    (picked, switched, right)
 }
 
 /// "3 monitors · 6 desktops · 27 windows". Without the desktop list there
@@ -242,7 +246,12 @@ pub(super) fn flat(
                                         .rename
                                         .as_ref()
                                         .is_some_and(|edit| edit.hwnd == window.hwnd);
-                                    let motion = shared.motion(window.hwnd);
+                                    let claude = shared.claude_mark(window);
+                                    let (scale, fade) = shared.motion(window.hwnd);
+                                    let dim = claude.as_ref().map_or(1.0, claude::Mark::card_alpha);
+                                    let motion = (scale, fade * dim);
+                                    let picture_alpha =
+                                        claude.as_ref().map_or(1.0, claude::Mark::picture_alpha);
                                     let waiting = shared.waiting_note(window.hwnd);
                                     let animate = shared.animate;
                                     let info = CardInfo {
@@ -256,6 +265,7 @@ pub(super) fn flat(
                                         slides: &mut shared.slides,
                                         animate,
                                         waiting,
+                                        claude,
                                         edit: shared
                                             .rename
                                             .as_mut()
@@ -283,7 +293,8 @@ pub(super) fn flat(
                                             hwnd: window.hwnd,
                                             dest: picture,
                                             clip: ui.clip_rect(),
-                                            opacity: (255.0 * motion.1).round() as u8,
+                                            opacity: (255.0 * motion.1 * picture_alpha).round()
+                                                as u8,
                                             clear,
                                             ghost: false,
                                         });

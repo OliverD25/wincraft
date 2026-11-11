@@ -262,6 +262,7 @@ pub(super) fn tile_card(
         slides,
         animate,
         waiting,
+        claude: _,
     } = info;
     let sense = if leaving {
         Sense::hover()

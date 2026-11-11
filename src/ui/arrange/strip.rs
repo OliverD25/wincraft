@@ -137,6 +137,17 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
     };
     let visible = shared.visible(&group);
     let compact = compact::applies(&group, &snapshot.desktops, &visible);
+    // Custom WindowDeck: Claude cards have counters in the toolbar.
+    let claude_cards = claude::has_cards(&group) && !compact && !shared.short_header();
+    let counts = if claude_cards {
+        let cards = claude::this_desktop(shared, &group, &snapshot.desktops);
+        claude::counts(
+            cards.iter().map(|card| card.3),
+            crate::core::claude_sessions::now_ms(),
+        )
+    } else {
+        [0; 4]
+    };
     let (chosen_group, chosen_view) = if compact {
         (None, None)
     } else if shared.short_header() {
@@ -144,8 +155,31 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
         other_monitor::header(ui, shared, panel, &group, &snapshot, others_count);
         (None, None)
     } else {
-        toolbar(ui, bar, &snapshot, &group, view, &visible)
+        let claude = claude_cards.then(|| {
+            (
+                claude::bar_width(ui, counts),
+                shared.claude.highlight.map(claude::lit_line),
+            )
+        });
+        let (group_pick, view_pick, right) =
+            toolbar(ui, bar, &snapshot, &group, view, &visible, claude);
+        if claude_cards {
+            let lit = shared.claude.highlight;
+            let board_open = shared.claude.board.is_some();
+            let centre = bar.top() + 16.0;
+            if let Some(click) = claude::bar(ui, right + 12.0, centre, counts, lit, board_open) {
+                claude::apply_click(shared, click);
+                ui.ctx().request_repaint();
+            }
+        }
+        (group_pick, view_pick)
     };
+    if claude::has_cards(&group) {
+        claude::tick(ui.ctx(), shared, &group);
+    } else {
+        shared.claude.highlight = None;
+        shared.claude.board = None;
+    }
     if let Some(index) = chosen_group {
         switch_group(ui.ctx(), shared, &snapshot, index);
     }
@@ -183,9 +217,29 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
     {
         shared.rename = None;
     }
+    // The Board covers the deck: its own keys, no pictures, and Enter or a
+    // click opens a chat. Esc is handled with the window's other keys.
+    if claude_cards && shared.claude.board.is_some() {
+        let area = Rect::from_min_max(pos2(content.left(), bar.bottom() + 12.0), content.max);
+        let opened = claude::board(ui, shared, &group, &snapshot.desktops, area);
+        shared.hide_peek();
+        place_pictures(shared, &[], None, None, ppp);
+        if let Some(hwnd) = opened {
+            log::info!("WindowDeck switches to window {hwnd:#x} (the Claude board) and closes");
+            shared.to_host.send(HostRequest::Arrange {
+                plugin: snapshot.plugin.clone(),
+                action: ArrangeAction::Activate(hwnd),
+            });
+            shared.closed = true;
+        }
+        return;
+    }
     let others_count = others::count(&group, &snapshot.desktops, &visible);
     // While the title box has the keyboard, no strip key acts.
     let typing = shared.rename.is_some();
+    if claude_cards && !menu_open && !typing && shared.drag.is_none() {
+        claude::keys(&ctx, shared);
+    }
     if others_count > 0
         && !menu_open
         && !typing
@@ -374,6 +428,13 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
     }
 
     place_pictures(shared, &frame.pending, frame.floating, frame.dragged, ppp);
+    let mut order: Vec<isize> = Vec::new();
+    for (hwnd, _) in &frame.cards {
+        if !order.contains(hwnd) {
+            order.push(*hwnd);
+        }
+    }
+    shared.claude.order = order;
 
     let actions = std::mem::take(&mut frame.actions);
     for action in &actions {

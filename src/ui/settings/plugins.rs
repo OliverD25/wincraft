@@ -133,7 +133,13 @@ fn detail(
     if !plugin.fields.is_empty() {
         page::section_header(ui, "Settings");
         ui.spacing_mut().item_spacing.y = 0.0;
+        let mut group = None;
         for info in &plugin.fields {
+            if info.group.is_some() && info.group != group {
+                group = info.group.clone();
+                page::section_header(ui, group.as_deref().unwrap_or_default());
+                ui.spacing_mut().item_spacing.y = 0.0;
+            }
             if let Some(value) = field::show(ui, info) {
                 to_host.send(HostRequest::SetSetting {
                     plugin: plugin.id.clone(),

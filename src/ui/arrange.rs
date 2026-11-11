@@ -30,6 +30,7 @@ use crate::ui::widgets::{choice, focus, text};
 
 mod by_monitor;
 mod cards;
+mod claude;
 mod closing;
 mod compact;
 mod flat;
@@ -307,6 +308,8 @@ struct Shared {
     routed: Vec<egui::Event>,
     /// Keys go to the strip now, because the mouse is in it.
     keys_routed: bool,
+    /// Custom WindowDeck: the lit status and the Board.
+    claude: claude::Deck,
 }
 
 impl Shared {

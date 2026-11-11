@@ -435,6 +435,42 @@ touch your real taskbar; the
 log says "hiding Windows' taskbar preview skipped". The flag
 `--allow-hide-popup` lets a test copy hide it, for a test you watch.
 
+## Custom WindowDeck: the Claude desktop app
+
+When WindowDeck shows the windows of the Claude desktop app, each card
+also tells you what its Claude Code chat is doing and how old it is. Other
+apps keep the usual cards. The cards stay exactly where you put them:
+WinCraft never sorts or moves them by status.
+
+- **The status chip**, in the top left corner of the picture:
+  - "Waiting 4 min" (orange, with the orange frame): the chat asked you
+    something. The time is how long it has waited.
+  - "Working 2 min" (blue, with a turning ring): Claude works on your last
+    message. The time is how long this turn has run.
+  - "Idle" (grey): the turn ended and nothing waits for you.
+- **The age**, at the end of the title line: the time since the chat's last
+  activity. Under 1 hour the picture looks as always; from 1 hour it fades
+  a little; from 1 day it fades more, gets a light blue tint and the age
+  turns blue; from 3 days it fades most and shows a snowflake. An old chat
+  is only shown: WinCraft never closes, archives or moves it.
+- **The counters** in the toolbar: Waiting, Working, Idle and Cold (idle for
+  1 day or more). Click one, or press `S`, and its cards stay bright while
+  the others dim. `S` steps Waiting, Working, Idle, Cold, then none. While a
+  status is lit the arrow keys move only between the lit cards. `Esc` clears
+  the light first, then closes WindowDeck as before.
+- **The Board** (`B`, or the Board button): a panel over the deck that
+  lists the same chats in four columns: Waiting for you (longest wait
+  first), Working (longest run first), Idle (under 1 day, newest first) and
+  Cold (1 day or more, oldest first). Arrows move, `Enter` opens the chat,
+  `Esc` goes back to the deck exactly as it was.
+
+The waiting mark comes from the Claude Code hook that runs
+`wincraft.exe --waiting`. Working, idle and the age come from the Claude
+app's own session files (`%APPDATA%\Claude\claude-code-sessions`), which
+WinCraft only reads, a few seconds apart and only while WindowDeck is open.
+Nothing leaves your PC. If a Claude update changes those files, the cards
+simply show no status.
+
 ## Hotkeys
 
 | Action | Default |
@@ -451,6 +487,8 @@ log says "hiding Windows' taskbar preview skipped". The flag
 | Show WindowDeck instead of Windows' taskbar preview | off | Resting the mouse on the taskbar button of an app with 2 or more windows opens WindowDeck above it (see **WindowDeck instead of Windows' taskbar preview**). Also in the tray menu and the palette. |
 | Hover delay (seconds) | 0.15 | How long the mouse rests on a taskbar button before WindowDeck opens, from 0.05 to 1.5. |
 | Open WindowDeck with Win+1…9 | off | Win and a number open WindowDeck for that taskbar button (see **Win+1…9**). Win+Shift, Win+Ctrl and Win+Alt with a number stay with Windows. |
+| Claude card style (Custom WindowDeck) | Classic | Classic shows the status and age on the Claude desktop app's cards (see **Custom WindowDeck**). Off shows them like any other app. |
+| Animate the Claude cards (Custom WindowDeck) | on | The ring on a working chat's card turns. It does not follow the Windows setting for animation effects. |
 
 The view you pick last is kept as `arrange_view` in
 `plugins\window_deck.json`.

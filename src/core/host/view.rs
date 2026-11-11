@@ -302,6 +302,7 @@ pub(super) fn field_infos(plugin: &dyn WinCraftPlugin, settings: &Value) -> Vec<
         help: field.help.to_string(),
         kind: field.kind,
         value: settings.get(field.key).cloned().unwrap_or(Value::Null),
+        group: plugin.settings_group(field.key).map(str::to_string),
     });
     let dynamic = plugin.dynamic_fields().into_iter().map(|field| FieldInfo {
         key: field.key,
@@ -309,6 +310,7 @@ pub(super) fn field_infos(plugin: &dyn WinCraftPlugin, settings: &Value) -> Vec<
         help: field.help,
         kind: field.kind,
         value: field.value,
+        group: None,
     });
     fixed.chain(dynamic).collect()
 }
