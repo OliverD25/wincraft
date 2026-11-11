@@ -425,3 +425,70 @@ fn the_stacks_list_stays_open_on_the_way_into_it() {
     let above = list::keep_area(card, list.translate(vec2(0.0, -250.0)));
     assert!(above[2].contains(pos2(150.0, 98.0)));
 }
+
+// A click on a row of the stack's list switches to that window (0.20.93).
+#[test]
+fn a_click_on_a_row_of_the_stacks_list_chooses_that_window() {
+    let bridge = crate::core::ui_bridge::create();
+    let arrange = crate::ui::arrange::Arrange::new(bridge.to_host.clone(), 0);
+    let mut shared = arrange.shared.lock().expect("the strip's state");
+    let mut data = snapshot();
+    shared.stacks.arrive(&mut data, true);
+    let rep = shared.stacks.found[0].rep;
+    let members: Vec<isize> = shared
+        .stacks
+        .closed(rep)
+        .expect("a closed stack")
+        .members
+        .iter()
+        .map(|w| w.hwnd)
+        .collect();
+    let card = Rect::from_min_size(pos2(100.0, 100.0), vec2(200.0, 150.0));
+    shared.card_hits = vec![(rep, card)];
+    shared.cursor = Some(rep);
+    let ctx = egui::Context::default();
+    crate::ui::theme::install_fonts(&ctx);
+    let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0));
+    // The list opens 6 px under the card; row 2 is the second window.
+    let row = pos2(150.0, card.bottom() + 6.0 + 8.0 + 20.0 * 2.0 + 10.0);
+    // A new list is hidden in its first frame, so the mouse rests one more.
+    let frames = [
+        vec![egui::Event::PointerMoved(row)],
+        vec![egui::Event::PointerMoved(row)],
+        vec![egui::Event::PointerButton {
+            pos: row,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        vec![egui::Event::PointerButton {
+            pos: row,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    ];
+    let mut covers = 0;
+    for events in frames {
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            events,
+            ..Default::default()
+        };
+        let mut frame = Frame::default();
+        let mut output = ctx.run_ui(input, |ui| {
+            list::show(
+                ui.ctx(),
+                &mut shared,
+                &data.groups[0],
+                &data.desktops,
+                &mut frame,
+            );
+        });
+        output.textures_delta.clear();
+        covers = frame.covers.len();
+    }
+    assert_eq!(covers, 1, "the list covers the cards under it");
+    assert!(shared.stacks.list.is_some(), "the list stays open");
+    assert_eq!(shared.stacks.list_chosen, Some(members[1]));
+}
