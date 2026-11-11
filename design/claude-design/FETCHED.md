@@ -170,3 +170,14 @@ apart and leave a slot as big as the dragged card; the 2 px accent bar goes
 away. The user chose B: fill `text_primary` at 5 % and a 1 px solid ring in
 `text_primary` at 35 %, never orange, accent or dashed. A and C stay on the
 page for the record.
+
+## 2026-11-11 — Window Deck Claude Status (proposal, written from Claude Code)
+
+`Window Deck Claude Status.dc.html` (74,457 bytes, new; artifact version 17).
+A WindowDeck app profile for the Claude desktop app: a status chip on each
+card (Waiting in the attention orange, Working with a turning `info` ring,
+Idle in grey), an age line with four steps (fresh, cooling after 1 hour,
+cold after 1 day, frozen after 3 days), toolbar counters that light up cards
+in place (key S), a separate Board view (key B), and a small score for
+today. The user's rule: cards are never sorted by status. Waiting for the
+user's approval; no code yet.
