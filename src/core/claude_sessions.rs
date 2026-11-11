@@ -30,6 +30,8 @@ const DAY: u64 = 24 * HOUR;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Session {
     pub id: String,
+    /// The Claude Code session id; names the chat's transcript file.
+    pub cli_session_id: String,
     pub title: String,
     pub previous_titles: Vec<String>,
     /// The chat's last activity, in Unix milliseconds.
@@ -48,6 +50,8 @@ pub struct Session {
 struct SessionFile {
     #[serde(default)]
     session_id: Option<String>,
+    #[serde(default)]
+    cli_session_id: Option<String>,
     #[serde(default)]
     title: Option<String>,
     #[serde(default)]
@@ -79,6 +83,7 @@ pub fn parse(text: &str) -> Option<Session> {
     let number = |key: &str| field(key).as_f64();
     let file = SessionFile {
         session_id: field("sessionId").as_str().map(str::to_string),
+        cli_session_id: field("cliSessionId").as_str().map(str::to_string),
         title: field("title").as_str().map(str::to_string),
         previous_titles: field("previousTitles").as_array().map(|list| {
             list.iter()
@@ -106,6 +111,7 @@ fn parse_fast(text: &str) -> Option<Session> {
 fn from_file(file: SessionFile) -> Session {
     Session {
         id: file.session_id.unwrap_or_default(),
+        cli_session_id: file.cli_session_id.unwrap_or_default(),
         title: file.title.unwrap_or_default().trim().to_string(),
         previous_titles: file
             .previous_titles
@@ -173,6 +179,9 @@ pub enum Status {
     Waiting,
     /// Claude works on the user's last message.
     Working,
+    /// The turn ended, but a background job (a command or a subagent)
+    /// still runs.
+    Background,
     /// The turn ended and nothing waits.
     Idle,
 }
@@ -207,29 +216,45 @@ pub struct Card {
     /// message for a working chat. None for idle.
     pub since: Option<u64>,
     pub last_activity: Option<u64>,
+    /// Running background jobs; only a Background card has any.
+    pub jobs: usize,
 }
 
 /// The card for a window that shows `session` (None when no session
 /// matched), with `waiting_since` when the attention hook marked it as
 /// waiting. A waiting mark wins over the session's own status.
-pub fn card(session: Option<&Session>, waiting_since: Option<u64>) -> Card {
+/// `jobs` are the chat's running background jobs (how many, and the start
+/// of the oldest). Priority: Waiting, Working, Background, Idle.
+pub fn card(
+    session: Option<&Session>,
+    waiting_since: Option<u64>,
+    jobs: (usize, Option<u64>),
+) -> Card {
     let last_activity = session.and_then(|s| s.last_activity);
     if let Some(since) = waiting_since {
         return Card {
             status: Some(Status::Waiting),
             since: Some(since),
             last_activity,
+            jobs: 0,
         };
     }
-    let status = session.and_then(status);
-    let since = match status {
+    let mut status = session.and_then(status);
+    let mut since = match status {
         Some(Status::Working) => session.and_then(|s| s.latest_user),
         _ => None,
     };
+    let mut running = 0;
+    if let (Some(Status::Idle), (count @ 1.., oldest)) = (status, jobs) {
+        status = Some(Status::Background);
+        since = oldest;
+        running = count;
+    }
     Card {
         status,
         since,
         last_activity,
+        jobs: running,
     }
 }
 
@@ -496,6 +521,7 @@ pub fn read_soon() {
         .name("claude-sessions".into())
         .spawn(move || {
             read_all(&folder);
+            super::claude_jobs::refresh(now_ms());
             READING.store(false, Ordering::Release);
         });
     if started.is_err() {

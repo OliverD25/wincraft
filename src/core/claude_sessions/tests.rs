@@ -21,6 +21,7 @@ const FULL: &str = r#"{
 fn session(title: &str, previous: &[&str], activity: u64) -> Session {
     Session {
         id: format!("local_{title}"),
+        cli_session_id: String::new(),
         title: title.to_string(),
         previous_titles: previous.iter().map(|t| t.to_string()).collect(),
         last_activity: Some(activity),
@@ -110,21 +111,24 @@ fn a_waiting_mark_wins_over_working_and_idle() {
     let mut working = session("Chat", &[], 10);
     working.latest_user = Some(200);
     working.last_turn_edge = Some(100);
-    let card_now = card(Some(&working), Some(150));
+    let card_now = card(Some(&working), Some(150), (0, None));
     assert_eq!(card_now.status, Some(Status::Waiting));
     assert_eq!(card_now.since, Some(150));
     assert_eq!(card_now.last_activity, Some(10));
 
-    let card_now = card(Some(&working), None);
+    let card_now = card(Some(&working), None, (0, None));
     assert_eq!(card_now.status, Some(Status::Working));
     assert_eq!(card_now.since, Some(200));
 
     let idle = session("Chat", &[], 10);
-    assert_eq!(card(Some(&idle), None).status, Some(Status::Idle));
-    assert_eq!(card(Some(&idle), None).since, None);
+    assert_eq!(
+        card(Some(&idle), None, (0, None)).status,
+        Some(Status::Idle)
+    );
+    assert_eq!(card(Some(&idle), None, (0, None)).since, None);
     // No session, but the hook said it waits.
-    assert_eq!(card(None, Some(5)).status, Some(Status::Waiting));
-    assert_eq!(card(None, None), Card::default());
+    assert_eq!(card(None, Some(5), (0, None)).status, Some(Status::Waiting));
+    assert_eq!(card(None, None, (0, None)), Card::default());
 }
 
 #[test]
@@ -300,4 +304,50 @@ fn the_saved_size_is_scaled_by_the_monitor() {
         match_by_size(&[big], &sessions, &popouts),
         vec![(7, "local_A".to_string())]
     );
+}
+
+fn idle_session() -> Session {
+    Session {
+        latest_user: Some(1000),
+        last_turn_edge: Some(20_000),
+        last_activity: Some(20_000),
+        ..Session::default()
+    }
+}
+
+#[test]
+fn a_running_job_turns_idle_into_background_since_the_oldest_job() {
+    let got = card(Some(&idle_session()), None, (2, Some(7_000)));
+    assert_eq!(got.status, Some(Status::Background));
+    assert_eq!(got.since, Some(7_000));
+    assert_eq!(got.jobs, 2);
+    assert_eq!(got.last_activity, Some(20_000));
+}
+
+#[test]
+fn idle_without_jobs_stays_idle() {
+    let got = card(Some(&idle_session()), None, (0, None));
+    assert_eq!(got.status, Some(Status::Idle));
+    assert_eq!(got.jobs, 0);
+}
+
+#[test]
+fn waiting_and_working_win_over_background() {
+    let working = Session {
+        latest_user: Some(20_000),
+        last_turn_edge: Some(20_000),
+        ..Session::default()
+    };
+    let got = card(Some(&working), None, (1, Some(5)));
+    assert_eq!(got.status, Some(Status::Working));
+    assert_eq!(got.jobs, 0);
+    let got = card(Some(&idle_session()), Some(9_000), (1, Some(5)));
+    assert_eq!(got.status, Some(Status::Waiting));
+    assert_eq!(got.since, Some(9_000));
+    assert_eq!(got.jobs, 0);
+}
+
+#[test]
+fn the_session_file_gives_the_cli_session_id() {
+    assert_eq!(parse_fast(FULL).expect("parses").cli_session_id, "cli-1");
 }

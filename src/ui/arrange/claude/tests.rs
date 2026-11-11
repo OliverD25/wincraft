@@ -10,6 +10,7 @@ fn card(status: Option<Status>, since: Option<u64>, idle_for: Option<u64>) -> Ca
         status,
         since,
         last_activity: idle_for.map(|ms| NOW - ms),
+        jobs: 0,
     }
 }
 
@@ -211,4 +212,66 @@ fn the_lit_line_says_how_to_go_on() {
         lit_line(Filter::Waiting),
         "Showing: Waiting \u{b7} S next \u{b7} Esc clears"
     );
+}
+
+fn background(for_ms: u64, jobs: usize) -> Card {
+    Card {
+        jobs,
+        ..card(Some(Status::Background), Some(NOW - for_ms), Some(for_ms))
+    }
+}
+
+#[test]
+fn the_background_chip_names_the_time_and_the_jobs() {
+    assert_eq!(
+        chip_text(&background(3 * MIN, 1), NOW).as_deref(),
+        Some("Background 3 min \u{b7} 1 job")
+    );
+    assert_eq!(
+        chip_text(&background(3 * MIN, 2), NOW).as_deref(),
+        Some("Background 3 min \u{b7} 2 jobs")
+    );
+}
+
+#[test]
+fn a_background_card_counts_as_working_never_idle_or_cold() {
+    // Idle for 5 days by its last activity, yet a job runs.
+    let card = background(5 * DAY, 1);
+    assert!(Filter::Working.matches(&card, NOW));
+    assert!(!Filter::Idle.matches(&card, NOW));
+    assert!(!Filter::Cold.matches(&card, NOW));
+    assert!(!Filter::Waiting.matches(&card, NOW));
+    assert_eq!(counts([card].iter(), NOW), [0, 1, 0, 0]);
+}
+
+#[test]
+fn lighting_working_lights_background_cards_too() {
+    let bg = Mark::new(&background(MIN, 1), NOW, Some(Filter::Working), false);
+    assert_eq!(bg.card_alpha(), 1.0);
+    let idle_mark = Mark::new(&idle(MIN), NOW, Some(Filter::Working), false);
+    assert_eq!(idle_mark.card_alpha(), DIMMED);
+}
+
+#[test]
+fn board_background_rows_follow_the_real_working_rows() {
+    let cards = [
+        background(30 * MIN, 1), // 1: the longest, but Background
+        working(2 * MIN),        // 2
+        background(5 * MIN, 2),  // 3
+        working(11 * MIN),       // 4
+        idle(MIN),               // 5
+    ];
+    let names: Vec<String> = (1..=cards.len()).map(|n| format!("Chat {n}")).collect();
+    let windows: Vec<_> = cards
+        .iter()
+        .enumerate()
+        .map(|(at, card)| titled(at as isize + 1, &names[at], card))
+        .collect();
+    let columns = columns(&windows, NOW);
+    let numbers = |column: &Vec<BoardRow>| column.iter().map(|row| row.number).collect::<Vec<_>>();
+    assert_eq!(numbers(&columns[1]), [4, 2, 1, 3]);
+    assert_eq!(columns[1][2].time, "30 min \u{b7} 1 job");
+    assert_eq!(columns[1][3].time, "5 min \u{b7} 2 jobs");
+    assert_eq!(numbers(&columns[2]), [5]);
+    assert!(columns[3].is_empty());
 }
