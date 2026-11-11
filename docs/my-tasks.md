@@ -25,7 +25,7 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ### 11. Check that a stack list row shows its window
 
-- **State:** Wait: 0.20.96 is being checked and released.
+- **State:** Ready to test (0.20.96 released 2026-11-11).
 - **Kind:** test · **Added:** 2026-11-11 (PC)
 - **Why:** the window comes forward only on a real screen with a real mouse; tests cannot see it.
 
