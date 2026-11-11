@@ -36,6 +36,9 @@ pub(super) struct Frame {
     /// a dialog): the pictures under each hide, whatever the drag does.
     pub(super) covers: Vec<Rect>,
     pub(super) dragged: Option<isize>,
+    /// The window of the stack list row under the pointer: it peeks like a
+    /// hovered card.
+    pub(super) list_row: Option<isize>,
 }
 
 impl Default for Frame {
@@ -52,6 +55,7 @@ impl Default for Frame {
             floating: None,
             covers: Vec::new(),
             dragged: None,
+            list_row: None,
         }
     }
 }
@@ -388,9 +392,10 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
         frame.hovered = None;
     }
 
-    let in_rows = ctx
-        .input(|i| i.pointer.hover_pos())
-        .is_some_and(|at| frame.area.contains(at));
+    let in_rows = frame.list_row.is_some()
+        || ctx
+            .input(|i| i.pointer.hover_pos())
+            .is_some_and(|at| frame.area.contains(at));
     // Asked again rather than reusing the flags from the top of the frame,
     // so a menu or drag that started on this frame hides the peek at once.
     let blocked = !snapshot.preview
@@ -401,13 +406,15 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
         .forced_peek
         .and_then(|card| forced_card(&frame.cards, card));
     match forced {
-        Some(hwnd) if !blocked && frame.hovered.is_none() => {
+        Some(hwnd) if !blocked && frame.hovered.is_none() && frame.list_row.is_none() => {
             shared.peek.show(hwnd, shared.window as HWND)
         }
-        _ => match shared
-            .hover
-            .step(Instant::now(), frame.hovered, in_rows, blocked)
-        {
+        _ => match shared.hover.step(
+            Instant::now(),
+            frame.list_row.or(frame.hovered),
+            in_rows,
+            blocked,
+        ) {
             Step::Show(hwnd) => shared.peek.show(hwnd, shared.window as HWND),
             Step::Hide => shared.peek.hide(),
             Step::Wait(after) => ctx.request_repaint_after(after),

@@ -99,6 +99,7 @@ pub fn show(
     let list = Rect::from_min_size(pos2(left, top), vec2(LIST_WIDTH, height));
     let id = egui::Id::new("deck-stack-list");
     let mut chosen = None;
+    let mut row_under = None;
     egui::Area::new(id)
         .order(egui::Order::Foreground)
         .fixed_pos(list.min)
@@ -153,6 +154,7 @@ pub fn show(
                     egui::Sense::click(),
                 );
                 if response.hovered() {
+                    row_under = Some(window.hwnd);
                     painter.rect_filled(
                         line.expand2(vec2(4.0, 0.0)),
                         lit.corner_radius,
@@ -185,5 +187,6 @@ pub fn show(
         keeps: keep_area(card, list),
         cursor: shared.cursor,
     });
+    frame.list_row = row_under;
     frame.covers.push(list);
 }

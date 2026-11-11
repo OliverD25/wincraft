@@ -5,55 +5,6 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ## Open
 
-### 7. Release and test WindowDeck groups with the fixes
-
-- **State:** Ready to test (0.20.95 released 2026-11-11). Steps 1-5
-  passed on 0.20.93 (2026-11-11). Step 6 showed "Drop to group" hidden
-  under the dragged card; 0.20.95 makes it an orange badge on the stack's
-  top edge, above the dragged card. Go on from step 6 after updating to
-  0.20.95 (step 2 again).
-- **Fixes to look at after the release:** step 7: `Esc` closes only the
-  open group, WindowDeck stays; a click outside the group frame closes the
-  group, WindowDeck stays. Step 5: move the mouse from the stack down into
-  its list; the list stays open, a row lights up under the mouse, and a
-  click on a row brings that window to the front. Names under a stack keep
-  whole words ("fork - Design Session", not "fork) - Design Session").
-- **Kind:** test · **Added:** 2026-11-11 (PC, branch claude/gracious-panini-4299ca)
-- **Why:** these parts need a real mouse and the Ctrl key, which the coder's
-  test copy could not use: picking cards, Ctrl+G, dropping a card onto a
-  card, the close question, the right-click menus.
-- **Do not test on real work you need open:** step 9 closes windows. Use
-  three spare windows of one app (for example three Notepad windows).
-
-**Steps**
-
-1. Right-click the WinCraft icon in the tray and click **Settings…**.
-2. Click **About** in the left list, then **Check for updates**, then
-   **Update now**. WinCraft restarts; About shows 0.20.93.
-3. Open three Notepad windows. Open WindowDeck (`Win+Alt+A`, then the
-   number of Notepad's taskbar button).
-4. Ctrl + click two Notepad cards (each gets a white check mark), then press
-   `Ctrl+G`. A box **Group 2 windows** opens; type `Test` and click
-   **Make the group**. The two cards become one stack named "Test" with a
-   count chip "2" and the other window's name under it.
-5. Select the stack with the arrow keys. A list opens under it with both
-   windows and their numbers.
-6. Drag the third Notepad card onto the middle of the stack. The stack
-   shows **Drop to group**; drop it. The count chip shows "3".
-7. Press the stack's number. The group opens in a frame with numbers 1, 2, 3;
-   the other cards dim. Press `2`: the second window comes to the front.
-8. Open WindowDeck again, right-click the stack. The menu shows
-   **Open the group**, **Rename the group**, **Ungroup**,
-   **Close 3 windows…**. Click **Ungroup**: three normal cards again.
-9. Group the three again (step 4 with all three), select the stack and
-   press `Ctrl+W`. A question **Close 3 windows in Test?** opens. Click
-   **Cancel**: nothing closes. Press `Ctrl+W` again and click
-   **Close 3 windows**: the three Notepads close.
-10. Open Settings → WindowDeck and switch **Group related windows** off.
-    WindowDeck shows every window as a normal card. Switch it on again.
-
-**Done when:** steps 4-10 behave as written, or you report what did not.
-
 ### 10. Install 0.20.94 and check the Background chip on a Claude chat
 
 - **State:** Ready to test. Release v0.20.94 is built and published (2026-11-11, with wincraft.exe and SHA256SUMS.txt).
@@ -72,8 +23,26 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 **Done when:** steps 4 to 6 look as described.
 
+### 11. Check that a stack list row shows its window
+
+- **State:** Wait: 0.20.96 is being checked and released.
+- **Kind:** test · **Added:** 2026-11-11 (PC)
+- **Why:** the window comes forward only on a real screen with a real mouse; tests cannot see it.
+
+**Steps**
+
+1. Right-click the WinCraft icon in the tray and click **Settings…**.
+2. Click **About** in the left list, then **Check for updates**, then **Update now**. WinCraft restarts; About shows 0.20.96.
+3. Open WindowDeck on an app that has a group (for example the Notepad group from task 7).
+4. Move the mouse onto the stack. Its list of windows opens.
+5. Move the mouse down into the list and rest it on a row. After a short moment that window shows in front, as when you rest the mouse on a card.
+6. Move to another row: that row's window shows instead. Move the mouse out of the list: the window goes back.
+
+**Done when:** steps 5 and 6 look as described.
+
 ## Done
 
+- **7. Release and test WindowDeck groups with the fixes**: done 2026-11-11. The user tested steps 1-10 on 0.20.93 and 0.20.95; the hidden "Drop to group" mark was fixed in 0.20.95. Follow-up: list rows show their window (task 11).
 - **9. Install 0.20.92 and test Custom WindowDeck on your Claude windows**: done 2026-11-11. The user said "task 9 done". Found while testing: a chat with a background task still running shows "Idle"; that is new work, not a failed test.
 - **1. Install 0.20.90 and test the drop gap and the "waiting for you" marks**: done 2026-11-10. The user confirmed step 3 ("1.3 is passed") and steps 5-6 ("Orange, cleared after").
 - **2. Install the new attention hook: plain-text questions turn orange too**: done 2026-11-10. Installed in config commit dfbc258; the user saw the orange card, and the log shows "Stop (reply asks)" marking and UserPromptSubmit clearing 4 of 4 targets.

@@ -334,7 +334,8 @@ WindowDeck never groups windows by itself.
   windows wants attention. While the stack is picked or under the mouse, a
   list shows all its windows with the numbers they get when it opens. The
   list stays open while the mouse moves from the stack into it; a row
-  lights up under the mouse, and a click on a row switches to that window.
+  lights up under the mouse and, as on a card, the window itself comes
+  forward to look at after a short rest; a click on a row switches to it.
   A name that starts like the group's is cut only between whole words:
   "WinCraft Rust (fork) - Design" in "WinCraft Rust" shows as
   "fork - Design".
