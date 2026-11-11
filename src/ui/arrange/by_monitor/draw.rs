@@ -52,26 +52,7 @@ pub fn body(
         only: shared.only_monitor,
         taskbars: shared.taskbars,
     };
-    let open = shared.stacks.open_members(group);
-    let (model, ghosted) = Model::new(group, snapshot, &widths, shown, scope).with_open_group(
-        group,
-        &snapshot.monitors,
-        &open,
-    );
-    let head = if model.bands.first().is_some_and(|band| band.lead > 0.0) {
-        GROUP_LEAD
-    } else {
-        0.0
-    };
-    shared.stacks.set_ghosted(ghosted, head);
-    // In an open group the keys are on a window's ghost, not on its dimmed
-    // card.
-    if shared
-        .cursor
-        .is_some_and(|hwnd| shared.stacks.is_ghosted(hwnd))
-    {
-        shared.cursor_ghost = true;
-    }
+    let model = Model::new(group, snapshot, &widths, shown, scope);
     let mut frame = Frame::default();
     let items = walk_items(&model.bands);
     let member_of = |hwnd: isize| group.windows.iter().position(|w| w.hwnd == hwnd);
@@ -229,9 +210,7 @@ pub fn body(
         model: &model,
         menu_open,
         can_rename: snapshot.can_rename,
-        numbers: shared
-            .stacks
-            .numbers(group, taskbar_numbers(group, &snapshot.desktops)),
+        numbers: taskbar_numbers(group, &snapshot.desktops),
         dragged: dragged.filter(|_| dragging),
         lift,
         target: target.filter(|_| dragging && !ctrl),
@@ -241,7 +220,6 @@ pub fn body(
         hits: Vec::new(),
         items: Vec::new(),
     };
-    super::super::stacks::open_frame(&ui.painter().with_clip_rect(area), shared);
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
         egui::ScrollArea::vertical()
             .id_salt("arrange-bands")

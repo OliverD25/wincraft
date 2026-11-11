@@ -162,7 +162,6 @@ pub(super) fn card(
 
     let name_top = area.bottom() + CARD_INSET;
     let chip = number_chip(painter, pos2(area.left(), name_top), NAME_HEIGHT, number);
-    super::stacks::member_chip(painter, stacks, window.hwnd, chip, number);
     let names = Rect::from_min_max(
         pos2(area.left(), name_top + NAME_HEIGHT + 2.0),
         pos2(area.right(), rect.bottom()),

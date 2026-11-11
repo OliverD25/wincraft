@@ -1,7 +1,9 @@
-//! Folding a group's windows into stacks: the windows of a closed group
-//! become one card, so every view, number and key of the strip treats the
-//! group as one window. The card is a copy of the window used last, named
-//! after the group; unfolding puts the windows back in its place.
+//! Folding a group's windows into stacks: the windows of a group become one
+//! card, so every view, number and key of the strip treats the group as one
+//! window. The card is a copy of the window used last, named after the
+//! group; unfolding puts the windows back in its place. An open group stays
+//! folded too: it opens on a layer above the row, so nothing in the row
+//! moves.
 
 use std::collections::HashMap;
 
@@ -12,7 +14,7 @@ use crate::core::ui_bridge::{ArrangeAction, ArrangeGroup, ArrangeWindow};
 pub enum Kind {
     /// One card stands for the group.
     Closed,
-    /// Its windows are shown one by one, next to each other.
+    /// Its card stays in the row, and its windows show on a layer above.
     Open,
     /// Only one of its windows is open: a normal card with a small mark.
     Lone,
@@ -23,12 +25,19 @@ pub enum Kind {
 pub struct Found {
     pub app: String,
     pub name: String,
-    /// The card that stands for a closed group: its window used last. For
-    /// an open group, that same window; for a lone one, the window.
+    /// The card that stands for the group: its window used last. For a lone
+    /// one, the window.
     pub rep: isize,
     /// Its open windows, in the strip's order.
     pub members: Vec<ArrangeWindow>,
     pub kind: Kind,
+}
+
+impl Kind {
+    /// The group is one card in the row: closed, or open on its layer.
+    pub fn is_card(self) -> bool {
+        self != Kind::Lone
+    }
 }
 
 impl Found {
@@ -62,8 +71,8 @@ fn main_monitor(members: &[&ArrangeWindow], last: &ArrangeWindow) -> Option<usiz
 
 /// Folds the closed groups of `group`'s app (`defs`) into stack cards.
 /// `recent` ranks windows by when they were used, lower is later; `open` is
-/// the name of the group shown open, whose windows move next to each other
-/// at the place of its first one. Returns what it found.
+/// the name of the group shown open, which folds the same way. Returns what
+/// it found.
 pub fn fold(
     group: &mut ArrangeGroup,
     defs: &[DeckGroup],
@@ -76,7 +85,7 @@ pub fn fold(
         let is_card = |hwnd: isize| {
             found
                 .iter()
-                .any(|stack| stack.kind == Kind::Closed && stack.rep == hwnd)
+                .any(|stack| stack.kind.is_card() && stack.rep == hwnd)
         };
         let places: Vec<usize> = group
             .windows
@@ -102,37 +111,28 @@ pub fn fold(
         } else {
             Kind::Closed
         };
-        let mut rest: Vec<ArrangeWindow> = group
-            .windows
-            .iter()
-            .enumerate()
-            .filter(|(place, _)| !places.contains(place))
-            .map(|(_, window)| window.clone())
-            .collect();
-        match kind {
-            Kind::Lone => {}
-            Kind::Open => {
-                for (at, window) in members.iter().enumerate() {
-                    rest.insert(first + at, window.clone());
-                }
-                group.windows = rest;
+        if kind.is_card() {
+            let mut rest: Vec<ArrangeWindow> = group
+                .windows
+                .iter()
+                .enumerate()
+                .filter(|(place, _)| !places.contains(place))
+                .map(|(_, window)| window.clone())
+                .collect();
+            let refs: Vec<&ArrangeWindow> = members.iter().collect();
+            let monitor = main_monitor(&refs, &last);
+            let mut card = last.clone();
+            card.label = def.name.clone();
+            card.renamed = false;
+            card.same_title = false;
+            card.attention = members.iter().any(|window| window.attention);
+            if let Some(on) = members.iter().find(|window| window.on_monitor == monitor) {
+                card.on_monitor = on.on_monitor;
+                card.monitor = on.monitor.clone();
+                card.saved_monitor = on.saved_monitor;
             }
-            Kind::Closed => {
-                let refs: Vec<&ArrangeWindow> = members.iter().collect();
-                let monitor = main_monitor(&refs, &last);
-                let mut card = last.clone();
-                card.label = def.name.clone();
-                card.renamed = false;
-                card.same_title = false;
-                card.attention = members.iter().any(|window| window.attention);
-                if let Some(on) = members.iter().find(|window| window.on_monitor == monitor) {
-                    card.on_monitor = on.on_monitor;
-                    card.monitor = on.monitor.clone();
-                    card.saved_monitor = on.saved_monitor;
-                }
-                rest.insert(first, card);
-                group.windows = rest;
-            }
+            rest.insert(first, card);
+            group.windows = rest;
         }
         found.push(Found {
             app: group.key.clone(),
@@ -145,22 +145,21 @@ pub fn fold(
     found
 }
 
-/// Puts the windows of the closed stacks in `found` back in place of their
-/// cards.
+/// Puts the windows of the stacks in `found` back in place of their cards.
 pub fn unfold(group: &mut ArrangeGroup, found: &[Found]) {
-    for stack in found.iter().filter(|stack| stack.kind == Kind::Closed) {
+    for stack in found.iter().filter(|stack| stack.kind.is_card()) {
         if let Some(at) = group.windows.iter().position(|w| w.hwnd == stack.rep) {
             group.windows.splice(at..=at, stack.members.iter().cloned());
         }
     }
 }
 
-/// An order of the strip's cards with each closed stack's card replaced by
-/// its windows, for the taskbar.
+/// An order of the strip's cards with each stack's card replaced by its
+/// windows, for the taskbar.
 pub fn expand_order(order: &[isize], found: &[Found]) -> Vec<isize> {
     let closed: HashMap<isize, &Found> = found
         .iter()
-        .filter(|stack| stack.kind == Kind::Closed)
+        .filter(|stack| stack.kind.is_card())
         .map(|stack| (stack.rep, stack))
         .collect();
     order

@@ -45,6 +45,10 @@ pub fn before_frame(
         ctx.request_repaint();
         return;
     }
+    if shared.stacks.open.is_some() {
+        open_group_keys(ctx, shared, group);
+        return;
+    }
     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::G)) {
         ctrl_g(shared, group);
         ctx.request_repaint();
@@ -75,6 +79,52 @@ pub fn before_frame(
         }
         shared.stacks.pick_follow = true;
     }
+}
+
+/// The keys while a group is open: Left and Right pick among its windows,
+/// Enter opens the picked one, Ctrl+G takes it out of the group and Ctrl+W
+/// closes it. The row under the layer gets no keys; numbers are left for
+/// the strip, which asks `digit`.
+fn open_group_keys(ctx: &egui::Context, shared: &mut Shared, group: &ArrangeGroup) {
+    let count = shared
+        .stacks
+        .open_stack()
+        .map_or(0, |stack| stack.members.len());
+    let (left, right, enter, ctrl_g, ctrl_w) = ctx.input_mut(|i| {
+        (
+            i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft),
+            i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight),
+            i.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
+            i.consume_key(egui::Modifiers::CTRL, egui::Key::G),
+            i.consume_key(egui::Modifiers::CTRL, egui::Key::W),
+        )
+    });
+    let front = shared.stacks.front.min(count.saturating_sub(1));
+    shared.stacks.front = overlay::step(front, count, left, right);
+    if left || right {
+        ctx.request_repaint();
+    }
+    let picked = shared.stacks.front();
+    if enter {
+        shared.stacks.list_chosen = picked;
+    }
+    if let Some(hwnd) = picked.filter(|_| ctrl_g) {
+        take_out(shared, group, hwnd);
+        ctx.request_repaint();
+    }
+    if let Some(hwnd) = picked.filter(|hwnd| ctrl_w && !shared.is_leaving(*hwnd)) {
+        shared.stacks.close_member = Some(hwnd);
+        ctx.request_repaint();
+    }
+    // The row's own moves would act on cards nobody sees.
+    ctx.input_mut(|i| {
+        i.events.retain(|event| {
+            !matches!(
+                event,
+                egui::Event::Key { key, pressed: true, .. } if overlay::ROW_KEYS.contains(key)
+            )
+        })
+    });
 }
 
 /// After the views drew: a click, Enter or number on a stack opens it, a
@@ -160,23 +210,28 @@ pub fn after_frame(
         answer(shared, group, ask);
         ctx.request_repaint();
     }
+    if let Some(hwnd) = shared.stacks.close_member.take() {
+        shared.close_when_empty = false;
+        if !frame.close.contains(&hwnd) {
+            frame.close.push(hwnd);
+        }
+    }
     for cover in &shared.stacks.covers {
         frame.covers.push(*cover);
     }
 }
 
-/// While a group is open and the mouse is outside its frame, a cover over
+/// While a group is open and the mouse is outside its layer, a cover over
 /// the whole strip takes the mouse: a click there closes the group and
 /// does nothing else (the card under it does not open). True on that click.
 fn outside_click(ctx: &egui::Context, shared: &Shared, panel: Rect) -> bool {
     if shared.stacks.open.is_none() {
         return false;
     }
-    let runs = open_runs(shared);
     let Some(at) = ctx.input(|i| i.pointer.hover_pos()) else {
         return false;
     };
-    if !panel.contains(at) || !outside_open_group(at, &runs, shared.stacks.head) {
+    if !panel.contains(at) || !outside_open_group(at, shared.stacks.layer) {
         return false;
     }
     let id = egui::Id::new("deck-group-outside");
@@ -206,16 +261,20 @@ fn labels_of(stacks: &Stacks, group: &ArrangeGroup, hwnds: &[isize]) -> Vec<Stri
     for hwnd in hwnds {
         match stacks.closed(*hwnd) {
             Some(stack) => labels.extend(stack.members.iter().map(|w| w.label.clone())),
-            None => labels.extend(
-                group
-                    .windows
-                    .iter()
-                    .find(|w| w.hwnd == *hwnd)
-                    .map(|w| w.label.clone()),
-            ),
+            None => labels.extend(label_of(stacks, group, *hwnd)),
         }
     }
     labels
+}
+
+/// One window's own name. A window of the open group has no card of its
+/// own: the group's card carries the group's name, not the window's.
+fn label_of(stacks: &Stacks, group: &ArrangeGroup, hwnd: isize) -> Option<String> {
+    stacks
+        .stack_of(hwnd)
+        .and_then(|stack| stack.members.iter().find(|w| w.hwnd == hwnd))
+        .or_else(|| group.windows.iter().find(|w| w.hwnd == hwnd))
+        .map(|w| w.label.clone())
 }
 
 fn note(shared: &mut Shared, text: &str) {
@@ -295,13 +354,15 @@ fn take_out(shared: &mut Shared, group: &ArrangeGroup, hwnd: isize) {
     let Some(mut defs) = defs(shared) else {
         return;
     };
-    let Some(window) = group.windows.iter().find(|w| w.hwnd == hwnd) else {
+    let Some(label) = label_of(&shared.stacks, group, hwnd) else {
         return;
     };
-    deck_groups::remove(&mut defs, &group.key, &window.label);
+    deck_groups::remove(&mut defs, &group.key, &label);
     save_groups(shared, defs);
-    shared.cursor = Some(hwnd);
-    shared.cursor_ghost = false;
+    if shared.stacks.open.is_none() {
+        shared.cursor = Some(hwnd);
+        shared.cursor_ghost = false;
+    }
 }
 
 /// F2 on a stack: the box for the group's new name.
@@ -355,7 +416,8 @@ fn ask_close(shared: &mut Shared, group: &ArrangeGroup, hwnd: isize) {
     });
 }
 
-/// Opens the stack `hwnd` in place: its cards slide out from the stack.
+/// Opens the stack `hwnd` in place: its windows show on a layer above the
+/// row, and the row keeps every card where it is.
 pub fn open_group(shared: &mut Shared, hwnd: isize) {
     let Some(stack) = shared.stacks.closed(hwnd).cloned() else {
         return;
@@ -369,23 +431,9 @@ pub fn open_group(shared: &mut Shared, hwnd: isize) {
     if let Some(snapshot) = shared.snapshot.as_mut() {
         shared.stacks.refold(snapshot);
     }
-    let from = hit_rect(&shared.card_hits, hwnd);
-    for window in &stack.members {
-        shared.known.insert(window.hwnd);
-        if let Some(rect) = from {
-            shared.slides.float((window.hwnd, false), rect);
-        }
-    }
-    shared.slides.set_follow(true);
-    shared.cursor = shared
-        .group()
-        .and_then(|group| {
-            group
-                .windows
-                .iter()
-                .find(|w| stack.members.iter().any(|m| m.hwnd == w.hwnd))
-        })
-        .map(|w| w.hwnd);
+    shared.stacks.front = 0;
+    shared.stacks.layer = None;
+    shared.cursor = Some(hwnd);
     shared.cursor_ghost = false;
     shared.hide_peek();
 }
@@ -399,7 +447,8 @@ pub fn close_group(shared: &mut Shared) {
     if let Some(snapshot) = shared.snapshot.as_mut() {
         shared.stacks.refold(snapshot);
     }
-    shared.slides.set_follow(true);
+    shared.stacks.layer = None;
+    shared.stacks.close_member = None;
     let rep = shared
         .stacks
         .found

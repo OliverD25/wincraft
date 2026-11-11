@@ -53,6 +53,9 @@ const WIN_NUMBER_KEY: &str = "win_number_opens";
 const CLAUDE_STYLE_KEY: &str = "claude_card_style";
 const CLAUDE_ANIMATE_KEY: &str = "claude_animate";
 const CLAUDE_STYLES: &[&str] = &["Classic", "Off"];
+/// "Open a group as": the first is the default.
+const GROUP_OPEN_KEY: &str = "group_open_style";
+const GROUP_OPEN_STYLES: &[&str] = &["A row centred on the stack", "A fan"];
 /// The settings group of the Claude card fields.
 const CUSTOM_GROUP: &str = "Custom WindowDeck";
 const HOTKEY_NAME: &str = "arrange";
@@ -80,6 +83,8 @@ pub struct WindowDeck {
     claude_cards: bool,
     /// "Animate the Claude cards".
     claude_animate: bool,
+    /// "Open a group as" is "A fan".
+    group_fan: bool,
     /// The switch is on but Windows refused the keyboard hook.
     hook_refused: bool,
     /// A test instance (WINCRAFT_INSTANCE) never hides Windows' preview
@@ -108,6 +113,7 @@ impl Default for WindowDeck {
             win_number: false,
             claude_cards: true,
             claude_animate: true,
+            group_fan: false,
             hook_refused: false,
             read_only: instance::is_test(),
             own: own_windows::OwnWindows::new(instance::is_test()),
@@ -147,6 +153,7 @@ impl WindowDeck {
                 .and_then(|value| value.as_bool())
                 .unwrap_or(true),
         );
+        self.group_fan = group_fan_on(settings);
         self.hover_strip = settings
             .get(HOVER_STRIP_KEY)
             .and_then(|value| value.as_bool())
@@ -341,6 +348,15 @@ fn take_over_from_keeper(old: &mut PluginConfig, new: &mut PluginConfig) -> bool
     true
 }
 
+/// Whether "Open a group as" is "A fan". Any other value, or none, is the
+/// row centred on the stack.
+fn group_fan_on(settings: &serde_json::Value) -> bool {
+    settings
+        .get(GROUP_OPEN_KEY)
+        .and_then(|value| value.as_str())
+        == Some(GROUP_OPEN_STYLES[1])
+}
+
 /// Whether the Claude card style is on: anything but "Off". A value this
 /// version does not know (from a later version's style) shows Classic.
 fn claude_cards_on(settings: &serde_json::Value) -> bool {
@@ -372,6 +388,7 @@ impl WinCraftPlugin for WindowDeck {
             HINTS_KEY: true,
             TOOLBAR_KEY: false,
             groups::KEY: true,
+            GROUP_OPEN_KEY: GROUP_OPEN_STYLES[0],
             HOVER_STRIP_KEY: false,
             HOVER_DELAY_KEY: hover_preview::DEFAULT_DELAY_MS as f64 / 1000.0,
             WIN_NUMBER_KEY: false,
@@ -405,6 +422,12 @@ impl WinCraftPlugin for WindowDeck {
                 label: "Group related windows",
                 help: "Drag a card onto another card, or pick cards with Ctrl + click and press Ctrl + G, to keep related windows together as one card. Off shows every window as its own card; your groups are kept for when you switch it on again.",
                 kind: FieldKind::Toggle,
+            },
+            SettingField {
+                key: GROUP_OPEN_KEY,
+                label: "Open a group as",
+                help: "How an open group shows its windows, on top of the row. Nothing in the row moves. A fan overlaps the windows; Left and Right bring one to the front.",
+                kind: FieldKind::Choice(GROUP_OPEN_STYLES),
             },
             SettingField {
                 key: HOVER_STRIP_KEY,
@@ -583,6 +606,7 @@ impl WinCraftPlugin for WindowDeck {
             toolbar_on_other_monitors: self.toolbar_elsewhere,
             claude_cards: self.claude_cards,
             claude_animate: self.claude_animate,
+            group_fan: self.group_fan,
             groups: self.groups.for_strip(),
         })
     }
@@ -886,6 +910,32 @@ mod tests {
         let field = &fields[at(groups::KEY).expect("the switch is on the page")];
         assert_eq!(field.label, "Group related windows");
         assert_eq!(at(groups::KEY), at(TOOLBAR_KEY).map(|at| at + 1));
+        deck.teardown();
+    }
+
+    #[test]
+    fn a_group_opens_as_a_row_by_default_and_as_a_fan_when_chosen() {
+        let mut deck = test_deck();
+        assert_eq!(
+            deck.default_settings()[GROUP_OPEN_KEY],
+            GROUP_OPEN_STYLES[0]
+        );
+        deck.apply_settings(&deck.default_settings());
+        assert!(!deck.strip_look().expect("a look").group_fan);
+        deck.apply_settings(&serde_json::json!({ GROUP_OPEN_KEY: "A fan" }));
+        assert!(deck.strip_look().expect("a look").group_fan);
+        // A value this version does not know shows the row.
+        deck.apply_settings(&serde_json::json!({ GROUP_OPEN_KEY: "A spiral" }));
+        assert!(!deck.strip_look().expect("a look").group_fan);
+        let fields = deck.settings_fields();
+        let at = |key: &str| fields.iter().position(|field| field.key == key);
+        let field = &fields[at(GROUP_OPEN_KEY).expect("the choice is on the page")];
+        assert_eq!(field.label, "Open a group as");
+        assert_eq!(
+            field.kind,
+            FieldKind::Choice(&["A row centred on the stack", "A fan"])
+        );
+        assert_eq!(at(GROUP_OPEN_KEY), at(groups::KEY).map(|at| at + 1));
         deck.teardown();
     }
 
