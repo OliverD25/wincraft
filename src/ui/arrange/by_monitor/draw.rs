@@ -259,7 +259,14 @@ pub fn body(
     shared.zones = std::mem::take(&mut draw.zones);
     shared.card_hits = std::mem::take(&mut draw.hits);
     shared.items = std::mem::take(&mut draw.items);
-    super::super::stacks::after_cards(&ctx, shared, group, snapshot, &mut frame, dragging);
+    super::super::stacks::after_cards(
+        &ctx,
+        shared,
+        group,
+        &snapshot.desktops,
+        &mut frame,
+        dragging,
+    );
     frame.dragged = dragged.map(|m| group.windows[m].hwnd);
     if let (Some(lift), Some(grab), Some(pointer)) = (lift, grab, ctx.pointer_latest_pos()) {
         let member = lift.item.member();

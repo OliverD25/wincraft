@@ -187,6 +187,7 @@ pub(super) fn flat(
     let rows_area = Rect::from_min_max(content.min, pos2(content.max.x, content.max.y - footer));
     frame.area = rows_area;
 
+    stacks::before_flat_cards(ui, shared, rows_area);
     ui.scope_builder(UiBuilder::new().max_rect(rows_area), |ui| {
         egui::ScrollArea::vertical()
             .id_salt("arrange-rows")
@@ -259,6 +260,7 @@ pub(super) fn flat(
                                         slides: &mut shared.slides,
                                         animate,
                                         waiting,
+                                        stacks: &shared.stacks,
                                         edit: shared
                                             .rename
                                             .as_mut()
@@ -352,6 +354,7 @@ pub(super) fn flat(
     shared.row_rects = row_rects;
     shared.card_rects = card_rects;
     shared.card_hits = hits;
+    stacks::after_cards(&ctx, shared, group, desktops, &mut frame, dragging);
 
     // The dragged card rides above everything, following the pointer.
     if let (Some(drag), Some(member), Some(pointer)) = (shared.drag.as_ref(), dragged, pointer) {

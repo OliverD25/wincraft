@@ -351,9 +351,11 @@ WindowDeck never groups windows by itself.
   opens again with the same name joins its group by itself. A group with
   one window open shows as a normal card with a small stack mark; a group
   with none waits until a window comes back.
-- The stack stands on the monitor that holds most of its windows. The Flat
-  view shows the same stacks, and the compact popup shows a stack as a
-  normal card with the count chip.
+- The stack stands on the monitor that holds most of its windows. In an
+  open group, a window on another monitor shows as a dashed ghost card
+  inside the group's frame, with its number; its own card in its monitor's
+  column dims. The Flat view shows the same stacks, frame and list, and
+  the compact popup shows a stack as a normal card with the count chip.
 
 The groups are kept in `plugins\window_deck.groups.json`. With the setting
 off, every window is its own card again and nothing reads the file; your

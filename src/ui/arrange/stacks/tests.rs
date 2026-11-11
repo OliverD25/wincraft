@@ -286,3 +286,42 @@ fn the_close_question_names_wincraft_and_every_window() {
     );
     assert_eq!(dialogs::and_list(&["A".into()]), "A");
 }
+
+#[test]
+fn the_flat_view_lists_a_stack_as_one_card_and_an_open_group_together() {
+    let mut stacks = Stacks::default();
+    let mut data = snapshot();
+    stacks.arrive(&mut data, true);
+    let rep = stacks.found[0].rep;
+    let flat = rows(&data.groups[0], &data.desktops);
+    assert_eq!(flat.len(), 1);
+    assert_eq!(flat[0].members.len(), 3, "Inbox, the stack, Docs");
+    // A stack's picture is shorter, so its names fit under its title.
+    let area = Rect::from_min_size(pos2(0.0, 0.0), vec2(144.0, 81.0));
+    assert_eq!(
+        flat_picture(&stacks, rep, area).height(),
+        81.0 - paint::LINES
+    );
+    assert_eq!(flat_picture(&stacks, 1, area), area);
+
+    stacks.open = Some(("chrome".into(), "NewsHQ".into()));
+    stacks.refold(&mut data);
+    let group = &data.groups[0];
+    let flat = rows(group, &data.desktops);
+    assert_eq!(flat[0].members, [0, 1, 2, 3, 4]);
+    let numbers = stacks.numbers(group, taskbar_numbers(group, &data.desktops));
+    assert_eq!(numbers, [1, 1, 2, 3, 5]);
+    // The Flat view has no ghosts: every window keeps its own card.
+    stacks.set_ghosted(vec![5]);
+    assert_eq!(stacks.dim_card(5), DIMMED);
+    stacks.ghosted.clear();
+    assert_eq!(stacks.dim_card(5), 1.0);
+    assert_eq!(stacks.dim_card(1), DIMMED);
+    assert_eq!(
+        stacks.open_members(group),
+        OpenMembers {
+            hwnds: vec![2, 4, 5],
+            rep: Some(rep)
+        }
+    );
+}

@@ -342,11 +342,15 @@ pub fn after_cards(
     ctx: &egui::Context,
     shared: &mut Shared,
     group: &ArrangeGroup,
-    snapshot: &ArrangeSnapshot,
+    desktops: &[ArrangeDesktop],
     frame: &mut Frame,
     dragging: bool,
 ) {
-    if snapshot.deck_groups.is_none() {
+    let on = shared
+        .snapshot
+        .as_ref()
+        .is_some_and(|s| s.deck_groups.is_some());
+    if !on {
         return;
     }
     open_tab(ctx, shared, frame);
@@ -394,7 +398,7 @@ pub fn after_cards(
     ) else {
         return;
     };
-    let numbers = taskbar_numbers(group, &snapshot.desktops);
+    let numbers = taskbar_numbers(group, desktops);
     let number = group
         .windows
         .iter()
@@ -466,4 +470,20 @@ pub fn after_cards(
         );
     }
     cover(frame, list);
+}
+
+/// The Flat view's part before its cards: it has no ghosts and no "Drop to
+/// group", and the open group's frame goes behind the cards.
+pub fn before_flat_cards(ui: &Ui, shared: &mut Shared, area: Rect) {
+    shared.stacks.ghosted.clear();
+    shared.stacks.drop_on = None;
+    open_frame(&ui.painter().with_clip_rect(area), shared);
+}
+
+/// A Flat card's picture area: shorter on a stack, to make room for the
+/// names under its title.
+pub fn flat_picture(stacks: &Stacks, hwnd: isize, area: Rect) -> Rect {
+    let mut area = area;
+    area.max.y = area.min.y + thumb_height(stacks, hwnd, area.height()).max(0.0);
+    area
 }
