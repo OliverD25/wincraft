@@ -1,17 +1,16 @@
 # Tasks on you: WinCraft
 
-Updated: 2026-11-10. Kept by the my-tasks skill. `/my-tasks` shows this
+Updated: 2026-11-11. Kept by the my-tasks skill. `/my-tasks` shows this
 list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ## Open
 
 ### 7. Release and test WindowDeck groups with the fixes
 
-- **State:** Wait: the fixes for Esc, the click outside, the clickable
-  stack list and whole-word names are merged to main (c82050d, 2026-11-11,
-  away mode) but not released. Away mode releases only when you ask. Tell
-  the agent "release"; it builds 0.20.93 and says "Ready to test:" when the
-  release is live. Then do the steps below (they work on 0.20.93 too).
+- **State:** Ready to test. Release v0.20.93 is built and published
+  (2026-11-11, with wincraft.exe and SHA256SUMS.txt). It has the groups and
+  the fixes for Esc, the click outside, the clickable stack list and
+  whole-word names.
 - **Fixes to look at after the release:** step 7: `Esc` closes only the
   open group, WindowDeck stays; a click outside the group frame closes the
   group, WindowDeck stays. Step 5: move the mouse from the stack down into
@@ -29,7 +28,7 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 1. Right-click the WinCraft icon in the tray and click **Settings…**.
 2. Click **About** in the left list, then **Check for updates**, then
-   **Update now**. WinCraft restarts; About shows 0.20.91.
+   **Update now**. WinCraft restarts; About shows 0.20.93.
 3. Open three Notepad windows. Open WindowDeck (`Win+Alt+A`, then the
    number of Notepad's taskbar button).
 4. Ctrl + click two Notepad cards (each gets a white check mark), then press
