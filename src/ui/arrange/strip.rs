@@ -13,6 +13,9 @@ pub(super) struct Pending {
     /// For a ghost in the By monitor view, whose window also has its own
     /// card: a picture has one place, so a ghost needs a picture of its own.
     pub(super) ghost: bool,
+    /// A window of the open group, on its layer above the row: the covers
+    /// over the row (the layer's own among them) do not hide it.
+    pub(super) layer: bool,
 }
 
 /// What a view's body did this frame, for the parts both views share.
@@ -205,9 +208,14 @@ pub(super) fn strip(ui: &mut Ui, shared: &mut Shared) {
         ui.ctx().request_repaint();
     }
 
-    shared
-        .thumbs
-        .retain(|hwnd, _| group.windows.iter().any(|window| window.hwnd == *hwnd));
+    let on_layer = shared
+        .stacks
+        .open_stack()
+        .map(|s| s.hwnds())
+        .unwrap_or_default();
+    shared.thumbs.retain(|hwnd, _| {
+        on_layer.contains(hwnd) || group.windows.iter().any(|window| window.hwnd == *hwnd)
+    });
     shared
         .ghost_thumbs
         .retain(|hwnd, _| group.windows.iter().any(|window| window.hwnd == *hwnd));

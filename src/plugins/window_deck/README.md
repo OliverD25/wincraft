@@ -339,19 +339,33 @@ WindowDeck never groups windows by itself.
   A name that starts like the group's is cut only between whole words:
   "WinCraft Rust (fork) - Design" in "WinCraft Rust" shows as
   "fork - Design".
-- **Open a group** with its number, Enter or a click. Its cards slide out
-  in place inside a light frame, its windows are numbered 1, 2, 3, and the
-  other cards dim. So 6 then 2 opens the second window of the group on
-  card 6. **Esc** closes only the group, and WindowDeck stays open with
-  the stack selected; Esc again closes WindowDeck. A click outside the
-  group's frame also closes the group and does nothing else, so the card
+- **Open a group** with its number, Enter or a click. It opens over the
+  row and moves nothing: every card, the stack included, stays where it
+  is, and the WindowDeck window keeps its size. The group's windows show
+  on a panel above the stack, with the group's name and keys on top, as
+  cards numbered 1, 2, 3; every one of them is there, also a window on
+  another monitor. The cards under the panel dim and do not react to the
+  mouse. So 6 then 2 opens the second window of the group on card 6.
+  Left and Right pick a window, Enter or a click switches to it, and a
+  window under the mouse comes forward to look at after a short rest, as
+  a card does. **Esc** closes only the group, and WindowDeck stays open
+  with the stack selected; Esc again closes WindowDeck. A click outside
+  the panel also closes the group and does nothing else, so the card
   under the mouse does not open.
+- **Open a group as** (a setting) picks how the panel lays out the
+  windows. **A row centred on the stack** (the default) puts them side
+  by side, centred on the stack, with their tops level with it; near the
+  edge of the window the row slides in just enough to fit, and a group
+  too wide for the window gets narrower cards. **A fan** lets them
+  overlap, starting on the stack's place, so a big group stays close to
+  it. The picked window is in front; Left and Right, or resting the mouse
+  on the part of a window that shows, bring another one to the front.
 - **Change a group.** Ctrl+G on a window in an open group takes it out of
   the group. Ctrl+G on a stack ungroups it. **F2** on a stack renames the
   group.
 - **Close a group's windows.** Ctrl+W or a middle click on a stack asks
-  first: "Close 3 windows in NewsHQ?". Inside an open group they close one
-  window, as before.
+  first: "Close 3 windows in NewsHQ?". Inside an open group they close the
+  picked window only, as on a card.
 - **Right-click** a window card for **Add to group** and **New group…**;
   right-click a stack for **Open the group**, **Rename the group**,
   **Ungroup** and **Close 3 windows…**.
@@ -360,11 +374,10 @@ WindowDeck never groups windows by itself.
   opens again with the same name joins its group by itself. A group with
   one window open shows as a normal card with a small stack mark; a group
   with none waits until a window comes back.
-- The stack stands on the monitor that holds most of its windows. In an
-  open group, a window on another monitor shows as a dashed ghost card
-  inside the group's frame, with its number; its own card in its monitor's
-  column dims. The Flat view shows the same stacks, frame and list, and
-  the compact popup shows a stack as a normal card with the count chip.
+- The stack stands on the monitor that holds most of its windows. The
+  Flat view shows the same stacks, list and open panel, and the compact
+  popup shows a stack as a normal card with the count chip and opens it
+  on the same panel.
 
 The groups are kept in `plugins\window_deck.groups.json`. With the setting
 off, every window is its own card again and nothing reads the file; your
@@ -550,6 +563,7 @@ changes those files, the cards simply show no status.
 | Show key hints | on | Ctrl+H hides or shows them in WindowDeck. |
 | Show the toolbar on other monitors | off | The app list and the By monitor and Flat switch, in the strip that opens from the taskbar of a monitor that is not the main one. Off gives the pictures more room. |
 | Group related windows | on | Keeps windows you group as one card (see **Groups of related windows**). Off shows every window as its own card; your groups are kept for when you switch it on again. |
+| Open a group as | A row centred on the stack | How an open group shows its windows above the row: side by side centred on the stack, or **A fan** that overlaps them. Nothing in the row moves either way. |
 | Show WindowDeck instead of Windows' taskbar preview | off | Resting the mouse on the taskbar button of an app with 2 or more windows opens WindowDeck above it (see **WindowDeck instead of Windows' taskbar preview**). Also in the tray menu and the palette. |
 | Hover delay (seconds) | 0.15 | How long the mouse rests on a taskbar button before WindowDeck opens, from 0.05 to 1.5. |
 | Open WindowDeck with Win+1…9 | off | Win and a number open WindowDeck for that taskbar button (see **Win+1…9**). Win+Shift, Win+Ctrl and Win+Alt with a number stay with Windows. |

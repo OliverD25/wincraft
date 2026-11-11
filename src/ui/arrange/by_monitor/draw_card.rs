@@ -21,7 +21,7 @@ impl Draw<'_> {
         let mark = shared.claude_mark(window);
         let alpha = alpha
             * fade
-            * shared.stacks.dim_card(window.hwnd)
+            * shared.stacks.dim()
             * mark.as_ref().map_or(1.0, claude::Mark::card_alpha);
         let response = ui.interact(
             rect,
@@ -115,6 +115,7 @@ impl Draw<'_> {
                 opacity: (255.0 * alpha * picture_alpha).round() as u8,
                 clear: stacks::marks(&painter, &shared.stacks, window.hwnd, thumb, clear),
                 ghost: false,
+                layer: false,
             });
         } else {
             name_card(&painter, picture, &window.label, "");
@@ -124,19 +125,7 @@ impl Draw<'_> {
         let title_top = thumb.bottom() + TITLE_GAP;
         let right = rect.right() - CARD_PAD - 2.0;
         let at = pos2(rect.left() + CARD_PAD + 2.0, title_top);
-        // A window with a ghost in the open group has its number there.
-        let number = if shared.stacks.is_ghosted(window.hwnd) {
-            Rect::from_min_size(at, vec2(0.0, TITLE))
-        } else {
-            number_chip(&painter, at, TITLE, self.numbers[member])
-        };
-        stacks::member_chip(
-            &painter,
-            &shared.stacks,
-            window.hwnd,
-            number,
-            self.numbers[member],
-        );
+        let number = number_chip(&painter, at, TITLE, self.numbers[member]);
         let lines = Rect::from_min_max(
             pos2(number.left(), title_top + TITLE + 2.0),
             pos2(right, rect.bottom()),
@@ -215,7 +204,7 @@ impl Draw<'_> {
             return;
         };
         let rect = shared.slid((window.hwnd, true), rect);
-        let alpha = alpha * shared.motion(window.hwnd).1 * shared.stacks.dim(window.hwnd);
+        let alpha = alpha * shared.motion(window.hwnd).1 * shared.stacks.dim();
         let left = self
             .monitors
             .iter()
@@ -335,6 +324,7 @@ impl Draw<'_> {
                 opacity: (255.0 * GHOST_OPACITY * alpha).round() as u8,
                 clear: Rect::NOTHING,
                 ghost: true,
+                layer: false,
             });
         } else {
             let mut faded = painter.clone();

@@ -410,13 +410,10 @@ impl Shared {
                     self.others.shown(count),
                     count > 0,
                     limit,
-                    (
-                        by_monitor::Scope {
-                            only: self.only_monitor,
-                            taskbars: self.taskbars,
-                        },
-                        &self.stacks.open_members(group),
-                    ),
+                    by_monitor::Scope {
+                        only: self.only_monitor,
+                        taskbars: self.taskbars,
+                    },
                 )
             }
             (Some(group), Some(snapshot)) => {

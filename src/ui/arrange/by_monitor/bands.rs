@@ -19,10 +19,6 @@ pub struct Band {
     /// The windows of the other connected monitors' columns, in taskbar
     /// order, as places in the group's windows.
     pub ghosts: Vec<usize>,
-    /// Room above every line of cards, while a group is open: the group's
-    /// header line sits in it, clear of the monitor line and the line
-    /// above.
-    pub lead: f32,
 }
 
 impl Band {
@@ -134,7 +130,6 @@ pub fn bands(
         cells: empty.clone(),
         ghost_cell: None,
         ghosts: Vec::new(),
-        lead: 0.0,
     });
     for (index, desktop) in desktops.iter().enumerate() {
         if !desktop.current {
@@ -146,7 +141,6 @@ pub fn bands(
                 cells: empty.clone(),
                 ghost_cell: None,
                 ghosts: Vec::new(),
-                lead: 0.0,
             });
         }
     }
@@ -263,7 +257,6 @@ pub(super) fn row_height(
             }
             None => cell_height(&flow_widths(&band.flow((r, c)), widths), *track),
         })
-        .map(|height| led_height(height, band.lead))
         .fold(0.0, f32::max);
     let height = LABEL + LABEL_GAP + tallest;
     if cols.iter().any(|col| col.rail) {
@@ -397,8 +390,7 @@ impl Model {
     }
 }
 
-/// The panel's size. `scope` comes with the open group, whose ghosts take
-/// room in its column.
+/// The panel's size.
 pub fn panel_for(
     group: &ArrangeGroup,
     snapshot: &ArrangeSnapshot,
@@ -406,13 +398,9 @@ pub fn panel_for(
     shown: bool,
     link: bool,
     limit: Vec2,
-    (scope, open): (Scope, &super::super::stacks::OpenMembers),
+    scope: Scope,
 ) -> Vec2 {
-    let (model, _) = Model::new(group, snapshot, widths, shown, scope).with_open_group(
-        group,
-        &snapshot.monitors,
-        open,
-    );
+    let model = Model::new(group, snapshot, widths, shown, scope);
     panel_size(
         &model.bands,
         &model.cols,

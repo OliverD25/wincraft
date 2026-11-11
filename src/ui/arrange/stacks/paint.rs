@@ -1,7 +1,7 @@
 //! How groups look: a stack's card (two edges behind it, a count chip, the
 //! other windows' names), the mark of a group with one window open, the
-//! check mark of a picked card, the frame round an open group, the list
-//! under a selected stack and the "Drop to group" mark.
+//! check mark of a picked card, the list under a selected stack and the
+//! "Drop to group" mark. An open group's layer is in `overlay`.
 
 use super::*;
 
@@ -12,13 +12,10 @@ const LINE_FONT: f32 = 12.0;
 /// How far each edge behind a stack peeks out.
 const EDGE_STEP: f32 = 4.0;
 const CHIP_HEIGHT: f32 = 16.0;
-/// Round an open group's cards.
-const FRAME_PAD: f32 = 6.0;
-pub const TAB_HEIGHT: f32 = 16.0;
 
 /// A card's picture height: shorter on a stack, to make room for its lines.
 pub fn thumb_height(stacks: &Stacks, hwnd: isize, full: f32) -> f32 {
-    if stacks.closed(hwnd).is_some() {
+    if stacks.card_stack(hwnd).is_some() {
         full - LINES
     } else {
         full
@@ -27,7 +24,7 @@ pub fn thumb_height(stacks: &Stacks, hwnd: isize, full: f32) -> f32 {
 
 /// Two card edges behind a stack, peeking out at the top right.
 pub fn behind(painter: &egui::Painter, stacks: &Stacks, hwnd: isize, rect: Rect) {
-    if stacks.closed(hwnd).is_none() {
+    if stacks.card_stack(hwnd).is_none() {
         return;
     }
     let tokens = Tokens::get(painter.ctx());
@@ -71,7 +68,7 @@ pub fn marks(
         };
     };
     let corner = pos2(thumb.right() - 4.0, thumb.top() + 4.0);
-    if let Some(stack) = stacks.closed(hwnd) {
+    if let Some(stack) = stacks.card_stack(hwnd) {
         let galley = painter.layout_no_wrap(
             stack.members.len().to_string(),
             theme::semibold(12.0),
@@ -158,7 +155,7 @@ pub fn names_line(stack: &Found, fits: &dyn Fn(&str) -> bool) -> String {
 
 /// Draws the stack's names under its title, in `area`.
 pub fn lines(painter: &egui::Painter, stacks: &Stacks, hwnd: isize, area: Rect) {
-    let Some(stack) = stacks.closed(hwnd) else {
+    let Some(stack) = stacks.card_stack(hwnd) else {
         return;
     };
     let tokens = Tokens::get(painter.ctx());
@@ -181,210 +178,17 @@ pub fn lines(painter: &egui::Painter, stacks: &Stacks, hwnd: isize, area: Rect) 
     );
 }
 
-/// An open group's window gets a solid number chip over its usual one.
-pub fn member_chip(
-    painter: &egui::Painter,
-    stacks: &Stacks,
-    hwnd: isize,
-    chip: Rect,
-    number: usize,
-) {
-    let Some(stack) = stacks.open_stack() else {
-        return;
-    };
-    if !stack.members.iter().any(|w| w.hwnd == hwnd) {
-        return;
-    }
-    let tokens = Tokens::get(painter.ctx());
-    painter.rect_filled(chip, tokens.radius_row, tokens.text_primary);
-    let galley =
-        painter.layout_no_wrap(number.to_string(), theme::semibold(12.0), tokens.window_bg);
-    painter.galley(
-        chip.center() - galley.size() / 2.0,
-        galley,
-        tokens.window_bg,
-    );
-}
-
-/// The open group's cards in runs next to each other, from last frame's
-/// card places: a run ends where a line of cards wraps or a column ends.
-pub fn runs(rects: &[Rect]) -> Vec<Rect> {
-    let mut sorted = rects.to_vec();
-    sorted.sort_by(|a, b| {
-        a.top()
-            .total_cmp(&b.top())
-            .then(a.left().total_cmp(&b.left()))
-    });
-    let mut runs: Vec<Rect> = Vec::new();
-    for rect in sorted {
-        match runs.last_mut() {
-            Some(run)
-                if (run.top() - rect.top()).abs() < 1.0
-                    && rect.left() - run.right() <= 2.0 * CARD_GAP =>
-            {
-                *run = run.union(rect)
-            }
-            _ => runs.push(rect),
-        }
-    }
-    runs
-}
-
-/// Where the open group's windows were drawn last frame: a window with a
-/// ghost in the group's column counts by its ghost, not its own card.
-fn member_rects(shared: &Shared, stack: &Found) -> Vec<Rect> {
-    let ghost_at = |hwnd: isize| {
-        let group = shared.group()?;
-        shared
-            .items
-            .iter()
-            .find(|(item, _)| {
-                matches!(item, super::super::by_monitor::Item::Ghost(_))
-                    && group
-                        .windows
-                        .get(item.member())
-                        .is_some_and(|w| w.hwnd == hwnd)
-            })
-            .map(|(_, rect)| *rect)
-    };
-    stack
-        .members
-        .iter()
-        .filter_map(|w| {
-            if shared.stacks.is_ghosted(w.hwnd) {
-                ghost_at(w.hwnd)
-            } else {
-                hit_rect(&shared.card_hits, w.hwnd)
-            }
-        })
-        .collect()
-}
-
-/// The frame round a run of an open group's cards. With `head` (the room
-/// the By monitor view leaves above each line while a group is open) the
-/// frame reaches up into that room, so the header line sits inside it.
-pub fn frame_rect(run: Rect, head: f32) -> Rect {
-    let mut frame = run.expand(FRAME_PAD);
-    if head > 0.0 {
-        frame.min.y = run.top() - head - 2.0;
-    }
-    frame
-}
-
-/// Where the header line goes on `frame`: inside its top padding when
-/// there is room for it, else across its top edge.
-pub fn tab_at(frame: Rect, head: f32) -> Pos2 {
-    if head > 0.0 {
-        pos2(frame.left() + 8.0, frame.top() + 2.0)
-    } else {
-        pos2(frame.left() + 8.0, frame.top() - TAB_HEIGHT / 2.0)
-    }
-}
-
-/// Where a click keeps an open group open: the frames round its runs of
-/// cards, with the header line across the top edge of a frame.
-pub fn open_zones(runs: &[Rect], head: f32) -> Vec<Rect> {
-    runs.iter()
-        .map(|run| {
-            let mut zone = frame_rect(*run, head);
-            if head <= 0.0 {
-                zone.min.y -= TAB_HEIGHT / 2.0;
-            }
-            zone
-        })
-        .collect()
-}
-
-/// A click at `at` is outside the open group: it closes the group and does
-/// nothing else.
-pub fn outside_open_group(at: Pos2, runs: &[Rect], head: f32) -> bool {
-    !runs.is_empty() && !open_zones(runs, head).iter().any(|zone| zone.contains(at))
-}
-
-/// The open group's runs of cards, from last frame's card places.
-pub fn open_runs(shared: &Shared) -> Vec<Rect> {
-    shared
-        .stacks
-        .open_stack()
-        .map(|stack| runs(&member_rects(shared, stack)))
-        .unwrap_or_default()
-}
-
-/// The frame round an open group, behind its cards: a light fill and a
-/// ring. Drawn from last frame's card places, before the cards.
-pub fn open_frame(painter: &egui::Painter, shared: &Shared) {
-    let Some(stack) = shared.stacks.open_stack() else {
-        return;
-    };
-    let tokens = Tokens::get(painter.ctx());
-    let rects = member_rects(shared, stack);
-    for run in runs(&rects) {
-        painter.rect(
-            frame_rect(run, shared.stacks.head),
-            8,
-            theme::with_alpha(tokens.text_primary, 0.05),
-            theme::line(painter.ctx(), theme::with_alpha(tokens.text_primary, 0.35)),
-            StrokeKind::Inside,
-        );
-    }
-}
-
-/// The open group's name and keys, on the top edge of its first run.
-fn open_tab(ctx: &egui::Context, shared: &Shared, frame: &mut Frame) {
-    let Some(stack) = shared.stacks.open_stack() else {
-        return;
-    };
-    let rects = member_rects(shared, stack);
-    let Some(run) = runs(&rects).first().copied() else {
-        return;
-    };
-    let first = frame_rect(run, shared.stacks.head);
-    let tokens = Tokens::get(ctx);
-    let painter = ctx.layer_painter(egui::LayerId::new(
-        egui::Order::Middle,
-        egui::Id::new("deck-group-tab"),
-    ));
-    let text = format!(
-        "{} \u{b7} 1 \u{2013} {} opens a window \u{b7} Esc closes the group",
-        stack.name,
-        stack.members.len()
-    );
-    let mut job = text::job(&text, theme::regular(12.0), tokens.text_primary, None);
-    job.wrap = TextWrapping {
-        max_width: (first.width() - 16.0).max(40.0),
-        max_rows: 1,
-        break_anywhere: true,
-        overflow_character: Some('\u{2026}'),
-    };
-    let galley = painter.layout_job(job);
-    let tab = Rect::from_min_size(
-        tab_at(first, shared.stacks.head),
-        vec2(galley.size().x + 12.0, TAB_HEIGHT),
-    );
-    painter.rect(
-        tab,
-        8,
-        tokens.window_bg,
-        theme::line(ctx, theme::with_alpha(tokens.text_primary, 0.35)),
-        StrokeKind::Inside,
-    );
-    painter.galley(
-        pos2(tab.left() + 6.0, tab.center().y - galley.size().y / 2.0),
-        galley,
-        tokens.text_primary,
-    );
-    // Only the part above the cards: a picture starts right at a ghost's
-    // top, and covering it would hide it.
-    let mut covered = tab;
-    covered.max.y = covered.max.y.min(run.top() - 1.0);
-    cover(frame, covered);
+/// A click at `at` is outside the open group's layer (`layer`, as drawn
+/// last frame): it closes the group and does nothing else.
+pub fn outside_open_group(at: Pos2, layer: Option<Rect>) -> bool {
+    layer.is_some_and(|layer| !layer.contains(at))
 }
 
 fn cover(frame: &mut Frame, rect: Rect) {
     frame.covers.push(rect);
 }
 
-/// After the cards are drawn: the open group's tab, the list under a
+/// After the cards are drawn: the open group's layer, the list under a
 /// selected or pointed-at stack, and the "Drop to group" mark.
 pub fn after_cards(
     ctx: &egui::Context,
@@ -401,7 +205,12 @@ pub fn after_cards(
     if !on {
         return;
     }
-    open_tab(ctx, shared, frame);
+    if shared.stacks.open.is_some() {
+        shared.stacks.list = None;
+        shared.stacks.drop_on = None;
+        super::overlay::show(ctx, shared, group, desktops, frame);
+        return;
+    }
     let tokens = Tokens::get(ctx);
     if let Some(rect) = shared
         .stacks
@@ -458,13 +267,9 @@ fn drop_badge(ctx: &egui::Context, tokens: &Tokens, rect: Rect) {
     painter.galley(at, label, Color32::WHITE);
 }
 
-/// The Flat view's part before its cards: it has no ghosts and no "Drop to
-/// group", and the open group's frame goes behind the cards.
-pub fn before_flat_cards(ui: &Ui, shared: &mut Shared, area: Rect) {
-    shared.stacks.ghosted.clear();
-    shared.stacks.head = 0.0;
+/// The Flat view's part before its cards: it has no "Drop to group".
+pub fn before_flat_cards(shared: &mut Shared) {
     shared.stacks.drop_on = None;
-    open_frame(&ui.painter().with_clip_rect(area), shared);
 }
 
 /// A Flat card's picture area: shorter on a stack, to make room for the

@@ -82,12 +82,23 @@ fn a_closed_group_is_one_card_at_the_place_of_its_first_window() {
     assert_eq!(hwnds(&group), [1, 2, 4, 5, 3]);
 }
 
+// The user saw the row jump when a group opened (0.20.96): an open group
+// stays one card in the row, as it was closed.
 #[test]
-fn an_open_group_lies_together_and_a_lone_window_keeps_its_card() {
+fn an_open_group_stays_one_card_and_a_lone_window_keeps_its_card() {
+    let mut closed = chrome();
+    fold(&mut closed, &news(), &recent, None);
     let mut group = chrome();
     let found = fold(&mut group, &news(), &recent, Some("NewsHQ"));
-    assert_eq!(hwnds(&group), [1, 2, 4, 5, 3]);
+    assert_eq!(
+        group, closed,
+        "the row is the same as with the group closed"
+    );
     assert_eq!(found[0].kind, Kind::Open);
+    assert_eq!(found[0].hwnds(), [2, 4, 5]);
+    unfold(&mut group, &found);
+    assert_eq!(hwnds(&group), [1, 2, 4, 5, 3]);
+    assert_eq!(expand_order(&[1, 4, 3], &found), [1, 2, 4, 5, 3]);
 
     let mut group = chrome();
     group.windows.retain(|w| w.hwnd != 4 && w.hwnd != 5);
@@ -162,11 +173,12 @@ fn snapshot() -> ArrangeSnapshot {
         keeps_order: false,
         anchor: None,
         claude_animate: false,
+        group_fan: false,
     }
 }
 
 #[test]
-fn an_open_group_numbers_its_windows_from_one_and_dims_the_rest() {
+fn an_open_group_numbers_its_windows_from_one_and_dims_the_row() {
     let mut stacks = Stacks::default();
     let mut data = snapshot();
     stacks.arrive(&mut data, true);
@@ -175,16 +187,18 @@ fn an_open_group_numbers_its_windows_from_one_and_dims_the_rest() {
     assert_eq!(stacks.digit(&data.groups[0], 1), None, "no group open");
     assert!(!stacks.wants_escape());
 
+    assert_eq!(stacks.dim(), 1.0);
     stacks.open = Some(("chrome".into(), "NewsHQ".into()));
     stacks.refold(&mut data);
     let group = &data.groups[0];
-    assert_eq!(hwnds(group), [1, 2, 4, 5, 3]);
-    let numbers = stacks.numbers(group, taskbar_numbers(group, &data.desktops));
-    assert_eq!(numbers, [1, 1, 2, 3, 5], "Inbox and Docs keep theirs");
+    assert_eq!(hwnds(group), [1, rep, 3], "the row keeps the group's card");
+    assert_eq!(stacks.card_stack(rep).map(|s| s.kind), Some(Kind::Open));
+    assert!(stacks.closed(rep).is_none(), "a click on it opens nothing");
+    assert_eq!(stacks.digit(group, 1), Some(Some(2)));
     assert_eq!(stacks.digit(group, 2), Some(Some(4)));
     assert_eq!(stacks.digit(group, 4), Some(None));
-    assert_eq!(stacks.dim(1), DIMMED);
-    assert_eq!(stacks.dim(5), 1.0);
+    assert_eq!(stacks.front(), Some(2), "window 1 is picked first");
+    assert_eq!(stacks.dim(), DIMMED, "every card in the row dims");
     assert!(stacks.wants_escape());
     assert_eq!(stacks.hints(&data), GroupHints::Open);
 
@@ -239,22 +253,6 @@ fn a_stack_names_its_other_windows_until_they_do_not_fit() {
 }
 
 #[test]
-fn an_open_groups_cards_frame_in_runs() {
-    let card = |x: f32, y: f32| Rect::from_min_size(pos2(x, y), vec2(100.0, 50.0));
-    let runs = paint::runs(&[
-        card(108.0, 0.0),
-        card(0.0, 0.0),
-        card(0.0, 60.0),
-        card(400.0, 0.0),
-    ]);
-    assert_eq!(runs.len(), 3);
-    assert_eq!(
-        runs[0],
-        Rect::from_min_max(pos2(0.0, 0.0), pos2(208.0, 50.0))
-    );
-}
-
-#[test]
 fn a_drop_groups_only_over_the_middle_of_a_card() {
     let cards = [
         (1, Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 100.0))),
@@ -290,7 +288,7 @@ fn the_close_question_names_wincraft_and_every_window() {
 }
 
 #[test]
-fn the_flat_view_lists_a_stack_as_one_card_and_an_open_group_together() {
+fn the_flat_view_lists_a_stack_as_one_card_open_or_closed() {
     let mut stacks = Stacks::default();
     let mut data = snapshot();
     stacks.arrive(&mut data, true);
@@ -306,25 +304,16 @@ fn the_flat_view_lists_a_stack_as_one_card_and_an_open_group_together() {
     );
     assert_eq!(flat_picture(&stacks, 1, area), area);
 
+    let before = flat[0].members.clone();
     stacks.open = Some(("chrome".into(), "NewsHQ".into()));
     stacks.refold(&mut data);
     let group = &data.groups[0];
     let flat = rows(group, &data.desktops);
-    assert_eq!(flat[0].members, [0, 1, 2, 3, 4]);
-    let numbers = stacks.numbers(group, taskbar_numbers(group, &data.desktops));
-    assert_eq!(numbers, [1, 1, 2, 3, 5]);
-    // The Flat view has no ghosts: every window keeps its own card.
-    stacks.set_ghosted(vec![5], 0.0);
-    assert_eq!(stacks.dim_card(5), DIMMED);
-    stacks.ghosted.clear();
-    assert_eq!(stacks.dim_card(5), 1.0);
-    assert_eq!(stacks.dim_card(1), DIMMED);
+    assert_eq!(flat[0].members, before, "nothing moves when it opens");
+    // The open group's card still looks like a stack under its layer.
     assert_eq!(
-        stacks.open_members(group),
-        OpenMembers {
-            hwnds: vec![2, 4, 5],
-            rep: Some(rep)
-        }
+        flat_picture(&stacks, rep, area).height(),
+        81.0 - paint::LINES
     );
 }
 
@@ -337,6 +326,11 @@ fn a_cover_hides_pictures_also_while_a_card_is_dragged() {
         opacity: 255,
         clear: Rect::NOTHING,
         ghost: false,
+        layer: false,
+    };
+    let on_layer = Pending {
+        layer: true,
+        ..picture(0.0)
     };
     let tab = [Rect::from_min_size(pos2(0.0, -8.0), vec2(200.0, 10.0))];
     let dragged_card = Some(Rect::from_min_size(pos2(500.0, 0.0), vec2(100.0, 60.0)));
@@ -357,39 +351,31 @@ fn a_cover_hides_pictures_also_while_a_card_is_dragged() {
         !is_covered(&picture(520.0), &over, Some(7)),
         "its own picture rides along"
     );
+    assert!(
+        !is_covered(&on_layer, &over, Some(3)),
+        "the open group's layer is above every cover"
+    );
 }
 
-// The user asked that a click outside an open group's frame closes the
-// group and keeps WindowDeck open (0.20.91).
+// The user asked that a click outside an open group closes the group and
+// keeps WindowDeck open (0.20.91); the group is now its layer.
 #[test]
-fn a_click_outside_the_open_groups_frame_closes_it() {
-    let run = Rect::from_min_size(pos2(100.0, 100.0), vec2(300.0, 120.0));
-    // The Flat view: no room above the line; the header crosses the edge.
+fn a_click_outside_the_open_groups_layer_closes_it() {
+    let layer = Rect::from_min_size(pos2(100.0, 100.0), vec2(300.0, 160.0));
     assert!(
-        !paint::outside_open_group(pos2(200.0, 150.0), &[run], 0.0),
-        "a card"
+        !paint::outside_open_group(pos2(200.0, 150.0), Some(layer)),
+        "a window of the group"
     );
     assert!(
-        !paint::outside_open_group(pos2(97.0, 97.0), &[run], 0.0),
-        "the frame"
-    );
-    assert!(
-        !paint::outside_open_group(pos2(120.0, 100.0 - 6.0 - 7.0), &[run], 0.0),
+        !paint::outside_open_group(pos2(110.0, 108.0), Some(layer)),
         "the header line"
     );
-    assert!(paint::outside_open_group(pos2(50.0, 150.0), &[run], 0.0));
-    assert!(paint::outside_open_group(pos2(200.0, 240.0), &[run], 0.0));
-    // By monitor: the frame reaches up into the room for the header.
-    assert!(!paint::outside_open_group(pos2(120.0, 80.0), &[run], 24.0));
-    assert!(paint::outside_open_group(pos2(120.0, 70.0), &[run], 24.0));
-    // Two runs: inside either counts; no group, nothing is outside.
-    let second = run.translate(vec2(0.0, 300.0));
-    assert!(!paint::outside_open_group(
-        pos2(200.0, 450.0),
-        &[run, second],
-        0.0
-    ));
-    assert!(!paint::outside_open_group(pos2(0.0, 0.0), &[], 0.0));
+    assert!(paint::outside_open_group(pos2(50.0, 150.0), Some(layer)));
+    assert!(paint::outside_open_group(pos2(200.0, 280.0), Some(layer)));
+    assert!(
+        !paint::outside_open_group(pos2(0.0, 0.0), None),
+        "no group open: nothing is outside"
+    );
 }
 
 // The user asked that the stack's list stays open while the mouse moves

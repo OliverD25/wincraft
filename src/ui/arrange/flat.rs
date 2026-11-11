@@ -113,9 +113,7 @@ pub(super) fn flat(
     let pointer = ctx.pointer_latest_pos();
     let mut frame = Frame::default();
 
-    let numbers = shared
-        .stacks
-        .numbers(group, taskbar_numbers(group, desktops));
+    let numbers = taskbar_numbers(group, desktops);
     let flat: Vec<usize> = rows.iter().flat_map(|row| row.members.clone()).collect();
     let widths = match style {
         other_monitor::Cards::Strip => shared.widths(group, card_width),
@@ -191,7 +189,7 @@ pub(super) fn flat(
     let rows_area = Rect::from_min_max(content.min, pos2(content.max.x, content.max.y - footer));
     frame.area = rows_area;
 
-    stacks::before_flat_cards(ui, shared, rows_area);
+    stacks::before_flat_cards(shared);
     ui.scope_builder(UiBuilder::new().max_rect(rows_area), |ui| {
         egui::ScrollArea::vertical()
             .id_salt("arrange-rows")
@@ -252,8 +250,7 @@ pub(super) fn flat(
                                     let claude = shared.claude_mark(window);
                                     let (scale, fade) = shared.motion(window.hwnd);
                                     let dim = claude.as_ref().map_or(1.0, claude::Mark::card_alpha);
-                                    let motion =
-                                        (scale, fade * shared.stacks.dim(window.hwnd) * dim);
+                                    let motion = (scale, fade * shared.stacks.dim() * dim);
                                     let picture_alpha =
                                         claude.as_ref().map_or(1.0, claude::Mark::picture_alpha);
                                     let waiting = shared.waiting_note(window.hwnd);
@@ -309,6 +306,7 @@ pub(super) fn flat(
                                                 as u8,
                                             clear,
                                             ghost: false,
+                                            layer: false,
                                         });
                                     }
                                     if leaving || editing {
@@ -566,6 +564,7 @@ pub(super) fn float_picture(
             opacity: 204,
             clear: Rect::NOTHING,
             ghost: false,
+            layer: false,
         });
     }
 }

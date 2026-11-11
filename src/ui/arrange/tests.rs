@@ -28,6 +28,7 @@ fn ctrl_h_flips_the_hints_now_and_asks_the_look_plugin_to_save_them() {
         keeps_order: false,
         anchor: None,
         claude_animate: false,
+        group_fan: false,
     });
     toggle_hints(shared);
     assert!(!shared.snapshot.as_ref().is_some_and(|s| s.hints));
@@ -1125,6 +1126,7 @@ fn snapshot_of(group: ArrangeGroup, monitors: Vec<ArrangeMonitor>) -> ArrangeSna
         keeps_order: false,
         anchor: None,
         claude_animate: false,
+        group_fan: false,
     }
 }
 

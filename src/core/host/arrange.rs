@@ -107,6 +107,7 @@ impl Host {
             keeps_order: id != look_plugin,
             anchor: anchor.map(|(_, rect)| rect),
             claude_animate: look.claude_animate,
+            group_fan: look.group_fan,
         };
         if open {
             self.deck_app = snapshot
