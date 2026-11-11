@@ -122,6 +122,46 @@ fn short_names_leave_the_group_name_out() {
     assert_eq!(short_name("Привіт світ", "Привіт"), "світ");
 }
 
+// The user's screenshot of 0.20.91 showed "fork) - Custom WinDeck Idea":
+// the shared start was cut inside "(fork)".
+#[test]
+fn names_are_cut_only_between_whole_words() {
+    let names = [
+        "WinCraft Rust",
+        "WinCraft Rust (fork) - Design Session",
+        "WinCraft Rust (fork) - Custom WinDeck Idea",
+    ];
+    assert_eq!(shared_start(&names), "WinCraft Rust");
+    let group = suggested_name(&names, "Claude");
+    assert_eq!(group, "WinCraft Rust");
+    let short: Vec<String> = names.iter().map(|n| short_name(n, &group)).collect();
+    assert_eq!(
+        short,
+        [
+            "WinCraft Rust",
+            "fork - Design Session",
+            "fork - Custom WinDeck Idea"
+        ]
+    );
+    assert_eq!(
+        shared_start(&[names[1], names[2]]),
+        "WinCraft Rust (fork)",
+        "a closing bracket stays with its opening one"
+    );
+    assert_eq!(
+        short_name(names[2], "WinCraft Rust (fork)"),
+        "Custom WinDeck Idea"
+    );
+    assert_eq!(shared_start(&["Rust (fork", "Rust (fork"]), "Rust");
+    assert_eq!(
+        short_name("Rust (two words) left", "Rust"),
+        "(two words) left",
+        "a bracket of more than one word stays whole"
+    );
+    assert_eq!(short_name("Rust: [beta]", "Rust"), "beta");
+    assert_eq!(short_name("Rust · notes", "Rust"), "notes");
+}
+
 #[test]
 fn the_file_keeps_the_groups() {
     let groups = news();
