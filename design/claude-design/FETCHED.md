@@ -229,3 +229,15 @@ options, all drawn on the 11-card Centre row from the user's 0.20.96
 screenshot: A cover to the right (window 1 on the stack's place, slides left
 at the column end; recommended), B centred on the stack, C a fan on the
 stack's place. A "Rules for every option" list. Not picked yet.
+
+## 2026-11-12: ClaudeDeck, a new page
+
+Version 24 of the artifact, copied byte for byte. A new page for the new
+standalone plugin ClaudeDeck: a compact list of Claude Code chats in its own
+small window (brief of 2026-11-12). The window in dark and light, rows, the
+fork tree, groups, the header, mini mode, fading, the hover panel, the menus,
+the keyboard, the empty state, the tray count and Settings. Two choices are
+shown for the user to pick: the shapes of the 9 status marks (A shapes, B
+signs in a box, C short words) and how a fork hangs under its chat (A tree
+lines, B indent and a branch mark, C a side rail). Picked by the user on
+2026-11-12: A shapes and A tree lines; the rest of the page approved as drawn.
