@@ -60,7 +60,7 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ### 16. Have the attention hook tell WinCraft when a chat needs approval
 
-- **State:** Wait: the release with ClaudeDeck is not out yet.
+- **State:** Ready (0.20.100 released 2026-11-13). Do task 17 step 2 first, so you have that version.
 - **Kind:** other · **Added:** 2026-11-13 (PC)
 - **Why:** ClaudeDeck can show "Needs approval" apart from "Asks you" only when the hook sends the kind. The hook is in the config folder, which a WinCraft chat cannot edit.
 
@@ -72,6 +72,31 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 4. To see it work: open ClaudeDeck with `Win+Alt+C`, then let any Claude chat ask for permission to run a command. Its row shows an orange triangle instead of the speech bubble.
 
 **Done when:** a chat that waits for a permission shows the orange triangle in ClaudeDeck.
+
+### 17. Install 0.20.100 and try ClaudeDeck, the list of your Claude chats
+
+- **State:** Ready to test (0.20.100 released 2026-11-13; the release has wincraft.exe and its checksum).
+- **Kind:** test · **Added:** 2026-11-13 (PC)
+- **Why:** ClaudeDeck was built in one night. Tests cover the logic, but a real mouse, real windows and a restart were never tried.
+- **Known, do not report:** every waiting chat shows the speech bubble ("Asks you") until task 16 is done; the tray count is in the tray icon's hover text only, not a number on the icon.
+
+**Steps**
+
+1. Right-click the WinCraft icon in the tray and click **Settings…**.
+2. Click **About** in the left list, then **Check for updates**, then **Update now**. WinCraft restarts; About shows 0.20.100.
+3. Press `Win+Alt+C`. A small window with no title bar opens: your chats in groups by project, forks under their chat with thin tree lines.
+4. Compare three chats you know with what you see: one that works, one that is idle, one that waits for you. Mark, time and the line of text should be right.
+5. Click a row of a chat that has its own window. That window comes to the front.
+6. Rest the mouse on a row. A small panel shows the full question or last result.
+7. Click the pin in the header, then click another app. ClaudeDeck stays on top. Click the pin again: it no longer stays on top.
+8. Double-click a group name, type a new name, press `Enter`. Drag a chat to another group. Right-click a chat and click **Hide this chat**; a line "1 hidden chat" appears at the bottom.
+9. Press `Win+Alt+C` from another app, press `↓` a few times, then `Esc`. The keyboard goes back to the app you were in.
+10. Press `Ctrl+M` in ClaudeDeck. It becomes a narrow column of marks. Click the button at the top: the full list comes back at its old place and size.
+11. Move the mouse away for about 3 seconds: the window fades to half. Move the mouse back: it is solid again.
+12. Right-click the WinCraft icon in the tray, click **Quit WinCraft**, start WinCraft again from the Start menu and press `Win+Alt+C`. The window is at the same place and size, with your group name, your order and the hidden chat still hidden.
+13. Open WindowDeck on your Claude windows as before. Its cards and chips look and act as before tonight.
+
+**Done when:** steps 3 to 13 look as described. For anything that looks wrong, a screenshot and the step number are enough.
 
 ## Done
 
