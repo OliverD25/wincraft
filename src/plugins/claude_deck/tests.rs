@@ -193,6 +193,17 @@ fn a_session_becomes_a_chat_with_windowdecks_status() {
     assert_eq!(unknown.since, None);
     assert_eq!(unknown.folder, None);
     assert_eq!(unknown.created, u64::MAX);
+
+    let mut unloaded = Session {
+        last_activity: Some(NOW - 3 * 60 * MIN),
+        ..Session::default()
+    };
+    let quiet = super::model::chat(&unloaded, None, (0, None), NOW);
+    assert_eq!(quiet.mark, Mark::Idle(Age::Cooling));
+    assert_eq!(quiet.since, unloaded.last_activity);
+    unloaded.last_activity = Some(NOW - 10 * MIN);
+    let recent = super::model::chat(&unloaded, None, (0, None), NOW);
+    assert_eq!(recent.mark, Mark::Unknown);
 }
 
 #[test]

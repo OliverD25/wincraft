@@ -108,6 +108,8 @@ pub struct Chat {
     pub full: Option<String>,
 }
 
+const QUIET_MEANS_IDLE_MS: u64 = 60 * 60 * 1000;
+
 /// The chat for a session, with its window (if open) and its running
 /// background jobs (how many, and the start of the oldest). The status is
 /// WindowDeck's card, so both show the same.
@@ -131,7 +133,15 @@ pub fn chat(
                 .map_or(Age::Fresh, |at| Age::of(now.saturating_sub(at)));
             (Mark::Idle(age), session.last_activity)
         }
-        None => (Mark::Unknown, None),
+        None => match session.last_activity {
+            // The app has not loaded this chat since it started, so the turn
+            // times are missing. A running chat keeps its activity time
+            // fresh, so a quiet hour means it is idle.
+            Some(at) if now.saturating_sub(at) >= QUIET_MEANS_IDLE_MS => {
+                (Mark::Idle(Age::of(now - at)), Some(at))
+            }
+            _ => (Mark::Unknown, None),
+        },
     };
     let lineage = &session.lineage;
     Chat {
