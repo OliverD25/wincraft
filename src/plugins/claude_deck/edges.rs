@@ -34,6 +34,16 @@ fn cursor(direction: ResizeDirection) -> CursorIcon {
     }
 }
 
+/// True when the mouse press began on an edge or corner, so a drag that
+/// follows it is a resize and must not move the window.
+pub fn pressed_on_edge(ctx: &egui::Context) -> bool {
+    began_on_edge(ctx.content_rect(), ctx.input(|i| i.pointer.press_origin()))
+}
+
+fn began_on_edge(rect: Rect, origin: Option<egui::Pos2>) -> bool {
+    origin.is_some_and(|at| edge(rect, at).is_some())
+}
+
 pub fn resize(ui: &Ui) {
     let ctx = ui.ctx();
     let rect = ctx.content_rect();
@@ -79,5 +89,23 @@ mod tests {
         assert_eq!(cursor(ResizeDirection::West), CursorIcon::ResizeHorizontal);
         assert_eq!(cursor(ResizeDirection::NorthWest), CursorIcon::ResizeNwSe);
         assert_eq!(cursor(ResizeDirection::SouthWest), CursorIcon::ResizeNeSw);
+    }
+
+    #[test]
+    fn a_press_on_the_top_edge_resizes_and_does_not_drag_the_window() {
+        let rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(300.0, 400.0));
+        assert!(
+            began_on_edge(rect, Some(pos2(150.0, 2.0))),
+            "top edge, in the header"
+        );
+        assert!(
+            began_on_edge(rect, Some(pos2(299.0, 1.0))),
+            "top right corner"
+        );
+        assert!(
+            !began_on_edge(rect, Some(pos2(150.0, 20.0))),
+            "the header still drags"
+        );
+        assert!(!began_on_edge(rect, None));
     }
 }

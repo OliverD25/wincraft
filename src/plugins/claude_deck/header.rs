@@ -54,7 +54,7 @@ pub fn show(
         theme::line(ui.ctx(), tokens.border),
     );
     let drag = ui.interact(rect, ui.id().with("claude-deck-header"), Sense::drag());
-    if drag.drag_started() {
+    if drag.drag_started() && !super::edges::pressed_on_edge(ui.ctx()) {
         ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }
     let middle = rect.center().y;
@@ -100,7 +100,10 @@ pub fn show(
     });
     let switch_right = label_rect.map_or(gear.left(), |label| label.left());
     let switch = Rect::from_min_size(
-        pos2(switch_right - GAP - SWITCH.x, middle - SWITCH.y / 2.0),
+        pos2(
+            (switch_right - GAP - SWITCH.x).round(),
+            (middle - SWITCH.y / 2.0).round(),
+        ),
         SWITCH,
     );
 
@@ -209,14 +212,13 @@ pub fn show(
 /// The small switch of the design: 24 x 13, the knob on the right and the
 /// accent fill when on.
 fn paint_switch(painter: &Painter, rect: Rect, on: bool, tokens: &Tokens) {
-    let (fill, border, knob, knob_left) = if on {
-        (tokens.accent, tokens.accent, tokens.window_bg, 13.0)
+    let (fill, border, knob) = if on {
+        (tokens.accent, tokens.accent, tokens.window_bg)
     } else {
         (
             Color32::TRANSPARENT,
             tokens.text_secondary,
             tokens.text_secondary,
-            2.0,
         )
     };
     painter.rect(
@@ -226,11 +228,21 @@ fn paint_switch(painter: &Painter, rect: Rect, on: bool, tokens: &Tokens) {
         Stroke::new(1.0, border),
         StrokeKind::Inside,
     );
-    painter.circle_filled(
-        pos2(rect.left() + knob_left + 3.5, rect.top() + 2.0 + 3.5),
-        3.5,
-        knob,
-    );
+    painter.circle_filled(knob_centre(rect, on), KNOB_RADIUS, knob);
+}
+
+const KNOB_RADIUS: f32 = 4.0;
+
+/// The knob sits on the track's middle line, with the same gap above,
+/// below and at its end, on either side.
+fn knob_centre(rect: Rect, on: bool) -> egui::Pos2 {
+    let inset = rect.height() / 2.0;
+    let x = if on {
+        rect.right() - inset
+    } else {
+        rect.left() + inset
+    };
+    pos2(x, rect.center().y)
 }
 
 /// The gear of quick settings: a ring with six teeth.
@@ -276,4 +288,25 @@ fn paint_pin(painter: &Painter, rect: Rect, on: bool, tokens: &Tokens) {
     }
     painter.add(Shape::closed_line(head, stroke));
     painter.line_segment([at(6.0, 6.5), at(6.0, 11.0)], stroke);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_switch_knob_sits_on_the_middle_line_with_even_gaps() {
+        let track = Rect::from_min_size(pos2(10.0, 20.0), SWITCH);
+        for on in [false, true] {
+            let centre = knob_centre(track, on);
+            assert_eq!(centre.y, track.center().y, "on: {on}");
+            let side_gap = if on {
+                track.right() - (centre.x + KNOB_RADIUS)
+            } else {
+                centre.x - KNOB_RADIUS - track.left()
+            };
+            let top_gap = centre.y - KNOB_RADIUS - track.top();
+            assert_eq!(side_gap, top_gap, "on: {on}");
+        }
+    }
 }
