@@ -266,6 +266,14 @@ pub fn show(
         })
         .collect();
     let full = unfolded(group, &stack);
+    // Each Claude window's own status chip, so the group's chip in the row
+    // can be found again on the window it belongs to.
+    let marks: Vec<Option<claude::Mark>> = stack
+        .members
+        .iter()
+        .map(|w| shared.claude_mark(w))
+        .collect();
+    let mut chips: Vec<Rect> = vec![Rect::NOTHING; n];
     // The same menu as a card in the row, Rename included (WindowNamer on).
     let can_rename = shared.snapshot.as_ref().is_some_and(|s| s.can_rename);
     let moved = ctx.input(|i| i.pointer.delta() != Vec2::ZERO);
@@ -336,7 +344,8 @@ pub fn show(
                 } else {
                     rect.left() + CARD_PAD + 2.0
                 };
-                let picture = member_card(
+                let (picture, chip) = member_card(
+                    ui,
                     &painter,
                     &tokens,
                     rect,
@@ -348,7 +357,9 @@ pub fn show(
                         picture: pictures[*at],
                         edged: style == Style::Fan,
                     },
+                    marks[*at].as_ref(),
                 );
+                chips[*at] = chip;
                 drawn.push((*at, picture));
             }
         });
@@ -377,7 +388,7 @@ pub fn show(
             dest: picture,
             clip: parts[at].intersect(window),
             opacity: 255,
-            clear: Rect::NOTHING,
+            clear: chips[at],
             ghost: false,
             layer: true,
         });
@@ -456,14 +467,18 @@ struct MemberLook {
 }
 
 /// One window's card on the layer: an opaque ground, its picture area, and
-/// a solid number chip and its name under it. Returns the picture's place.
+/// a solid number chip and its name under it, and a Claude window's status
+/// chip on its picture. Returns the picture's place and the status chip's
+/// (nothing for other windows), which the live picture keeps clear of.
 fn member_card(
+    ui: &Ui,
     painter: &egui::Painter,
     tokens: &Tokens,
     rect: Rect,
     window: &ArrangeWindow,
     look: MemberLook,
-) -> Rect {
+    mark: Option<&claude::Mark>,
+) -> (Rect, Rect) {
     let ctx = painter.ctx();
     painter.rect_filled(rect, RADIUS, tokens.window_bg);
     let fill = selected_fill(tokens);
@@ -507,6 +522,13 @@ fn member_card(
     if !look.picture {
         name_card(painter, picture, &window.label, "");
     }
+    // On a fan card right of the front one only its right part shows, so
+    // the status chip starts where the number chip does.
+    let status = mark.map_or(Rect::NOTHING, |mark| {
+        let left = (look.chip_left - 2.0).clamp(area.left(), area.right());
+        let thumb = Rect::from_min_max(pos2(left, area.top()), area.max);
+        claude::paint_chip(ui, painter, thumb, mark)
+    });
     let top = area.bottom() + TITLE_GAP;
     let number = painter.layout_no_wrap(
         look.number.to_string(),
@@ -543,7 +565,7 @@ fn member_card(
         galley,
         tokens.text_primary,
     );
-    picture
+    (picture, status)
 }
 
 #[cfg(test)]

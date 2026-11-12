@@ -365,7 +365,9 @@ WindowDeck never groups windows by itself.
   group. A window in an open group has the same right-click menu as a
   card, **Rename…** included. Groups know their windows by name, so a
   window renamed somewhere else (a Claude chat renamed in the app) keeps
-  its group under the new name.
+  its group under the new name. A group made in one version of a Store
+  app (Claude, Notepad) stays after the app updates itself. In an open
+  group each Claude window shows its own status chip, as on its card.
 - **Close a group's windows.** Ctrl+W or a middle click on a stack asks
   first: "Close 3 windows in NewsHQ?". Inside an open group they close the
   picked window only, as on a card.

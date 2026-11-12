@@ -210,3 +210,55 @@ fn a_rename_changes_nothing_when_it_cannot_tell_the_window() {
     ));
     assert_eq!(groups, before);
 }
+
+const CLAUDE_OLD: &str = r"d:\windowsapps\claude_4.23118.0.0_x64__pzs8sxrjxfjjc\app\claude.exe";
+const CLAUDE_NEW: &str =
+    r"c:\program files\windowsapps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\claude.exe";
+
+#[test]
+fn a_store_app_update_keeps_its_groups() {
+    assert!(same_app(CLAUDE_OLD, CLAUDE_NEW));
+    let mut groups = Vec::new();
+    make(
+        &mut groups,
+        CLAUDE_OLD,
+        "NewsHQ",
+        &names(&["NewsHQ", "NewsHQ - My Tasks"]),
+    );
+    assert_eq!(
+        group_of(&groups, CLAUDE_NEW, "NewsHQ").map(|g| g.name.as_str()),
+        Some("NewsHQ")
+    );
+    // Another package, another program, or another publisher is another app.
+    let other = r"c:\program files\windowsapps\notepad_11.2607.14.0_x64__8wekyb3d8bbwe\notepad.exe";
+    assert!(!same_app(CLAUDE_NEW, other));
+    assert!(!same_app(
+        CLAUDE_NEW,
+        r"c:\windowsapps\claude_5.0.0.0_x64__pzs8sxrjxfjjc\app\other.exe"
+    ));
+    assert!(!same_app(
+        CLAUDE_NEW,
+        r"c:\windowsapps\claude_5.0.0.0_x64__someoneelse\app\claude.exe"
+    ));
+    assert!(!same_app(r"c:\tools\a.exe", r"c:\tools\b.exe"));
+}
+
+#[test]
+fn a_group_saved_before_and_after_an_update_is_kept_once() {
+    let old = DeckGroup {
+        app: CLAUDE_OLD.to_string(),
+        name: "NewsHQ".to_string(),
+        members: names(&["NewsHQ", "NewsHQ - My Tasks"]),
+    };
+    let other = DeckGroup {
+        name: "WinCraft".to_string(),
+        ..old.clone()
+    };
+    let new = DeckGroup {
+        app: CLAUDE_NEW.to_string(),
+        members: names(&["NewsHQ", "NewsHQ - design"]),
+        ..old.clone()
+    };
+    let kept = merge_updated(vec![old, other.clone(), new.clone()]);
+    assert_eq!(kept, vec![other, new]);
+}
