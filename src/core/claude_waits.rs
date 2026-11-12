@@ -224,12 +224,8 @@ impl Outcome {
     }
 }
 
-/// Hands the title to the running WinCraft.
-pub fn run(kind: Kind, title: &str) -> Outcome {
-    run_as(kind, Ask::Question, title)
-}
-
-/// The same, saying what the session waits for.
+/// Hands the title to the running WinCraft, saying what the session waits
+/// for.
 pub fn run_as(kind: Kind, ask: Ask, title: &str) -> Outcome {
     let class = wide(&instance::name(host::CLASS_NAME));
     let hwnd = unsafe { FindWindowW(class.as_ptr(), std::ptr::null()) };

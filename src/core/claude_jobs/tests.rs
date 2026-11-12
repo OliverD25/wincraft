@@ -128,12 +128,12 @@ fn a_shorter_file_starts_over() {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("t.jsonl");
     std::fs::write(&path, format!("{}{}", start("b1"), start("b2"))).unwrap();
-    let mut scan = Scan::default();
-    read_new(&path, &mut scan, NOW).unwrap();
-    assert_eq!(scan.running(NOW).0, 2);
+    let mut entry = Entry::default();
+    read_new(&path, &mut entry, NOW).unwrap();
+    assert_eq!(entry.scan.running(NOW).0, 2);
     std::fs::write(&path, start("b3")).unwrap();
-    read_new(&path, &mut scan, NOW).unwrap();
-    assert_eq!(scan.running(NOW).0, 1);
+    read_new(&path, &mut entry, NOW).unwrap();
+    assert_eq!(entry.scan.running(NOW).0, 1);
     std::fs::remove_dir_all(&dir).ok();
 }
 

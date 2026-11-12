@@ -7,6 +7,9 @@
 //! (`<task-id><id></task-id>` and a `<status>`), or when the chat stops it
 //! with the `TaskStop` tool.
 //!
+//! The same pass keeps the chat's last records for ClaudeDeck
+//! (`claude_turns`): how its last turn ended and what Claude said last.
+//!
 //! The transcript can be 20 MB or more, so it is read once and then only
 //! what was appended (Principle 5). Text is searched, not parsed as JSON,
 //! so a line of an unknown shape means "no job", never a wrong status.
@@ -15,6 +18,8 @@ use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+
+use crate::core::claude_turns::{Tail, Turn};
 
 /// A job that started this long ago and never ended is ignored: the app may
 /// have been closed while it ran, and then no end notice is ever written.
@@ -41,12 +46,18 @@ impl Scan {
     /// Reads bytes appended to the transcript. `seen_ms` is the start time
     /// of a job whose line has no `"timestamp"`.
     pub fn feed(&mut self, bytes: &[u8], seen_ms: u64) {
+        self.feed_with(bytes, seen_ms, |_| {});
+    }
+
+    /// The same, and hands each whole line to `each` as well.
+    pub fn feed_with(&mut self, bytes: &[u8], seen_ms: u64, mut each: impl FnMut(&str)) {
         self.offset += bytes.len() as u64;
         self.partial.extend_from_slice(bytes);
         let mut start = 0;
         while let Some(end) = self.partial[start..].iter().position(|b| *b == b'\n') {
             let line = String::from_utf8_lossy(&self.partial[start..start + end]).into_owned();
             self.line(&line, seen_ms);
+            each(&line);
             start += end + 1;
         }
         self.partial.drain(..start);
@@ -187,11 +198,17 @@ fn timestamp_ms(text: &str) -> Option<u64> {
 struct Entry {
     path: Option<PathBuf>,
     scan: Scan,
+    tail: Tail,
+    /// The last turn, and the offset it was worked out at.
+    turn: Option<(u64, Turn)>,
 }
 
 static CACHE: Mutex<Option<HashMap<String, Entry>>> = Mutex::new(None);
 static WANTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static WANTED_BY_DECK: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// The last turns of ClaudeDeck's chats, written whole after each read, so
+/// the UI thread never sees a read half done.
+static TURNS: Mutex<Option<HashMap<String, Turn>>> = Mutex::new(None);
 
 /// Names the chats whose windows are shown now (their `cliSessionId`s);
 /// only these are read at the next `refresh`.
@@ -259,34 +276,64 @@ pub fn refresh(now: u64) {
         if entry.path.as_ref().is_none_or(|path| !path.is_file()) {
             entry.path = find_transcript(&projects, id);
             entry.scan.reset();
+            entry.tail.reset();
+            entry.turn = None;
         }
         let Some(path) = entry.path.clone() else {
             continue;
         };
-        if let Err(err) = read_new(&path, &mut entry.scan, now) {
+        if let Err(err) = read_new(&path, entry, now) {
             log::debug!("Custom WindowDeck: could not read a chat transcript: {err}");
+        }
+    }
+    let deck = WANTED_BY_DECK
+        .lock()
+        .map(|wanted| wanted.clone())
+        .unwrap_or_default();
+    let mut turns = HashMap::new();
+    for id in &deck {
+        let Some(entry) = entries.get_mut(id) else {
+            continue;
+        };
+        let offset = entry.scan.offset();
+        if entry.turn.as_ref().is_none_or(|(at, _)| *at != offset) {
+            entry.turn = Some((offset, entry.tail.turn()));
+        }
+        if let Some((_, turn)) = &entry.turn {
+            turns.insert(id.clone(), turn.clone());
         }
     }
     if let Ok(mut cache) = CACHE.lock() {
         *cache = Some(entries);
     }
+    if let Ok(mut latest) = TURNS.lock() {
+        *latest = Some(turns);
+    }
 }
 
-fn read_new(path: &Path, scan: &mut Scan, now: u64) -> std::io::Result<()> {
+fn read_new(path: &Path, entry: &mut Entry, now: u64) -> std::io::Result<()> {
     let mut file = std::fs::File::open(path)?;
     let len = file.metadata()?.len();
-    if len < scan.offset() {
-        scan.reset();
+    if len < entry.scan.offset() {
+        entry.scan.reset();
+        entry.tail.reset();
     }
-    if len == scan.offset() {
+    if len == entry.scan.offset() {
         return Ok(());
     }
-    let from = scan.offset();
+    let from = entry.scan.offset();
     file.seek(SeekFrom::Start(from))?;
     let mut bytes = Vec::new();
     file.take(len - from).read_to_end(&mut bytes)?;
-    scan.feed(&bytes, now);
+    let tail = &mut entry.tail;
+    entry.scan.feed_with(&bytes, now, |line| tail.line(line));
     Ok(())
+}
+
+/// How the last turn of ClaudeDeck's chat with this `cliSessionId` ended,
+/// as read last. None before its transcript was read.
+pub fn turn(cli_session_id: &str) -> Option<Turn> {
+    TURNS.lock().ok()?.as_ref()?.get(cli_session_id).cloned()
 }
 
 /// The running jobs of the chat with this `cliSessionId`, as read last:
