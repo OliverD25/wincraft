@@ -228,6 +228,8 @@ pub struct GroupLine {
     pub folded: bool,
     /// The most urgent mark inside, shown while folded.
     pub roll: Mark,
+    /// Since when the chat behind `roll` is in that state.
+    pub roll_since: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -330,7 +332,8 @@ pub fn lines(chats: &[Chat], archived: &Archived, view: &View, now: u64) -> Vec<
             .iter()
             .flat_map(|f| f.members.iter().map(|at| &shown[*at]))
             .collect();
-        let roll = most_urgent(members.iter().copied()).map_or(Mark::Unknown, |c| c.mark);
+        let urgent = most_urgent(members.iter().copied());
+        let roll = urgent.map_or(Mark::Unknown, |c| c.mark);
         emit.lines.push(Line::Group(GroupLine {
             key: group.id.clone(),
             name: group.name.clone(),
@@ -338,6 +341,7 @@ pub fn lines(chats: &[Chat], archived: &Archived, view: &View, now: u64) -> Vec<
             chats: members.len(),
             folded: group.folded,
             roll,
+            roll_since: urgent.and_then(|c| c.since),
         }));
         if !group.folded {
             for family in &families {

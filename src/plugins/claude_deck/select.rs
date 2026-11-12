@@ -27,7 +27,9 @@ pub fn waits(mark: Mark) -> bool {
 
 /// The row the hotkey selects: the shown chat that has waited longest
 /// (approval first when two began at the same time), else the row used
-/// last if it is still shown, else the first chat.
+/// last if it is still shown, else the first chat. A waiting chat inside a
+/// folded group or under a folded chat is picked by the line that holds
+/// it, which shows its mark; nothing unfolds by itself.
 pub fn open_pick(lines: &[Line], last: Option<&Pick>) -> Option<Pick> {
     let chats = || {
         lines.iter().filter_map(|line| match line {
@@ -35,11 +37,22 @@ pub fn open_pick(lines: &[Line], last: Option<&Pick>) -> Option<Pick> {
             _ => None,
         })
     };
-    let longest = chats()
-        .filter(|chat| waits(chat.mark))
-        .min_by_key(|chat| (chat.since.unwrap_or(u64::MAX), chat.mark.rank()));
-    if let Some(chat) = longest {
-        return Some(Pick::Chat(chat.id.clone()));
+    let longest = lines
+        .iter()
+        .filter_map(|line| match line {
+            Line::Chat(c) if !c.hidden && waits(c.chat.mark) => Some((
+                (c.chat.since.unwrap_or(u64::MAX), c.chat.mark.rank()),
+                Pick::Chat(c.chat.id.clone()),
+            )),
+            Line::Group(g) if g.folded && waits(g.roll) => Some((
+                (g.roll_since.unwrap_or(u64::MAX), g.roll.rank()),
+                Pick::Group(g.key.clone()),
+            )),
+            _ => None,
+        })
+        .min_by_key(|(order, _)| *order);
+    if let Some((_, pick)) = longest {
+        return Some(pick);
     }
     let shown = |pick: &Pick| {
         lines.iter().any(|line| match (line, pick) {

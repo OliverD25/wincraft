@@ -67,7 +67,9 @@ How WinCraft tells each status:
 
 - `Win+Alt+C` brings ClaudeDeck to the front with the keyboard in it. The
   chat that has waited longest (Needs approval or Asks you) is selected;
-  with none waiting, the row you used last.
+  with none waiting, the row you used last. When that chat is inside a
+  folded group or under a folded chat, the folded line is selected; it
+  does not unfold by itself.
 - `Up` and `Down` move, `Home` and `End` go to the first and the last line.
 - `1` to `9` pick the chat with that digit. While you use the keyboard, the
   first nine chat rows on screen show their digit in a small box.

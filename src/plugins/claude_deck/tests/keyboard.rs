@@ -112,3 +112,55 @@ fn a_chat_that_starts_waiting_is_new_once() {
     );
     assert!(new_wait(&before, &["a".to_string(), "b".to_string()]));
 }
+
+#[test]
+fn a_waiting_chat_out_of_sight_is_picked_by_the_line_that_holds_it() {
+    let mut chats = vec![
+        chat("rust", Some(r"E:\code\WinCraft"), 1),
+        fork("design", "rust", 20),
+        waiting("seen", Mark::AsksYou, 2),
+    ];
+    chats[1].mark = Mark::NeedsApproval;
+    chats[1].since = Some(NOW - 9 * MIN);
+    let view = View {
+        saved: folded_chat("rust"),
+        ..View::default()
+    };
+    let got = lines(&chats, &Archived::new(), &view, NOW);
+    assert_eq!(
+        open_pick(&got, None),
+        Some(Pick::Chat("rust".into())),
+        "the folded chat holds the fork that waits longest"
+    );
+
+    let mut gone_waits = vec![fork("deck", "gone", 30), waiting("seen", Mark::AsksYou, 2)];
+    gone_waits[0].mark = Mark::AsksYou;
+    gone_waits[0].since = Some(NOW - 9 * MIN);
+    let view = View {
+        saved: folded_chat("gone"),
+        ..View::default()
+    };
+    let got = lines(&gone_waits, &Archived::new(), &view, NOW);
+    assert_eq!(open_pick(&got, None), Some(Pick::Chat("gone".into())));
+
+    let mut chats = vec![
+        waiting("far", Mark::NeedsApproval, 9),
+        waiting("near", Mark::AsksYou, 2),
+    ];
+    chats[0].folder = Some(r"E:\NewsHQ".into());
+    let mut saved = arrange(&Saved::default(), &chats, NOW);
+    for group in &mut saved.groups {
+        group.folded = group.name == "NewsHQ";
+    }
+    let view = View {
+        saved,
+        ..View::default()
+    };
+    let got = lines(&chats, &Archived::new(), &view, NOW);
+    let Some(Pick::Group(key)) = open_pick(&got, None) else {
+        panic!("the folded group that holds the longest wait");
+    };
+    assert!(got
+        .iter()
+        .any(|line| matches!(line, Line::Group(g) if g.key == key && g.name == "NewsHQ")));
+}
