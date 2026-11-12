@@ -4,7 +4,7 @@ use windows_sys::core::{IUnknown_Vtbl, GUID, HRESULT};
 use windows_sys::Win32::Foundation::{HWND, PROPERTYKEY};
 use windows_sys::Win32::System::Com::CoTaskMemFree;
 use windows_sys::Win32::System::Com::StructuredStorage::{PropVariantClear, PROPVARIANT};
-use windows_sys::Win32::System::Variant::VT_LPWSTR;
+use windows_sys::Win32::System::Variant::{VT_EMPTY, VT_LPWSTR};
 use windows_sys::Win32::UI::Shell::PropertiesSystem::SHGetPropertyStoreForWindow;
 use windows_sys::Win32::UI::Shell::{
     SHCreateItemFromParsingName, SHLoadIndirectString, SIGDN_NORMALDISPLAY,
@@ -32,8 +32,9 @@ struct IPropertyStoreVtbl {
     _get_at: unsafe extern "system" fn(),
     get_value:
         unsafe extern "system" fn(*mut c_void, *const PROPERTYKEY, *mut PROPVARIANT) -> HRESULT,
-    _set_value: unsafe extern "system" fn(),
-    _commit: unsafe extern "system" fn(),
+    set_value:
+        unsafe extern "system" fn(*mut c_void, *const PROPERTYKEY, *const PROPVARIANT) -> HRESULT,
+    commit: unsafe extern "system" fn(*mut c_void) -> HRESULT,
 }
 
 #[repr(C)]
@@ -71,6 +72,37 @@ pub fn read(hwnd: HWND) -> AppId {
             .map(|name| resolve(&name))
             .filter(|name| !name.is_empty()),
     }
+}
+
+/// Gives one of WinCraft's own windows an explicit AppUserModelID, so
+/// Windows shows it as a taskbar button of its own instead of in WinCraft's
+/// group; None takes it away again, which Windows asks for before the
+/// window closes. True when it was set.
+pub fn set_window_id(hwnd: HWND, id: Option<&str>) -> bool {
+    if hwnd.is_null() || !com::joined_apartment() {
+        return false;
+    }
+    let mut raw = std::ptr::null_mut();
+    let hr = unsafe { SHGetPropertyStoreForWindow(hwnd, &IID_IPROPERTY_STORE, &mut raw) };
+    let Some(store) = (hr >= 0).then(|| ComPtr::from_raw(raw)).flatten() else {
+        return false;
+    };
+    // The store copies the text, so it may live on the stack.
+    let text = id.map(wide);
+    let mut value = PROPVARIANT::default();
+    unsafe {
+        let inner = &mut value.Anonymous.Anonymous;
+        match &text {
+            Some(text) => {
+                inner.vt = VT_LPWSTR;
+                inner.Anonymous.pwszVal = text.as_ptr() as *mut u16;
+            }
+            None => inner.vt = VT_EMPTY,
+        }
+    }
+    let table = unsafe { store.vtable::<IPropertyStoreVtbl>() };
+    let set = unsafe { (table.set_value)(store.as_raw(), &PKEY_APP_USER_MODEL_ID, &value) };
+    set >= 0 && unsafe { (table.commit)(store.as_raw()) } >= 0
 }
 
 pub fn string_value(store: &ComPtr, key: &PROPERTYKEY) -> Option<String> {

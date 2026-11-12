@@ -30,6 +30,7 @@ mod select;
 mod servers;
 mod status;
 mod store;
+mod taskbar;
 mod tree;
 mod window;
 

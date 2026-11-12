@@ -22,6 +22,7 @@ pub mod dpi_follow;
 pub mod glass;
 pub mod host;
 pub mod hotkeys;
+pub mod ico;
 pub mod install;
 pub mod instance;
 pub mod layered;

@@ -41,6 +41,7 @@ use super::select;
 use super::servers::{self, Deck};
 use super::status::Seen;
 use super::store::{self, Saved};
+use super::taskbar;
 use super::{Handle, ID, MINI_KEY, ONLY_OPEN_KEY, STAY_ON_TOP_KEY};
 
 pub const WINDOW_ID: &str = "deck";
@@ -225,8 +226,8 @@ impl PluginWindow for DeckWindow {
             } else {
                 egui::WindowLevel::Normal
             });
-        if let Some(icon) = &frame.icon {
-            builder = builder.with_icon(Arc::clone(icon));
+        if let Some(icon) = taskbar::window_icon(frame) {
+            builder = builder.with_icon(icon);
         }
         let shared = Arc::clone(&self.shared);
         let state = Arc::clone(&self.state);
@@ -379,6 +380,7 @@ pub(super) fn build(state: &mut DeckUi, settings: &super::Settings, now: u64) {
 fn forget(state: &mut DeckUi) {
     if state.window != 0 {
         keep_place(state);
+        taskbar::release(state.window);
     }
     claude_windows::set_wanted(false);
     claude_jobs::want_for_deck(Vec::new());
@@ -423,6 +425,7 @@ fn find_and_place(state: &mut DeckUi, palette: isize, tokens: &Tokens, to_host: 
         dwm_thumbs::round_corners(state.window as HWND, theme::colorref(tokens.border));
     }
     if !std::mem::replace(&mut state.placed, true) {
+        taskbar::own_button(state.window);
         if state.kept.is_none() {
             state.kept = place::load(&place::path());
         }
