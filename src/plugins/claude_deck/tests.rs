@@ -141,11 +141,26 @@ fn a_session_becomes_a_chat_with_windowdecks_status() {
         hwnd: 9,
         session_id: "local_a".into(),
         waiting_since: Some(NOW - 2 * MIN),
+        approval: false,
     };
     let asks = super::model::chat(&session("local_a"), Some(&window), (0, None), NOW);
     assert_eq!(asks.mark, Mark::AsksYou);
     assert_eq!(asks.since, Some(NOW - 2 * MIN));
     assert_eq!(asks.window, Some(9));
+    let prompt = ChatWindow {
+        approval: true,
+        ..window.clone()
+    };
+    let approve = super::model::chat(&session("local_a"), Some(&prompt), (0, None), NOW);
+    assert_eq!(approve.mark, Mark::NeedsApproval);
+    assert_eq!(approve.since, Some(NOW - 2 * MIN));
+    // A stale approval flag without a waiting mark means nothing.
+    let stale = ChatWindow {
+        waiting_since: None,
+        ..prompt
+    };
+    let idle = super::model::chat(&session("local_a"), Some(&stale), (0, None), NOW);
+    assert!(matches!(idle.mark, Mark::Idle(_)));
 
     let background = super::model::chat(&session("local_a"), None, (2, Some(NOW - 3 * MIN)), NOW);
     assert_eq!(background.mark, Mark::Background);
@@ -494,6 +509,7 @@ fn only_a_listed_claude_window_is_brought_forward_and_never_by_a_test_copy() {
         hwnd: 42,
         session_id: "local_a".into(),
         waiting_since: None,
+        approval: false,
     }];
     assert!(super::may_activate(42, &listed, false));
     assert!(!super::may_activate(42, &listed, true));

@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::core::attention;
-use crate::core::claude_waits::{self, Kind};
+use crate::core::claude_waits::{self, Ask, Kind};
 use crate::core::windows_list;
 use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
 use windows_sys::Win32::UI::WindowsAndMessaging::{FlashWindowEx, FLASHWINFO, FLASHW_TRAY};
@@ -24,12 +24,12 @@ pub(super) fn copy_data(lparam: LPARAM) -> LRESULT {
     } else {
         unsafe { std::slice::from_raw_parts(data.lpData as *const u8, data.cbData as usize) }
     };
-    let Some((kind, title)) = claude_waits::decode(data.dwData, bytes) else {
+    let Some((kind, ask, title)) = claude_waits::decode_ask(data.dwData, bytes) else {
         return 0;
     };
     let matched = session_windows(&title);
     let touched = match kind {
-        Kind::Waiting => mark_waiting(&title, &matched),
+        Kind::Waiting => mark_waiting(&title, &matched, ask),
         Kind::Answered => clear_answered(&title, &matched),
     };
     claude_waits::reply_for(touched)
@@ -58,8 +58,8 @@ fn session_windows(title: &str) -> Vec<isize> {
         .collect()
 }
 
-fn mark_waiting(title: &str, windows: &[isize]) -> usize {
-    let added = ATTENTION.with(|attention| attention.borrow_mut().wait(windows, title));
+fn mark_waiting(title: &str, windows: &[isize], ask: Ask) -> usize {
+    let added = ATTENTION.with(|attention| attention.borrow_mut().wait_as(windows, title, ask));
     let foreground = unsafe { GetForegroundWindow() } as isize;
     let flashed = if instance::is_test() {
         0

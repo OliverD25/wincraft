@@ -13,6 +13,8 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
+use crate::core::claude_waits::Ask;
+
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     FlashWindowEx, FLASHWINFO, FLASHW_STOP, HSHELL_HIGHBIT, HSHELL_REDRAW, HSHELL_WINDOWACTIVATED,
     HSHELL_WINDOWDESTROYED,
@@ -33,6 +35,9 @@ pub struct Attention {
     /// The waiting marks the last `clear_all` took, so its undo can bring
     /// them back as waiting marks.
     cleared_waiting: HashMap<isize, (String, Instant)>,
+    /// Waiting windows whose hook said a permission prompt blocks them.
+    /// Counts only while the window also waits.
+    approvals: HashSet<isize>,
 }
 
 impl Attention {
@@ -71,6 +76,26 @@ impl Attention {
                     .is_none()
             })
             .count()
+    }
+
+    /// The same as `wait`, saying what the session waits for. The last
+    /// hook's word wins: a question after a permission prompt is a question.
+    pub fn wait_as(&mut self, windows: &[isize], title: &str, ask: Ask) -> usize {
+        let added = self.wait(windows, title);
+        for hwnd in windows {
+            match ask {
+                Ask::Approval => self.approvals.insert(*hwnd),
+                Ask::Question => self.approvals.remove(hwnd),
+            };
+        }
+        let waiting = &self.waiting;
+        self.approvals.retain(|hwnd| waiting.contains_key(hwnd));
+        added
+    }
+
+    /// Whether this window waits for a permission prompt.
+    pub fn waits_for_approval(&self, hwnd: isize) -> bool {
+        self.waiting.contains_key(&hwnd) && self.approvals.contains(&hwnd)
     }
 
     /// Since when a hook has said this window waits for an answer.
@@ -282,6 +307,24 @@ mod tests {
         assert_eq!(attention.waiting_since(20), None);
         attention.answered("Chat", &[]);
         assert_eq!(attention.waiting_since(10), None);
+    }
+
+    #[test]
+    fn a_permission_prompt_is_kept_apart_until_a_question_or_an_answer() {
+        let mut attention = Attention::default();
+        attention.wait_as(&[10], "Chat", Ask::Approval);
+        attention.wait(&[20], "Other");
+        assert!(attention.waits_for_approval(10));
+        assert!(!attention.waits_for_approval(20));
+        // A question in the same chat is a question again.
+        attention.wait_as(&[10], "Chat", Ask::Question);
+        assert!(!attention.waits_for_approval(10));
+        attention.wait_as(&[10], "Chat", Ask::Approval);
+        attention.answered("Chat", &[]);
+        assert!(!attention.waits_for_approval(10));
+        // A window that only flashed never waits for approval.
+        attention.mark(30);
+        assert!(!attention.waits_for_approval(30));
     }
 
     #[test]

@@ -13,8 +13,9 @@ use super::tree::{families, Family, Tree};
 
 pub const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 
-/// A chat's status, as its mark shows it. Stage 1 gives Asks you, Working,
-/// Background, Idle and Unknown; the rest come when WinCraft can tell them.
+/// A chat's status, as its mark shows it. `chat` gives Needs approval, Asks
+/// you, Working, Background, Idle and Unknown; `status::refine` adds Done,
+/// not seen, Stopped and Failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mark {
     NeedsApproval,
@@ -112,6 +113,9 @@ pub fn chat(
 ) -> Chat {
     let card = claude_sessions::card(Some(session), window.and_then(|w| w.waiting_since), jobs);
     let (mark, since) = match card.status {
+        Some(Status::Waiting) if window.is_some_and(|w| w.approval) => {
+            (Mark::NeedsApproval, card.since)
+        }
         Some(Status::Waiting) => (Mark::AsksYou, card.since),
         Some(Status::Working) => (Mark::Working, card.since),
         Some(Status::Background) => (Mark::Background, card.since),

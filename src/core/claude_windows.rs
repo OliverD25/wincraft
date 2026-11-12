@@ -13,6 +13,8 @@ pub struct ChatWindow {
     pub session_id: String,
     /// When a Claude Code hook said the chat waits, in Unix milliseconds.
     pub waiting_since: Option<u64>,
+    /// The hook said the wait is a permission prompt, not a question.
+    pub approval: bool,
 }
 
 static LATEST: Mutex<Vec<ChatWindow>> = Mutex::new(Vec::new());
@@ -29,6 +31,11 @@ pub fn latest() -> Vec<ChatWindow> {
         .lock()
         .map(|latest| latest.clone())
         .unwrap_or_default()
+}
+
+/// The window in front now, to tell whether the user looked at a chat.
+pub fn foreground() -> isize {
+    unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow() as isize }
 }
 
 /// The window that shows this chat. A chat in two windows gives the one
@@ -49,6 +56,7 @@ mod tests {
             hwnd: 7,
             session_id: "local_a".into(),
             waiting_since: Some(5),
+            approval: false,
         };
         publish(vec![window.clone()]);
         let latest = latest();

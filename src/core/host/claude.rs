@@ -121,6 +121,7 @@ pub(super) fn publish_chat_windows() {
                     waiting_since: attention
                         .waiting_since(seen.hwnd)
                         .map(claude_sessions::instant_ms),
+                    approval: attention.waits_for_approval(seen.hwnd),
                 })
             })
             .collect()

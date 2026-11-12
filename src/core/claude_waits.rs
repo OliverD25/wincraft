@@ -5,6 +5,10 @@
 //! flashes a window only when the app is not in front, so a question in one
 //! Claude window while the user works in another would go unseen.
 //!
+//! `--kind approval` after the title says the session waits for a
+//! permission prompt, not a question; `--kind question` or no kind is a
+//! question, as before. Only ClaudeDeck tells the two apart.
+//!
 //! The command finds the running WinCraft's host window and hands it the
 //! title in one `WM_COPYDATA`, then exits. It returns fast: the hook waits
 //! for it.
@@ -50,6 +54,52 @@ impl Kind {
             .into_iter()
             .find(|kind| kind.code() == code)
     }
+}
+
+/// What a waiting session waits for.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Ask {
+    /// A question in the chat, or no kind given.
+    #[default]
+    Question,
+    /// A permission prompt that blocks a tool.
+    Approval,
+}
+
+/// The `dwData` of a waiting copy for a permission prompt. A WinCraft
+/// older than this kind does not know the code and takes nothing, so the
+/// hook should fall back to a plain `--waiting` when it gets exit code 1.
+pub const APPROVAL_CODE: usize = 0x5743_0003;
+
+/// The code a copy of this kind and ask is sent with.
+pub fn code_for(kind: Kind, ask: Ask) -> usize {
+    match (kind, ask) {
+        (Kind::Waiting, Ask::Approval) => APPROVAL_CODE,
+        _ => kind.code(),
+    }
+}
+
+/// Reads the optional `--kind approval|question`. No `--kind` is a
+/// question; another word is an error line.
+pub fn parse_ask(args: &[String]) -> Result<Ask, String> {
+    let Some(at) = args.iter().skip(1).position(|arg| arg == "--kind") else {
+        return Ok(Ask::Question);
+    };
+    match args.get(at + 2).map(|word| word.trim().to_lowercase()).as_deref() {
+        Some("approval") => Ok(Ask::Approval),
+        Some("question") => Ok(Ask::Question),
+        _ => Err("--kind needs approval or question, for example: wincraft.exe --waiting \"Fix the build\" --kind approval".to_string()),
+    }
+}
+
+/// Like `decode`, and also takes the approval code, as a waiting copy.
+pub fn decode_ask(code: usize, bytes: &[u8]) -> Option<(Kind, Ask, String)> {
+    if code == APPROVAL_CODE {
+        let (_, title) = decode(Kind::Waiting.code(), bytes)?;
+        return Some((Kind::Waiting, Ask::Approval, title));
+    }
+    let (kind, title) = decode(code, bytes)?;
+    Some((kind, Ask::Question, title))
 }
 
 /// Reads `--waiting <title>` or `--answered <title>` from the command line.
@@ -176,6 +226,11 @@ impl Outcome {
 
 /// Hands the title to the running WinCraft.
 pub fn run(kind: Kind, title: &str) -> Outcome {
+    run_as(kind, Ask::Question, title)
+}
+
+/// The same, saying what the session waits for.
+pub fn run_as(kind: Kind, ask: Ask, title: &str) -> Outcome {
     let class = wide(&instance::name(host::CLASS_NAME));
     let hwnd = unsafe { FindWindowW(class.as_ptr(), std::ptr::null()) };
     if hwnd.is_null() {
@@ -183,7 +238,7 @@ pub fn run(kind: Kind, title: &str) -> Outcome {
     }
     let text = encode(title);
     let data = COPYDATASTRUCT {
-        dwData: kind.code(),
+        dwData: code_for(kind, ask),
         cbData: (text.len() * 2) as u32,
         lpData: text.as_ptr() as *mut std::ffi::c_void,
     };

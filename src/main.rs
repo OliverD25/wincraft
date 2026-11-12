@@ -76,7 +76,10 @@ fn main() {
     // reasons as --quit, and fast, because the hook waits for it.
     if let Some(parsed) = core::claude_waits::parse_args(&args) {
         let (outcome, title) = match parsed {
-            Ok((kind, title)) => (core::claude_waits::run(kind, &title), title),
+            Ok((kind, title)) => match core::claude_waits::parse_ask(&args) {
+                Ok(ask) => (core::claude_waits::run_as(kind, ask, &title), title),
+                Err(line) => (core::claude_waits::Outcome::BadArgs(line), String::new()),
+            },
             Err(line) => (core::claude_waits::Outcome::BadArgs(line), String::new()),
         };
         let _ = writeln!(std::io::stdout(), "{}", outcome.message(&title));

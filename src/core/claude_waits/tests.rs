@@ -120,3 +120,76 @@ fn a_window_can_be_named_by_its_handle() {
     assert_eq!(window_handle("hwnd:abc"), None);
     assert_eq!(window_handle("WinCraft Rust"), None);
 }
+
+#[test]
+fn the_kind_is_optional_and_only_approval_or_question() {
+    assert_eq!(
+        parse_ask(&args(&["wincraft.exe", "--waiting", "Chat"])),
+        Ok(Ask::Question)
+    );
+    assert_eq!(
+        parse_ask(&args(&[
+            "wincraft.exe",
+            "--waiting",
+            "Chat",
+            "--kind",
+            "approval"
+        ])),
+        Ok(Ask::Approval)
+    );
+    assert_eq!(
+        parse_ask(&args(&[
+            "wincraft.exe",
+            "--kind",
+            "Question",
+            "--waiting",
+            "Chat"
+        ])),
+        Ok(Ask::Question)
+    );
+    assert!(parse_ask(&args(&[
+        "wincraft.exe",
+        "--waiting",
+        "Chat",
+        "--kind",
+        "later"
+    ]))
+    .is_err());
+    assert!(parse_ask(&args(&["wincraft.exe", "--waiting", "Chat", "--kind"])).is_err());
+    // The title is still the word after --waiting.
+    assert_eq!(
+        parse_args(&args(&[
+            "wincraft.exe",
+            "--waiting",
+            "Chat",
+            "--kind",
+            "approval"
+        ])),
+        Some(Ok((Kind::Waiting, "Chat".to_string())))
+    );
+}
+
+#[test]
+fn an_approval_copy_is_a_waiting_copy_with_its_own_code() {
+    let bytes: Vec<u8> = encode("Chat")
+        .iter()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect();
+    assert_eq!(code_for(Kind::Waiting, Ask::Question), Kind::Waiting.code());
+    assert_eq!(
+        code_for(Kind::Answered, Ask::Approval),
+        Kind::Answered.code()
+    );
+    let code = code_for(Kind::Waiting, Ask::Approval);
+    assert_eq!(
+        decode_ask(code, &bytes),
+        Some((Kind::Waiting, Ask::Approval, "Chat".to_string()))
+    );
+    assert_eq!(
+        decode_ask(Kind::Waiting.code(), &bytes),
+        Some((Kind::Waiting, Ask::Question, "Chat".to_string()))
+    );
+    // The old decoder does not take the new code.
+    assert_eq!(decode(code, &bytes), None);
+    assert_eq!(decode_ask(0x1234, &bytes), None);
+}
