@@ -75,7 +75,7 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ### 18. Install 0.20.103 and check the marked row and the Working status in ClaudeDeck
 
-- **State:** Wait: 0.20.103 is not released yet.
+- **State:** Ready to test (0.20.103 released 2026-11-12; the release has wincraft.exe and its checksum).
 - **Kind:** test · **Added:** 2026-11-12 (PC)
 - **Why:** you reported two things on 0.20.102: ClaudeDeck did not show which chat you work in, and a working chat showed Idle. Both need your real Claude windows.
 - **Known, do not report:** a chat inside a folded group cannot become the marked row; WindowDeck's card can still say Idle for a chat that got a message in the middle of its turn (WindowDeck was not changed).
