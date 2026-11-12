@@ -8,7 +8,7 @@ use crate::core::claude_turns::Reply;
 
 use super::super::model::{Chat, Mark, DAY_MS};
 use super::collect::{collect, key_of, project_of, Item, News, Source, PER_CHAT};
-use super::view::{self, Folds, Head, Line};
+use super::view::{self, ChatFold, Folds, Head, Line};
 use super::*;
 
 const MIN: u64 = 60_000;
@@ -352,10 +352,10 @@ fn replies_group_into_one_block_per_chat_in_the_order_of_their_newest() {
         shape(&lines),
         [
             "Last 24 hours 2",
-            "[a] folded",
+            "[a]",
             "a1",
             "a: 1 earlier reply",
-            "[b] 1 folded",
+            "[b] 1",
             "b1",
             "b: 1 earlier reply"
         ]
@@ -397,13 +397,13 @@ fn a_folded_chat_lists_its_unseen_replies_or_its_newest() {
 }
 
 #[test]
-fn an_unfolded_chat_folds_again_when_it_gets_a_new_reply() {
+fn a_chat_goes_back_to_the_default_when_it_gets_a_new_reply() {
     let mut ui = NewsUi::default();
     ui.take(day(vec![
         said("a", "a1", 5, false),
         said("a", "a2", 9, false),
     ]));
-    ui.fold_chat("a", false);
+    ui.fold_chat("a", ChatFold::AllOpen);
     let news = Arc::clone(&ui.news);
     assert_eq!(
         shape(&view::lines(&news, &ui)),
@@ -413,26 +413,106 @@ fn an_unfolded_chat_folds_again_when_it_gets_a_new_reply() {
         said("a", "a1", 5, false),
         said("a", "a2", 9, false),
     ]));
-    assert!(ui.chat_open("a"), "the same replies keep it open");
+    assert_eq!(
+        ui.chat_fold("a"),
+        ChatFold::AllOpen,
+        "the same replies keep it"
+    );
+    ui.fold_chat("a", ChatFold::Collapsed);
     ui.take(day(vec![
         said("a", "a0", 1, true),
         said("a", "a1", 5, false),
         said("a", "a2", 9, false),
     ]));
-    assert!(!ui.chat_open("a"), "a new reply folds it");
+    assert_eq!(
+        ui.chat_fold("a"),
+        ChatFold::Default,
+        "a new reply is never hidden, a collapsed chat opens again"
+    );
     let news = Arc::clone(&ui.news);
     assert_eq!(
         shape(&view::lines(&news, &ui)),
+        ["Last 24 hours 1", "[a] 1", "a0", "a: 2 earlier replies"]
+    );
+}
+
+#[test]
+fn the_arrow_collapses_any_chat_and_brings_back_the_default() {
+    use ChatFold::*;
+    assert_eq!(Default.arrow(), Collapsed);
+    assert_eq!(AllOpen.arrow(), Collapsed);
+    assert_eq!(Collapsed.arrow(), Default);
+    assert_eq!(Collapsed.right(), Default);
+    assert_eq!(Default.right(), AllOpen);
+    assert_eq!(AllOpen.right(), AllOpen);
+    assert_eq!(Default.left(), Collapsed);
+    assert_eq!(AllOpen.left(), Collapsed);
+}
+
+#[test]
+fn a_collapsed_chat_shows_only_its_block_line_with_its_count() {
+    let mut ui = NewsUi::default();
+    ui.take(day(vec![
+        said("a", "a1", 1, true),
+        said("a", "a2", 2, true),
+        said("b", "b1", 3, false),
+    ]));
+    let unread = shape(&view::lines(&Arc::clone(&ui.news), &ui));
+    assert_eq!(
+        unread[..4],
+        ["Last 24 hours 2", "[a] 2", "a1", "a2"],
+        "an unread chat lists its replies by default"
+    );
+    ui.fold_chat("a", ChatFold::Collapsed);
+    let news = Arc::clone(&ui.news);
+    let lines = view::lines(&news, &ui);
+    assert_eq!(
+        shape(&lines),
+        ["Last 24 hours 2", "[a] 2 folded", "[b]", "b1"],
+        "the count stays and the arrow points right"
+    );
+    assert_eq!(ui.count, 2, "collapsing marks nothing seen");
+    assert_eq!(
+        view::picks(&lines),
         [
-            "Last 24 hours 1",
-            "[a] 1 folded",
-            "a0",
-            "a: 2 earlier replies"
+            "head:Last 24 hours",
+            "chat:Last 24 hours:a",
+            "chat:Last 24 hours:b",
+            "b1"
         ]
     );
-    ui.fold_chat("a", false);
-    ui.fold_chat("a", true);
-    assert!(!ui.chat_open("a"));
+}
+
+#[test]
+fn collapsing_closes_the_open_reply_and_moves_the_keyboard_to_the_block_line() {
+    let mut question = said("w", "wait:w", 1, true);
+    question.mark = Some(Mark::AsksYou);
+    let mut ui = NewsUi::default();
+    ui.take(News {
+        pinned: vec![question],
+        recent: vec![said("w", "w1", 2, true), said("a", "a1", 3, true)],
+        older: Vec::new(),
+    });
+    ui.open = Some("w1".into());
+    ui.selected = Some("w1".into());
+    ui.fold_chat("w", ChatFold::Collapsed);
+    assert_eq!(ui.open, None);
+    assert_eq!(
+        ui.selected.as_deref(),
+        Some("chat:Waits for you:w"),
+        "a waiting chat's reply sits in its pinned block"
+    );
+    ui.open = Some("a1".into());
+    ui.selected = Some("a1".into());
+    ui.fold_chat("w", ChatFold::Default);
+    ui.fold_chat("w", ChatFold::Collapsed);
+    assert_eq!(
+        (ui.open.as_deref(), ui.selected.as_deref()),
+        (Some("a1"), Some("a1")),
+        "another chat's reply stays open"
+    );
+    ui.fold_chat("a", ChatFold::Collapsed);
+    assert_eq!(ui.selected.as_deref(), Some("chat:Last 24 hours:a"));
 }
 
 #[test]
@@ -452,7 +532,7 @@ fn only_unseen_hides_a_block_with_no_unseen_reply_but_never_a_waiting_chat() {
         shape(&view::lines(&news, &NewsUi::default())),
         [
             "Waits for you 1",
-            "[w] folded",
+            "[w]",
             "wait:w",
             "w: 1 earlier reply",
             "Last 24 hours 2",

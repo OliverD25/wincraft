@@ -156,9 +156,11 @@ A block line shows the chat once: the fold arrow, its status mark, its name,
 its project, its server and an amber count of its unseen replies. Under it,
 each reply takes one or two lines, with its time at the right. A chat shows
 all its unseen replies, or only its newest when you have seen them all; the
-others fold into one amber line, "2 earlier replies". A click on that line,
-or on the block line's arrow, unfolds the chat. It stays unfolded until the
-chat gets a new reply.
+others fold into one amber line, "2 earlier replies". A click on that line
+unfolds the chat. A click on the block line's arrow collapses any chat to
+its block line, read or not; the amber count stays, and nothing counts as
+seen. A second click brings the replies back. A chat stays unfolded or
+collapsed until it gets a new reply.
 
 A reply is **unseen** when the chat finished it after you last opened the
 chat in the Claude app, and you have not opened it here. An unseen reply has
@@ -176,7 +178,8 @@ amber dot after its name, and the tray tooltip adds ", 4 new replies".
   every reply as seen, without opening the chats.
 - Keys: `Ctrl+Tab` switches tabs; `↑` `↓` move over group lines, block lines
   and replies; `Space` or `→` opens a reply and `←` closes it; on a block or
-  group line `→` unfolds and `←` folds; `Enter` opens the chat; `Home` and
+  group line `→` unfolds and `←` folds (on a block line `←` collapses the
+  chat, `Space` is the arrow); `Enter` opens the chat; `Home` and
   `End` go to the ends. The digits work only on the Chats tab.
 
 How a finished reply is found: Claude's text at the end of a turn, that is

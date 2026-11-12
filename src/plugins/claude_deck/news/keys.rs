@@ -4,7 +4,9 @@
 //! replies ("N earlier replies" is skipped), Home and End go to the first
 //! and the last, Esc gives the keyboard back. On a group line Right
 //! unfolds, Left folds, Enter or Space does both. On a block line Right
-//! unfolds the chat, Left folds it, Space does both, Enter opens the chat.
+//! opens the chat one step more (collapsed, then the default, then every
+//! reply), Left collapses it to its block line, Space does what the arrow
+//! does, Enter opens the chat.
 //! On a reply Space or Right opens it in place, Left closes it, Enter
 //! opens the chat. The digits 1 to 9 stay on the Chats tab.
 
@@ -142,13 +144,13 @@ fn news_keys(ui: &Ui, state: &mut DeckUi, to_host: &HostChannel, now: u64) -> As
     }
     if let Some((_, chat)) = view::of_block_key(&picked) {
         let chat = chat.to_string();
+        let fold = news.chat_fold(&chat);
         if pressed.right {
-            news.fold_chat(&chat, false);
+            news.fold_chat(&chat, fold.right());
         } else if pressed.left {
-            news.fold_chat(&chat, true);
+            news.fold_chat(&chat, fold.left());
         } else if pressed.space {
-            let open = news.chat_open(&chat);
-            news.fold_chat(&chat, open);
+            news.fold_chat(&chat, fold.arrow());
         } else if pressed.enter {
             let item = news.news.all().find(|item| item.chat == chat).cloned();
             if let Some(item) = item {

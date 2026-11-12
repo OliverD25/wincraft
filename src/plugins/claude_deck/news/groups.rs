@@ -18,7 +18,7 @@ use super::super::servers;
 use super::super::MarkStyle;
 use super::collect::Item;
 use super::draw::{chevron, cut_job, galley, put, Asks, PAD, PART_GAP, SMALL};
-use super::view::{self, Head};
+use super::view::{self, ChatFold, Head};
 
 /// Space above a block line and under a block's last line.
 pub const BLOCK_TOP: f32 = 5.0;
@@ -79,13 +79,15 @@ pub struct BlockParts<'a> {
     pub item: &'a Item,
     pub unseen: usize,
     pub open: bool,
+    pub fold: ChatFold,
     pub selected: bool,
     /// Another block is just above, so a thin line parts them.
     pub after_block: bool,
 }
 
-/// A chat's block line. A click on the arrow folds or unfolds the chat;
-/// a click anywhere else opens the chat.
+/// A chat's block line. A click on the arrow collapses a chat whose
+/// replies show, or brings a collapsed one back; a click anywhere else
+/// opens the chat.
 pub fn block_line(
     ui: &mut Ui,
     painter: &Painter,
@@ -158,7 +160,7 @@ pub fn block_line(
     }
     names(painter, x, right, middle, item, tokens);
     if arrow.clicked() {
-        asks.fold_chat = Some((item.chat.clone(), parts.open));
+        asks.fold_chat = Some((item.chat.clone(), parts.fold.arrow()));
         asks.select = Some(key);
     } else if response.clicked() {
         asks.open_block = Some(item.clone());
@@ -377,6 +379,6 @@ pub fn earlier(
         .interact(hit, ui.id().with(("cd-news-earlier", chat)), Sense::click())
         .on_hover_cursor(CursorIcon::PointingHand);
     if click.clicked() {
-        asks.fold_chat = Some((chat.to_string(), false));
+        asks.fold_chat = Some((chat.to_string(), ChatFold::AllOpen));
     }
 }

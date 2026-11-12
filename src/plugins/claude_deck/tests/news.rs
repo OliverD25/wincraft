@@ -9,7 +9,7 @@ use super::*;
 use crate::core::ui_bridge::{ArrangeAction, HostRequest};
 use crate::plugins::claude_deck::header::Click;
 use crate::plugins::claude_deck::news::collect::{Item, News};
-use crate::plugins::claude_deck::news::view::Folds;
+use crate::plugins::claude_deck::news::view::{ChatFold, Folds};
 use crate::plugins::claude_deck::news::{load, view, Tab};
 use crate::plugins::claude_deck::{mini, Settings};
 
@@ -211,9 +211,28 @@ fn the_keys_move_open_fold_and_enter_opens_the_chat() {
         Some("chat:Last 24 hours:b1")
     );
     deck.key(Key::ArrowRight);
-    assert!(deck.state.news.chat_open("b1"), "Right unfolds the chat");
+    assert_eq!(
+        deck.state.news.chat_fold("b1"),
+        ChatFold::AllOpen,
+        "Right lists every reply"
+    );
     deck.key(Key::ArrowLeft);
-    assert!(!deck.state.news.chat_open("b1"), "Left folds it");
+    assert_eq!(
+        deck.state.news.chat_fold("b1"),
+        ChatFold::Collapsed,
+        "Left collapses the chat"
+    );
+    let painted = deck.settle();
+    assert!(
+        !painted.has("Line 1 of the reply."),
+        "a collapsed chat shows only its block line"
+    );
+    deck.key(Key::Space);
+    assert_eq!(
+        deck.state.news.chat_fold("b1"),
+        ChatFold::Default,
+        "Space is the arrow"
+    );
     deck.key(Key::ArrowDown);
     assert_eq!(deck.state.news.selected.as_deref(), Some("r1"));
     deck.key(Key::Space);

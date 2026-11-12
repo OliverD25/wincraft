@@ -20,7 +20,7 @@ use super::super::servers;
 use super::super::window::{empty, DeckUi};
 use super::collect::Item;
 use super::groups::{self, BlockParts, Shown};
-use super::view::{self, Head, Line};
+use super::view::{self, ChatFold, Head, Line};
 use super::Tab;
 
 pub const TABS: f32 = 30.0;
@@ -209,8 +209,8 @@ pub(super) struct Asks {
     pub open_block: Option<Item>,
     pub whole: Option<String>,
     pub fold: Option<Head>,
-    /// A chat to fold (true) or unfold.
-    pub fold_chat: Option<(String, bool)>,
+    /// A chat and how it is to fold.
+    pub fold_chat: Option<(String, ChatFold)>,
     pub only_unseen: bool,
     pub mark_all: bool,
     pub select: Option<String>,
@@ -321,9 +321,11 @@ fn show(ui: &mut Ui, look: &Look, state: &mut DeckUi, to_host: &HostChannel) {
                         item,
                         unseen,
                         open,
+                        fold,
                     } => {
                         let parts = BlockParts {
                             head: *head,
+                            fold: *fold,
                             item,
                             unseen: *unseen,
                             open: *open,

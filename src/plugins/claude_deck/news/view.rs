@@ -61,13 +61,14 @@ pub enum Line<'a> {
         dot: bool,
     },
     /// A chat's block line: its newest item gives the name, the folder
-    /// and the server. `unseen` counts its unseen replies; `open` is
-    /// false while some of its replies are folded away.
+    /// and the server. `unseen` counts its unseen replies, also while the
+    /// chat is collapsed; `open` is true while any reply is listed.
     Block {
         head: Head,
         item: &'a Item,
         unseen: usize,
         open: bool,
+        fold: ChatFold,
     },
     Item(&'a Item),
     /// "N earlier replies" under a folded chat.
@@ -83,11 +84,68 @@ pub enum Line<'a> {
 pub trait Folds {
     fn only_unseen(&self) -> bool;
     fn head_folded(&self, head: Head) -> bool;
-    /// The user unfolded this chat and no new reply came since.
-    fn chat_open(&self, chat: &str) -> bool;
+    /// How the user folded this chat; Default after a new reply.
+    fn chat_fold(&self, chat: &str) -> ChatFold;
     /// An item that must stay listed even when its chat is folded: the
     /// open one and the one the keyboard is on.
     fn keep(&self, key: &str) -> bool;
+}
+
+/// How a chat's block shows its replies.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ChatFold {
+    /// The unseen replies, or the newest when all are seen; the rest fold
+    /// into "N earlier replies".
+    #[default]
+    Default,
+    /// Every reply.
+    AllOpen,
+    /// Only the block line.
+    Collapsed,
+}
+
+impl ChatFold {
+    /// The block line's arrow, and Space: it folds a chat whose replies
+    /// show, and brings back the default of a collapsed one.
+    pub fn arrow(self) -> ChatFold {
+        match self {
+            ChatFold::Collapsed => ChatFold::Default,
+            _ => ChatFold::Collapsed,
+        }
+    }
+
+    /// Right on a block line: one step more open.
+    pub fn right(self) -> ChatFold {
+        match self {
+            ChatFold::Collapsed => ChatFold::Default,
+            _ => ChatFold::AllOpen,
+        }
+    }
+
+    /// Left on a block line.
+    pub fn left(self) -> ChatFold {
+        ChatFold::Collapsed
+    }
+}
+
+/// The group whose block lists this item: a waiting chat's replies of
+/// the day sit in its pinned block.
+pub fn head_of(news: &News, key: &str) -> Option<Head> {
+    let waits = |chat: &str| news.pinned.iter().any(|item| item.chat == chat);
+    if let Some(item) = news.recent.iter().find(|item| item.key == key) {
+        return Some(if waits(&item.chat) {
+            Head::Waits
+        } else {
+            Head::Recent
+        });
+    }
+    if news.pinned.iter().any(|item| item.key == key) {
+        return Some(Head::Waits);
+    }
+    news.older
+        .iter()
+        .any(|item| item.key == key)
+        .then_some(Head::Older)
 }
 
 /// The words of the line that unfolds a chat.
@@ -204,12 +262,17 @@ pub fn lines<'a>(news: &'a News, folds: &impl Folds) -> Vec<Line<'a>> {
         }
         for block in blocks {
             let chat = &block[0].chat;
-            let (listed, rest) = fold(&block, folds.chat_open(chat), |key| folds.keep(key));
+            let state = folds.chat_fold(chat);
+            let (listed, rest) = match state {
+                ChatFold::Collapsed => (Vec::new(), 0),
+                _ => fold(&block, state == ChatFold::AllOpen, |key| folds.keep(key)),
+            };
             lines.push(Line::Block {
                 head,
                 item: block[0],
                 unseen: unseen_replies(&block),
-                open: rest == 0,
+                open: !listed.is_empty(),
+                fold: state,
             });
             lines.extend(listed.into_iter().map(Line::Item));
             if rest > 0 {

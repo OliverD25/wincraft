@@ -4,8 +4,8 @@
 //! on top; each chat's latest older reply in a folded "Older" group.
 //! Server chats are in it too. A chat's block lists its unseen replies,
 //! or its newest when all are seen; the rest fold into "N earlier
-//! replies" until the user unfolds the chat, and fold again when the chat
-//! gets a new reply.
+//! replies" until the user unfolds the chat. The arrow collapses any chat
+//! to its block line. A new reply puts the chat back to the default.
 //!
 //! A reply is unseen when it finished after the chat was last opened in
 //! the Claude app (the session's `lastFocusedAt`, or its window seen in
@@ -39,7 +39,7 @@ use crate::core::config;
 
 use super::window::{listed, DeckUi};
 use collect::{collect, News, Source};
-use view::{Folds, Head};
+use view::{ChatFold, Folds, Head};
 
 /// A read mark is kept this long, then dropped. A reply older than this
 /// counts as seen.
@@ -138,9 +138,10 @@ pub struct NewsUi {
     pub folded: BTreeSet<Head>,
     /// The groups the user unfolded, so "Older" stays open.
     pub unfolded: BTreeSet<Head>,
-    /// The chats the user unfolded, with the time of their newest item
-    /// then. A newer item folds the chat again.
-    pub open_chats: HashMap<String, u64>,
+    /// The chats the user unfolded or collapsed, with the time of their
+    /// newest item then. A newer item puts the chat back to the default,
+    /// so a new reply is never hidden.
+    pub chat_folds: HashMap<String, (ChatFold, u64)>,
     pub only_unseen: bool,
     /// The item or group line the keyboard is on.
     pub selected: Option<String>,
@@ -192,12 +193,34 @@ impl NewsUi {
             .max()
     }
 
-    /// Unfolds or folds a chat's block.
-    pub fn fold_chat(&mut self, chat: &str, folded: bool) {
-        if folded {
-            self.open_chats.remove(chat);
-        } else if let Some(at) = self.newest(chat) {
-            self.open_chats.insert(chat.to_string(), at);
+    /// Sets how a chat's block shows its replies. Collapsing it closes
+    /// its open reply and moves the keyboard from its reply to its block
+    /// line. Nothing counts as seen.
+    pub fn fold_chat(&mut self, chat: &str, fold: ChatFold) {
+        match (fold, self.newest(chat)) {
+            (ChatFold::Default, _) | (_, None) => {
+                self.chat_folds.remove(chat);
+            }
+            (fold, Some(at)) => {
+                self.chat_folds.insert(chat.to_string(), (fold, at));
+            }
+        }
+        if fold != ChatFold::Collapsed {
+            return;
+        }
+        let of_chat = |key: &Option<String>| {
+            key.as_deref()
+                .and_then(|key| self.news.all().find(|item| item.key == key))
+                .filter(|item| item.chat == chat)
+                .map(|item| item.key.clone())
+        };
+        if of_chat(&self.open).is_some() {
+            self.open = None;
+        }
+        if let Some(key) = of_chat(&self.selected) {
+            if let Some(head) = view::head_of(&self.news, &key) {
+                self.selected = Some(view::block_key(head, chat));
+            }
         }
     }
 
@@ -286,10 +309,10 @@ impl NewsUi {
     /// Takes the items worked out again.
     pub fn take(&mut self, news: News) {
         self.news = Arc::new(news);
-        let open: Vec<(String, u64)> = self.open_chats.drain().collect();
-        for (chat, at) in open {
+        let folds: Vec<(String, (ChatFold, u64))> = self.chat_folds.drain().collect();
+        for (chat, (fold, at)) in folds {
             if self.newest(&chat).is_some_and(|newest| newest <= at) {
-                self.open_chats.insert(chat, at);
+                self.chat_folds.insert(chat, (fold, at));
             }
         }
         self.recount();
@@ -305,8 +328,10 @@ impl Folds for NewsUi {
         self.is_folded(head)
     }
 
-    fn chat_open(&self, chat: &str) -> bool {
-        self.open_chats.contains_key(chat)
+    fn chat_fold(&self, chat: &str) -> ChatFold {
+        self.chat_folds
+            .get(chat)
+            .map_or(ChatFold::Default, |(fold, _)| *fold)
     }
 
     fn keep(&self, key: &str) -> bool {
