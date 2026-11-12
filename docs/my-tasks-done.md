@@ -2,6 +2,7 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
+- **33. Install 0.20.117: the News tab grouped by chat**: done 2026-11-13. The user said "done 33" and asked next that a chat with unread replies can also be folded by its arrow.
 - **32. Install 0.20.116: Show in the Claude app from ClaudeDeck**: done 2026-11-13. The user said "done 32" after the test: the menu item and `Ctrl+Enter` move the main Claude window to the picked chat.
 - **31. Install 0.20.115: the News tab, and the hotkey on a minimized ClaudeDeck**: done 2026-11-12. The user said "31 done".
 - **30. Install 0.20.114: a fast open from ClaudeDeck, and Background for a woken agent**: done 2026-11-12. The user said "30 done".
