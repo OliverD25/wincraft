@@ -204,7 +204,12 @@ struct Entry {
     turn: Option<(u64, Turn)>,
 }
 
-static CACHE: Mutex<Option<HashMap<String, Entry>>> = Mutex::new(None);
+/// What the reader thread has read so far. Only `refresh` touches it.
+static READ: Mutex<Option<HashMap<String, Entry>>> = Mutex::new(None);
+/// The open jobs of each chat, written whole after each read. A read of
+/// ClaudeDeck's ~300 chats can take seconds, and WindowDeck's Background
+/// chip must keep its count all that time.
+static OPEN: Mutex<Option<HashMap<String, Scan>>> = Mutex::new(None);
 static WANTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static WANTED_BY_DECK: Mutex<Vec<String>> = Mutex::new(Vec::new());
 /// The last turns of ClaudeDeck's chats, written whole after each read, so
@@ -266,7 +271,7 @@ pub fn refresh(now: u64) {
     let Some(projects) = projects_folder() else {
         return;
     };
-    let mut entries = CACHE
+    let mut entries = READ
         .lock()
         .ok()
         .and_then(|mut cache| cache.take())
@@ -304,11 +309,28 @@ pub fn refresh(now: u64) {
             turns.insert(id.clone(), turn.clone());
         }
     }
-    if let Ok(mut cache) = CACHE.lock() {
-        *cache = Some(entries);
+    publish_open(&entries);
+    if let Ok(mut read) = READ.lock() {
+        *read = Some(entries);
     }
     if let Ok(mut latest) = TURNS.lock() {
         *latest = Some(turns);
+    }
+}
+
+fn publish_open(entries: &HashMap<String, Entry>) {
+    let open = entries
+        .iter()
+        .map(|(id, entry)| {
+            let scan = Scan {
+                open: entry.scan.open.clone(),
+                ..Scan::default()
+            };
+            (id.clone(), scan)
+        })
+        .collect();
+    if let Ok(mut latest) = OPEN.lock() {
+        *latest = Some(open);
     }
 }
 
@@ -340,14 +362,12 @@ pub fn turn(cli_session_id: &str) -> Option<Turn> {
 /// The running jobs of the chat with this `cliSessionId`, as read last:
 /// how many, and the start of the oldest.
 pub fn running(cli_session_id: &str, now: u64) -> (usize, Option<u64>) {
-    CACHE
-        .lock()
+    OPEN.lock()
         .ok()
-        .and_then(|cache| {
-            cache
-                .as_ref()
-                .and_then(|entries| entries.get(cli_session_id))
-                .map(|entry| entry.scan.running(now))
+        .and_then(|open| {
+            open.as_ref()
+                .and_then(|scans| scans.get(cli_session_id))
+                .map(|scan| scan.running(now))
         })
         .unwrap_or((0, None))
 }

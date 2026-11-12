@@ -166,3 +166,18 @@ fn windowdeck_and_claudedeck_want_their_chats_side_by_side() {
     want(Vec::new());
     assert!(wanted().is_empty());
 }
+
+#[test]
+fn the_job_count_stays_while_a_read_runs() {
+    let entry = Entry {
+        scan: scan(&start("keep1")),
+        ..Entry::default()
+    };
+    let mut entries = HashMap::new();
+    entries.insert("chat-keep".to_string(), entry);
+    publish_open(&entries);
+    // A long read holds the reader's own state; the count must not drop.
+    let held = READ.lock().unwrap().take();
+    assert_eq!(running("chat-keep", NOW).0, 1);
+    *READ.lock().unwrap() = held;
+}
