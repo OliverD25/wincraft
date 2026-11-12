@@ -58,6 +58,21 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 **Done when:** steps 2-5 look as described, or you report what did not.
 
+### 16. Have the attention hook tell WinCraft when a chat needs approval
+
+- **State:** Wait: the release with ClaudeDeck is not out yet.
+- **Kind:** other · **Added:** 2026-11-13 (PC)
+- **Why:** ClaudeDeck can show "Needs approval" apart from "Asks you" only when the hook sends the kind. The hook is in the config folder, which a WinCraft chat cannot edit.
+
+**Steps**
+
+1. Open the chat "Claude Code Global settings and skills" in the Claude desktop app.
+2. Paste this message and send it: `Apply the hook change described in E:\codespace\_claude_code\_rde\wincraft_windows_utilities_rust\docs\claude-deck-hook-kind.md to hooks/claude-attention.py, test it, and commit.`
+3. That chat changes the hook and reports "done". Nothing else is needed from you there.
+4. To see it work: open ClaudeDeck with `Win+Alt+C`, then let any Claude chat ask for permission to run a command. Its row shows an orange triangle instead of the speech bubble.
+
+**Done when:** a chat that waits for a permission shows the orange triangle in ClaudeDeck.
+
 ## Done
 
 - **14. Review the design of the new ClaudeDeck plugin**: done 2026-11-12. The design session recorded the approval in commit c2afaca: status marks A "Shapes", forks A "Tree lines", the rest of the page "ClaudeDeck" approved as drawn (artifact version 24).
