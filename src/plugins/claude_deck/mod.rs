@@ -74,6 +74,8 @@ const MARK_OFF: &str = "Off";
 /// A test instance opens the window at start with this flag, so a scene
 /// can show it without a hotkey.
 const SCENE_FLAG: &str = "--open-claude-deck";
+/// The same in mini mode, which is not saved.
+const SCENE_MINI_FLAG: &str = "--open-claude-deck=mini";
 
 /// How the status mark is drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -335,7 +337,13 @@ impl WinCraftPlugin for ClaudeDeck {
 
     fn init(&mut self, ctx: &HostContext) -> Result<(), String> {
         self.apply(ctx.settings);
-        if instance::is_test() && std::env::args().skip(1).any(|arg| arg == SCENE_FLAG) {
+        let scene = |flag: &str| std::env::args().skip(1).any(|arg| arg == flag);
+        if instance::is_test() && scene(SCENE_MINI_FLAG) {
+            if let Ok(mut shared) = self.shared.lock() {
+                shared.settings.mini = true;
+            }
+        }
+        if instance::is_test() && (scene(SCENE_FLAG) || scene(SCENE_MINI_FLAG)) {
             self.open();
         }
         Ok(())
