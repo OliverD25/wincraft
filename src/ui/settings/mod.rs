@@ -18,13 +18,27 @@ use windows_sys::Win32::Graphics::Dwm::{
     DwmGetWindowAttribute, DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE,
 };
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
-use windows_sys::Win32::UI::WindowsAndMessaging::{EnumThreadWindows, GetWindowTextW};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    EnumThreadWindows, GetWindowTextW, IsIconic, ShowWindow, SW_RESTORE,
+};
 
 use crate::core::hotkeys;
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{HostChannel, HostRequest, LayoutSnapshot, Page, UiSnapshot};
 use crate::ui::widgets::hotkey_dialog::{self, Dialog, Editor, Outcome, Target};
 use crate::ui::widgets::{focus, row, text, theme_tile};
+
+/// Brings the settings window in front of the others: restored first when
+/// it is minimised, then the host thread takes the foreground for it, the
+/// way it does for the palette (Windows lets the thread that got the tray
+/// click or the hotkey do that, and `bring_to_front` has fallbacks).
+fn bring_forward(window: isize, to_host: &HostChannel) {
+    let hwnd = window as HWND;
+    if unsafe { IsIconic(hwnd) } != 0 {
+        unsafe { ShowWindow(hwnd, SW_RESTORE) };
+    }
+    to_host.send(HostRequest::FocusWindow(window));
+}
 
 /// A window of this thread by its title. The palette and the settings window
 /// are both titled "WinCraft" and winit keeps WS_CAPTION on the undecorated
@@ -367,9 +381,12 @@ struct Shared {
     snapshot: UiSnapshot,
     to_host: Arc<HostChannel>,
     closed: bool,
-    /// The settings window's HWND, looked up again on every open because a
-    /// closed viewport's window is destroyed.
+    /// The settings window's HWND, looked up again after it closed (`hidden`
+    /// clears it) because a closed viewport's window is destroyed.
     window: isize,
+    /// Set by every open: on its next frame the window comes to the front,
+    /// also when it was already open behind other windows or minimised.
+    raise: bool,
 }
 
 impl Settings {
@@ -382,6 +399,7 @@ impl Settings {
                 to_host,
                 closed: false,
                 window: 0,
+                raise: false,
             })),
         }
     }
@@ -403,7 +421,7 @@ impl Settings {
             shared.state.page = page;
             shared.state.open_plugin = None;
             shared.closed = false;
-            shared.window = 0;
+            shared.raise = true;
         }
     }
 
@@ -415,7 +433,7 @@ impl Settings {
             shared.state.open_plugin = None;
             shared.state.scene_dialog = Some((id.to_string(), keys));
             shared.closed = false;
-            shared.window = 0;
+            shared.raise = true;
         }
     }
 
@@ -427,7 +445,7 @@ impl Settings {
             shared.state.open_plugin = None;
             shared.state.shortcuts.change(id);
             shared.closed = false;
-            shared.window = 0;
+            shared.raise = true;
         }
     }
 
@@ -439,7 +457,7 @@ impl Settings {
             shared.state.open_plugin = None;
             shared.state.shortcuts.open_at(id, label);
             shared.closed = false;
-            shared.window = 0;
+            shared.raise = true;
         }
     }
 
@@ -450,7 +468,7 @@ impl Settings {
             shared.state.page = Page::Plugins;
             shared.state.open_plugin = Some(id.to_string());
             shared.closed = false;
-            shared.window = 0;
+            shared.raise = true;
         }
     }
 
@@ -469,10 +487,25 @@ impl Settings {
             shared.state.theme_preview = theme_tile::HoverPreview::default();
             shared.closed = false;
             shared.window = 0;
+            shared.raise = false;
+        }
+    }
+
+    /// Brings an open settings window forward after an open asked for it.
+    /// Done here, not in the window's own frame: egui draws no frame for a
+    /// minimised window. A window not found yet (the first open) is brought
+    /// forward by its own first frame.
+    fn raise_if_asked(&self) {
+        if let Ok(mut shared) = self.shared.lock() {
+            if shared.raise && shared.window != 0 {
+                shared.raise = false;
+                bring_forward(shared.window, &shared.to_host);
+            }
         }
     }
 
     pub fn show(&self, ctx: &egui::Context, icon: Option<Arc<egui::IconData>>) {
+        self.raise_if_asked();
         let shared = Arc::clone(&self.shared);
         let palette_hwnd = self.palette_hwnd;
         let mut builder = egui::ViewportBuilder::default()
@@ -494,11 +527,16 @@ impl Settings {
                 to_host,
                 closed,
                 window,
+                raise,
             } = &mut *shared;
             let tokens = Tokens::get(ui.ctx());
 
             if *window == 0 {
                 *window = find_window("WinCraft", palette_hwnd);
+            }
+            if *raise && *window != 0 {
+                *raise = false;
+                bring_forward(*window, to_host);
             }
             if *window != 0 {
                 sync_title_bar(*window, tokens.dark);
@@ -647,6 +685,35 @@ fn next_page(current: Page, step: i32) -> Option<Page> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opening_settings_again_brings_the_open_window_forward() {
+        let bridge = crate::core::ui_bridge::create();
+        let settings = Settings::new(bridge.to_host, UiSnapshot::default(), 0);
+        // Open, its window found: a handle no window has.
+        settings.open_at(Page::General);
+        settings.shared.lock().unwrap().window = 0x7FFF_0000;
+        settings.raise_if_asked();
+        assert!(matches!(
+            bridge.host_rx.try_recv(),
+            Ok(HostRequest::FocusWindow(0x7FFF_0000))
+        ));
+        // Asked once per open, also from the palette and the tray.
+        settings.raise_if_asked();
+        assert!(bridge.host_rx.try_recv().is_err());
+        settings.open_plugin("window_deck");
+        settings.raise_if_asked();
+        assert!(matches!(
+            bridge.host_rx.try_recv(),
+            Ok(HostRequest::FocusWindow(0x7FFF_0000))
+        ));
+        // After it closed, the next open waits for the new window.
+        settings.hidden();
+        settings.open_at(Page::About);
+        settings.raise_if_asked();
+        assert!(bridge.host_rx.try_recv().is_err());
+        assert!(settings.shared.lock().unwrap().raise);
+    }
 
     #[test]
     fn the_side_menu_keeps_its_order_and_calls_the_page_hotkeys() {
