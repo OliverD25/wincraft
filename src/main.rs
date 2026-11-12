@@ -37,6 +37,20 @@ fn main() {
         return;
     }
 
+    // ClaudeDeck's search in the Claude app, read-only, for a live check.
+    if let Some(title) = args
+        .iter()
+        .skip(1)
+        .find_map(|arg| arg.strip_prefix("--claude-app-find="))
+    {
+        let _ = writeln!(
+            std::io::stdout(),
+            "{}",
+            core::claude_app::find_report(title)
+        );
+        return;
+    }
+
     // ShortcutManager's verdict on key combinations, for choosing a
     // default; also before logging::init. Each is registered and freed at
     // once.

@@ -601,6 +601,31 @@ pub(crate) fn on_com_thread(
     });
 }
 
+/// `--claude-app-find=<title>`: the same search an open makes, read-only
+/// (nothing is switched, unfolded or pressed), for checking it against the
+/// live Claude app. Returns one line to print.
+pub fn find_report(title: &str) -> String {
+    let hr = unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32) };
+    if hr < 0 {
+        return format!("COM did not start ({})", com::hex(hr));
+    }
+    let began = Instant::now();
+    let line = match Automation::new() {
+        Err(reason) => format!("UI Automation did not start: {reason}"),
+        Ok(automation) => match find_chat(&automation, title.trim(), true, true) {
+            Ok(Some(_)) => "found".to_string(),
+            Ok(None) => "not found".to_string(),
+            Err(reason) => format!("not found: {reason}"),
+        },
+    };
+    unsafe { CoUninitialize() };
+    format!(
+        "\"{}\": {line} in {} ms",
+        title.trim(),
+        began.elapsed().as_millis()
+    )
+}
+
 /// Opens the chat with this title in the app's main window, on a thread of
 /// its own. `failed` gets the notice text when the chat cannot be found.
 /// A test copy of WinCraft only reads; unit tests start nothing.
