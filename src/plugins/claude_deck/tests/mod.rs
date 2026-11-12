@@ -102,10 +102,12 @@ fn folded_chat(id: &str) -> Saved {
 
 mod arrange;
 mod chats;
+mod draw_rows;
 mod drop;
 mod edit;
 mod keyboard;
 mod list;
 mod modes;
 mod plugin;
+mod screen;
 mod store;
