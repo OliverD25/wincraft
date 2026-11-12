@@ -358,6 +358,7 @@ fn forget(state: &mut DeckUi) {
     if state.window != 0 {
         keep_place(state);
     }
+    claude_windows::set_wanted(false);
     claude_jobs::want_for_deck(Vec::new());
     claude_windows::publish(Vec::new());
     commit(state);
@@ -413,6 +414,7 @@ fn find_and_place(state: &mut DeckUi, palette: isize, tokens: &Tokens, to_host: 
 fn refresh(state: &mut DeckUi, to_host: &HostChannel) {
     if state.asked.is_none_or(|at| at.elapsed() >= ASK_EVERY) {
         state.asked = Some(Instant::now());
+        claude_windows::set_wanted(true);
         to_host.send(HostRequest::ClaudeDeckRefresh);
     }
     if state.built.is_some_and(|at| at.elapsed() < BUILD_EVERY) {

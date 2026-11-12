@@ -3,6 +3,7 @@
 //! the host writes this list there (on `HostRequest::ClaudeDeckRefresh`)
 //! and ClaudeDeck's window reads it on the UI thread.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 /// One open window of the Claude desktop app and the chat it shows.
@@ -18,6 +19,18 @@ pub struct ChatWindow {
 }
 
 static LATEST: Mutex<Vec<ChatWindow>> = Mutex::new(Vec::new());
+static WANTED: AtomicBool = AtomicBool::new(false);
+
+/// ClaudeDeck's window opens (true) or closes (false). A refresh the host
+/// takes after the close does nothing, so a closed window leaves no chats
+/// to read behind.
+pub fn set_wanted(on: bool) {
+    WANTED.store(on, Ordering::Release);
+}
+
+pub fn wanted() -> bool {
+    WANTED.load(Ordering::Acquire)
+}
 
 pub fn publish(windows: Vec<ChatWindow>) {
     if let Ok(mut latest) = LATEST.lock() {
@@ -49,6 +62,14 @@ pub fn of<'a>(windows: &'a [ChatWindow], session_id: &str) -> Option<&'a ChatWin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_closed_deck_wants_nothing() {
+        set_wanted(true);
+        assert!(wanted());
+        set_wanted(false);
+        assert!(!wanted(), "a refresh after the close does nothing");
+    }
 
     #[test]
     fn the_list_written_last_is_read_back() {

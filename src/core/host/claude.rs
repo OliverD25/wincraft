@@ -97,6 +97,9 @@ pub(super) fn fill_claude_cards(groups: &mut [ArrangeGroup]) {
 /// every few seconds), names the chats whose jobs it shows, and writes
 /// which chats have a window and which of those wait. Only reads windows.
 pub(super) fn publish_chat_windows() {
+    if !claude_windows::wanted() {
+        return;
+    }
     claude_sessions::read_soon();
     let (sessions, popouts) = claude_sessions::sessions();
     let shown: Vec<ShownWindow> = windows_list::app_window_records(&|_| true)
@@ -139,4 +142,10 @@ pub(super) fn publish_chat_windows() {
         .collect();
     claude_jobs::want_for_deck(wanted);
     claude_windows::publish(windows);
+    // The window may have closed while this ran: its close cleared the
+    // lists first, so clear what was just written.
+    if !claude_windows::wanted() {
+        claude_jobs::want_for_deck(Vec::new());
+        claude_windows::publish(Vec::new());
+    }
 }
