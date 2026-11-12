@@ -5,8 +5,24 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ## Open
 
+### 23. Install 0.20.107: fork a chat in a terminal, and the waits on the server line
+
+- **State:** Partly ready: steps 1 and 2 done (you said "done till step 3" on 2026-11-12); steps 3 and 4 are ready to test.
+- **Kind:** test · **Added:** 2026-11-12 (PC)
+- **Why:** you asked for both after testing 0.20.106. Opening a terminal and a forked chat can only be checked on your screen.
+
+**Steps**
+
+1. Press `Alt+Space` (your palette hotkey), type `update`, pick **Update WinCraft** and press `Enter`. The bottom right corner of the palette then shows "WinCraft v0.20.107" or newer.
+2. Press `Win+Alt+X`. Right-click any PC chat row, for example **WinCraft Rust Master**, and pick **Fork in a terminal**. Windows Terminal opens in that chat's folder and Claude starts with the chat's history. Type `/status` or ask "what were we doing?" to see it knows the chat. Close the terminal window when done; the original chat is not changed.
+3. Server chats: right-click a home1 or home2 chat whose line is NOT "Remote Control is ready" (those have no chat yet, so they have no **Fork in a terminal**). Pick **Fork in a terminal**. A terminal opens with ssh, and Claude starts there with the chat's history and Remote Control on. If every server chat says "Remote Control is ready", skip this step and say so.
+4. In any Claude chat on this PC, ask: `run /c/Windows/System32/OpenSSH/ssh.exe rdehome2 sleep 60 in the foreground`. While it runs, the **home2** line shows "1 PC chat waits · 8" in blue instead of CPU and RAM. After it ends, CPU and RAM come back within 30 seconds.
+
+**Done when:** steps 2 and 4 look as described, and step 3 does or was skipped for the reason above.
+
 ## Done
 
+- **22. Pick the ClaudeDeck icon**: done 2026-11-12. The user picked "B. Amber list": the chat list on an amber tile. Source: design/claude-design/claudedeck-icon/claudedeck-icon-b.svg; the ClaudeDeck coding session builds the .ico from it.
 - **21. Install 0.20.106 and check the homelab servers in ClaudeDeck**: done 2026-11-12. The user said "21 task. all done": three server lines, the health hover, terminals, and **Waits on home2** on the PC chat during a foreground ssh.
 - **13. Install the attention hook fix: a question stays Waiting while other tools finish**: done 2026-11-12. The user said "13 is done" after the test. The hook log has 13 "ignored: the mark waits for" lines, so the hook keeps a question mark while other tools finish.
 - **11. Check that a stack list row shows its window**: done 2026-11-12. The user said "11 done" after the test: resting the mouse on a row of a stack's list shows that window in front.

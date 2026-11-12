@@ -118,14 +118,28 @@ fn ago(at: u64, now: u64) -> String {
     format!("{} ago", duration_text(now.saturating_sub(at)))
 }
 
-/// The words at the right of a server's line.
-pub fn line_text(view: &HostView, now: u64) -> String {
+/// How many PC chats wait on this server now.
+pub fn waiting_on(server: &str, waits: &[Wait]) -> usize {
+    waits.iter().filter(|wait| wait.server == server).count()
+}
+
+/// The words at the right of a server's line. While PC chats wait on an
+/// online server, "1 PC chat waits" takes the place of CPU and RAM.
+pub fn line_text(view: &HostView, waiting: usize, now: u64) -> String {
     match (view.checked, view.online) {
         (None, _) => "Checking\u{2026}".to_string(),
         (Some(_), false) => match view.last_seen {
             Some(seen) => format!("Offline \u{b7} last seen {}", ago(seen, now)),
             None => "Offline".to_string(),
         },
+        (Some(_), true) if waiting > 0 => {
+            let label = waits_label(waiting);
+            if view.chats.is_empty() {
+                label
+            } else {
+                format!("{label} \u{b7} {}", view.chats.len())
+            }
+        }
         (Some(_), true) if view.chats.is_empty() => "No Claude chats".to_string(),
         (Some(_), true) => {
             let mut parts = Vec::new();

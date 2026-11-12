@@ -221,3 +221,40 @@ fn up_and_down_walk_groups_and_chats() {
     assert_eq!(step(&all, Some(&g("new")), true), Some(g("new")));
     assert!(step(&[], None, false).is_none());
 }
+
+#[test]
+fn only_a_chat_that_can_be_forked_gets_the_fork_item() {
+    use crate::plugins::claude_deck::fork::Fork;
+    use Item::*;
+    let id = "0f3a9c1e-1b2d-4c5e-8f60-123456789abc";
+    let mut forkable = line(0, Fold::None);
+    forkable.chat.fork = Fork::new(id, Some(r"E:\code\WinCraft"));
+    assert_eq!(
+        chat_items(&forkable, true),
+        [
+            Open,
+            Pin,
+            Hide,
+            Copy,
+            RenameWindow,
+            Fork,
+            Separator,
+            MoveTo,
+            NewWith
+        ]
+    );
+    assert!(!chat_items(&line(0, Fold::None), true).contains(&Fork));
+    let stand_in = ChatLine {
+        stand_in: true,
+        ..forkable.clone()
+    };
+    assert!(!chat_items(&stand_in, true).contains(&Fork));
+    let hidden = ChatLine {
+        hidden: true,
+        ..forkable
+    };
+    assert_eq!(
+        chat_items(&hidden, false),
+        [Open, Show, Copy, RenameWindow, Fork]
+    );
+}

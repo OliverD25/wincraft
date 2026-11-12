@@ -14,6 +14,7 @@ pub const UNPIN: &str = "Unpin";
 pub const HIDE: &str = "Hide this chat";
 pub const SHOW: &str = "Show this chat";
 pub const COPY: &str = "Copy the name";
+pub const FORK: &str = "Fork in a terminal";
 pub const RENAME_WINDOW: &str = "Rename the window…";
 pub const FOLD_FORKS: &str = "Fold its forks";
 pub const UNFOLD_FORKS: &str = "Unfold its forks";
@@ -41,6 +42,7 @@ pub enum Item {
     Show,
     Copy,
     RenameWindow,
+    Fork,
     FoldForks,
     UnfoldForks,
     MoveTo,
@@ -67,6 +69,8 @@ pub enum Choice {
     Copy,
     /// The name of the chat's window, through WindowNamer.
     RenameWindow,
+    /// A fork of the chat in a new terminal.
+    Fork,
     FoldForks,
     MoveTo(String),
     NewWith,
@@ -92,6 +96,7 @@ pub fn chat_items(line: &ChatLine, in_group: bool) -> Vec<Item> {
         items.push(Item::Show);
         if !line.stand_in {
             items.extend([Item::Copy, Item::RenameWindow]);
+            items.extend(fork_item(line));
         }
         return items;
     }
@@ -102,6 +107,7 @@ pub fn chat_items(line: &ChatLine, in_group: bool) -> Vec<Item> {
     items.push(Item::Hide);
     if !line.stand_in {
         items.extend([Item::Copy, Item::RenameWindow]);
+        items.extend(fork_item(line));
     }
     let mut more = Vec::new();
     match line.fold {
@@ -117,6 +123,10 @@ pub fn chat_items(line: &ChatLine, in_group: bool) -> Vec<Item> {
         items.extend(more);
     }
     items
+}
+
+fn fork_item(line: &ChatLine) -> Option<Item> {
+    line.chat.fork.as_ref().map(|_| Item::Fork)
 }
 
 /// The menu of a group header.
@@ -182,6 +192,7 @@ pub fn show(ui: &mut Ui, items: &[Item], context: &Context) -> Option<Choice> {
                 )
                 .clicked()
                 .then_some(Choice::RenameWindow),
+            Item::Fork => button(ui, FORK, "").then_some(Choice::Fork),
             Item::FoldForks => button(ui, FOLD_FORKS, "").then_some(Choice::FoldForks),
             Item::UnfoldForks => button(ui, UNFOLD_FORKS, "").then_some(Choice::FoldForks),
             Item::MoveTo => {

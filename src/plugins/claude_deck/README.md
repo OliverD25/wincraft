@@ -267,6 +267,15 @@ is forgotten after 30 days, like a PC chat that is gone.
 
 ## Privacy
 
+**Fork in a terminal.** The right-click menu of a chat (on this PC or on a
+server) can start a fork of it in a new terminal:
+`claude --resume <session id> --fork-session`. The fork is a new chat with
+the whole history; the chat it came from is not changed. On this PC it uses
+Windows Terminal in the chat's folder (a console window when Windows
+Terminal is missing). On a server it uses ssh and adds `--remote-control`,
+so the fork also shows in the Claude app. A Remote Control service with no
+chat yet has nothing to fork.
+
 ClaudeDeck only reads the Claude app's own session files on this PC
 (`%APPDATA%\Claude\claude-code-sessions`) and the transcripts of the chats
 it lists (those with a window, or active in the last day), in steps: only

@@ -265,6 +265,7 @@ fn working(id: &str) -> Chat {
         window: Some(5),
         text: None,
         full: None,
+        fork: None,
     }
 }
 
@@ -396,7 +397,7 @@ fn a_server_group_shows_its_line_and_its_chats() {
     ];
     let host = view_of(chats, true);
     assert_eq!(
-        view::line_text(&host, NOW),
+        view::line_text(&host, 0, NOW),
         "CPU 34% \u{b7} RAM 61% \u{b7} 3"
     );
     let views = vec![("rdehome2".to_string(), host)];
@@ -424,16 +425,16 @@ fn a_server_group_shows_its_line_and_its_chats() {
 fn an_offline_server_keeps_its_chats_greyed() {
     let host = view_of(vec![server_chat("s/a", Mark::Working)], false);
     assert_eq!(
-        view::line_text(&host, NOW),
+        view::line_text(&host, 0, NOW),
         "Offline \u{b7} last seen 3 h ago"
     );
     let views = vec![("rdehome2".to_string(), host)];
     let lines = shape_lines(&views, &BTreeSet::new());
     assert!(matches!(&lines[1], ServerLine::Chat { greyed: true, .. }));
     let fresh = HostView::default();
-    assert_eq!(view::line_text(&fresh, NOW), "Checking\u{2026}");
+    assert_eq!(view::line_text(&fresh, 0, NOW), "Checking\u{2026}");
     assert_eq!(
-        view::line_text(&view_of(Vec::new(), true), NOW),
+        view::line_text(&view_of(Vec::new(), true), 0, NOW),
         "No Claude chats"
     );
 }
@@ -869,7 +870,7 @@ fn real_health_values_from_the_three_servers_read_right() {
     let mut host = HostView::default();
     poll::take_reply("rdeoffice1", Ok(office1), &mut cache, &mut host, NOW);
     assert!(host.online && host.chats.is_empty());
-    assert_eq!(view::line_text(&host, NOW), "No Claude chats");
+    assert_eq!(view::line_text(&host, 0, NOW), "No Claude chats");
 }
 
 #[test]
@@ -920,4 +921,84 @@ fn a_running_remote_control_chat_is_never_cold() {
     let ready = vec![("-home-rde-projects-oriondb".to_string(), NOW_S - DAYS_13)];
     let rows = status::ready_chats("s", Some("/home/rde"), &running, &ready, &[], NOW, NOW);
     assert_eq!(rows[0].mark, Mark::Idle(Age::Cooling));
+}
+
+#[test]
+fn a_server_line_says_when_pc_chats_wait_on_it() {
+    let host = view_of(vec![server_chat("s/a", Mark::Idle(Age::Fresh))], true);
+    assert_eq!(view::line_text(&host, 1, NOW), "1 PC chat waits \u{b7} 1");
+    assert_eq!(view::line_text(&host, 2, NOW), "2 PC chats wait \u{b7} 1");
+    assert_eq!(
+        view::line_text(&view_of(Vec::new(), true), 1, NOW),
+        "1 PC chat waits"
+    );
+    assert_eq!(
+        view::line_text(&view_of(Vec::new(), false), 1, NOW),
+        "Offline \u{b7} last seen 3 h ago",
+        "offline matters more than the wait"
+    );
+    let waits = vec![super::Wait {
+        chat: "pc/1".to_string(),
+        server: "rdehome2".to_string(),
+        since: None,
+        title: "Deploy".to_string(),
+    }];
+    assert_eq!(view::waiting_on("rdehome2", &waits), 1);
+    assert_eq!(view::waiting_on("rdehome1", &waits), 0);
+}
+
+const FORK_ID: &str = "0f3a9c1e-1b2d-4c5e-8f60-123456789abc";
+
+#[test]
+fn a_server_chat_with_a_transcript_can_be_forked_but_a_ready_row_cannot() {
+    let lines = [user("Run"), said("Done.")];
+    let parsed = status::parse_tail(&tail(&lines), true);
+    let running = Running {
+        rc: &[],
+        procs: &[],
+        rc_failed: &[],
+    };
+    let mut named = raw("-home-rde-projects-verdict-ai", 60);
+    named.file = format!("{FORK_ID}.jsonl");
+    let chat = status::chat("rdehome2", &named, &parsed, &running, NOW, NOW);
+    let fork = chat.fork.expect("a chat with a transcript");
+    assert_eq!(fork.session, FORK_ID);
+    assert_eq!(fork.folder, "/home/rde/projects/verdict-ai");
+
+    // A file name that is not a session id gives no fork.
+    named.file = "x; rm -rf.jsonl".to_string();
+    let odd = status::chat("rdehome2", &named, &parsed, &running, NOW, NOW);
+    assert_eq!(odd.fork, None);
+
+    let text = format!(
+        "NOW {NOW_S}\nHOME /home/rde\nRC intellekt.dev\nREADY -home-rde-projects-intellekt-dev {}\nDONE\n",
+        NOW_S - 600
+    );
+    let mut cache = Cache::new();
+    let mut host = HostView::default();
+    poll::take_reply("rdehome2", Ok(text), &mut cache, &mut host, NOW);
+    let ready = host
+        .chats
+        .iter()
+        .find(|chat| chat.title == "intellekt.dev")
+        .expect("the ready row");
+    assert_eq!(ready.fork, None);
+}
+
+#[test]
+fn the_server_fork_command_keeps_the_folder_and_turns_remote_control_on() {
+    assert_eq!(
+        terminal::fork_command("/home/rde/projects/app", FORK_ID).as_deref(),
+        Some(
+            "cd '/home/rde/projects/app' && exec $SHELL -lc 'claude --resume 0f3a9c1e-1b2d-4c5e-8f60-123456789abc --fork-session --remote-control'"
+        )
+    );
+    assert_eq!(terminal::fork_command("/x'; rm -rf /", FORK_ID), None);
+    assert_eq!(terminal::fork_command("/home/rde/app", "a'; id #"), None);
+    assert_eq!(terminal::fork_command("/home/rde/app", ""), None);
+    let fork = crate::plugins::claude_deck::fork::Fork::new(FORK_ID, Some("/home/rde/app"))
+        .expect("a fork");
+    let args = terminal::fork_args("rdehome2", &fork).expect("safe");
+    assert_eq!(args[..3], ["-t", "--", "rdehome2"]);
+    assert!(args[3].contains("--fork-session --remote-control"));
 }
