@@ -14,6 +14,7 @@ pub const UNPIN: &str = "Unpin";
 pub const HIDE: &str = "Hide this chat";
 pub const SHOW: &str = "Show this chat";
 pub const COPY: &str = "Copy the name";
+pub const RENAME_WINDOW: &str = "Rename the window…";
 pub const FOLD_FORKS: &str = "Fold its forks";
 pub const UNFOLD_FORKS: &str = "Unfold its forks";
 pub const MOVE_TO: &str = "Move to group";
@@ -39,6 +40,7 @@ pub enum Item {
     Hide,
     Show,
     Copy,
+    RenameWindow,
     FoldForks,
     UnfoldForks,
     MoveTo,
@@ -63,6 +65,8 @@ pub enum Choice {
     Pin(bool),
     Hide(bool),
     Copy,
+    /// The name of the chat's window, through WindowNamer.
+    RenameWindow,
     FoldForks,
     MoveTo(String),
     NewWith,
@@ -87,7 +91,7 @@ pub fn chat_items(line: &ChatLine, in_group: bool) -> Vec<Item> {
     if line.hidden {
         items.push(Item::Show);
         if !line.stand_in {
-            items.push(Item::Copy);
+            items.extend([Item::Copy, Item::RenameWindow]);
         }
         return items;
     }
@@ -97,7 +101,7 @@ pub fn chat_items(line: &ChatLine, in_group: bool) -> Vec<Item> {
     }
     items.push(Item::Hide);
     if !line.stand_in {
-        items.push(Item::Copy);
+        items.extend([Item::Copy, Item::RenameWindow]);
     }
     let mut more = Vec::new();
     match line.fold {
@@ -171,6 +175,13 @@ pub fn show(ui: &mut Ui, items: &[Item], context: &Context) -> Option<Choice> {
             Item::Hide => button(ui, HIDE, "").then_some(Choice::Hide(true)),
             Item::Show => button(ui, SHOW, "").then_some(Choice::Hide(false)),
             Item::Copy => button(ui, COPY, "Ctrl+C").then_some(Choice::Copy),
+            Item::RenameWindow => ui
+                .add_enabled(
+                    context.can_open,
+                    egui::Button::new(RENAME_WINDOW).shortcut_text("F2"),
+                )
+                .clicked()
+                .then_some(Choice::RenameWindow),
             Item::FoldForks => button(ui, FOLD_FORKS, "").then_some(Choice::FoldForks),
             Item::UnfoldForks => button(ui, UNFOLD_FORKS, "").then_some(Choice::FoldForks),
             Item::MoveTo => {

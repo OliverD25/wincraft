@@ -270,6 +270,15 @@ impl Host {
                     log::info!("read-only test instance: renaming a window skipped");
                     return;
                 }
+                if matches!(action, ArrangeAction::AskName(_)) && !self.plugins.is_on(NAMER_ID) {
+                    // WindowDeck hides Rename when WindowNamer is off;
+                    // ClaudeDeck's menu and F2 cannot know, so say why.
+                    crate::core::host::notify(
+                        "WinCraft",
+                        "WindowNamer is off. Switch it on in Settings, on the Plugins page, to rename a window.",
+                    );
+                    return;
+                }
                 let owner = if action.is_about_names() {
                     NAMER_ID
                 } else {

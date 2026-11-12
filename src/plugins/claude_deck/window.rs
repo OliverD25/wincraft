@@ -572,6 +572,17 @@ pub(super) fn empty(ui: &mut Ui, tokens: &Tokens, filtered: bool) {
 /// Brings a chat's window to the front through the plugin, which checks
 /// that it is a Claude window and that this is not a test copy. A chat
 /// with no window does nothing.
+/// Opens WinCraft's rename box for the chat's window, as **Rename…** does
+/// in WindowDeck. The name is the window's, kept by WindowNamer.
+pub(super) fn rename_window(window: Option<isize>, to_host: &HostChannel) {
+    if let Some(hwnd) = window {
+        to_host.send(HostRequest::Arrange {
+            plugin: ID.to_string(),
+            action: ArrangeAction::AskName(hwnd),
+        });
+    }
+}
+
 pub(super) fn bring_forward(window: Option<isize>, to_host: &HostChannel) {
     if let Some(hwnd) = window {
         to_host.send(HostRequest::Arrange {

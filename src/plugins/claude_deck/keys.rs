@@ -17,7 +17,7 @@ use super::edit;
 use super::list::start_rename;
 use super::model::{Fold, Line};
 use super::select::DIGITS;
-use super::window::{bring_forward, DeckUi, Pick};
+use super::window::{bring_forward, rename_window, DeckUi, Pick};
 
 /// The keys pressed this frame that the list acts on.
 #[derive(Default)]
@@ -195,6 +195,9 @@ pub fn keys(
                 } else {
                     bring_forward(line.chat.window, to_host);
                 }
+            }
+            if pressed.rename && !line.stand_in {
+                rename_window(line.chat.window, to_host);
             }
             if pressed.copy && !line.stand_in {
                 let _ = clipboard::put_text(state.window as HWND, &line.chat.title);

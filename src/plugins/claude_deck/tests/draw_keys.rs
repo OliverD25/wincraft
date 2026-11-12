@@ -309,3 +309,21 @@ fn mini_mode_paints_a_folded_group_as_one_mark() {
         .expect("group");
     deck.rest(pos2(15.0, mini::TOP + tops[group_at] + 7.0), 4);
 }
+
+#[test]
+fn f2_on_a_chat_with_a_window_opens_the_rename_box_for_that_window() {
+    let mut deck = deck();
+    deck.settle();
+    deck.state.selected = Some(Pick::Chat("b1".into()));
+    deck.requests();
+    deck.key(Key::F2);
+    let sent = deck.requests();
+    assert!(sent.iter().any(|r| matches!(
+        r,
+        HostRequest::Arrange {
+            action: ArrangeAction::AskName(1234),
+            ..
+        }
+    )));
+    assert!(deck.state.renaming.is_none(), "no group rename starts");
+}

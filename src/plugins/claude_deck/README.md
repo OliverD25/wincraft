@@ -89,7 +89,7 @@ How WinCraft tells each status:
   does the same from anywhere; it has no keys until you set some in
   Settings → Hotkeys.
 - `Alt+Up` and `Alt+Down` move the picked chat or group, `F2` renames the
-  picked group, `Ctrl+C` copies the picked chat's name, and the Menu key or
+  picked group, `Ctrl+C` copies the picked chat's name, `F2` on a picked chat opens the rename box for its window (WindowNamer keeps the name, and ClaudeDeck shows it), and the Menu key or
   `Shift+F10` opens its menu.
 
 ## Mini mode

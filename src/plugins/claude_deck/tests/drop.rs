@@ -135,10 +135,23 @@ fn the_chat_menu_offers_what_fits_the_row() {
     use Item::*;
     assert_eq!(
         chat_items(&line(0, Fold::Open), true),
-        [Open, Pin, Hide, Copy, Separator, FoldForks, MoveTo, NewWith]
+        [
+            Open,
+            Pin,
+            Hide,
+            Copy,
+            RenameWindow,
+            Separator,
+            FoldForks,
+            MoveTo,
+            NewWith
+        ]
     );
     // A fork stays under its chat: no pin, no move.
-    assert_eq!(chat_items(&line(1, Fold::None), true), [Open, Hide, Copy]);
+    assert_eq!(
+        chat_items(&line(1, Fold::None), true),
+        [Open, Hide, Copy, RenameWindow]
+    );
     let pinned = ChatLine {
         pinned: true,
         ..line(0, Fold::Folded(2))
@@ -150,6 +163,7 @@ fn the_chat_menu_offers_what_fits_the_row() {
             Unpin,
             Hide,
             Copy,
+            RenameWindow,
             Separator,
             UnfoldForks,
             MoveTo,
@@ -160,7 +174,7 @@ fn the_chat_menu_offers_what_fits_the_row() {
         hidden: true,
         ..line(0, Fold::None)
     };
-    assert_eq!(chat_items(&hidden, false), [Open, Show, Copy]);
+    assert_eq!(chat_items(&hidden, false), [Open, Show, Copy, RenameWindow]);
     let stand_in = ChatLine {
         stand_in: true,
         ..line(0, Fold::Open)
@@ -170,7 +184,10 @@ fn the_chat_menu_offers_what_fits_the_row() {
         [Pin, Hide, Separator, FoldForks, MoveTo, NewWith]
     );
     // Under the cold line: no pin and no move.
-    assert_eq!(chat_items(&line(0, Fold::None), false), [Open, Hide, Copy]);
+    assert_eq!(
+        chat_items(&line(0, Fold::None), false),
+        [Open, Hide, Copy, RenameWindow]
+    );
 }
 
 #[test]

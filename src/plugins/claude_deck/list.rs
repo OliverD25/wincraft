@@ -23,7 +23,7 @@ use super::menu::{self, Choice, Context, Item};
 use super::model::{Chat, ChatLine, Fold, GroupLine, Line};
 use super::rows::{self, GroupState, Look};
 use super::select;
-use super::window::{bring_forward, DeckUi, Pick, Rename};
+use super::window::{bring_forward, rename_window, DeckUi, Pick, Rename};
 
 const LIST_TOP_PAD: f32 = 4.0;
 const LIST_BOTTOM_PAD: f32 = 6.0;
@@ -551,6 +551,7 @@ fn apply(act: Act, state: &mut DeckUi, to_host: &HostChannel) {
                 log::warn!("ClaudeDeck: could not open the clipboard");
             }
         }
+        Choice::RenameWindow => rename_window(act.window, to_host),
         Choice::FoldForks => edit::fold_chat(saved, &id),
         Choice::MoveTo(group) => edit::place_chat(saved, &id, &edit::Spot::End(group)),
         Choice::NewWith => {
