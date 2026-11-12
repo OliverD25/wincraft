@@ -239,4 +239,5 @@ fork tree, groups, the header, mini mode, fading, the hover panel, the menus,
 the keyboard, the empty state, the tray count and Settings. Two choices are
 shown for the user to pick: the shapes of the 9 status marks (A shapes, B
 signs in a box, C short words) and how a fork hangs under its chat (A tree
-lines, B indent and a branch mark, C a side rail). Not picked yet.
+lines, B indent and a branch mark, C a side rail). Picked by the user on
+2026-11-12: A shapes and A tree lines; the rest of the page approved as drawn.
