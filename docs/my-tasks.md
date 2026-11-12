@@ -42,23 +42,9 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 **Done when:** step 1 printed a commit, and a waiting question card stays **Waiting** in WindowDeck.
 
-### 14. Review the design of the new ClaudeDeck plugin
-
-- **State:** Wait: the design session is still making the page "ClaudeDeck".
-- **Kind:** review · **Added:** 2026-11-12 (PC)
-- **Why:** the build plan and the code for ClaudeDeck start only after you approve the design.
-
-**Steps**
-
-1. Wait for the message "Ready:" from the chat "WinCraft Rust (fork) - Design Session". It gives the link to the page.
-2. Open the link. The page "ClaudeDeck" shows the window, the nine statuses, the fork tree, groups and mini mode.
-3. Where the page shows 2-3 options side by side, tell that chat which one you pick.
-4. Tell that chat "approved", or say what to change.
-
-**Done when:** you approved the page "ClaudeDeck" in the design chat.
-
 ## Done
 
+- **14. Review the design of the new ClaudeDeck plugin**: done 2026-11-12. The design session recorded the approval in commit c2afaca: status marks A "Shapes", forks A "Tree lines", the rest of the page "ClaudeDeck" approved as drawn (artifact version 24).
 - **12. Try both ways an open group shows, and pick one**: done 2026-11-12. The user tested both on 0.20.97 ("all tests run successfully") and chose "keep both as a setting": **Open a group as** stays, with both options. The small fixes found while testing went to their own work (the group selection follows the mouse, a picture for the setting, Settings comes to the front, the hotkey row overlap).
 - **10. Install 0.20.94 and check the Background chip on a Claude chat**: done 2026-11-12. The user checked steps 4-6: the chip showed "Background 24 s · 1 job" with a still ring, the chat sat in the Working column of the board, and it went back to Idle after the job ended.
 - **7. Release and test WindowDeck groups with the fixes**: done 2026-11-11. The user tested steps 1-10 on 0.20.93 and 0.20.95; the hidden "Drop to group" mark was fixed in 0.20.95. Follow-up: list rows show their window (task 11).
