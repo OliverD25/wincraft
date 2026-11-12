@@ -67,5 +67,5 @@ shown; a tool shows only as plain words for its name.
 ClaudeDeck only reads the Claude app's own session files on this PC
 (`%APPDATA%\Claude\claude-code-sessions`) and the transcripts of the chats
 it lists (those with a window, or active in the last day), in steps: only
-what was added since the last read. Nothing leaves the PC, and nothing runs while the window
-is closed.
+what was added since the last read. Nothing leaves the PC, and nothing
+runs while the window is closed.
