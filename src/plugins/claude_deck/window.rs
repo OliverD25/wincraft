@@ -9,8 +9,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use egui::viewport::ResizeDirection;
-use egui::{pos2, vec2, Color32, CursorIcon, Key, Rect, Sense, Ui};
+use egui::{pos2, vec2, Color32, Key, Rect, Sense, Ui};
 use serde_json::Value;
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
@@ -25,6 +24,7 @@ use crate::ui::dwm_thumbs;
 use crate::ui::settings;
 use crate::ui::widgets::{focus, text};
 
+use super::edges;
 use super::header::{self, Click};
 use super::model::{self, Archived, Chat, Line, Mark, View};
 use super::place::{self, Place};
@@ -43,8 +43,6 @@ const BUILD_EVERY: Duration = Duration::from_secs(1);
 /// The Working ring: one turn in this time, drawn in this many steps.
 const TURN: Duration = Duration::from_secs(2);
 const RING_STEP: Duration = Duration::from_millis(100);
-/// How close to the edge the mouse resizes the window.
-const EDGE: f32 = 5.0;
 const LIST_TOP_PAD: f32 = 4.0;
 const LIST_BOTTOM_PAD: f32 = 6.0;
 const EMPTY_SIZE: f32 = 13.0;
@@ -183,7 +181,7 @@ impl PluginWindow for DeckWindow {
                         list_lines(&mut list_ui, &lines, &look, &mut state, &to_host);
                     }
                 });
-            resize_by_edges(ui);
+            edges::resize(ui);
             keys(ui, &lines, &mut state, &to_host);
             match clicked {
                 Some(Click::OnlyOpen) => {
@@ -341,7 +339,12 @@ fn next_frame(state: &DeckUi, lines: &[Line], now: u64) -> Duration {
         Line::Chat(chat) => Some(&chat.chat),
         _ => None,
     });
-    let mut wait = ASK_EVERY;
+    // The first read takes a moment; look again soon until it is in.
+    let mut wait = if state.chats.is_empty() {
+        BUILD_EVERY
+    } else {
+        ASK_EVERY
+    };
     for chat in shown {
         if state.animate && chat.mark == Mark::Working {
             return RING_STEP;
@@ -496,79 +499,9 @@ fn keys(ui: &Ui, lines: &[Line], state: &mut DeckUi, to_host: &HostChannel) {
     }
 }
 
-/// The edge or corner the mouse is on, for resizing.
-fn edge(rect: Rect, at: egui::Pos2) -> Option<ResizeDirection> {
-    let left = at.x - rect.left() < EDGE;
-    let right = rect.right() - at.x < EDGE;
-    let top = at.y - rect.top() < EDGE;
-    let bottom = rect.bottom() - at.y < EDGE;
-    match (left, right, top, bottom) {
-        (true, _, true, _) => Some(ResizeDirection::NorthWest),
-        (_, true, true, _) => Some(ResizeDirection::NorthEast),
-        (true, _, _, true) => Some(ResizeDirection::SouthWest),
-        (_, true, _, true) => Some(ResizeDirection::SouthEast),
-        (true, ..) => Some(ResizeDirection::West),
-        (_, true, ..) => Some(ResizeDirection::East),
-        (_, _, true, _) => Some(ResizeDirection::North),
-        (_, _, _, true) => Some(ResizeDirection::South),
-        _ => None,
-    }
-}
-
-fn cursor(direction: ResizeDirection) -> CursorIcon {
-    match direction {
-        ResizeDirection::North | ResizeDirection::South => CursorIcon::ResizeVertical,
-        ResizeDirection::East | ResizeDirection::West => CursorIcon::ResizeHorizontal,
-        ResizeDirection::NorthWest | ResizeDirection::SouthEast => CursorIcon::ResizeNwSe,
-        ResizeDirection::NorthEast | ResizeDirection::SouthWest => CursorIcon::ResizeNeSw,
-    }
-}
-
-fn resize_by_edges(ui: &Ui) {
-    let ctx = ui.ctx();
-    let rect = ctx.content_rect();
-    let Some(at) = ctx.input(|i| i.pointer.hover_pos()) else {
-        return;
-    };
-    let Some(direction) = edge(rect, at) else {
-        return;
-    };
-    ctx.set_cursor_icon(cursor(direction));
-    if ctx.input(|i| i.pointer.primary_pressed()) {
-        ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(direction));
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_edges_and_corners_resize_and_the_middle_does_not() {
-        let rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(300.0, 400.0));
-        assert_eq!(edge(rect, pos2(1.0, 1.0)), Some(ResizeDirection::NorthWest));
-        assert_eq!(
-            edge(rect, pos2(299.0, 399.0)),
-            Some(ResizeDirection::SouthEast)
-        );
-        assert_eq!(
-            edge(rect, pos2(299.0, 1.0)),
-            Some(ResizeDirection::NorthEast)
-        );
-        assert_eq!(
-            edge(rect, pos2(1.0, 399.0)),
-            Some(ResizeDirection::SouthWest)
-        );
-        assert_eq!(edge(rect, pos2(150.0, 2.0)), Some(ResizeDirection::North));
-        assert_eq!(edge(rect, pos2(150.0, 398.0)), Some(ResizeDirection::South));
-        assert_eq!(edge(rect, pos2(2.0, 200.0)), Some(ResizeDirection::West));
-        assert_eq!(edge(rect, pos2(298.0, 200.0)), Some(ResizeDirection::East));
-        assert_eq!(edge(rect, pos2(150.0, 200.0)), None);
-        assert_eq!(cursor(ResizeDirection::North), CursorIcon::ResizeVertical);
-        assert_eq!(cursor(ResizeDirection::West), CursorIcon::ResizeHorizontal);
-        assert_eq!(cursor(ResizeDirection::NorthWest), CursorIcon::ResizeNwSe);
-        assert_eq!(cursor(ResizeDirection::SouthWest), CursorIcon::ResizeNeSw);
-    }
 
     #[test]
     fn archived_titles_are_read_only_for_a_missing_parent() {
