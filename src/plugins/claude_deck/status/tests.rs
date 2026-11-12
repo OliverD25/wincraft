@@ -22,6 +22,7 @@ fn chat(mark: Mark) -> Chat {
         full: None,
         fork: None,
         terminal: None,
+        news: false,
     }
 }
 

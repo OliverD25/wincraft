@@ -14,7 +14,7 @@
 use serde_json::Value;
 
 use crate::core::claude_sessions::Age;
-use crate::core::claude_turns::{End, Tail, Turn};
+use crate::core::claude_turns::{End, Replies, Reply, Tail, Turn};
 use crate::plugins::claude_deck::fork::Fork;
 use crate::plugins::claude_deck::model::{Chat, Mark};
 use crate::plugins::claude_deck::status::{full_text, line_text};
@@ -38,6 +38,9 @@ pub struct Parsed {
     pub cwd: Option<String>,
     /// The chat's title, when the transcript names one.
     pub title: Option<String>,
+    /// The finished replies in the end that was sent, oldest first, in
+    /// the server's clock.
+    pub replies: Vec<Reply>,
 }
 
 /// Reads the end of a transcript. `whole` is false when the file was
@@ -49,9 +52,11 @@ pub fn parse_tail(bytes: &[u8], whole: bool) -> Parsed {
         lines.next();
     }
     let mut tail = Tail::default();
+    let mut replies = Replies::default();
     let mut parsed = Parsed::default();
     for line in lines {
         tail.line(line);
+        replies.line(line);
         if let Some(cwd) = string_field(line, "cwd") {
             parsed.cwd = Some(cwd);
         }
@@ -62,6 +67,7 @@ pub fn parse_tail(bytes: &[u8], whole: bool) -> Parsed {
         }
     }
     parsed.turn = tail.turn();
+    parsed.replies = replies.all();
     parsed
 }
 
@@ -181,6 +187,7 @@ pub fn ready_chats(
             full: None,
             fork: None,
             terminal: None,
+            news: false,
         });
     }
     rows
@@ -276,5 +283,6 @@ pub fn chat(
                 .filter(|cwd| super::terminal::safe_path(cwd)),
         ),
         terminal: None,
+        news: false,
     }
 }

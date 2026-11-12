@@ -279,6 +279,7 @@ mod tests {
             full: None,
             fork: None,
             terminal: None,
+            news: false,
         }
     }
 

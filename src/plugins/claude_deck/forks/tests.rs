@@ -39,6 +39,7 @@ fn parent() -> Chat {
         full: None,
         fork: None,
         terminal: None,
+        news: false,
     }
 }
 
@@ -154,6 +155,7 @@ fn the_row_takes_its_status_from_the_transcript() {
                 },
                 cwd: None,
                 title: Some("Named by Claude".into()),
+                replies: Vec::new(),
             },
             quiet_ms: 4_000,
         })

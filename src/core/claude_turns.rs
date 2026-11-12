@@ -25,8 +25,10 @@ use std::collections::VecDeque;
 
 use serde_json::Value;
 
+mod replies;
 mod ssh;
 mod words;
+pub use replies::{Replies, Reply};
 pub use words::{first_sentence, last_question};
 
 /// The full text is cut to this many characters.

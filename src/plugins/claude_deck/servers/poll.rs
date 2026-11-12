@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::core::claude_sessions;
+use crate::core::claude_turns::Reply;
 use crate::plugins::claude_deck::model::Chat;
 
 use super::probe;
@@ -52,6 +53,9 @@ pub struct HostView {
     pub health: super::reply::Health,
     /// Its chats, as last known; kept while it is offline.
     pub chats: Vec<Chat>,
+    /// The finished replies of each chat, by the chat's id, oldest first,
+    /// with their times in the PC's clock.
+    pub replies: HashMap<String, Vec<Reply>>,
 }
 
 /// The transcripts already read from one server, by folder.
@@ -115,6 +119,7 @@ pub fn take_reply(
     };
     let mut listed = HashSet::new();
     let mut chats = Vec::new();
+    let mut replies = HashMap::new();
     for raw in &reply.chats {
         let parsed = match &raw.tail {
             Some(bytes) => status::parse_tail(bytes, raw.size <= probe::TAIL_BYTES),
@@ -125,6 +130,10 @@ pub fn take_reply(
             },
         };
         listed.insert(raw.dir.clone());
+        replies.insert(
+            format!("{server}/{}", raw.dir),
+            in_pc_clock(&parsed.replies, reply.now * 1000, now),
+        );
         let meta = RawChat {
             tail: None,
             ..raw.clone()
@@ -152,6 +161,19 @@ pub fn take_reply(
     chats.extend(ready);
     chats.sort_by_key(|chat| std::cmp::Reverse(chat.created));
     view.chats = chats;
+    view.replies = replies;
+}
+
+/// Replies with their times moved from the server's clock to the PC's, so
+/// a server clock that is off does not matter.
+fn in_pc_clock(replies: &[Reply], server_now: u64, now: u64) -> Vec<Reply> {
+    replies
+        .iter()
+        .map(|reply| Reply {
+            at: now.saturating_sub(server_now.saturating_sub(reply.at)),
+            text: reply.text.clone(),
+        })
+        .collect()
 }
 
 /// Reads the servers on threads of their own until dropped.

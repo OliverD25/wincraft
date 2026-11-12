@@ -267,6 +267,7 @@ fn working(id: &str) -> Chat {
         full: None,
         fork: None,
         terminal: None,
+        news: false,
     }
 }
 
@@ -362,6 +363,7 @@ fn view_of(chats: Vec<Chat>, online: bool) -> HostView {
         mem: Some((16_000_000, 6_240_000)),
         chats,
         health: reply::Health::default(),
+        replies: Default::default(),
     }
 }
 
@@ -1011,4 +1013,35 @@ fn the_server_fork_command_keeps_the_folder_and_turns_remote_control_on() {
     assert!(args[3].contains("--session-id"));
     assert!(args[3].contains("--remote-control"));
     assert_eq!(terminal::fork_args("rdehome2", &fork, "x; id"), None);
+}
+
+#[test]
+fn a_server_chats_replies_come_in_the_pcs_clock() {
+    let done = said("Deployed.").replace(
+        "\"uuid\":\"a\"",
+        "\"uuid\":\"a\",\"timestamp\":\"2026-11-12T13:16:40.000Z\"",
+    );
+    let text = format!(
+        "NOW {NOW_S}\nRC verdict-ai\nCHAT -home-rde-projects-verdict-ai a.jsonl {} 100\n{}\nEND\nDONE\n",
+        NOW_S - 600,
+        b64(&tail(&[user("Deploy"), done]))
+            .as_bytes()
+            .chunks(76)
+            .map(|c| String::from_utf8_lossy(c).into_owned())
+            .collect::<Vec<_>>()
+            .join("
+"),
+    );
+    let mut cache = Cache::new();
+    let mut view = HostView::default();
+    // The PC's clock is 5 s ahead of the server's.
+    poll::take_reply("rdehome2", Ok(text), &mut cache, &mut view, NOW + 5_000);
+    let replies = &view.replies["rdehome2/-home-rde-projects-verdict-ai"];
+    assert_eq!(replies.len(), 1);
+    assert_eq!(replies[0].text, "Deployed.");
+    assert_eq!(
+        replies[0].at,
+        NOW + 5_000 - 600_000,
+        "ten minutes ago, by the PC"
+    );
 }

@@ -116,6 +116,9 @@ pub struct Chat {
     pub fork: Option<super::fork::Fork>,
     /// Set for a fork running in a terminal (see `forks`): where it runs.
     pub terminal: Option<String>,
+    /// The chat has a reply the user has not seen (the News tab): its row
+    /// gets an amber dot after the name.
+    pub news: bool,
 }
 
 const QUIET_MEANS_IDLE_MS: u64 = 60 * 60 * 1000;
@@ -176,6 +179,7 @@ pub fn chat(
             lineage.cwd.as_deref().or(lineage.folder()),
         ),
         terminal: None,
+        news: false,
     }
 }
 
@@ -454,6 +458,7 @@ pub fn stand_in(archived: &Archived, id: &str, folder: Option<String>, created: 
         full: None,
         fork: None,
         terminal: None,
+        news: false,
     }
 }
 

@@ -20,9 +20,9 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-use crate::core::claude_turns::{Tail, Turn};
+use crate::core::claude_turns::{Replies, Reply, Tail, Turn};
 
 /// A job that started this long ago and never ended is ignored: the app may
 /// have been closed while it ran, and then no end notice is ever written.
@@ -220,6 +220,9 @@ struct Entry {
     tail: Tail,
     /// The last turn, and the offset it was worked out at.
     turn: Option<(u64, Turn)>,
+    replies: Replies,
+    /// The finished replies, and the offset they were taken at.
+    shown: Option<(u64, Arc<Vec<Reply>>)>,
 }
 
 /// What the reader thread has read so far. Only `refresh` touches it.
@@ -233,6 +236,9 @@ static WANTED_BY_DECK: Mutex<Vec<String>> = Mutex::new(Vec::new());
 /// The last turns of ClaudeDeck's chats, written whole after each read, so
 /// the UI thread never sees a read half done.
 static TURNS: Mutex<Option<HashMap<String, Turn>>> = Mutex::new(None);
+/// The finished replies of ClaudeDeck's chats, for its News tab, written
+/// whole after each read like the turns.
+static REPLIES: Mutex<Option<HashMap<String, Arc<Vec<Reply>>>>> = Mutex::new(None);
 
 /// Names the chats whose windows are shown now (their `cliSessionId`s);
 /// only these are read at the next `refresh`.
@@ -302,6 +308,8 @@ pub fn refresh(now: u64) {
             entry.scan.reset();
             entry.tail.reset();
             entry.turn = None;
+            entry.replies.reset();
+            entry.shown = None;
         }
         let Some(path) = entry.path.clone() else {
             continue;
@@ -315,6 +323,7 @@ pub fn refresh(now: u64) {
         .map(|wanted| wanted.clone())
         .unwrap_or_default();
     let mut turns = HashMap::new();
+    let mut replies = HashMap::new();
     for id in &deck {
         let Some(entry) = entries.get_mut(id) else {
             continue;
@@ -326,6 +335,12 @@ pub fn refresh(now: u64) {
         if let Some((_, turn)) = &entry.turn {
             turns.insert(id.clone(), turn.clone());
         }
+        if entry.shown.as_ref().is_none_or(|(at, _)| *at != offset) {
+            entry.shown = Some((offset, Arc::new(entry.replies.all())));
+        }
+        if let Some((_, shown)) = &entry.shown {
+            replies.insert(id.clone(), Arc::clone(shown));
+        }
     }
     publish_open(&entries);
     if let Ok(mut read) = READ.lock() {
@@ -333,6 +348,9 @@ pub fn refresh(now: u64) {
     }
     if let Ok(mut latest) = TURNS.lock() {
         *latest = Some(turns);
+    }
+    if let Ok(mut latest) = REPLIES.lock() {
+        *latest = Some(replies);
     }
 }
 
@@ -358,6 +376,7 @@ fn read_new(path: &Path, entry: &mut Entry, now: u64) -> std::io::Result<()> {
     if len < entry.scan.offset() {
         entry.scan.reset();
         entry.tail.reset();
+        entry.replies.reset();
     }
     if len == entry.scan.offset() {
         return Ok(());
@@ -367,14 +386,16 @@ fn read_new(path: &Path, entry: &mut Entry, now: u64) -> std::io::Result<()> {
     let mut rest = file.take(len - from);
     let mut chunk = vec![0u8; READ_CHUNK];
     let tail = &mut entry.tail;
+    let replies = &mut entry.replies;
     loop {
         let got = rest.read(&mut chunk)?;
         if got == 0 {
             return Ok(());
         }
-        entry
-            .scan
-            .feed_with(&chunk[..got], now, |line| tail.line(line));
+        entry.scan.feed_with(&chunk[..got], now, |line| {
+            tail.line(line);
+            replies.line(line);
+        });
     }
 }
 
@@ -382,6 +403,12 @@ fn read_new(path: &Path, entry: &mut Entry, now: u64) -> std::io::Result<()> {
 /// as read last. None before its transcript was read.
 pub fn turn(cli_session_id: &str) -> Option<Turn> {
     TURNS.lock().ok()?.as_ref()?.get(cli_session_id).cloned()
+}
+
+/// The finished replies of ClaudeDeck's chat with this `cliSessionId`,
+/// oldest first, as read last. None before its transcript was read.
+pub fn replies(cli_session_id: &str) -> Option<Arc<Vec<Reply>>> {
+    REPLIES.lock().ok()?.as_ref()?.get(cli_session_id).cloned()
 }
 
 /// The running jobs of the chat with this `cliSessionId`, as read last:

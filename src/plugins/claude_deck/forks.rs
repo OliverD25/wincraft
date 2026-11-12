@@ -248,6 +248,7 @@ fn row(
             Some(server) => format!("{server}:{}", record.folder),
             None => record.folder.clone(),
         }),
+        news: false,
     };
     match (&record.server, transcript) {
         (Some(server), _) => {
