@@ -201,7 +201,9 @@ pub enum Fold {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Line {
     Group(GroupLine),
-    Chat(ChatLine),
+    /// Boxed: a chat line holds the chat and its words, much more than the
+    /// other lines.
+    Chat(Box<ChatLine>),
     Cold(ColdLine),
 }
 
@@ -321,14 +323,14 @@ impl Emit<'_> {
         } else {
             Fold::Open
         };
-        self.lines.push(Line::Chat(ChatLine {
+        self.lines.push(Line::Chat(Box::new(ChatLine {
             chat: stand_in,
             stand_in: true,
             depth: 0,
             rails: Vec::new(),
             last: false,
             fold,
-        }));
+        })));
         if !folded {
             self.kids(&kids, 1, Vec::new());
         }
@@ -369,14 +371,14 @@ impl Emit<'_> {
         } else {
             Fold::Open
         };
-        self.lines.push(Line::Chat(ChatLine {
+        self.lines.push(Line::Chat(Box::new(ChatLine {
             chat: shown,
             stand_in: false,
             depth,
             rails: rails.clone(),
             last,
             fold,
-        }));
+        })));
         if !kids.is_empty() && !folded {
             let mut deeper = rails;
             if depth > 0 {
