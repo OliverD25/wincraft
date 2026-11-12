@@ -1,6 +1,6 @@
 # Tasks on you: WinCraft
 
-Updated: 2026-11-11. Kept by the my-tasks skill. `/my-tasks` shows this
+Updated: 2026-11-12. Kept by the my-tasks skill. `/my-tasks` shows this
 list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ## Open
@@ -69,34 +69,30 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 1. Open the chat "Claude Code Global settings and skills" in the Claude desktop app.
 2. Paste this message and send it: `Apply the hook change described in E:\codespace\_claude_code\_rde\wincraft_windows_utilities_rust\docs\claude-deck-hook-kind.md to hooks/claude-attention.py, test it, and commit.`
 3. That chat changes the hook and reports "done". Nothing else is needed from you there.
-4. To see it work: open ClaudeDeck with `Win+Alt+C`, then let any Claude chat ask for permission to run a command. Its row shows an orange triangle instead of the speech bubble.
+4. To see it work: open ClaudeDeck with `Win+Alt+X`, then let any Claude chat ask for permission to run a command. Its row shows an orange triangle instead of the speech bubble.
 
 **Done when:** a chat that waits for a permission shows the orange triangle in ClaudeDeck.
 
-### 17. Install 0.20.100 and try ClaudeDeck, the list of your Claude chats
+### 17. Install 0.20.101 and drag a chat in ClaudeDeck
 
-- **State:** Ready to test (0.20.100 released 2026-11-13; the release has wincraft.exe and its checksum).
+- **State:** Wait: 0.20.101 is not released yet.
 - **Kind:** test · **Added:** 2026-11-13 (PC)
-- **Why:** ClaudeDeck was built in one night. Tests cover the logic, but a real mouse, real windows and a restart were never tried.
-- **Known, do not report:** every waiting chat shows the speech bubble ("Asks you") until task 16 is done; the tray count is in the tray icon's hover text only, not a number on the icon.
+- **Why:** on 0.20.100 you could not drag chats with the mouse (step 8 of the first test). A fork row did not react to a drag; now it moves its whole family. A real mouse on your screen is the last proof.
+- **Known, do not report:** cold chats (under the line "N cold chats") and hidden chats cannot be dragged; every waiting chat shows the speech bubble ("Asks you") until task 16 is done.
 
 **Steps**
 
 1. Right-click the WinCraft icon in the tray and click **Settings…**.
-2. Click **About** in the left list, then **Check for updates**, then **Update now**. WinCraft restarts; About shows 0.20.100.
-3. Press `Win+Alt+C`. A small window with no title bar opens: your chats in groups by project, forks under their chat with thin tree lines.
-4. Compare three chats you know with what you see: one that works, one that is idle, one that waits for you. Mark, time and the line of text should be right.
-5. Click a row of a chat that has its own window. That window comes to the front.
-6. Rest the mouse on a row. A small panel shows the full question or last result.
-7. Click the pin in the header, then click another app. ClaudeDeck stays on top. Click the pin again: it no longer stays on top.
-8. Double-click a group name, type a new name, press `Enter`. Drag a chat to another group. Right-click a chat and click **Hide this chat**; a line "1 hidden chat" appears at the bottom.
-9. Press `Win+Alt+C` from another app, press `↓` a few times, then `Esc`. The keyboard goes back to the app you were in.
-10. Press `Ctrl+M` in ClaudeDeck. It becomes a narrow column of marks. Click the button at the top: the full list comes back at its old place and size.
-11. Move the mouse away for about 3 seconds: the window fades to half. Move the mouse back: it is solid again.
-12. Right-click the WinCraft icon in the tray, click **Quit WinCraft**, start WinCraft again from the Start menu and press `Win+Alt+C`. The window is at the same place and size, with your group name, your order and the hidden chat still hidden.
-13. Open WindowDeck on your Claude windows as before. Its cards and chips look and act as before tonight.
+2. Click **About** in the left list, then **Check for updates**, then **Update now**. WinCraft restarts; About shows 0.20.101.
+3. Press `Win+Alt+X` (your ClaudeDeck hotkey). ClaudeDeck opens.
+4. Press the left mouse button on a chat at the top of a family, move the mouse to another group and let go. A blue line shows where it lands; the chat moves there with its forks.
+5. Do the same starting on a fork (a row under a tree line). The whole family lifts and moves: the chat at the top and all its forks.
 
-**Done when:** steps 3 to 13 look as described. For anything that looks wrong, a screenshot and the step number are enough.
+**Done when:** steps 4 and 5 move the chats.
+
+**History**
+
+- 2026-11-12, 0.20.100: steps 4 to 7 and 9 to 13 of the first test passed (statuses, click, hover panel, pin, keyboard, mini mode, fade, restart, WindowDeck unchanged). Step 3: `Win+Alt+C` was held by another app, so you set `Win+Alt+X`; that is now the default. Step 8: chats could not be dragged.
 
 ## Done
 
