@@ -333,18 +333,12 @@ fn f2_on_a_chat_asks_to_rename_the_chat_in_the_app() {
 }
 
 #[test]
-fn delete_on_a_selected_fork_row_asks_to_archive_that_chat() {
+fn delete_does_nothing_in_claudedeck() {
     let mut deck = deck();
     deck.settle();
     deck.state.selected = Some(Pick::Chat("f".into()));
     deck.requests();
     deck.key(Key::Delete);
-    let asked = crate::plugins::claude_deck::open_app::ARCHIVES
-        .lock()
-        .unwrap()
-        .clone();
-    assert!(
-        asked.contains(&("Chat f".to_string(), None)),
-        "the archive request for the fork row: {asked:?}"
-    );
+    assert!(deck.requests().is_empty(), "no request for Delete");
+    assert_eq!(selected(&deck), "chat f");
 }

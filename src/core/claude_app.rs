@@ -581,7 +581,7 @@ pub fn open_chat(title: &str, failed: impl FnOnce(String) + Send + 'static) {
 
 mod keys;
 mod menu;
-pub use menu::{archive_chat, rename_chat};
+pub use menu::rename_chat;
 
 #[cfg(test)]
 mod tests;

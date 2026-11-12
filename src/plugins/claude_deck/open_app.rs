@@ -1,7 +1,7 @@
-//! What ClaudeDeck asks of the Claude app for a chat: open it, archive it,
+//! What ClaudeDeck asks of the Claude app for a chat: open it,
 //! rename it. A chat with a window of its own is brought forward; the rest
 //! goes through the app's main window (see `core::claude_app`). When a step
-//! fails, or an archive worked, WinCraft says so in a notice that names
+//! fails, WinCraft says so in a notice that names
 //! ClaudeDeck. Rename asks for the new name in WinCraft's rename box, then
 //! changes it in the app, so there is one name for the chat.
 
@@ -23,9 +23,6 @@ pub(crate) const PROMPT_RENAME_CHAT: u32 = 1;
 static PENDING: Mutex<Vec<String>> = Mutex::new(Vec::new());
 /// The chat being renamed: its title now, and its window if it has one.
 static RENAMING: Mutex<Option<(String, Option<isize>)>> = Mutex::new(None);
-/// For tests: the archives asked for, as (title, own window).
-#[cfg(test)]
-pub(super) static ARCHIVES: Mutex<Vec<(String, Option<isize>)>> = Mutex::new(Vec::new());
 /// Windows whose WindowNamer name is to be cleared by the list.
 static CLEARS: Mutex<Vec<isize>> = Mutex::new(Vec::new());
 
@@ -36,16 +33,6 @@ pub(super) fn open_chat(window: Option<isize>, title: &str, to_host: &HostChanne
     } else {
         claude_app::open_chat(title, say);
     }
-}
-
-/// Archives the chat in the Claude app.
-pub(super) fn archive(title: &str, window: Option<isize>) {
-    log::info!("ClaudeDeck: archive asked for \"{title}\"");
-    #[cfg(test)]
-    if let Ok(mut asked) = ARCHIVES.lock() {
-        asked.push((title.to_string(), window));
-    }
-    claude_app::archive_chat(title, window, say);
 }
 
 /// Starts a rename: the host thread opens the rename box.

@@ -32,7 +32,6 @@ struct Pressed {
     enter: bool,
     alt: bool,
     rename: bool,
-    delete: bool,
     copy: bool,
     menu: bool,
     home: bool,
@@ -108,7 +107,6 @@ fn read(ui: &Ui, state: &mut DeckUi) -> Pressed {
             enter: i.key_pressed(Key::Enter),
             alt: i.modifiers.alt,
             rename: i.key_pressed(Key::F2),
-            delete: i.key_pressed(Key::Delete),
             copy: i.events.iter().any(|e| matches!(e, egui::Event::Copy)),
             menu: (menu_pressed && i.focused) || shift_f10,
             home: i.key_pressed(Key::Home),
@@ -229,9 +227,6 @@ pub fn keys(
             let app_chat = !line.stand_in && line.chat.terminal.is_none();
             if pressed.rename && app_chat {
                 open_app::ask_rename(&line.chat.title, line.chat.window);
-            }
-            if pressed.delete && app_chat {
-                open_app::archive(&line.chat.title, line.chat.window);
             }
             if pressed.copy && !line.stand_in {
                 let _ = clipboard::put_text(state.window as HWND, &line.chat.title);

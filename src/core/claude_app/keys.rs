@@ -70,7 +70,6 @@ pub fn type_text(text: &str) -> bool {
 /// uses. Never Delete: nothing here may press its letter.
 pub fn menu_letter(item: &str) -> Option<u16> {
     match item {
-        "Archive" => Some(KEY_A),
         "Rename" => Some(KEY_R),
         _ => None,
     }

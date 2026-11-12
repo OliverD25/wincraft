@@ -1,4 +1,4 @@
-//! Archive and rename through the chat's menu in the Claude app. The menu
+//! Rename through the chat's menu in the Claude app. The menu
 //! opens with Shift+F10 on the focused chat button; its items are
 //! `MenuItem` elements, pressed by their exact name. The app's own files
 //! are never written: the app does not notice that.
@@ -13,7 +13,6 @@ use super::{
     app_windows, find_chat, find_edit, find_named, on_com_thread, poll, Chat, Kind, Real, Tree,
 };
 
-const ARCHIVE: &str = "Archive";
 const RENAME: &str = "Rename";
 const MENU_WAIT: Duration = Duration::from_secs(1);
 const HEADER_WAIT: Duration = Duration::from_millis(1500);
@@ -21,14 +20,6 @@ const FIELD_WAIT: Duration = Duration::from_secs(1);
 const STEP: Duration = Duration::from_millis(100);
 /// The time the app needs to take the focus and the keys.
 const SETTLE: Duration = Duration::from_millis(200);
-
-pub fn archived_notice(title: &str) -> String {
-    format!("ClaudeDeck archived \"{title}\". Find it under Archived in the Claude app.")
-}
-
-pub fn archive_failed_notice(title: &str) -> String {
-    format!("ClaudeDeck could not archive \"{title}\". Archive it in the Claude app.")
-}
 
 pub fn rename_failed_notice(title: &str) -> String {
     format!("ClaudeDeck could not rename \"{title}\". Rename it in the Claude app.")
@@ -135,28 +126,6 @@ pub fn start_rename<T: Tree>(
     }
 }
 
-/// Opens the chat's menu for Archive, again without opening the chat:
-/// first in the chat's own window, else in the home window's list. False
-/// when no "More options" button was found.
-pub fn start_archive<T: Tree>(
-    tree: &T,
-    own: Option<&T::Node>,
-    list: &mut dyn FnMut() -> Result<Option<T::Node>, String>,
-    title: &str,
-) -> Result<bool, String> {
-    if let Some(own) = own {
-        if open_with_more_options(tree, own, title)? {
-            log::info!("ClaudeDeck: archive \"{title}\": its own window's menu opened");
-            return Ok(true);
-        }
-        log::info!("ClaudeDeck: archive \"{title}\": its own window has no More options button");
-    }
-    match list()? {
-        Some(root) => open_with_more_options(tree, &root, title),
-        None => Ok(false),
-    }
-}
-
 /// Presses a menu item. When Invoke is not supported, the letter the app
 /// shows beside it is pressed (never Delete's).
 fn press(item: &com::ComPtr, name: &str) -> Result<(), String> {
@@ -207,65 +176,6 @@ fn menu_key(chat: &Chat) -> Result<(), String> {
     } else {
         Err("Windows did not take the keys".to_string())
     }
-}
-
-fn archive(title: &str, window: Option<isize>, dry: bool) -> Result<Option<String>, String> {
-    let failed = || archive_failed_notice(title);
-    log::info!(
-        "ClaudeDeck: archiving \"{title}\" in the Claude app (own window: {}, read-only: {dry})",
-        window.is_some()
-    );
-    let automation = Automation::new().map_err(|reason| {
-        log::warn!("ClaudeDeck: archive \"{title}\": UI Automation failed: {reason}");
-        failed()
-    })?;
-    if dry {
-        let own = own_root(&automation, window, dry);
-        let found = find_chat(&automation, title, false, dry).ok().flatten();
-        log::info!(
-            "read-only test instance: archiving \"{title}\" skipped (own window found: {}, in the list: {})",
-            own.is_some(),
-            found.is_some()
-        );
-        return Ok(None);
-    }
-    let tree = Real(&automation);
-    let own = own_root(&automation, window, dry);
-    let mut chat: Option<Chat> = None;
-    let mut list = || -> Result<Option<com::ComPtr>, String> {
-        chat = find_chat(&automation, title, false, dry)?;
-        Ok(chat.as_ref().map(|chat| chat.root.clone()))
-    };
-    let opened = start_archive(&tree, own.as_ref(), &mut list, title).map_err(|reason| {
-        log::warn!("ClaudeDeck: archive \"{title}\": the menu failed: {reason}");
-        failed()
-    })?;
-    let mut item = if opened {
-        wait_for_item(&automation, ARCHIVE)
-    } else {
-        None
-    };
-    if item.is_none() {
-        if let Some(chat) = &chat {
-            keys::chord(&[keys::ESCAPE]);
-            log::info!("ClaudeDeck: archive \"{title}\": trying the menu key on its list entry");
-            if menu_key(chat).is_ok() {
-                item = wait_for_item(&automation, ARCHIVE);
-            }
-        }
-    }
-    let Some(item) = item else {
-        log::warn!("ClaudeDeck: archive \"{title}\": the menu showed no Archive item");
-        give_up(&chat);
-        return Err(failed());
-    };
-    if let Err(reason) = press(&item, ARCHIVE) {
-        log::warn!("ClaudeDeck: could not archive \"{title}\": {reason}");
-        give_up(&chat);
-        return Err(failed());
-    }
-    close_list(&chat);
-    Ok(Some(archived_notice(title)))
 }
 
 /// The edit field the app shows for the new name: the one with the
@@ -378,20 +288,6 @@ fn rename(
             Err(failed())
         }
     }
-}
-
-/// Archives the chat with this title in the Claude app, on a thread of its
-/// own. `window` is the chat's own window, when it has one. `say` gets the
-/// notice: what was done, or that it failed. A test copy only reads; unit
-/// tests start nothing.
-pub fn archive_chat(title: &str, window: Option<isize>, say: impl FnOnce(String) + Send + 'static) {
-    if cfg!(test) {
-        return;
-    }
-    let dry = instance::is_test();
-    on_com_thread(title.trim().to_string(), say, move |title| {
-        archive(title, window, dry)
-    });
 }
 
 /// Renames the chat in the Claude app. `say` gets a notice only on failure.

@@ -135,12 +135,12 @@ fn the_chat_menu_offers_what_fits_the_row() {
     use Item::*;
     assert_eq!(
         chat_items(&line(0, Fold::Open), true),
-        [Open, Pin, Hide, Copy, RenameChat, Archive, Separator, FoldForks, MoveTo, NewWith]
+        [Open, Pin, Hide, Copy, RenameChat, Separator, FoldForks, MoveTo, NewWith]
     );
     // A fork stays under its chat: no pin, no move.
     assert_eq!(
         chat_items(&line(1, Fold::None), true),
-        [Open, Hide, Copy, RenameChat, Archive]
+        [Open, Hide, Copy, RenameChat]
     );
     let pinned = ChatLine {
         pinned: true,
@@ -154,7 +154,6 @@ fn the_chat_menu_offers_what_fits_the_row() {
             Hide,
             Copy,
             RenameChat,
-            Archive,
             Separator,
             UnfoldForks,
             MoveTo,
@@ -177,7 +176,7 @@ fn the_chat_menu_offers_what_fits_the_row() {
     // Under the cold line: no pin and no move.
     assert_eq!(
         chat_items(&line(0, Fold::None), false),
-        [Open, Hide, Copy, RenameChat, Archive]
+        [Open, Hide, Copy, RenameChat]
     );
 }
 
@@ -222,7 +221,7 @@ fn only_a_chat_that_can_be_forked_gets_the_fork_item() {
     forkable.chat.fork = Fork::new(id, Some(r"E:\code\WinCraft"));
     assert_eq!(
         chat_items(&forkable, true),
-        [Open, Pin, Hide, Copy, RenameChat, Fork, Archive, Separator, MoveTo, NewWith]
+        [Open, Pin, Hide, Copy, RenameChat, Fork, Separator, MoveTo, NewWith]
     );
     assert!(!chat_items(&line(0, Fold::None), true).contains(&Fork));
     let stand_in = ChatLine {
@@ -241,11 +240,11 @@ fn only_a_chat_that_can_be_forked_gets_the_fork_item() {
 }
 
 #[test]
-fn cold_and_fork_rows_get_archive_and_rename_like_other_chats() {
+fn cold_and_fork_rows_get_rename_like_other_chats() {
     use Item::*;
     // A fork (depth 1) under the cold line: not in a group, still a chat.
     let cold_fork = chat_items(&line(1, Fold::None), false);
-    assert!(cold_fork.contains(&Archive) && cold_fork.contains(&RenameChat));
+    assert!(cold_fork.contains(&RenameChat));
     let cold = chat_items(&line(0, Fold::None), false);
-    assert!(cold.contains(&Archive) && cold.contains(&RenameChat));
+    assert!(cold.contains(&RenameChat));
 }

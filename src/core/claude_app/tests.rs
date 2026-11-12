@@ -227,16 +227,8 @@ fn unit_tests_start_nothing() {
 }
 
 #[test]
-fn the_archive_and_rename_notices_name_claudedeck_and_the_chat() {
-    use super::menu::{archive_failed_notice, archived_notice, rename_failed_notice};
-    assert_eq!(
-        archived_notice("My chat"),
-        "ClaudeDeck archived \"My chat\". Find it under Archived in the Claude app."
-    );
-    assert_eq!(
-        archive_failed_notice("My chat"),
-        "ClaudeDeck could not archive \"My chat\". Archive it in the Claude app."
-    );
+fn the_rename_notice_names_claudedeck_and_the_chat() {
+    use super::menu::rename_failed_notice;
     assert_eq!(
         rename_failed_notice("My chat"),
         "ClaudeDeck could not rename \"My chat\". Rename it in the Claude app."
@@ -244,9 +236,9 @@ fn the_archive_and_rename_notices_name_claudedeck_and_the_chat() {
 }
 
 #[test]
-fn only_archive_and_rename_have_a_fallback_letter_and_never_delete() {
-    use super::keys::{menu_letter, KEY_A, KEY_R};
-    assert_eq!(menu_letter("Archive"), Some(KEY_A));
+fn only_rename_has_a_fallback_letter_and_never_delete() {
+    use super::keys::{menu_letter, KEY_R};
+    assert_eq!(menu_letter("Archive"), None);
     assert_eq!(menu_letter("Rename"), Some(KEY_R));
     assert_eq!(menu_letter("Delete"), None);
     assert_eq!(menu_letter("Pin"), None);
@@ -267,14 +259,10 @@ fn a_chord_goes_down_in_order_and_up_in_reverse() {
 }
 
 #[test]
-fn archiving_and_renaming_start_nothing_in_unit_tests() {
+fn renaming_starts_nothing_in_unit_tests() {
     let (sender, receiver) = std::sync::mpsc::channel::<String>();
-    let again = sender.clone();
-    archive_chat("Any chat", None, move |text| {
-        let _ = sender.send(text);
-    });
     rename_chat("Any chat", "New", None, move |text| {
-        let _ = again.send(text);
+        let _ = sender.send(text);
     });
     assert!(receiver.recv_timeout(Duration::from_millis(100)).is_err());
 }
@@ -541,25 +529,6 @@ fn an_own_window_without_the_header_button_falls_back_to_the_list_without_openin
     let started = start_rename(&tree, Some(&0), &mut list, "My chat", none, none);
     assert_eq!(started, Ok(RenameStart::Menu));
     assert_eq!(tree.acted(), ["expand More options for My chat"]);
-}
-
-#[test]
-fn archive_uses_the_own_window_menu_first_then_the_list_never_the_chat_button() {
-    use super::menu::start_archive;
-    let tree = own_and_list();
-    let mut list = || Ok(Some(2));
-    assert_eq!(start_archive(&tree, None, &mut list, "My chat"), Ok(true));
-    assert_eq!(tree.acted(), ["expand More options for My chat"]);
-    let missing = own_and_list();
-    let mut list = || Ok(Some(2));
-    assert_eq!(start_archive(&missing, None, &mut list, "Other"), Ok(false));
-    assert!(missing.acted().is_empty());
-    let nothing = own_and_list();
-    let mut list = || Ok(None);
-    assert_eq!(
-        start_archive(&nothing, None, &mut list, "My chat"),
-        Ok(false)
-    );
 }
 
 #[test]

@@ -277,21 +277,19 @@ Terminal is missing). On a server it uses ssh and adds `--remote-control`,
 so the fork also shows in the Claude app. A Remote Control service with no
 chat yet has nothing to fork.
 
-**Archive and rename in the Claude app.** **Archive the chat** (`Delete`)
-and **Rename the chat…** (`F2`) work through the chat's menu in the Claude
-app: ClaudeDeck presses the chat's **More options** button (with `Shift+F10`
-on its list entry as a fallback) and presses the menu item by its name. A
-chat with a window of its own is renamed through the rename button of that
-window's header. A chat is never opened for this, because the app moves a
-chat out of its own window when it is opened elsewhere. The list is first
-switched to the **Code** view, and folded sections and nested chats are
-opened once when the chat is not shown. Every step is written to the log. Rename first asks for the new name in WinCraft's
-rename box, then types it into the app's name field, so the app and
-ClaudeDeck share one name. ClaudeDeck never writes the app's own files,
-because the app does not notice that. If a step fails, `Esc` closes the
-menu and a notice says the action must be done in the app. A WindowNamer
-name on the chat's window is cleared after a rename, since the app sets the
-window title itself. A test copy only reads.
+**Rename in the Claude app.** **Rename the chat…** (`F2`) asks for the new
+name in WinCraft's rename box, then changes it in the Claude app, so the app
+and ClaudeDeck share one name. A chat with a window of its own is renamed
+through the rename button of that window's header. Other chats are renamed
+through their **More options** menu in the app's list (with `Shift+F10` on
+its list entry as a fallback). A chat is never opened for this, because the
+app moves a chat out of its own window when it is opened elsewhere.
+ClaudeDeck never writes the app's own files, because the app does not
+notice that. There is no archive: the app offers no direct command for it,
+and pressing through its screens was judged too fragile. If a step fails,
+`Esc` closes the menu and a notice says to rename it in the app. A
+WindowNamer name on the chat's window is cleared after a rename. A test copy
+only reads. Every step is written to the log.
 
 **Opening a chat with no window of its own.** Such a chat lives only in the
 Claude app's main window, and the app has no link that opens a given chat.
