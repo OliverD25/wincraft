@@ -283,3 +283,18 @@ drawn on a 32 px grid), with `make_claudedeck_icons.py`, the script that
 writes them and the section. The pick is task 22 in docs/my-tasks.md.
 Version 31 was the same section with a two-column layout; version 30 was
 another session's change to a different page.
+
+## 2026-11-12 (night, later): ClaudeDeck, the News tab (for approval)
+
+Version 38 of the artifact, copied byte for byte. Asked for by the WinCraft
+"CC HomeLab upgrade" chat, with the creator's decisions from its Q&A. The
+page gets section 13, "News: the latest replies of every chat (for your
+OK)": the News tab dark and light (pinned "Waits for you", then "Last 24
+hours" with unseen and seen replies, server chats with the server icon);
+the item look as two options (1. rows, recommended; 2. cards); the signals
+on the Chats tab (the count on the tab, a dot on rows, the tray tooltip,
+a proposal for mini mode); an open item (short, and a long reply cut with
+"Show all", recommended, or an inner scroll area); the empty state; the
+keyboard; and two proposed extras ("Mark all seen", "Only unseen").
+`make_claudedeck_news.py` is the script that wrote the section. Nothing is
+built yet: the build waits for the creator's approval.
