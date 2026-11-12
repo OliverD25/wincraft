@@ -55,6 +55,12 @@ How WinCraft tells each status:
   permission prompt; without it every wait is "Asks you". The hook's change
   is in `docs/claude-deck-hook-kind.md`.
 - **Working**, **Background**, **Idle**: the same rules as WindowDeck.
+  One addition: a chat that was active in the last hour and whose
+  transcript ends in a message or a tool shows **Working**, because the
+  Claude app marks a chat idle when you send a message in the middle of a
+  turn.
+- The marked row follows you: when a chat's window comes to the front, its
+  row becomes the marked one, so the list shows which chat you work in.
 - **Done, not seen**: the chat's turn ended while ClaudeDeck was open, and
   since then you have not had its window in front. A turn that ended while
   ClaudeDeck was closed shows as Idle, because WinCraft cannot know whether

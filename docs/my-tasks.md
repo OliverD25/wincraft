@@ -73,6 +73,23 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 **Done when:** a chat that waits for a permission shows the orange triangle in ClaudeDeck.
 
+### 18. Install 0.20.103 and check the marked row and the Working status in ClaudeDeck
+
+- **State:** Wait: 0.20.103 is not released yet.
+- **Kind:** test · **Added:** 2026-11-12 (PC)
+- **Why:** you reported two things on 0.20.102: ClaudeDeck did not show which chat you work in, and a working chat showed Idle. Both need your real Claude windows.
+- **Known, do not report:** a chat inside a folded group cannot become the marked row; WindowDeck's card can still say Idle for a chat that got a message in the middle of its turn (WindowDeck was not changed).
+
+**Steps**
+
+1. Right-click the WinCraft icon in the tray and click **Settings…**.
+2. Click **About** in the left list, then **Check for updates**, then **Update now**. WinCraft restarts; About shows 0.20.103.
+3. Press `Win+Alt+X`. ClaudeDeck opens.
+4. Click into a Claude chat window, then into another one. Within about half a second the row with the frame in ClaudeDeck is the chat of the window you are in.
+5. In a chat that is working, send one more message before it finishes. Its row in ClaudeDeck keeps the turning ring and **Working** until the turn ends.
+
+**Done when:** steps 4 and 5 look as described.
+
 ## Done
 
 - **17. Install 0.20.101 and drag a chat in ClaudeDeck**: done 2026-11-12. The user said "done 17" after the retest on 0.20.101. The first test on 0.20.100 passed steps 4 to 7 and 9 to 13; the busy `Win+Alt+C` became the default `Win+Alt+X`. Found after: the close button lost the window's place, and the hover panel covered the right-click menu; both fixed in 0.20.102.
