@@ -42,25 +42,9 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 **Done when:** step 1 printed a commit, and a waiting question card stays **Waiting** in WindowDeck.
 
-### 19. Install 0.20.104 and try the rename box and Rename in ClaudeDeck
-
-- **State:** Ready to test (0.20.104 released 2026-11-12; the release has wincraft.exe and its checksum).
-- **Kind:** test · **Added:** 2026-11-12 (PC)
-- **Why:** you asked for both on 0.20.103. The rename box was seen in a test copy on a Notepad window; ClaudeDeck's new menu item and `F2` need your real Claude windows.
-- **Known, do not report:** **Rename the window…** is greyed for a chat with no window; the name belongs to the window (WindowNamer keeps it), not to the chat in the Claude app.
-
-**Steps**
-
-1. Press `Alt+Space` (your palette hotkey), type `update`, pick **Update WinCraft** and press `Enter`. WinCraft checks, installs the newer version and restarts.
-2. Press `Alt+Space` again. The bottom right corner of the palette shows "WinCraft v0.20.104" or newer. Press `Esc`.
-3. Open WindowDeck on your Claude windows, right-click a window and click **Rename…**. The rename box opens with the window's current name typed and selected. Press `→`, change one letter, press `Enter`. The window has the new name.
-4. Press `Win+Alt+X`. In ClaudeDeck, right-click a chat that has a window and click **Rename the window…**. The same rename box opens. Type a name and press `Enter`. The chat's row in ClaudeDeck shows the new name within a few seconds.
-5. Pick a chat with the arrow keys in ClaudeDeck and press `F2`. The rename box opens for that chat's window. Press `Esc`: nothing changes.
-
-**Done when:** steps 3 to 5 look as described.
-
 ## Done
 
+- **19. Install 0.20.104 and try the rename box and Rename in ClaudeDeck**: done 2026-11-12. The user said "done task #19" after the test on 0.20.104: the rename box starts with the current name, and **Rename the window…** and `F2` work in ClaudeDeck.
 - **15. Check Rename, group renames, app updates and status chips in an open group**: done 2026-11-12. The user tested on 0.20.103: "all works as intended". Asked after it: the rename box should start with the current name, and ClaudeDeck should get Rename; both are in 0.20.104 (task 19).
 - **16. Have the attention hook tell WinCraft when a chat needs approval**: done 2026-11-12. The user said "task 16 is done". Checked: the installed `claude-attention.py` adds `--kind approval` for a permission prompt, and its log shows "PermissionRequest (approval)" marks for this chat that WinCraft took (3 of 3 targets).
 - **18. Install 0.20.103 and check the marked row and the Working status in ClaudeDeck**: done 2026-11-12. The user said "done 18" after the test on 0.20.103: the marked row follows the chat window in front, and a chat that gets a message in the middle of its turn keeps **Working**.
