@@ -1,7 +1,8 @@
 //! The keyboard in ClaudeDeck's list (design section 9). Up and Down pick a
 //! chat or a group, Home and End the first and the last, 1 to 9 the chat
 //! with that digit, Left and Right fold and unfold. Enter opens the chat
-//! (or folds the group), Alt+Up and Alt+Down move the picked chat or group,
+//! (or folds the group), Ctrl+Enter shows the chat in the Claude app's main
+//! window, Alt+Up and Alt+Down move the picked chat or group,
 //! F2 renames the picked group, Ctrl+C copies the picked chat's name, and
 //! the Menu key or Shift+F10 opens its menu. Ctrl+M switches mini mode,
 //! Ctrl+, opens the quick settings, and
@@ -18,6 +19,7 @@ use crate::core::ui_bridge::HostChannel;
 use super::drop::{self, kinds, Placed};
 use super::edit;
 use super::list::start_rename;
+use super::menu;
 use super::model::{Fold, Line};
 use super::open_app::{self, open_chat};
 use super::select::DIGITS;
@@ -30,6 +32,7 @@ struct Pressed {
     down: bool,
     up: bool,
     enter: bool,
+    show_in_app: bool,
     alt: bool,
     rename: bool,
     copy: bool,
@@ -104,7 +107,8 @@ fn read(ui: &Ui, state: &mut DeckUi) -> Pressed {
         Pressed {
             down: i.key_pressed(Key::ArrowDown),
             up: i.key_pressed(Key::ArrowUp),
-            enter: i.key_pressed(Key::Enter),
+            enter: i.key_pressed(Key::Enter) && !i.modifiers.command,
+            show_in_app: i.key_pressed(Key::Enter) && i.modifiers.command,
             alt: i.modifiers.alt,
             rename: i.key_pressed(Key::F2),
             copy: i.events.iter().any(|e| matches!(e, egui::Event::Copy)),
@@ -223,6 +227,9 @@ pub fn keys(
                 } else {
                     open_chat(line.chat.window, &line.chat.title, to_host);
                 }
+            }
+            if pressed.show_in_app && menu::can_show_in_app(line) {
+                open_app::show_in_app(&line.chat.id, &line.chat.title);
             }
             let app_chat = !line.stand_in && line.chat.terminal.is_none();
             if pressed.rename && app_chat {

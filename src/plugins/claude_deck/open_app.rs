@@ -36,6 +36,20 @@ pub(super) fn open_chat(window: Option<isize>, title: &str, to_host: &HostChanne
     }
 }
 
+/// The words of the notice when the app cannot show the chat. It names
+/// ClaudeDeck, so the user knows who is talking.
+pub fn show_failed_notice(title: &str) -> String {
+    format!("ClaudeDeck could not show \"{title}\" in the Claude app.")
+}
+
+/// Makes the app's main window show the chat, also when the chat has a
+/// window of its own.
+pub(super) fn show_in_app(id: &str, title: &str) {
+    if !crate::core::claude_app::show_chat(id) {
+        say(show_failed_notice(title.trim()));
+    }
+}
+
 /// What the row says while the chat is being opened in the app.
 pub(crate) const OPENING_LINE: &str = "Opening in the Claude app\u{2026}";
 /// A second open of the same chat within this long of the first is ignored.
@@ -281,6 +295,14 @@ mod tests {
             terminal: None,
             news: false,
         }
+    }
+
+    #[test]
+    fn the_notice_for_a_chat_that_cannot_be_shown_names_claudedeck_and_the_chat() {
+        assert_eq!(
+            show_failed_notice("Fix login"),
+            "ClaudeDeck could not show \"Fix login\" in the Claude app."
+        );
     }
 
     #[test]

@@ -9,6 +9,7 @@ use super::model::{ChatLine, Fold};
 use super::store::Colour;
 
 pub const OPEN: &str = "Open the chat";
+pub const SHOW_IN_APP: &str = "Show in the Claude app";
 pub const PIN: &str = "Pin to the top";
 pub const UNPIN: &str = "Unpin";
 pub const HIDE: &str = "Hide this chat";
@@ -36,6 +37,7 @@ pub const UNGROUP: &str = "Ungroup (chats go back to their folder)";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Item {
     Open,
+    ShowInApp,
     Pin,
     Unpin,
     Hide,
@@ -64,6 +66,8 @@ pub enum Item {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Choice {
     Open,
+    /// The Claude app's main window shows the chat.
+    ShowInApp,
     Pin(bool),
     Hide(bool),
     Copy,
@@ -84,6 +88,14 @@ pub enum Choice {
     Ungroup,
 }
 
+/// A chat of the Claude app on this PC whose id the app has a link for.
+/// A chat in a terminal has no such id; a stand-in line is not a chat.
+pub fn can_show_in_app(line: &ChatLine) -> bool {
+    !line.stand_in
+        && line.chat.terminal.is_none()
+        && crate::core::claude_app::chat_link(&line.chat.id).is_some()
+}
+
 /// The menu of a chat row. `in_group` is false for the rows under the cold
 /// and hidden lines. Pinning and moving belong to the chat at the top of a
 /// family; a fork stays under its chat.
@@ -95,6 +107,9 @@ pub fn chat_items(line: &ChatLine, in_group: bool) -> Vec<Item> {
     let mut items = Vec::new();
     if !line.stand_in {
         items.push(Item::Open);
+        if can_show_in_app(line) {
+            items.push(Item::ShowInApp);
+        }
     }
     if line.hidden {
         items.push(Item::Show);
@@ -184,6 +199,7 @@ pub fn show(ui: &mut Ui, items: &[Item], context: &Context) -> Option<Choice> {
                 )
                 .clicked()
                 .then_some(Choice::Open),
+            Item::ShowInApp => button(ui, SHOW_IN_APP, "Ctrl+Enter").then_some(Choice::ShowInApp),
             Item::Pin => button(ui, PIN, "").then_some(Choice::Pin(true)),
             Item::Unpin => button(ui, UNPIN, "").then_some(Choice::Pin(false)),
             Item::Hide => button(ui, HIDE, "").then_some(Choice::Hide(true)),

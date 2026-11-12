@@ -248,3 +248,17 @@ fn cold_and_fork_rows_get_rename_like_other_chats() {
     let cold = chat_items(&line(0, Fold::None), false);
     assert!(cold.contains(&RenameChat));
 }
+
+#[test]
+fn show_in_app_is_offered_only_for_a_chat_with_a_local_id() {
+    let mut desktop = line(0, Fold::None);
+    desktop.chat.id = "local_9f2c-41".to_string();
+    assert!(chat_items(&desktop, true).starts_with(&[Item::Open, Item::ShowInApp]));
+    let mut stand_in = desktop.clone();
+    stand_in.stand_in = true;
+    assert!(!chat_items(&stand_in, true).contains(&Item::ShowInApp));
+    let mut terminal = desktop.clone();
+    terminal.chat.terminal = Some("rdehome2:E:/code".to_string());
+    assert!(!chat_items(&terminal, true).contains(&Item::ShowInApp));
+    assert!(!chat_items(&line(0, Fold::None), true).contains(&Item::ShowInApp));
+}

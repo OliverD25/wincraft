@@ -1,8 +1,10 @@
 //! Working with the Claude desktop app's main window. A chat that has no
-//! window of its own is only a button in the app's chat list, and the app
-//! has no link that opens one (`claude://code/continue` starts an empty
-//! chat). So WinCraft finds the home window through UI Automation, brings
-//! it forward and presses the chat's button, as a screen reader would.
+//! window of its own is only a button in the app's chat list. So WinCraft
+//! finds the home window through UI Automation, brings it forward and
+//! presses the chat's button, as a screen reader would. A link
+//! (`claude://code/continue?session=<id>`) also shows a chat, but only with
+//! the session file's `local_` id (see `link.rs`); any other id starts an
+//! empty chat. UI Automation stays for Open the chat and for renaming.
 //!
 //! The tree walks are generic over a small [`Tree`], so tests run them on a
 //! made-up tree. The real tree is the one of `core/uia.rs`; every call into
@@ -655,7 +657,9 @@ pub fn open_chat(
 }
 
 mod keys;
+mod link;
 mod menu;
+pub use link::{chat_link, show_chat};
 pub use menu::rename_chat;
 
 #[cfg(test)]

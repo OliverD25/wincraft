@@ -319,6 +319,7 @@ impl PluginWindow for DeckWindow {
                 clicked = quick::apply(&mut shared.settings, pick, &to_host).or(clicked);
             }
             commit(&mut state);
+            shared.picked = picked_chat(&lines, &state);
             match clicked {
                 Some(Click::OnlyOpen) => {
                     shared.settings.only_open = !settings.only_open;
@@ -505,6 +506,19 @@ fn refresh(state: &mut DeckUi, to_host: &HostChannel) {
 }
 
 /// Writes the arrangement when it changed.
+/// The id and name of the picked chat, when the Claude app can show it.
+fn picked_chat(lines: &[Line], state: &DeckUi) -> Option<(String, String)> {
+    let Some(Pick::Chat(id)) = &state.selected else {
+        return None;
+    };
+    lines.iter().find_map(|line| match line {
+        Line::Chat(c) if &c.chat.id == id && super::menu::can_show_in_app(c) => {
+            Some((c.chat.id.clone(), c.chat.title.clone()))
+        }
+        _ => None,
+    })
+}
+
 pub(super) fn commit(state: &mut DeckUi) {
     if !state.writable || state.written.as_ref() == Some(&state.saved) || state.written.is_none() {
         return;

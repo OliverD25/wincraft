@@ -101,7 +101,11 @@ How WinCraft tells each status:
   first nine chat rows on screen show their digit in a small box.
 - `Left` folds the picked group (or the picked chat's forks), `Right`
   unfolds it.
-- `Enter` opens the picked chat, or folds the picked group.
+- `Enter` opens the picked chat, or folds the picked group. `Ctrl+Enter`
+  (or **Show in the Claude app** in the menu, or the palette command
+  "ClaudeDeck: Show the picked chat in the Claude app") makes the main
+  Claude window show the chat, also when it has a window of its own. It works
+  only for a chat of the Claude app on this PC.
 - `Esc` gives the keyboard back to the window that was in front when you
   pressed `Win+Alt+X`. It closes nothing. While you rename a group, drag a
   line or have a menu open, `Esc` first ends that.

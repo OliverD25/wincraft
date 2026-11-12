@@ -549,6 +549,7 @@ fn apply(act: Act, state: &mut DeckUi, to_host: &HostChannel) {
     };
     match act.choice {
         Choice::Open => open_chat(act.window, &act.title, to_host),
+        Choice::ShowInApp => open_app::show_in_app(&id, &act.title),
         Choice::Pin(on) => edit::pin(saved, &id, on),
         Choice::Hide(on) => edit::hide(saved, &id, on),
         Choice::Copy => {

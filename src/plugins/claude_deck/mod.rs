@@ -61,6 +61,8 @@ const ACTION_MINI: u32 = 2;
 const COMMAND_TERMINAL: u32 = 1;
 /// The palette command that opens the window with its quick settings.
 const COMMAND_QUICK: u32 = 2;
+/// The palette command that shows the picked chat in the Claude app.
+const COMMAND_SHOW: u32 = 3;
 /// The `host::post_to_plugins` id the window sends when the tray count
 /// changed.
 pub(crate) const TRAY_POST_ID: usize = 0xC1A0_DEC0;
@@ -193,6 +195,9 @@ pub struct Shared {
     pub keep_open: bool,
     /// The palette asked for the quick settings menu.
     pub quick_wanted: bool,
+    /// The chat picked in the list that the Claude app can show: its id and
+    /// name. The window keeps it up to date for the palette command.
+    pub picked: Option<(String, String)>,
 }
 
 pub type Handle = Arc<Mutex<Shared>>;
@@ -505,10 +510,27 @@ impl WinCraftPlugin for ClaudeDeck {
                 list: false,
                 toggle: None,
             },
+            PaletteCommand {
+                id: COMMAND_SHOW,
+                label: "ClaudeDeck: Show the picked chat in the Claude app",
+                hint: "The main Claude window shows the chat picked in ClaudeDeck",
+                words: "open chat main window desktop",
+                confirm: "",
+                list: false,
+                toggle: None,
+            },
         ]
     }
 
     fn on_palette_command(&mut self, id: u32) {
+        if id == COMMAND_SHOW {
+            let picked = self.shared.lock().ok().and_then(|s| s.picked.clone());
+            match picked {
+                Some((chat, title)) => open_app::show_in_app(&chat, &title),
+                None => host::notify("ClaudeDeck", "ClaudeDeck: pick a chat first."),
+            }
+            return;
+        }
         if id != COMMAND_QUICK {
             return;
         }
