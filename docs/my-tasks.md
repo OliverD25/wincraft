@@ -1,6 +1,6 @@
 # Tasks on you: WinCraft
 
-Updated: 2026-11-11. Kept by the my-tasks skill. `/my-tasks` shows this
+Updated: 2026-11-12. Kept by the my-tasks skill. `/my-tasks` shows this
 list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ## Open
@@ -21,6 +21,21 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 6. Move to another row: that row's window shows instead. Move the mouse out of the list: the window goes back.
 
 **Done when:** steps 5 and 6 look as described.
+
+### 13. Review the design of the new ClaudeDeck plugin
+
+- **State:** Wait: the design session is still making the page "ClaudeDeck".
+- **Kind:** review · **Added:** 2026-11-12 (PC)
+- **Why:** the build plan and the code for ClaudeDeck start only after you approve the design.
+
+**Steps**
+
+1. Wait for the message "Ready:" from the chat "WinCraft Rust (fork) - Design Session". It gives the link to the page.
+2. Open the link. The page "ClaudeDeck" shows the window, the nine statuses, the fork tree, groups and mini mode.
+3. Where the page shows 2-3 options side by side, tell that chat which one you pick.
+4. Tell that chat "approved", or say what to change.
+
+**Done when:** you approved the page "ClaudeDeck" in the design chat.
 
 ## Done
 
