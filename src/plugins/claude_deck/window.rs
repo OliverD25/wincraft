@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use egui::{pos2, vec2, Color32, Rect, Ui};
 use serde_json::Value;
 use windows_sys::Win32::Foundation::HWND;
-use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, IsWindow};
 
 use crate::core::claude_sessions;
 use crate::core::claude_windows;
@@ -228,6 +228,11 @@ impl PluginWindow for DeckWindow {
             let (Ok(mut shared), Ok(mut state)) = (shared.lock(), state.lock()) else {
                 return;
             };
+            // egui can draw the window once more after it was closed. That
+            // frame must not find the dying window and mark it as placed.
+            if !shared.open {
+                return;
+            }
             let tokens = Tokens::get(ui.ctx());
             find_and_place(&mut state, palette, &tokens, &to_host);
             refresh(&mut state, &to_host);
@@ -384,6 +389,11 @@ fn save(to_host: &HostChannel, key: &str, on: bool) {
 /// Finds the window egui made, gives it rounded corners and a border, puts
 /// it where it was, and takes the keyboard when the hotkey asked.
 fn find_and_place(state: &mut DeckUi, palette: isize, tokens: &Tokens, to_host: &HostChannel) {
+    if state.window != 0 && unsafe { IsWindow(state.window as HWND) } == 0 {
+        // A window from before the last close: the new one is not placed yet.
+        state.window = 0;
+        state.placed = false;
+    }
     if state.window == 0 {
         state.window = settings::find_window(TITLE, palette);
     }
