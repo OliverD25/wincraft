@@ -49,6 +49,13 @@ impl ComPtr {
     }
 }
 
+impl Clone for ComPtr {
+    fn clone(&self) -> Self {
+        unsafe { (self.vtable::<IUnknown_Vtbl>().AddRef)(self.0) };
+        Self(self.0)
+    }
+}
+
 impl Drop for ComPtr {
     fn drop(&mut self) {
         unsafe { (self.vtable::<IUnknown_Vtbl>().Release)(self.0) };

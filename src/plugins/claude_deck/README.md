@@ -279,8 +279,13 @@ chat yet has nothing to fork.
 
 **Archive and rename in the Claude app.** **Archive the chat** (`Delete`)
 and **Rename the chat…** (`F2`) work through the chat's menu in the Claude
-app: ClaudeDeck focuses the chat's button, presses `Shift+F10`, and presses
-the menu item by its name. Rename first asks for the new name in WinCraft's
+app: ClaudeDeck presses the chat's **More options** button (with `Shift+F10`
+on its list entry as a fallback) and presses the menu item by its name. A
+chat with a window of its own is renamed through the rename button of that
+window's header. A chat is never opened for this, because the app moves a
+chat out of its own window when it is opened elsewhere. The list is first
+switched to the **Code** view, and folded sections and nested chats are
+opened once when the chat is not shown. Every step is written to the log. Rename first asks for the new name in WinCraft's
 rename box, then types it into the app's name field, so the app and
 ClaudeDeck share one name. ClaudeDeck never writes the app's own files,
 because the app does not notice that. If a step fails, `Esc` closes the

@@ -239,3 +239,13 @@ fn only_a_chat_that_can_be_forked_gets_the_fork_item() {
         [Open, Show, Copy, RenameChat, Fork]
     );
 }
+
+#[test]
+fn cold_and_fork_rows_get_archive_and_rename_like_other_chats() {
+    use Item::*;
+    // A fork (depth 1) under the cold line: not in a group, still a chat.
+    let cold_fork = chat_items(&line(1, Fold::None), false);
+    assert!(cold_fork.contains(&Archive) && cold_fork.contains(&RenameChat));
+    let cold = chat_items(&line(0, Fold::None), false);
+    assert!(cold.contains(&Archive) && cold.contains(&RenameChat));
+}

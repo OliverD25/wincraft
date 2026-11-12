@@ -557,7 +557,7 @@ fn apply(act: Act, state: &mut DeckUi, to_host: &HostChannel) {
             }
         }
         Choice::RenameChat => open_app::ask_rename(&act.title, act.window),
-        Choice::Archive => open_app::archive(&act.title),
+        Choice::Archive => open_app::archive(&act.title, act.window),
         Choice::Fork => act
             .fork
             .iter()

@@ -231,7 +231,7 @@ pub fn keys(
                 open_app::ask_rename(&line.chat.title, line.chat.window);
             }
             if pressed.delete && app_chat {
-                open_app::archive(&line.chat.title);
+                open_app::archive(&line.chat.title, line.chat.window);
             }
             if pressed.copy && !line.stand_in {
                 let _ = clipboard::put_text(state.window as HWND, &line.chat.title);

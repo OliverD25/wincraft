@@ -331,3 +331,20 @@ fn f2_on_a_chat_asks_to_rename_the_chat_in_the_app() {
     assert_eq!(window, Some(1234));
     assert!(deck.state.renaming.is_none(), "no group rename starts");
 }
+
+#[test]
+fn delete_on_a_selected_fork_row_asks_to_archive_that_chat() {
+    let mut deck = deck();
+    deck.settle();
+    deck.state.selected = Some(Pick::Chat("f".into()));
+    deck.requests();
+    deck.key(Key::Delete);
+    let asked = crate::plugins::claude_deck::open_app::ARCHIVES
+        .lock()
+        .unwrap()
+        .clone();
+    assert!(
+        asked.contains(&("Chat f".to_string(), None)),
+        "the archive request for the fork row: {asked:?}"
+    );
+}

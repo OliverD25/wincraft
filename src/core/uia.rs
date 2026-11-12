@@ -59,6 +59,19 @@ pub const CONTROL_BUTTON: i32 = 50000;
 pub const CONTROL_GROUP: i32 = 50026;
 pub const CONTROL_EDIT: i32 = 50004;
 pub const CONTROL_MENU_ITEM: i32 = 50011;
+pub const CONTROL_RADIO: i32 = 50013;
+
+const IID_SELECTION_ITEM: GUID = GUID::from_u128(0xa8efa66a_0fda_421a_9194_38021f2797f8);
+const PATTERN_SELECTION_ITEM: i32 = 10010;
+
+#[repr(C)]
+struct SelectionItemVtbl {
+    _base: IUnknown_Vtbl,
+    select: unsafe extern "system" fn(*mut c_void) -> HRESULT,
+    _add_to_selection: unsafe extern "system" fn(),
+    _remove_from_selection: unsafe extern "system" fn(),
+    is_selected: unsafe extern "system" fn(*mut c_void, *mut BOOL) -> HRESULT,
+}
 
 const IID_EXPAND_COLLAPSE: GUID = GUID::from_u128(0x619be086_1f4e_4ee4_bafa_210128738730);
 const IID_VALUE: GUID = GUID::from_u128(0xa94cd8b1_0844_4cd6_9d2d_640537ab39e9);
@@ -267,6 +280,24 @@ fn pattern(element: &ComPtr, id: i32, iid: &GUID) -> Result<ComPtr, String> {
     taken(hr, raw)
         .and_then(|unknown| unknown.query(iid))
         .ok_or_else(|| format!("the element lacks pattern {id} ({})", com::hex(hr)))
+}
+
+/// Whether a radio button (or other selectable element) is selected; None
+/// when it has no SelectionItem pattern.
+pub fn is_selected(element: &ComPtr) -> Option<bool> {
+    let pattern = pattern(element, PATTERN_SELECTION_ITEM, &IID_SELECTION_ITEM).ok()?;
+    let mut value: BOOL = 0;
+    let hr = unsafe {
+        (pattern.vtable::<SelectionItemVtbl>().is_selected)(pattern.as_raw(), &mut value)
+    };
+    com::ok(hr).then_some(value != 0)
+}
+
+/// Selects the element, as a click on a radio button does.
+pub fn select(element: &ComPtr) -> Result<(), String> {
+    let pattern = pattern(element, PATTERN_SELECTION_ITEM, &IID_SELECTION_ITEM)?;
+    let hr = unsafe { (pattern.vtable::<SelectionItemVtbl>().select)(pattern.as_raw()) };
+    com::check(hr).map_err(|hr| format!("Select failed ({})", com::hex(hr)))
 }
 
 /// Gives the element the keyboard focus.

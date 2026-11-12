@@ -23,6 +23,9 @@ pub(crate) const PROMPT_RENAME_CHAT: u32 = 1;
 static PENDING: Mutex<Vec<String>> = Mutex::new(Vec::new());
 /// The chat being renamed: its title now, and its window if it has one.
 static RENAMING: Mutex<Option<(String, Option<isize>)>> = Mutex::new(None);
+/// For tests: the archives asked for, as (title, own window).
+#[cfg(test)]
+pub(super) static ARCHIVES: Mutex<Vec<(String, Option<isize>)>> = Mutex::new(Vec::new());
 /// Windows whose WindowNamer name is to be cleared by the list.
 static CLEARS: Mutex<Vec<isize>> = Mutex::new(Vec::new());
 
@@ -36,12 +39,18 @@ pub(super) fn open_chat(window: Option<isize>, title: &str, to_host: &HostChanne
 }
 
 /// Archives the chat in the Claude app.
-pub(super) fn archive(title: &str) {
-    claude_app::archive_chat(title, say);
+pub(super) fn archive(title: &str, window: Option<isize>) {
+    log::info!("ClaudeDeck: archive asked for \"{title}\"");
+    #[cfg(test)]
+    if let Ok(mut asked) = ARCHIVES.lock() {
+        asked.push((title.to_string(), window));
+    }
+    claude_app::archive_chat(title, window, say);
 }
 
 /// Starts a rename: the host thread opens the rename box.
 pub(super) fn ask_rename(title: &str, window: Option<isize>) {
+    log::info!("ClaudeDeck: asking for a new name for \"{title}\"");
     if let Ok(mut renaming) = RENAMING.lock() {
         *renaming = Some((title.to_string(), window));
     }
@@ -51,6 +60,7 @@ pub(super) fn ask_rename(title: &str, window: Option<isize>) {
 /// Opens the rename box, started with the chat's name now. Host thread.
 pub(crate) fn ask_pending_rename(plugin: &str) {
     let Some((title, window)) = RENAMING.lock().ok().and_then(|renaming| renaming.clone()) else {
+        log::info!("ClaudeDeck: the rename box was asked for with no chat waiting");
         return;
     };
     host::ask(Prompt {
@@ -66,22 +76,74 @@ pub(crate) fn ask_pending_rename(plugin: &str) {
     });
 }
 
+/// What a typed name asks for: the chat's app title now, the new name, and
+/// the window whose WindowNamer name is to be cleared.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RenamePlan {
+    pub title: String,
+    pub name: String,
+    pub clear: Option<isize>,
+    /// The chat's own window, when it has one.
+    pub window: Option<isize>,
+}
+
+/// Decides what the answer of the rename box asks for. The chat is named by
+/// its title in the Claude app (the session title), as kept when the box
+/// was opened, never by a window title or a WindowNamer name.
+pub(crate) fn plan_rename(
+    renaming: Option<(String, Option<isize>)>,
+    window: isize,
+    typed: &str,
+    namer_name: bool,
+) -> Option<RenamePlan> {
+    let Some((title, _)) = renaming else {
+        log::info!("ClaudeDeck: a rename answer came with no rename waiting; ignored");
+        return None;
+    };
+    let name = typed.trim();
+    if name.is_empty() || name == title {
+        log::info!("ClaudeDeck: rename \"{title}\": the name is empty or the same; nothing done");
+        return None;
+    }
+    Some(RenamePlan {
+        title,
+        name: name.to_string(),
+        clear: (window != 0 && namer_name).then_some(window),
+        window: (window != 0).then_some(window),
+    })
+}
+
 /// The new name was typed. Renames the chat in the app, and drops the
 /// WindowNamer name of its window: the app sets the window title itself.
 pub(crate) fn rename_answered(window: isize, name: &str) {
-    let Some((title, _)) = RENAMING
+    let renaming = RENAMING
         .lock()
         .ok()
-        .and_then(|mut renaming| renaming.take())
-    else {
+        .and_then(|mut renaming| renaming.take());
+    rename_answered_with(renaming, window, name, |title, name, window| {
+        claude_app::rename_chat(title, name, window, say);
+    });
+}
+
+/// `rename_answered` with the rename that waited, and the start of the
+/// rename in the app, given.
+pub(crate) fn rename_answered_with(
+    renaming: Option<(String, Option<isize>)>,
+    window: isize,
+    typed: &str,
+    start: impl FnOnce(&str, &str, Option<isize>),
+) {
+    let namer_name = window != 0 && window_names::custom(window).is_some();
+    let Some(plan) = plan_rename(renaming, window, typed, namer_name) else {
         return;
     };
-    let name = name.trim();
-    if name.is_empty() || name == title {
-        return;
-    }
-    claude_app::rename_chat(&title, name, say);
-    if window != 0 && window_names::custom(window).is_some() {
+    log::info!(
+        "ClaudeDeck: rename answer: \"{}\" becomes \"{}\" in the Claude app",
+        plan.title,
+        plan.name
+    );
+    start(&plan.title, &plan.name, plan.window);
+    if let Some(window) = plan.clear {
         if let Ok(mut clears) = CLEARS.lock() {
             clears.push(window);
         }
@@ -104,6 +166,7 @@ pub(super) fn send_pending_clears(to_host: &HostChannel) {
 }
 
 fn say(text: String) {
+    log::info!("ClaudeDeck: notice waiting: {text}");
     if let Ok(mut pending) = PENDING.lock() {
         pending.push(text);
     }
@@ -137,5 +200,40 @@ mod tests {
         let first = PENDING.lock().map(|mut p| std::mem::take(&mut *p)).unwrap();
         assert_eq!(first, ["one"]);
         assert!(PENDING.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_answer_of_the_rename_box_starts_the_rename_in_the_app_by_its_title() {
+        let mut started = Vec::new();
+        let waiting = Some(("App title".to_string(), Some(7isize)));
+        rename_answered_with(waiting, 7, "  New name ", |title, name, window| {
+            started.push((title.to_string(), name.to_string(), window));
+        });
+        assert_eq!(
+            started,
+            [("App title".to_string(), "New name".to_string(), Some(7))]
+        );
+    }
+
+    #[test]
+    fn an_empty_or_unchanged_answer_or_a_stray_one_starts_nothing() {
+        let waiting = || Some(("Same".to_string(), None));
+        let mut started = 0;
+        rename_answered_with(waiting(), 0, "   ", |_, _, _| started += 1);
+        rename_answered_with(waiting(), 0, "Same", |_, _, _| started += 1);
+        rename_answered_with(None, 0, "Anything", |_, _, _| started += 1);
+        assert_eq!(started, 0);
+    }
+
+    #[test]
+    fn the_plan_clears_the_windowname_only_when_there_is_one() {
+        let waiting = || Some(("T".to_string(), Some(9isize)));
+        let with = plan_rename(waiting(), 9, "New", true).unwrap();
+        assert_eq!(with.clear, Some(9));
+        let without = plan_rename(waiting(), 9, "New", false).unwrap();
+        assert_eq!(without.clear, None);
+        let no_window = plan_rename(waiting(), 0, "New", true).unwrap();
+        assert_eq!(no_window.clear, None);
+        assert_eq!(with.title, "T");
     }
 }
