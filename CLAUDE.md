@@ -53,5 +53,14 @@ big files read into the context and long runs of turns were most of it.
 - **Filter command output.** For example
   `cargo test 2>&1 | grep -E "^test result|FAILED|panicked|^error"`, or
   `| tail -20`. Never print a full build log.
+- **Check a default hotkey before you put it into code** (decided 2026-11-12:
+  ClaudeDeck shipped with `Win+Alt+C`, which another app held on the
+  creator's PC). Run
+  `target/release/wincraft.exe --hotkey-verdict=Win+Alt+X,Win+Alt+I`
+  with your candidates. It prints one line per combination and touches
+  nothing. Use only a combination it calls "Free". "App" means another app
+  holds it now; the running WinCraft's own hotkeys also show as "App", so
+  compare with `docs/ui-map.md`. "Windows" means Windows uses it. Name the
+  verdict in the commit message. A coder agent gets this rule in its brief.
 - **Three tries, then report.** If the same failure survives three different
   fixes, stop and report the error text instead of trying more.

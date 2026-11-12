@@ -49,7 +49,7 @@ File: `C:\Users\Admin\.claude\hooks\claude-attention.py`.
 
 ## How to check it worked
 
-1. Open ClaudeDeck (`Win+Alt+C`).
+1. Open ClaudeDeck (`Win+Alt+X`).
 2. In a Claude Code chat with the "Ask" permission mode, ask Claude to run a
    command that needs approval.
 3. The chat's row shows the yellow triangle and, with **Shapes and words**,

@@ -4,7 +4,7 @@ A small window that lists your Claude Code chats from the Claude desktop
 app, so you see at a glance which chat asks you something, which one works,
 and which one is idle.
 
-- Open it with `Win+Alt+C`, from the tray menu (**ClaudeDeck**), or from the
+- Open it with `Win+Alt+X`, from the tray menu (**ClaudeDeck**), or from the
   palette (**Open ClaudeDeck**). Press the hotkey again while it is in front
   to close it.
 - The first time, chats are grouped by project folder. A chat in a git
@@ -65,7 +65,7 @@ How WinCraft tells each status:
 
 ## The keyboard
 
-- `Win+Alt+C` brings ClaudeDeck to the front with the keyboard in it. The
+- `Win+Alt+X` brings ClaudeDeck to the front with the keyboard in it. The
   chat that has waited longest (Needs approval or Asks you) is selected;
   with none waiting, the row you used last. When that chat is inside a
   folded group or under a folded chat, the folded line is selected; it
@@ -77,7 +77,7 @@ How WinCraft tells each status:
   unfolds it.
 - `Enter` opens the picked chat, or folds the picked group.
 - `Esc` gives the keyboard back to the window that was in front when you
-  pressed `Win+Alt+C`. It closes nothing. While you rename a group, drag a
+  pressed `Win+Alt+X`. It closes nothing. While you rename a group, drag a
   line or have a menu open, `Esc` first ends that.
 - `Ctrl+M` switches mini mode. The hotkey command **ClaudeDeck mini mode**
   does the same from anywhere; it has no keys until you set some in
@@ -105,8 +105,8 @@ Mini mode is remembered when WinCraft starts again.
 
 - Drag a group's header to move the group. Drag a chat to another place or
   another group; a blue line shows where it lands. A chat takes its forks
-  along. A fork cannot be dragged out from under its chat: it stays in the
-  tree. With the keyboard, pick a chat or a group with the arrow keys and
+  along. A drag that starts on a fork moves the whole family: the fork stays
+  under its chat. Cold chats and hidden chats cannot be dragged. With the keyboard, pick a chat or a group with the arrow keys and
   press `Alt+Up` or `Alt+Down`.
 - Double-click a group's header, or pick it and press `F2`, to rename it:
   `Enter` saves, `Esc` puts the old name back. Scrolling the group out of

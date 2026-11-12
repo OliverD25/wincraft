@@ -357,7 +357,7 @@ impl WinCraftPlugin for ClaudeDeck {
                 label: "Open ClaudeDeck",
                 default: Hotkey {
                     modifiers: MOD_NOREPEAT | MOD_WIN | MOD_ALT,
-                    vk: u32::from(b'C'),
+                    vk: u32::from(b'X'),
                 },
             },
             HotkeyAction {
