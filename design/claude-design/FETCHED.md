@@ -310,3 +310,14 @@ group below "Last 24 hours", folded at first, unfolded showing each chat's
 latest older reply as the same rows (drawn folded and unfolded, and folded
 at the end of the main drawings). The section title says "approved
 2026-11-12".
+
+## 2026-11-13: ClaudeDeck, News grouped by chat (for approval)
+
+Version 42 of the artifact, copied byte for byte (323 726 bytes). New
+section 14, made by `make_claudedeck_news_grouped.py` from version 39. The
+creator asked for the News tab grouped by chat: one block per chat with its
+name, folder, server and status mark shown once, and each reply as one or
+two lines with its time. Option A lists every reply. Option B (recommended)
+lists the unseen replies and folds the seen ones into "N earlier replies".
+Option B is also drawn unfolded, in light, and with the keyboard focus on a
+block line and on a reply. Section 13 is unchanged.
