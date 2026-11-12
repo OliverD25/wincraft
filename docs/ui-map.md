@@ -195,6 +195,7 @@ Opened by: a click on a stack, its number, or **Open the group** (`Enter`).
 - Frame header: **{group} · 1 – {n} opens a window · Esc closes the group** (row), or **{group} · 1 – {n} or ← → · Esc closes** (fan).
 - Footer hints: **Window in the group** (`1 – 9`), **Close the group** (`Esc`), **Take out of the group** (`Ctrl + G`).
 - A click outside the frame closes the group; WindowDeck stays open.
+- Right-click on a window in the group: the card menu (**Rename…** and **Clear name** with WindowNamer on, **Close window**, **Taskbar place**, **Move to desktop**), then the group items.
 
 ### WindowDeck group dialogs
 - Name box for a new group: title **Group {n} windows**, buttons **Cancel** and **Make the group**. Enter makes it, Esc cancels.

@@ -266,6 +266,8 @@ pub fn show(
         })
         .collect();
     let full = unfolded(group, &stack);
+    // The same menu as a card in the row, Rename included (WindowNamer on).
+    let can_rename = shared.snapshot.as_ref().is_some_and(|s| s.can_rename);
     let moved = ctx.input(|i| i.pointer.delta() != Vec2::ZERO);
     let tokens = Tokens::get(ctx);
     let id = egui::Id::new("deck-group-layer");
@@ -297,7 +299,8 @@ pub fn show(
                 let member = full.windows.iter().position(|w| w.hwnd == window.hwnd);
                 response.context_menu(|ui| {
                     if let Some(member) = member {
-                        if let Some(action) = card_menu(ui, &full, member, desktops, None) {
+                        let names = can_rename.then_some(full.windows[member].renamed);
+                        if let Some(action) = card_menu(ui, &full, member, desktops, names) {
                             chosen = Some(action);
                         }
                     }

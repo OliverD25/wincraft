@@ -154,6 +154,23 @@ pub fn rename_member(groups: &mut [DeckGroup], app: &str, old: &str, new: &str) 
     }
 }
 
+/// A grouped window now shows `new` where it showed `old`: the group keeps
+/// it under the new name. Nothing changes when the name is the same, when
+/// no group of `app` has `old`, or when a group of `app` already has `new`
+/// (another window may have that name). True when a group changed.
+pub fn follow_rename(groups: &mut [DeckGroup], app: &str, old: &str, new: &str) -> bool {
+    let of_app = |group: &&DeckGroup| group.app == app;
+    if old == new
+        || new.trim().is_empty()
+        || !groups.iter().filter(of_app).any(|group| group.has(old))
+        || groups.iter().filter(of_app).any(|group| group.has(new))
+    {
+        return false;
+    }
+    rename_member(groups, app, old, new);
+    true
+}
+
 /// Drops the group; its windows stay open as they are.
 pub fn ungroup(groups: &mut Vec<DeckGroup>, app: &str, name: &str) {
     groups.retain(|group| !(group.app == app && group.name == name));

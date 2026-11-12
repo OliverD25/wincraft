@@ -176,3 +176,37 @@ fn the_file_keeps_the_groups() {
     assert!(load(&path).is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_window_renamed_outside_the_deck_keeps_its_group() {
+    let mut groups = news();
+    assert!(follow_rename(
+        &mut groups,
+        "chrome",
+        "NewsHQ - design",
+        "NewsHQ - feed design"
+    ));
+    assert_eq!(
+        groups[0].members,
+        names(&["NewsHQ", "NewsHQ - My Tasks", "NewsHQ - feed design"])
+    );
+}
+
+#[test]
+fn a_rename_changes_nothing_when_it_cannot_tell_the_window() {
+    let mut groups = news();
+    let before = groups.clone();
+    // The same name, an empty name, another app, a name not in a group, and
+    // a new name another member already has.
+    assert!(!follow_rename(&mut groups, "chrome", "NewsHQ", "NewsHQ"));
+    assert!(!follow_rename(&mut groups, "chrome", "NewsHQ", "  "));
+    assert!(!follow_rename(&mut groups, "edge", "NewsHQ", "Mail"));
+    assert!(!follow_rename(&mut groups, "chrome", "Inbox", "Mail"));
+    assert!(!follow_rename(
+        &mut groups,
+        "chrome",
+        "NewsHQ",
+        "NewsHQ - My Tasks"
+    ));
+    assert_eq!(groups, before);
+}

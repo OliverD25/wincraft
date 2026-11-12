@@ -362,7 +362,10 @@ WindowDeck never groups windows by itself.
   on the part of a window that shows, bring another one to the front.
 - **Change a group.** Ctrl+G on a window in an open group takes it out of
   the group. Ctrl+G on a stack ungroups it. **F2** on a stack renames the
-  group.
+  group. A window in an open group has the same right-click menu as a
+  card, **Rename…** included. Groups know their windows by name, so a
+  window renamed somewhere else (a Claude chat renamed in the app) keeps
+  its group under the new name.
 - **Close a group's windows.** Ctrl+W or a middle click on a stack asks
   first: "Close 3 windows in NewsHQ?". Inside an open group they close the
   picked window only, as on a card.

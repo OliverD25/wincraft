@@ -242,3 +242,17 @@ pub fn save_groups(shared: &mut Shared, defs: Vec<DeckGroup>) {
         action: ArrangeAction::SetGroups(defs),
     });
 }
+
+/// Saves the groups that followed a window renamed outside WindowDeck.
+pub fn send_followed(shared: &mut Shared) {
+    let Some(defs) = shared.stacks.take_followed() else {
+        return;
+    };
+    let Some(snapshot) = shared.snapshot.as_ref() else {
+        return;
+    };
+    shared.to_host.send(HostRequest::Arrange {
+        plugin: snapshot.look_plugin.clone(),
+        action: ArrangeAction::SetGroups(defs),
+    });
+}
