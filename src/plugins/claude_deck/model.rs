@@ -25,6 +25,8 @@ pub enum Mark {
     AsksYou,
     DoneNotSeen,
     Working,
+    /// A PC chat blocked on a foreground ssh command to a listed server.
+    WaitsOnServer,
     Background,
     Idle(Age),
     Stopped,
@@ -35,11 +37,12 @@ pub enum Mark {
 impl Mark {
     /// Most urgent first, as on the design page. A folded chat or group
     /// shows the most urgent mark inside it.
-    pub const URGENCY: [Mark; 9] = [
+    pub const URGENCY: [Mark; 10] = [
         Mark::NeedsApproval,
         Mark::AsksYou,
         Mark::DoneNotSeen,
         Mark::Working,
+        Mark::WaitsOnServer,
         Mark::Background,
         Mark::Idle(Age::Fresh),
         Mark::Stopped,
@@ -63,6 +66,7 @@ impl Mark {
             Mark::AsksYou => "Asks",
             Mark::DoneNotSeen => "Done",
             Mark::Working => "Working",
+            Mark::WaitsOnServer => "Waits",
             Mark::Background => "Bg",
             Mark::Idle(_) => "Idle",
             Mark::Stopped => "Stopped",

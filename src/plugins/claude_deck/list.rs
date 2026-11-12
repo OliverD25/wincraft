@@ -201,6 +201,7 @@ pub(super) fn show(
             for act in acts {
                 apply(act, state, to_host);
             }
+            super::servers::draw::section(ui, look, state);
         });
 }
 

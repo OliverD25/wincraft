@@ -1,19 +1,29 @@
 //! The chats ClaudeDeck lists, built from what the readers read last: the
 //! session files, the open windows, the background jobs and the last turn
-//! of each transcript.
+//! of each transcript; and which of them wait on a listed server.
 
 use std::collections::HashSet;
 
 use crate::core::claude_jobs;
 use crate::core::claude_sessions::{self, Session};
+use crate::core::claude_turns::Turn;
 use crate::core::claude_windows::{self, ChatWindow};
 use crate::core::window_names;
 
-use super::model::{self, Archived, Chat};
+use super::model::{self, Archived, Chat, Mark};
+use super::servers::{self, Aliases, Wait};
 use super::status::{self, Seen};
 
-pub fn chats(sessions: &[Session], windows: &[ChatWindow], seen: &Seen, now: u64) -> Vec<Chat> {
-    sessions
+/// The chats, and the waits on servers among them.
+pub fn chats(
+    sessions: &[Session],
+    windows: &[ChatWindow],
+    seen: &Seen,
+    aliases: &Aliases,
+    now: u64,
+) -> (Vec<Chat>, Vec<Wait>) {
+    let mut waits = Vec::new();
+    let chats = sessions
         .iter()
         .map(|session| {
             let window = claude_windows::of(windows, &session.id);
@@ -26,9 +36,41 @@ pub fn chats(sessions: &[Session], windows: &[ChatWindow], seen: &Seen, now: u64
             if let Some(name) = chat.window.and_then(window_names::custom) {
                 chat.title = name;
             }
-            chat
+            waits_on_server(chat, turn.as_ref(), aliases, &mut waits)
         })
-        .collect()
+        .collect();
+    (chats, waits)
+}
+
+/// A working chat whose open tool call is a foreground ssh command to a
+/// listed server waits on that server. A chat that needs approval for it
+/// still needs approval: that is more urgent.
+pub fn waits_on_server(
+    mut chat: Chat,
+    turn: Option<&Turn>,
+    aliases: &Aliases,
+    waits: &mut Vec<Wait>,
+) -> Chat {
+    if chat.mark != Mark::Working {
+        return chat;
+    }
+    let Some(server) = servers::waits_on(turn, aliases) else {
+        return chat;
+    };
+    let Some(ssh) = turn.and_then(|turn| turn.ssh.as_ref()) else {
+        return chat;
+    };
+    chat.mark = Mark::WaitsOnServer;
+    chat.since = ssh.at.or(chat.since);
+    chat.text = Some(servers::wait_line(server, &ssh.command));
+    chat.full = Some(servers::wait_full(&ssh.command));
+    waits.push(Wait {
+        chat: chat.id.clone(),
+        server: server.to_string(),
+        since: chat.since,
+        title: chat.title.clone(),
+    });
+    chat
 }
 
 /// The titles of archived chats that forks hang under. Read only when a

@@ -27,6 +27,7 @@ mod modes;
 mod place;
 mod rows;
 mod select;
+mod servers;
 mod status;
 mod store;
 mod tree;
@@ -64,6 +65,7 @@ const MODEL_KEY: &str = "show_model";
 const TEXT_KEY: &str = "show_text";
 const FADE_KEY: &str = "fade_when_away";
 const TRAY_KEY: &str = "tray_count";
+const SERVERS_KEY: &str = "servers";
 /// Not on the settings page: the window's mini mode, kept across restarts.
 pub(crate) const MINI_KEY: &str = "mini_mode";
 
@@ -103,6 +105,8 @@ pub struct Settings {
     pub tray_count: bool,
     /// The narrow column of marks instead of the list.
     pub mini: bool,
+    /// The ssh names of the servers to read; empty is off.
+    pub servers: Vec<String>,
 }
 
 impl Default for Settings {
@@ -120,6 +124,7 @@ impl Default for Settings {
             fade: true,
             tray_count: true,
             mini: false,
+            servers: Vec::new(),
         }
     }
 }
@@ -151,6 +156,12 @@ impl Settings {
             fade: flag(FADE_KEY, defaults.fade),
             tray_count: flag(TRAY_KEY, defaults.tray_count),
             mini: flag(MINI_KEY, defaults.mini),
+            servers: servers::parse_servers(
+                settings
+                    .get(SERVERS_KEY)
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+            ),
         }
     }
 }
@@ -248,6 +259,7 @@ impl WinCraftPlugin for ClaudeDeck {
             TEXT_KEY: true,
             FADE_KEY: true,
             TRAY_KEY: true,
+            SERVERS_KEY: "",
         })
     }
 
@@ -319,15 +331,23 @@ impl WinCraftPlugin for ClaudeDeck {
                 help: "The Claude model the chat uses.",
                 kind: FieldKind::Toggle,
             },
+            SettingField {
+                key: SERVERS_KEY,
+                label: "Servers (ssh names)",
+                help: "For example rdehome1, rdehome2. Empty: no servers are read. WinCraft reads them only while the ClaudeDeck window is open, every 30 s, and never changes anything on them.",
+                kind: FieldKind::Text,
+            },
         ]
     }
 
     fn settings_group(&self, key: &str) -> Option<&'static str> {
-        matches!(
-            key,
-            MARK_KEY | TEXT_KEY | TIME_KEY | PROJECT_KEY | JOBS_KEY | MODEL_KEY
-        )
-        .then_some("On each row")
+        match key {
+            MARK_KEY | TEXT_KEY | TIME_KEY | PROJECT_KEY | JOBS_KEY | MODEL_KEY => {
+                Some("On each row")
+            }
+            SERVERS_KEY => Some("Homelab"),
+            _ => None,
+        }
     }
 
     fn on_settings_changed(&mut self, settings: &Value) -> bool {

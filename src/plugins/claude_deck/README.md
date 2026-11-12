@@ -38,6 +38,8 @@ too:
 - **Asks you** (speech bubble): Claude asked you a question.
 - **Done, not seen** (tick): the chat finished while you were not looking.
 - **Working** (turning ring): Claude is busy on its turn.
+- **Waits on a server** (two stacked boxes): the chat runs an ssh command
+  to one of your servers and waits until it ends (see "Homelab servers").
 - **Background** (dashed ring): the turn is over, background jobs still run.
 - **Idle** (hollow circle): nothing happens. Grey when fresh, lighter after
   an hour, blue after a day, a snowflake after three days.
@@ -152,7 +154,9 @@ branch, and "No open window" when a click would do nothing.
 The text is only what Claude showed in the chat, at most 600 characters.
 Code blocks are left out, and words that look like keys or tokens show as
 "[hidden]". A tool's input, a command, a file or a tool's result is never
-shown; a tool shows only as plain words for its name.
+shown; a tool shows only as plain words for its name. The one exception is
+a foreground ssh command to one of your servers, for **Waits on a server**:
+its first 120 characters, with the same hiding.
 
 ## Settings
 
@@ -182,10 +186,51 @@ shown; a tool shows only as plain words for its name.
   signals.
 - Nothing runs while its window is closed.
 
+## Homelab servers
+
+List your servers' ssh names in **Servers (ssh names)** (under
+**Homelab**), for example `rdehome1, rdehome2`. Empty, the default, turns
+this off: nothing is read and no server group shows.
+
+- Each server is a group under the PC chats: a server icon, its name
+  without a leading `rde`, a green dot when it answers, and CPU, RAM and the
+  number of chats. A server that does not answer shows "Offline · last seen
+  3 h ago" and keeps its chats as last known, drawn see-through. Rest the
+  mouse on the server's line for details and the PC chats that wait on it.
+- Its chats are the Remote Control chats (`claude-rc@<folder>` units) and
+  every other chat whose transcript changed in the last 24 hours. Click one
+  to open Windows Terminal with ssh in its folder; right-click for **Open a
+  terminal there**, pin, hide, **Copy the name** and **Copy the folder
+  path**.
+- A PC chat whose running command is a foreground `ssh` to one of your
+  servers (by any name on its `Host` line in `~\.ssh\config`) shows
+  **Waits on a server**: "Waits on home2 · docker compose up", and the
+  command in the hover panel. A background ssh job stays **Background**.
+- Server statuses come from the end of each transcript: **Asks you** for an
+  open question, **Working** for an open tool call or a write in the last
+  minute, **Idle** after that, **Stopped** when neither a Remote Control
+  unit nor a `claude` process runs in its folder. **Needs approval** cannot
+  be seen on a server (on the PC a hook says it, and nothing is installed
+  on the servers), so such a chat shows **Working**.
+
+How it reads: while the ClaudeDeck window is open, and only then, one
+`ssh <name> sh -s` call per server every 30 s (the first at once), with
+Windows' own ssh, `BatchMode=yes` (never a password prompt), a 6 s connect
+time, and a stop after 20 s. The script it sends only reads: the clock, CPU
+and memory from `/proc`, the running Remote Control units, the folders of
+running `claude` processes, and the last 64 KB of each recent transcript
+under `~/.claude/projects` (a transcript that did not change is not sent
+again). Nothing is installed, written or changed on a server.
+
+Limits: mini mode shows only the PC chats. A pinned or hidden server chat
+is forgotten after 30 days, like a PC chat that is gone.
+
 ## Privacy
 
 ClaudeDeck only reads the Claude app's own session files on this PC
 (`%APPDATA%\Claude\claude-code-sessions`) and the transcripts of the chats
 it lists (those with a window, or active in the last day), in steps: only
 what was added since the last read. Nothing leaves the PC, and nothing
-runs while the window is closed.
+runs while the window is closed. With servers listed, it also reads your
+servers over ssh as described under "Homelab servers"; what it reads stays
+on this PC.

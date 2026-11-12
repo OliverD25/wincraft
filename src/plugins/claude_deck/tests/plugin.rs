@@ -29,6 +29,12 @@ fn settings_read_with_defaults_for_what_is_missing() {
         "mini_mode": true,
     }));
     assert!(!later.fade && !later.tray_count && later.mini);
+    assert!(
+        defaults.servers.is_empty(),
+        "off unless the user lists servers"
+    );
+    let listed = Settings::read(&serde_json::json!({ "servers": "rdehome1, rdehome2" }));
+    assert_eq!(listed.servers, vec!["rdehome1", "rdehome2"]);
 }
 
 #[test]
@@ -50,6 +56,7 @@ fn every_setting_of_the_design_page_is_there_and_mini_mode_is_not_one() {
             "Project and branch",
             "Job count",
             "Model name",
+            "Servers (ssh names)",
         ]
     );
     let defaults = deck.default_settings();
@@ -67,12 +74,11 @@ fn the_row_fields_sit_under_on_each_row() {
             field.key,
             "status_mark" | "show_text" | "show_time" | "show_project" | "show_jobs" | "show_model"
         );
-        assert_eq!(
-            deck.settings_group(field.key),
-            row.then_some("On each row"),
-            "{}",
-            field.key
-        );
+        let group = match field.key {
+            "servers" => Some("Homelab"),
+            _ => row.then_some("On each row"),
+        };
+        assert_eq!(deck.settings_group(field.key), group, "{}", field.key);
     }
 }
 

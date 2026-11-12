@@ -151,6 +151,8 @@ pub fn line_text(mark: Mark, turn: Option<&Turn>) -> Option<String> {
         }),
         Mark::DoneNotSeen => last(turn),
         Mark::Background | Mark::Idle(_) => last(turn).map(|sentence| format!("{LAST}{sentence}")),
+        // Set with the server's name where the wait is found (`data`).
+        Mark::WaitsOnServer => None,
         Mark::Stopped => Some(STOPPED_LINE.to_string()),
         Mark::Failed => Some(last(turn).unwrap_or_else(|| FAILED_LINE.to_string())),
         Mark::Unknown => Some(UNKNOWN_LINE.to_string()),

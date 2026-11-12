@@ -26,7 +26,7 @@ pub fn colour(mark: Mark, tokens: &Tokens) -> Color32 {
     match mark {
         Mark::NeedsApproval | Mark::AsksYou => tokens.warning,
         Mark::DoneNotSeen => tokens.success,
-        Mark::Working | Mark::Background => tokens.info,
+        Mark::Working | Mark::WaitsOnServer | Mark::Background => tokens.info,
         Mark::Idle(Age::Fresh) => tokens.text_secondary,
         Mark::Idle(Age::Cooling) => tokens.text_disabled,
         Mark::Idle(Age::Cold | Age::Frozen) => tokens.info,
@@ -191,6 +191,19 @@ pub fn shape(painter: &Painter, rect: Rect, mark: Mark, tokens: &Tokens, turn: f
                 ring(rect, 5.0, from, from + FRAC_PI_2, 12),
                 Stroke::new(2.0, colour),
             ));
+        }
+        Mark::WaitsOnServer => {
+            // A server: two stacked boxes, each with a dot.
+            for top in [1.5, 7.5] {
+                let rect_box = Rect::from_min_max(at(rect, 1.5, top), at(rect, 12.5, top + 5.0));
+                painter.rect_stroke(
+                    rect_box,
+                    1.2,
+                    Stroke::new(1.4, colour),
+                    egui::StrokeKind::Inside,
+                );
+                painter.circle_filled(at(rect, 4.3, top + 2.5), 0.9, colour);
+            }
         }
         Mark::Background => {
             dashed_ring(painter, rect, 5.0, Stroke::new(1.6, colour), 2.2, 1.6);

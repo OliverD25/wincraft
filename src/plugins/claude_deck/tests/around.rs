@@ -307,8 +307,9 @@ fn the_kept_place_saves_loads_and_ignores_what_is_too_small_or_broken() {
 #[test]
 fn the_chat_list_of_an_empty_read_is_empty_and_needs_no_archive() {
     let seen = status::Seen::default();
-    let none = data::chats(&[], &[], &seen, NOW);
-    assert!(none.is_empty());
+    let aliases = crate::plugins::claude_deck::servers::Aliases::default();
+    let (none, waits) = data::chats(&[], &[], &seen, &aliases, NOW);
+    assert!(none.is_empty() && waits.is_empty());
     assert!(data::archived(&none).is_empty());
     let whole = vec![chat("a", None, 1), fork("f", "a", 2)];
     assert!(data::archived(&whole).is_empty(), "the parent is listed");

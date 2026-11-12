@@ -38,6 +38,7 @@ use super::modes::{fade_step, give_back, min_size, switch_mode, tell_tray};
 use super::place::{self, Place};
 use super::rows::Look;
 use super::select;
+use super::servers::{self, Deck};
 use super::status::Seen;
 use super::store::{self, Saved};
 use super::{Handle, ID, MINI_KEY, ONLY_OPEN_KEY, STAY_ON_TOP_KEY};
@@ -139,6 +140,8 @@ pub(super) struct DeckUi {
     pub(super) waiting_before: Vec<String>,
     pub(super) cache: Cache,
     pub(super) tip_sent: Option<Option<String>>,
+    /// The homelab servers; dropping it stops reading them.
+    pub(super) servers: Deck,
 }
 
 pub struct DeckWindow {
@@ -239,6 +242,9 @@ impl PluginWindow for DeckWindow {
             }
             let tokens = Tokens::get(ui.ctx());
             find_and_place(&mut state, palette, &tokens, &to_host);
+            let repaint = ui.ctx().clone();
+            let wake = Arc::new(move || repaint.request_repaint_of(viewport_id()));
+            state.servers.tick(&shared.settings.servers, wake);
             refresh(&mut state, &to_host);
             let settings = shared.settings.clone();
             let now = claude_sessions::now_ms();
@@ -275,7 +281,7 @@ impl PluginWindow for DeckWindow {
                     clicked = header::show(ui, top, &counts, &settings, &tokens, turn);
                     let list = Rect::from_min_max(pos2(full.left(), top.bottom()), full.max);
                     let mut list_ui = ui.new_child(egui::UiBuilder::new().max_rect(list));
-                    if lines.is_empty() {
+                    if !servers::draw::has_lines(&lines, &state) {
                         empty(&mut list_ui, &tokens, !state.chats.is_empty());
                     } else {
                         list::show(&mut list_ui, &lines, &look, &mut state, &to_host);
@@ -445,7 +451,15 @@ fn refresh(state: &mut DeckUi, to_host: &HostChannel) {
     let windows = claude_windows::latest();
     let now = claude_sessions::now_ms();
     state.seen.note(&windows, claude_windows::foreground(), now);
-    state.chats = data::chats(&sessions, &windows, &state.seen, now);
+    let (chats, waits) = data::chats(
+        &sessions,
+        &windows,
+        &state.seen,
+        state.servers.aliases(),
+        now,
+    );
+    state.chats = chats;
+    state.servers.waits = waits;
     state.archived = data::archived(&state.chats);
     if state.written.is_none() {
         let (saved, writable) = store::load(&store::path()).start();
