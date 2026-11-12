@@ -42,22 +42,6 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 **Done when:** step 1 printed a commit, and a waiting question card stays **Waiting** in WindowDeck.
 
-### 20. Install 0.20.105 and move the cursor with the mouse in the rename box
-
-- **State:** Ready to test (0.20.105 released 2026-11-12; the release has wincraft.exe and its checksum).
-- **Kind:** test · **Added:** 2026-11-12 (PC)
-- **Why:** on 0.20.104 a press on the name in the rename box dragged the whole palette. A test covers the fix; a real mouse is the last proof.
-
-**Steps**
-
-1. Press `Alt+Space` (your palette hotkey), type `update`, pick **Update WinCraft** and press `Enter`. WinCraft checks, installs the newer version and restarts.
-2. Press `Alt+Space` again. The bottom right corner of the palette shows "WinCraft v0.20.105" or newer. Press `Esc`.
-3. Press `Win+Alt+X`, pick a chat that has a window and press `F2`. The rename box opens with the name typed.
-4. Click in the middle of the name. The cursor goes there and the palette stays where it is. Press and move the mouse over a few letters: they are selected, and the palette does not move.
-5. Press and hold on the empty part right of the name and move the mouse. The palette moves, as before. Press `Esc`.
-
-**Done when:** steps 4 and 5 look as described.
-
 ### 21. Install 0.20.106 and check the homelab servers in ClaudeDeck
 
 - **State:** Ready to test (0.20.106 released 2026-11-12; the release has wincraft.exe and its checksum).
@@ -78,6 +62,7 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ## Done
 
+- **20. Install 0.20.105 and move the cursor with the mouse in the rename box**: done 2026-11-12. The user said "done 20" after the test on 0.20.105: a press on the name places the cursor and the palette stays where it is.
 - **19. Install 0.20.104 and try the rename box and Rename in ClaudeDeck**: done 2026-11-12. The user said "done task #19" after the test on 0.20.104: the rename box starts with the current name, and **Rename the window…** and `F2` work in ClaudeDeck.
 - **15. Check Rename, group renames, app updates and status chips in an open group**: done 2026-11-12. The user tested on 0.20.103: "all works as intended". Asked after it: the rename box should start with the current name, and ClaudeDeck should get Rename; both are in 0.20.104 (task 19).
 - **16. Have the attention hook tell WinCraft when a chat needs approval**: done 2026-11-12. The user said "task 16 is done". Checked: the installed `claude-attention.py` adds `--kind approval` for a permission prompt, and its log shows "PermissionRequest (approval)" marks for this chat that WinCraft took (3 of 3 targets).
