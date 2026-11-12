@@ -1,4 +1,4 @@
-"""Adds section 14 (News grouped by chat, for approval) to ClaudeDeck.dc.html.
+"""Adds section 14 (News grouped by chat, approved 2026-11-13: option B) to ClaudeDeck.dc.html.
 
 Usage: make_claudedeck_news_grouped.py <in.html> <out.html>
 Needs the page with section 13 (its CSS classes .tabs, .nitem, .ndot, .tabn are reused).
@@ -141,7 +141,7 @@ def body(mode, sel_chat=None, sel=None, kf_chat=None, waiting=True):
 
 
 UNSEEN = sum(1 for c in WAITING + LAST for r in c[4] if r[2])
-REC = ' <span class="rec">Recommended</span>'
+REC = ' <span class="rec">Chosen</span>'
 
 
 def cap(text, chip=""):
@@ -150,7 +150,7 @@ def cap(text, chip=""):
 
 one_open = list(LAST[0])
 section = (
-    '<section><h2>14. News grouped by chat (for approval)</h2>'
+    '<section><h2>14. News grouped by chat (approved 2026-11-13)</h2>'
     '<p>Asked on 2026-11-13, after a look at 0.20.115: in the first News tab one busy chat fills the list. The same name and the same '
     'long folder name repeat on every reply, five times in a row for one chat, and each reply takes three lines. Here every chat '
     'gets one block. Its name, folder, server and status mark show once, on the block line. Under it, each reply is one or two lines '
@@ -163,7 +163,7 @@ section = (
     '<p style="margin-top:14px">Option A shows everything, so the list is still long on a busy evening. Option B shows only what you '
     'have not read: every unseen reply of a chat, or its newest reply when all are seen, and one line "N earlier replies" for the '
     'rest. A click on that line, or on the arrow of the block line, unfolds the chat; ClaudeDeck remembers it per chat until the '
-    'next new reply. Option B is recommended: the list stays short, and nothing unread is ever folded away.</p>'
+    'next new reply. Chosen on 2026-11-13: option B. The list stays short, and nothing unread is ever folded away.</p>'
     '<h3 style="margin-top:22px">Option B, unfolded and in light</h3>'
     '<p>"WinCraft homelab" unfolded shows all three replies. A click on a reply opens it in place, as in section 13 '
     '(the whole text, then "Open the chat"); a click on the block line opens the chat in the Claude app. The Older group stays as '

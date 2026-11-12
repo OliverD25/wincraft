@@ -321,3 +321,10 @@ two lines with its time. Option A lists every reply. Option B (recommended)
 lists the unseen replies and folds the seen ones into "N earlier replies".
 Option B is also drawn unfolded, in light, and with the keyboard focus on a
 block line and on a reply. Section 13 is unchanged.
+
+## 2026-11-13 (later): ClaudeDeck, News grouped by chat approved
+
+Version 43 of the artifact, copied byte for byte. The creator picked option
+B: unseen replies listed under their chat, seen ones folded into "N earlier
+replies". Option B carries the "Chosen" chip, and the section title says
+"approved 2026-11-13".
