@@ -7,7 +7,7 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ### 10. Install 0.20.94 and check the Background chip on a Claude chat
 
-- **State:** Ready to test. Step 4 passed on 2026-11-12 (the chip showed "Background 24 s · 1 job" with a still ring); steps 5 and 6 left.
+- **State:** Ready to test. Steps 4 and 5 passed on 2026-11-12 (chip "Background 24 s · 1 job" with a still ring; the chat sat in the Working column of the board); step 6 left.
 - **Kind:** test · **Added:** 2026-11-11 (PC)
 - **Why:** the Background chip was checked only by unit tests, not on a live chat.
 - **Agent can check:** the WinCraft log (`%LOCALAPPDATA%\WinCraft\wincraft.log`).
