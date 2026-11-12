@@ -170,7 +170,7 @@ fn values_after(text: &str, key: &str) -> Vec<String> {
 }
 
 /// The line's `"timestamp":"2026-11-11T08:30:00.123Z"` as Unix ms.
-fn timestamp_ms(text: &str) -> Option<u64> {
+pub(crate) fn timestamp_ms(text: &str) -> Option<u64> {
     let key = "\"timestamp\":\"";
     let at = text.find(key)? + key.len();
     let stamp = text.get(at..at + 19)?;

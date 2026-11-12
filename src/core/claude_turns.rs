@@ -16,13 +16,16 @@
 //! - A question card is an assistant `tool_use` named `AskUserQuestion`.
 //!
 //! Only Claude's visible text and a tool's name are kept: never a tool's
-//! input (except the question of a question card, which the chat shows),
-//! a tool's result, or a file. The text is cleaned by `words::clean`.
+//! input (except the question of a question card, which the chat shows,
+//! and a foreground shell command that runs ssh, for ClaudeDeck's "Waits
+//! on <server>"), a tool's result, or a file. The text is cleaned by
+//! `words::clean`.
 
 use std::collections::VecDeque;
 
 use serde_json::Value;
 
+mod ssh;
 mod words;
 pub use words::{first_sentence, last_question};
 
@@ -39,6 +42,10 @@ const MOST_TEXT_LINE: usize = 512 * 1024;
 
 const INTERRUPTED: &str = "[Request interrupted by user";
 const QUESTION_TOOL: &str = "AskUserQuestion";
+/// The tools that run a shell command.
+const SHELL_TOOLS: [&str; 2] = ["Bash", "PowerShell"];
+/// How much of an ssh command is kept to show.
+pub const COMMAND_CAP: usize = 120;
 
 /// How the chat's last record leaves the turn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -70,6 +77,19 @@ pub struct Turn {
     pub question: Option<String>,
     /// The tool Claude called last, while its result has not come back.
     pub tool: Option<String>,
+    /// That tool runs ssh in the foreground: where to, and since when.
+    pub ssh: Option<SshCall>,
+}
+
+/// A shell command that runs ssh and that the chat waits on.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SshCall {
+    /// The hosts it runs ssh to, as written, in order.
+    pub hosts: Vec<String>,
+    /// The command, cleaned, at most `COMMAND_CAP` characters.
+    pub command: String,
+    /// When Claude called it, in Unix ms.
+    pub at: Option<u64>,
 }
 
 /// The chat's last records, kept while the transcript is read. Only the
@@ -115,8 +135,12 @@ impl Tail {
             .recent
             .iter()
             .rev()
-            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-            .find(|record| !is_meta(record));
+            .filter_map(|line| Some((line, serde_json::from_str::<Value>(line).ok()?)))
+            .find(|(_, record)| !is_meta(record));
+        let (last_line, last) = match last {
+            Some((line, record)) => (Some(line), Some(record)),
+            None => (None, None),
+        };
         if let Some(record) = &last {
             turn.end = end_of(record);
             if turn.end == End::ToolCalled {
@@ -125,6 +149,7 @@ impl Tail {
                 if tools.iter().any(|name| name == QUESTION_TOOL) {
                     turn.question = question_of(record);
                 }
+                turn.ssh = ssh_call(record, last_line.map_or("", String::as_str));
             }
         }
         let shown = if turn.end == End::Failed {
@@ -272,6 +297,33 @@ fn question_of(record: &Value) -> Option<String> {
         .as_str()?;
     let question = words::cap(&words::clean(question), TEXT_CAP);
     (!question.is_empty()).then_some(question)
+}
+
+/// The last tool call of the record, when it is a shell command that runs
+/// ssh in the foreground. Any other command is not kept.
+fn ssh_call(record: &Value, line: &str) -> Option<SshCall> {
+    let block = blocks(record)
+        .into_iter()
+        .rev()
+        .find(|block| block_type(block) == Some("tool_use"))?;
+    let name = block.get("name").and_then(Value::as_str)?;
+    if !SHELL_TOOLS.contains(&name) {
+        return None;
+    }
+    let input = block.get("input")?;
+    if input.get("run_in_background").and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
+    let command = input.get("command").and_then(Value::as_str)?;
+    let hosts = ssh::ssh_hosts(command);
+    if hosts.is_empty() {
+        return None;
+    }
+    Some(SshCall {
+        hosts,
+        command: words::cap(&words::clean(command), COMMAND_CAP),
+        at: crate::core::claude_jobs::timestamp_ms(line),
+    })
 }
 
 fn end_of(record: &Value) -> End {

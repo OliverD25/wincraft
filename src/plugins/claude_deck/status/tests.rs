@@ -40,6 +40,7 @@ fn turn(end: End, text: Option<&str>) -> Turn {
         text: text.map(str::to_string),
         question: None,
         tool: None,
+        ssh: None,
     }
 }
 

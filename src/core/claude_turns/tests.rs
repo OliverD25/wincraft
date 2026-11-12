@@ -204,3 +204,57 @@ fn sentences_and_questions_are_found() {
     assert_eq!(cap("abcdef", 4), "abc\u{2026}");
     assert_eq!(cap("abc", 4), "abc");
 }
+
+fn shell(name: &str, input: &str) -> String {
+    let record = assistant(&format!(
+        r#"[{{"type":"tool_use","id":"t9","name":"{name}","input":{input}}}]"#
+    ));
+    // The app writes the time after the record's type.
+    record.replacen(
+        r#""uuid":"a"}"#,
+        r#""uuid":"a","timestamp":"2026-11-12T10:00:00.000Z"}"#,
+        1,
+    )
+}
+
+#[test]
+fn a_foreground_ssh_command_is_kept_with_its_host_and_time() {
+    let turn = tail(&[shell(
+        "Bash",
+        r#"{"command":"ssh -o BatchMode=yes rdehome2 uptime"}"#,
+    )])
+    .turn();
+    let ssh = turn.ssh.expect("an ssh call");
+    assert_eq!(ssh.hosts, vec!["rdehome2".to_string()]);
+    assert_eq!(ssh.command, "ssh -o BatchMode=yes rdehome2 uptime");
+    assert_eq!(ssh.at, Some(1_794_477_600_000));
+}
+
+#[test]
+fn a_background_ssh_job_or_another_command_keeps_nothing() {
+    let background = shell(
+        "Bash",
+        r#"{"command":"ssh rdehome2 uptime","run_in_background":true}"#,
+    );
+    assert_eq!(tail(&[background]).turn().ssh, None);
+    let plain = shell("Bash", r#"{"command":"echo ssh rdehome2"}"#);
+    let turn = tail(&[plain]).turn();
+    assert_eq!(turn.ssh, None);
+    assert!(!format!("{turn:?}").contains("echo"));
+    let read = shell("Read", r#"{"command":"ssh rdehome2"}"#);
+    assert_eq!(tail(&[read]).turn().ssh, None);
+    // The result came back: the chat no longer waits on it.
+    let done = shell("Bash", r#"{"command":"ssh rdehome2 uptime"}"#);
+    assert_eq!(tail(&[done, result()]).turn().ssh, None);
+}
+
+#[test]
+fn a_long_ssh_command_is_cut_to_show() {
+    let long = format!("ssh rdehome2 'echo {}'", "word ".repeat(60));
+    let input = serde_json::json!({ "command": long }).to_string();
+    let ssh = tail(&[shell("Bash", &input)])
+        .turn()
+        .ssh
+        .expect("an ssh call");
+    assert!(ssh.command.chars().count() <= COMMAND_CAP);
+}
