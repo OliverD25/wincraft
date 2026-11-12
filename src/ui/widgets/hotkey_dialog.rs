@@ -700,12 +700,14 @@ pub fn trigger_box(ui: &mut Ui, binding: &str, look: Caps, sense: Sense, lit: bo
             tokens.text_disabled,
         );
     } else {
-        ui.scope_builder(
+        // A child, not a scope: a scope moves the row's cursor back to the
+        // end of the caps, and the next control then lands on the pencil.
+        let mut caps = ui.new_child(
             egui::UiBuilder::new()
                 .max_rect(inner)
                 .layout(egui::Layout::left_to_right(Align::Center)),
-            |ui| keycap::caps(ui, &steps, look),
         );
+        keycap::caps(&mut caps, &steps, look);
     }
     let icon = Rect::from_center_size(
         pos2(rect.right() - pad - 2.0 - pencil / 2.0, rect.center().y),
@@ -1132,6 +1134,32 @@ mod tests {
 
     /// Draws the dialog in every phase and theme, and the trigger with and
     /// without keys.
+    #[test]
+    fn the_next_control_starts_after_the_trigger_box() {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(
+            &ctx,
+            crate::core::config::ThemeName::Classic,
+            crate::core::config::ThemeChoice::Dark,
+        );
+        for binding in ["Win+Alt+A", "Ctrl+Shift+Alt+F12", "Win+Alt+K, S", ""] {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                ui.horizontal(|ui| {
+                    let box_rect = trigger(ui, binding).rect;
+                    let next = ui.label("registered").rect;
+                    assert!(
+                        next.left() >= box_rect.right(),
+                        "{binding}: the label starts at {} inside the box ending at {}",
+                        next.left(),
+                        box_rect.right()
+                    );
+                });
+            });
+            output.textures_delta.clear();
+        }
+    }
+
     #[test]
     fn the_dialog_and_trigger_draw_in_every_theme() {
         use crate::core::config::{ThemeChoice, ThemeName};
