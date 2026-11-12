@@ -58,16 +58,16 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 **Done when:** steps 4 and 5 look as described.
 
-### 18. Check the homelab servers in ClaudeDeck
+### 21. Install 0.20.106 and check the homelab servers in ClaudeDeck
 
-- **State:** Wait: 0.20.103 is not released yet.
+- **State:** Wait: 0.20.106 is not released yet.
 - **Kind:** test · **Added:** 2026-11-12 (PC)
 - **Why:** ClaudeDeck now shows the homelab servers and their Claude chats. A test copy showed all of it with the real servers, except two things only you can check: the terminal that a click opens, and a PC chat that waits on a server.
 
 **Steps**
 
-1. Tray menu → **Settings…** → **About** in the left list → **Check for updates** → **Update now**. The **Version** line then says 0.20.103.
-2. In the Settings window: **Plugins** in the left list → click the **ClaudeDeck** tile. Under the heading **Homelab**, type `rdehome1, rdehome2, rdeoffice1` into **Servers (ssh names)**.
+1. Press `Alt+Space` (your palette hotkey), type `update`, pick **Update WinCraft** and press `Enter`. WinCraft checks, installs the newer version and restarts. The bottom right corner of the palette then shows "WinCraft v0.20.106" or newer.
+2. Tray menu → **Settings…** → **Plugins** in the left list → click the **ClaudeDeck** tile. Under the heading **Homelab**, type `rdehome1, rdehome2, rdeoffice1` into **Servers (ssh names)**.
 3. Press `Win+Alt+X`. Under your PC chats you see three server lines, each with a server icon: **home1** and **home2** with a green dot and **CPU … · RAM …**, and **office1** with **No Claude chats**. home2 lists 8 chats, most of them "Remote Control is ready".
 4. Rest the mouse on the **home2** line. The panel shows CPU, RAM, uptime, free disk and the busiest process.
 5. Click a home2 chat row, for example **playground**. Windows Terminal opens with ssh to home2, already in `/home/rde/projects/playground`. Type `exit` to close it.
