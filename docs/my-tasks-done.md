@@ -2,6 +2,7 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
+- **25. Install 0.20.109: ClaudeDeck's taskbar button, quick settings, and the drag between monitors**: done 2026-11-12. The user said "25 done". Step 7 (the hidden words **Only open windows** in a narrow window): no change asked, so taken as "keep".
 - **24. Install 0.20.108: a fork in a terminal shows in ClaudeDeck**: done 2026-11-12. The user said "24 done" after the test: the terminal fork shows under its chat with the terminal icon and goes when the terminal closes.
 - **23. Install 0.20.107: fork a chat in a terminal, and the waits on the server line**: done 2026-11-12. The user said "done 23" after the test: Fork in a terminal works, and the home2 line shows "1 PC chat waits" during a foreground ssh.
 - **22. Pick the ClaudeDeck icon**: done 2026-11-12. The user picked "B. Amber list": the chat list on an amber tile. Source: design/claude-design/claudedeck-icon/claudedeck-icon-b.svg; the ClaudeDeck coding session builds the .ico from it.
