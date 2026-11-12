@@ -21,9 +21,10 @@ use super::edit;
 use super::hover;
 use super::menu::{self, Choice, Context, Item};
 use super::model::{Chat, ChatLine, Fold, GroupLine, Line};
+use super::open_app::open_chat;
 use super::rows::{self, GroupState, Look};
 use super::select;
-use super::window::{bring_forward, rename_window, DeckUi, Pick, Rename};
+use super::window::{rename_window, DeckUi, Pick, Rename};
 
 const LIST_TOP_PAD: f32 = 4.0;
 const LIST_BOTTOM_PAD: f32 = 6.0;
@@ -417,7 +418,7 @@ fn chat_line(
             edit::fold_chat(&mut state.saved, &line.chat.id);
         } else {
             state.selected = Some(pick.clone());
-            bring_forward(line.chat.window, to_host);
+            open_chat(line.chat.window, &line.chat.title, to_host);
         }
     }
     let items = menu::chat_items(line, row.group.is_some());
@@ -547,7 +548,7 @@ fn apply(act: Act, state: &mut DeckUi, to_host: &HostChannel) {
         Pick::Chat(id) | Pick::Group(id) => id.clone(),
     };
     match act.choice {
-        Choice::Open => bring_forward(act.window, to_host),
+        Choice::Open => open_chat(act.window, &act.title, to_host),
         Choice::Pin(on) => edit::pin(saved, &id, on),
         Choice::Hide(on) => edit::hide(saved, &id, on),
         Choice::Copy => {

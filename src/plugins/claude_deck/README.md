@@ -277,6 +277,15 @@ Terminal is missing). On a server it uses ssh and adds `--remote-control`,
 so the fork also shows in the Claude app. A Remote Control service with no
 chat yet has nothing to fork.
 
+**Opening a chat with no window of its own.** Such a chat lives only in the
+Claude app's main window, and the app has no link that opens a given chat.
+So ClaudeDeck finds the main window through UI Automation (the same
+Windows service screen readers use), brings it forward and presses the
+chat's button in the app's sidebar list, matched by its exact title. The
+limit: the chat must be visible in that sidebar list, so a folded sidebar
+group hides it. If the button is not found, a notice says so. A test copy
+only reads and presses nothing.
+
 **Forks in a terminal show as rows.** WinCraft names the new chat itself
 (`--session-id`) and opens the terminal as a new window with a fixed title.
 While a window with that title is open, the fork is listed under its chat

@@ -26,6 +26,7 @@ mod menu;
 mod mini;
 mod model;
 mod modes;
+mod open_app;
 mod place;
 mod quick;
 mod rows;
@@ -461,6 +462,9 @@ impl WinCraftPlugin for ClaudeDeck {
     fn on_windows_message(&mut self, msg: u32, wparam: usize, _lparam: isize) {
         if msg == host::PLUGIN_POST && wparam == TRAY_POST_ID {
             self.show_tip();
+        }
+        if msg == host::PLUGIN_POST && wparam == open_app::NOTICE_POST_ID {
+            open_app::show_pending();
         }
     }
 

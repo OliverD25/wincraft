@@ -50,6 +50,20 @@ struct IUIAutomationTreeWalkerVtbl {
     get_next_sibling_element: WalkStep,
 }
 
+const IID_IUI_AUTOMATION_INVOKE_PATTERN: GUID =
+    GUID::from_u128(0xfb377fbe_8ea6_46d5_9c73_6499642d3059);
+const UIA_INVOKE_PATTERN_ID: i32 = 10000;
+
+/// Control type ids of UIAutomationClient.h.
+pub const CONTROL_BUTTON: i32 = 50000;
+pub const CONTROL_GROUP: i32 = 50026;
+
+#[repr(C)]
+struct IUIAutomationInvokePatternVtbl {
+    _base: IUnknown_Vtbl,
+    invoke: unsafe extern "system" fn(*mut c_void) -> HRESULT,
+}
+
 type BstrGetter = unsafe extern "system" fn(*mut c_void, *mut BSTR) -> HRESULT;
 
 #[repr(C)]
@@ -68,7 +82,7 @@ struct IUIAutomationElementVtbl {
     _get_cached_property_value_ex: unsafe extern "system" fn(),
     _get_current_pattern_as: unsafe extern "system" fn(),
     _get_cached_pattern_as: unsafe extern "system" fn(),
-    _get_current_pattern: unsafe extern "system" fn(),
+    get_current_pattern: unsafe extern "system" fn(*mut c_void, i32, *mut *mut c_void) -> HRESULT,
     _get_cached_pattern: unsafe extern "system" fn(),
     _get_cached_parent: unsafe extern "system" fn(),
     _get_cached_children: unsafe extern "system" fn(),
@@ -182,6 +196,40 @@ fn bstr_property(element: &ComPtr, getter: BstrGetter) -> Option<String> {
     let hr = unsafe { getter(element.as_raw(), &mut value) };
     let text = unsafe { com::take_bstr(value) };
     com::ok(hr).then_some(text).flatten()
+}
+
+/// The name a screen reader reads for the element: for a button, its text.
+pub fn name(element: &ComPtr) -> Option<String> {
+    bstr_property(element, element_vtable(element).get_current_name)
+}
+
+/// The control type id (`CONTROL_BUTTON`, `CONTROL_GROUP`, ...).
+pub fn control_type(element: &ComPtr) -> Option<i32> {
+    let mut kind = 0;
+    let hr =
+        unsafe { (element_vtable(element).get_current_control_type)(element.as_raw(), &mut kind) };
+    com::ok(hr).then_some(kind)
+}
+
+/// Presses the element through its Invoke pattern, as a screen reader
+/// would. Fails when the element cannot be invoked.
+pub fn invoke(element: &ComPtr) -> Result<(), String> {
+    let mut raw = std::ptr::null_mut();
+    let hr = unsafe {
+        (element_vtable(element).get_current_pattern)(
+            element.as_raw(),
+            UIA_INVOKE_PATTERN_ID,
+            &mut raw,
+        )
+    };
+    let unknown = taken(hr, raw)
+        .ok_or_else(|| format!("the element has no Invoke pattern ({})", com::hex(hr)))?;
+    let pattern = unknown
+        .query(&IID_IUI_AUTOMATION_INVOKE_PATTERN)
+        .ok_or_else(|| "the Invoke pattern could not be used".to_string())?;
+    let hr =
+        unsafe { (pattern.vtable::<IUIAutomationInvokePatternVtbl>().invoke)(pattern.as_raw()) };
+    com::check(hr).map_err(|hr| format!("Invoke failed ({})", com::hex(hr)))
 }
 
 pub fn class_name(element: &ComPtr) -> Option<String> {

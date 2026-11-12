@@ -19,9 +19,10 @@ use super::drop::{self, kinds, Placed};
 use super::edit;
 use super::list::start_rename;
 use super::model::{Fold, Line};
+use super::open_app::open_chat;
 use super::select::DIGITS;
 use super::servers;
-use super::window::{bring_forward, rename_window, DeckUi, Pick};
+use super::window::{rename_window, DeckUi, Pick};
 
 /// The keys pressed this frame that the list acts on.
 #[derive(Default)]
@@ -220,7 +221,7 @@ pub fn keys(
                 if line.stand_in {
                     edit::fold_chat(&mut state.saved, &id);
                 } else {
-                    bring_forward(line.chat.window, to_host);
+                    open_chat(line.chat.window, &line.chat.title, to_host);
                 }
             }
             if pressed.rename && !line.stand_in {

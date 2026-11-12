@@ -15,8 +15,9 @@ use crate::core::ui_bridge::HostChannel;
 use super::hover;
 use super::marks;
 use super::model::{Chat, Line, Mark};
+use super::open_app::open_chat;
 use super::rows::Look;
-use super::window::{bring_forward, DeckUi, Pick};
+use super::window::{DeckUi, Pick};
 use super::MarkStyle;
 
 /// The column's width, as on the design page.
@@ -171,7 +172,7 @@ pub(super) fn show(
                         }
                         if response.clicked() {
                             state.selected = Some(pick);
-                            bring_forward(line.chat.window, to_host);
+                            open_chat(line.chat.window, &line.chat.title, to_host);
                         }
                         if response.hovered() {
                             resting = Some((cell, &line.chat));

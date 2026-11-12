@@ -6,6 +6,7 @@ pub mod autostart;
 pub mod canvas;
 pub mod chord;
 pub mod chord_tip;
+pub mod claude_app;
 pub mod claude_jobs;
 pub mod claude_sessions;
 pub mod claude_turns;
