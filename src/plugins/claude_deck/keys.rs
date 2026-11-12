@@ -3,7 +3,8 @@
 //! with that digit, Left and Right fold and unfold. Enter opens the chat
 //! (or folds the group), Alt+Up and Alt+Down move the picked chat or group,
 //! F2 renames the picked group, Ctrl+C copies the picked chat's name, and
-//! the Menu key or Shift+F10 opens its menu. Ctrl+M switches mini mode, and
+//! the Menu key or Shift+F10 opens its menu. Ctrl+M switches mini mode,
+//! Ctrl+, opens the quick settings, and
 //! Esc gives the keyboard back to the window that had it before the hotkey.
 //! The arrow keys also reach the server lines and rows after the PC chats;
 //! Enter on one opens a terminal there.
@@ -39,6 +40,7 @@ struct Pressed {
     digit: Option<usize>,
     esc: bool,
     mini: bool,
+    quick: bool,
 }
 
 impl Pressed {
@@ -55,6 +57,8 @@ pub struct Asked {
     pub give_back: bool,
     /// Ctrl+M: switch mini mode.
     pub mini: bool,
+    /// Ctrl+,: open the quick settings.
+    pub quick: bool,
 }
 
 /// The lines that can be picked, top to bottom.
@@ -113,6 +117,7 @@ fn read(ui: &Ui, state: &mut DeckUi) -> Pressed {
                 .flatten(),
             esc: i.key_pressed(Key::Escape),
             mini: i.modifiers.command && i.key_pressed(Key::M),
+            quick: i.modifiers.command && i.key_pressed(Key::Comma),
         }
     })
 }
@@ -137,6 +142,7 @@ pub fn keys(
     let asked = Asked {
         give_back: pressed.esc,
         mini: pressed.mini,
+        quick: pressed.quick,
     };
     let mut picks = picks(lines);
     picks.extend(state.servers.keyed.iter().map(|(pick, _)| pick.clone()));

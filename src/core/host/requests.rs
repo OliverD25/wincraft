@@ -299,6 +299,7 @@ impl Host {
                 }
             }
             HostRequest::ClaudeDeckRefresh => super::claude::publish_chat_windows(),
+            HostRequest::ShowPluginPage(id) => self.to_ui.send(UiCommand::ShowPluginPage(id)),
             HostRequest::Layout { plugin, action } => {
                 match self.plugins.index_of(&plugin) {
                     Some(index) if self.plugins.slots[index].enabled => {

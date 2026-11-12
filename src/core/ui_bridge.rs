@@ -607,7 +607,8 @@ pub enum UiCommand {
     /// The palette as a one-line box that answers a plugin's question.
     ShowPrompt(Prompt, MonitorRect),
     ShowSettings(Page),
-    /// Test instances only: a plugin's own page in the settings window.
+    /// A plugin's own page in the settings window: a test scene, or a
+    /// plugin window's request.
     ShowPluginPage(String),
     /// Test instances only: the hotkey dialog on a command, without the
     /// keyboard hook, with these keys shown as pressed.
@@ -746,6 +747,9 @@ pub enum HostRequest {
     /// ClaudeDeck's window is open: read the chats again and write which
     /// have a window and which wait (`core::claude_windows`).
     ClaudeDeckRefresh,
+    /// A plugin's window asks for the plugin's own page in the settings
+    /// window (ClaudeDeck's "All settings…").
+    ShowPluginPage(String),
     Layout {
         plugin: String,
         action: LayoutAction,

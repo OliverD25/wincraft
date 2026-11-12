@@ -25,6 +25,7 @@ mod mini;
 mod model;
 mod modes;
 mod place;
+mod quick;
 mod rows;
 mod select;
 mod servers;
@@ -54,6 +55,8 @@ const ACTION_OPEN: u32 = 1;
 const ACTION_MINI: u32 = 2;
 /// The palette command that lists the servers to open a terminal on.
 const COMMAND_TERMINAL: u32 = 1;
+/// The palette command that opens the window with its quick settings.
+const COMMAND_QUICK: u32 = 2;
 /// The `host::post_to_plugins` id the window sends when the tray count
 /// changed.
 pub(crate) const TRAY_POST_ID: usize = 0xC1A0_DEC0;
@@ -184,6 +187,8 @@ pub struct Shared {
     /// The next `open` only brings the window forward: the mini mode
     /// hotkey never closes it.
     pub keep_open: bool,
+    /// The palette asked for the quick settings menu.
+    pub quick_wanted: bool,
 }
 
 pub type Handle = Arc<Mutex<Shared>>;
@@ -471,15 +476,37 @@ impl WinCraftPlugin for ClaudeDeck {
     }
 
     fn palette_commands(&self) -> Vec<PaletteCommand> {
-        vec![PaletteCommand {
-            id: COMMAND_TERMINAL,
-            label: TERMINAL_COMMAND,
-            hint: "",
-            words: "ssh server homelab shell",
-            confirm: "",
-            list: true,
-            toggle: None,
-        }]
+        vec![
+            PaletteCommand {
+                id: COMMAND_TERMINAL,
+                label: TERMINAL_COMMAND,
+                hint: "",
+                words: "ssh server homelab shell",
+                confirm: "",
+                list: true,
+                toggle: None,
+            },
+            PaletteCommand {
+                id: COMMAND_QUICK,
+                label: "ClaudeDeck: Quick settings",
+                hint: "Fade, stay on top, mini mode and what each row shows",
+                words: "options preferences fade opacity",
+                confirm: "",
+                list: false,
+                toggle: None,
+            },
+        ]
+    }
+
+    fn on_palette_command(&mut self, id: u32) {
+        if id != COMMAND_QUICK {
+            return;
+        }
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.quick_wanted = true;
+            shared.keep_open = true;
+        }
+        self.open();
     }
 
     fn command_list(&mut self, kind: ActionKind, action_id: u32) -> Option<SubList> {

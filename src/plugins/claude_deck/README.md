@@ -25,7 +25,19 @@ and which one is idle.
 - The header shows how many chats need approval, ask you, work, or are done.
   **Only open windows** lists only the chats that have a window open. The pin
   keeps ClaudeDeck above other windows. The arrow button switches to mini
-  mode.
+  mode. When the four counts need the room, the switch's label goes and its
+  tooltip names it.
+- The gear in the header (tooltip **Quick settings**, or `Ctrl+,`) opens a
+  menu of ClaudeDeck's on/off settings, with the same names as on its
+  Settings page: **Fade when the mouse is away**, **Only open windows**,
+  **Stay on top**, **Mini mode**, **Fold chats idle for over 1 day**,
+  **Show a count on the tray icon**, then what each row shows. A click (or
+  `Enter` on a row picked with the arrow keys) turns it on or off and saves
+  it at once; the menu stays open. **All settings…** opens ClaudeDeck's page
+  in WinCraft's Settings window. `Esc` closes the menu. While a menu is
+  open the window does not fade. In mini mode `Ctrl+,` opens the same menu
+  beside the column. The palette command **ClaudeDeck: Quick settings**
+  opens ClaudeDeck with the menu open.
 - Drag the header to move the window, and its edges to resize it. It opens
   again at the same place and size.
 - ClaudeDeck has a taskbar button of its own, apart from WinCraft's other

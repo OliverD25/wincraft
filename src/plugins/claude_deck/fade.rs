@@ -1,7 +1,7 @@
 //! Fading ClaudeDeck's window when the mouse is away (design section 8):
 //! after `AWAY` without the mouse it goes to half see-through in a short
 //! step, and it is solid again when the mouse comes back, when it has the
-//! keyboard, or when a chat starts to wait. Only ClaudeDeck's own window
+//! keyboard, while a menu is open, or when a chat starts to wait. Only ClaudeDeck's own window
 //! changes. When it is faded and still, nothing repaints.
 
 use std::time::{Duration, Instant};
@@ -30,6 +30,8 @@ pub struct Seen {
     pub focused: bool,
     /// A chat started to wait since the last frame.
     pub new_wait: bool,
+    /// A menu is open: the window stays solid.
+    pub menu_open: bool,
 }
 
 #[derive(Debug)]
@@ -83,7 +85,7 @@ impl Fade {
         if seen.new_wait {
             self.alert = true;
         }
-        if seen.mouse_in || seen.focused {
+        if seen.mouse_in || seen.focused || seen.menu_open {
             self.alert = false;
             self.away_since = None;
         } else if self.away_since.is_none() {

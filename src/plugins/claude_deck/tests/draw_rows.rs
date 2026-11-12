@@ -431,7 +431,7 @@ fn row_heights_and_the_drawn_body() {
 }
 
 #[test]
-fn the_header_counts_the_switch_and_the_four_buttons() {
+fn the_header_counts_the_switch_and_the_five_buttons() {
     let mut screen = Screen::new(ThemeChoice::Dark);
     let tokens = screen.tokens();
     let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(360.0, header::HEIGHT));
@@ -443,23 +443,30 @@ fn the_header_counts_the_switch_and_the_four_buttons() {
     ];
     let mut got: Vec<Option<Click>> = Vec::new();
     let state = Settings::default();
+    let mut gear_clicks = 0;
     let mut draw = |ui: &mut egui::Ui| {
-        let clicked = header::show(ui, rect, &counts, &state, &tokens, 0.0);
+        let mut quick = crate::plugins::claude_deck::quick::Quick::default();
+        let clicked = header::show(ui, rect, &counts[..3], &state, &tokens, 0.0, &mut quick);
+        if quick.toggle {
+            gear_clicks += 1;
+        }
         if clicked.is_some() {
             got.push(clicked);
         }
     };
     let painted = screen.settle(&mut draw);
     assert!(painted.has(header::ONLY_OPEN));
-    assert!(painted.has("2") && painted.has("4"), "{:?}", painted.texts);
+    assert!(painted.has("2") && painted.has("3"), "{:?}", painted.texts);
     let middle = header::HEIGHT / 2.0;
     let close = pos2(360.0 - 4.0 - 11.0, middle);
     let mini = pos2(close.x - 3.0 - 22.0, middle);
     let pin = pos2(mini.x - 3.0 - 22.0, middle);
-    let label = pos2(pin.x - 11.0 - 8.0 - 8.0, middle);
+    let gear = pos2(pin.x - 3.0 - 22.0, middle);
+    let label = pos2(gear.x - 11.0 - 8.0 - 8.0, middle);
     screen.click(close, &mut draw);
     screen.click(mini, &mut draw);
     screen.click(pin, &mut draw);
+    screen.click(gear, &mut draw);
     screen.click(label, &mut draw);
     assert_eq!(
         got,
@@ -470,6 +477,34 @@ fn the_header_counts_the_switch_and_the_four_buttons() {
             Some(Click::OnlyOpen)
         ]
     );
+    assert_eq!(gear_clicks, 1, "the gear asks for the quick settings");
+
+    // At the window's default width the four counts come first: the
+    // switch's label goes, and a click on the switch still works.
+    let narrow = Rect::from_min_size(pos2(0.0, 0.0), vec2(360.0, header::HEIGHT));
+    let mut got = Vec::new();
+    let mut draw = |ui: &mut egui::Ui| {
+        let clicked = header::show(
+            ui,
+            narrow,
+            &counts,
+            &state,
+            &tokens,
+            0.0,
+            &mut Default::default(),
+        );
+        got.extend(clicked);
+    };
+    let mut screen = Screen::new(ThemeChoice::Dark);
+    let painted = screen.settle(&mut draw);
+    assert!(
+        painted.has("4") && !painted.has(header::ONLY_OPEN),
+        "{:?}",
+        painted.texts
+    );
+    let switch = pos2(360.0 - 4.0 - 4.0 * 22.0 - 3.0 * 3.0 - 8.0 - 12.0, middle);
+    screen.click(switch, &mut draw);
+    assert_eq!(got, [Click::OnlyOpen]);
     let off_state = Settings {
         only_open: true,
         stay_on_top: false,
@@ -477,7 +512,15 @@ fn the_header_counts_the_switch_and_the_four_buttons() {
         ..Settings::default()
     };
     let on = Screen::new(ThemeChoice::Light).frame(Vec::new(), |ui| {
-        header::show(ui, rect, &counts, &off_state, &tokens, 0.5);
+        header::show(
+            ui,
+            rect,
+            &counts,
+            &off_state,
+            &tokens,
+            0.5,
+            &mut Default::default(),
+        );
     });
     assert!(on.shapes > 0);
     let words = Settings {
@@ -486,7 +529,15 @@ fn the_header_counts_the_switch_and_the_four_buttons() {
     };
     let narrow = Rect::from_min_size(pos2(0.0, 0.0), vec2(200.0, header::HEIGHT));
     let few = Screen::new(ThemeChoice::Light).frame(Vec::new(), |ui| {
-        header::show(ui, narrow, &counts, &words, &tokens, 0.5);
+        header::show(
+            ui,
+            narrow,
+            &counts,
+            &words,
+            &tokens,
+            0.5,
+            &mut Default::default(),
+        );
     });
     assert!(
         few.shapes > 0 && !few.has("4"),

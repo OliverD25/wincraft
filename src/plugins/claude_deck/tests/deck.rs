@@ -193,7 +193,15 @@ fn window_frame(
                 return;
             }
             let top = egui::Rect::from_min_size(full.min, egui::vec2(full.width(), header::HEIGHT));
-            hit = header::show(ui, top, &counts, settings, &tokens, turn);
+            hit = header::show(
+                ui,
+                top,
+                &counts,
+                settings,
+                &tokens,
+                turn,
+                &mut Default::default(),
+            );
             let rest = egui::Rect::from_min_max(egui::pos2(full.left(), top.bottom()), full.max);
             let mut list_ui = ui.new_child(egui::UiBuilder::new().max_rect(rest));
             if lines.is_empty() {

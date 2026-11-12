@@ -36,6 +36,7 @@ use super::mini;
 use super::model::{self, Archived, Chat, Line, Mark, View};
 use super::modes::{fade_step, give_back, keep_min_size, min_size, switch_mode, tell_tray};
 use super::place::{self, Place};
+use super::quick;
 use super::rows::Look;
 use super::select;
 use super::servers::{self, Deck};
@@ -137,6 +138,7 @@ pub(super) struct DeckUi {
     /// The mode the window has now; None before the first frame.
     pub(super) mini_on: Option<bool>,
     pub(super) mini_size: Option<egui::Vec2>,
+    pub(super) quick: quick::Quick,
     /// The mode and scale the smallest size was last sent for.
     pub(super) min_for: Option<(bool, f32)>,
     pub(super) fade: Fade,
@@ -282,7 +284,8 @@ impl PluginWindow for DeckWindow {
                         return;
                     }
                     let top = Rect::from_min_size(full.min, vec2(full.width(), header::HEIGHT));
-                    clicked = header::show(ui, top, &counts, &settings, &tokens, turn);
+                    clicked =
+                        header::show(ui, top, &counts, &settings, &tokens, turn, &mut state.quick);
                     let list = Rect::from_min_max(pos2(full.left(), top.bottom()), full.max);
                     let mut list_ui = ui.new_child(egui::UiBuilder::new().max_rect(list));
                     if !servers::draw::has_lines(&lines, &state) {
@@ -305,6 +308,12 @@ impl PluginWindow for DeckWindow {
             }
             if asked.mini {
                 clicked = Some(Click::Mini);
+            }
+            if asked.quick || std::mem::take(&mut shared.quick_wanted) {
+                state.quick.by_key = true;
+            }
+            if let Some(pick) = quick::show(ui, &mut state, &settings, &tokens) {
+                clicked = quick::apply(&mut shared.settings, pick, &to_host).or(clicked);
             }
             commit(&mut state);
             match clicked {

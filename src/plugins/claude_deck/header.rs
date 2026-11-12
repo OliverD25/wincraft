@@ -1,7 +1,7 @@
 //! The 26 px header, as on the design page: the counts of the statuses
-//! that have chats, the "Only open windows" switch, the pin for stay on top,
-//! the mini mode button and the close button. The rest of it drags the
-//! window.
+//! that have chats, the "Only open windows" switch, the quick settings
+//! gear, the pin for stay on top, the mini mode button and the close
+//! button. The rest of it drags the window.
 
 use egui::{pos2, vec2, Color32, CursorIcon, Painter, Rect, Sense, Shape, Stroke, StrokeKind, Ui};
 
@@ -10,6 +10,7 @@ use crate::ui::widgets::text;
 
 use super::marks;
 use super::model::Mark;
+use super::quick::{self, Quick};
 use super::{MarkStyle, Settings};
 
 pub const HEIGHT: f32 = 26.0;
@@ -43,6 +44,7 @@ pub fn show(
     settings: &Settings,
     tokens: &Tokens,
     turn: f32,
+    quick: &mut Quick,
 ) -> Option<Click> {
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 0.0, tokens.panel_bg);
@@ -61,33 +63,49 @@ pub fn show(
     let close = button(rect.right() - PAD_RIGHT);
     let mini = button(close.left() - COUNT_GAP);
     let pin = button(mini.left() - COUNT_GAP);
+    let gear = button(pin.left() - COUNT_GAP);
     let label = painter.layout_job(text::job(
         ONLY_OPEN,
         theme::regular(SMALL),
         tokens.text_secondary,
         None,
     ));
-    let label_rect = Rect::from_min_size(
-        pos2(
-            pin.left() - GAP - label.size().x,
-            middle - label.size().y / 2.0,
-        ),
-        label.size(),
-    );
+    let numbers: Vec<_> = counts
+        .iter()
+        .map(|(_, count)| {
+            painter.layout_job(text::job(
+                &count.to_string(),
+                theme::regular(SMALL),
+                tokens.text_primary,
+                None,
+            ))
+        })
+        .collect();
+    let width = marks::width(settings.mark).max(marks::SIZE);
+    let needed: f32 = numbers
+        .iter()
+        .map(|number| width + COUNT_GAP + number.size().x + GAP)
+        .sum();
+    // The counts come first: when they do not all fit, the switch's label
+    // goes and its tooltip names it.
+    let with_label = gear.left() - GAP - label.size().x - GAP - SWITCH.x;
+    let label_rect = (rect.left() + PAD_LEFT + needed <= with_label).then(|| {
+        Rect::from_min_size(
+            pos2(
+                gear.left() - GAP - label.size().x,
+                middle - label.size().y / 2.0,
+            ),
+            label.size(),
+        )
+    });
+    let switch_right = label_rect.map_or(gear.left(), |label| label.left());
     let switch = Rect::from_min_size(
-        pos2(label_rect.left() - GAP - SWITCH.x, middle - SWITCH.y / 2.0),
+        pos2(switch_right - GAP - SWITCH.x, middle - SWITCH.y / 2.0),
         SWITCH,
     );
 
     let mut x = rect.left() + PAD_LEFT;
-    for (mark, count) in counts {
-        let width = marks::width(settings.mark).max(marks::SIZE);
-        let number = painter.layout_job(text::job(
-            &count.to_string(),
-            theme::regular(SMALL),
-            tokens.text_primary,
-            None,
-        ));
+    for ((mark, _), number) in counts.iter().zip(numbers) {
         if x + width + COUNT_GAP + number.size().x > switch.left() - GAP {
             break;
         }
@@ -110,18 +128,37 @@ pub fn show(
     }
 
     let mut clicked = None;
-    let toggle = ui
+    let mut toggle = ui
         .interact(
-            switch.union(label_rect),
+            label_rect.map_or(switch, |label| switch.union(label)),
             ui.id().with("claude-deck-only-open"),
             Sense::click(),
         )
         .on_hover_cursor(CursorIcon::PointingHand);
+    if label_rect.is_none() {
+        toggle = toggle.on_hover_text(ONLY_OPEN);
+    }
     if toggle.clicked() {
         clicked = Some(Click::OnlyOpen);
     }
     paint_switch(&painter, switch, settings.only_open, tokens);
-    painter.galley(label_rect.min, label, Color32::PLACEHOLDER);
+    if let Some(at) = label_rect {
+        painter.galley(at.min, label, Color32::PLACEHOLDER);
+    }
+
+    quick.gear = Some(gear);
+    let gear_response = ui
+        .interact(gear, ui.id().with("claude-deck-quick"), Sense::click())
+        .on_hover_text(format!("{} ({})", quick::TIP, quick::KEY));
+    if quick.is_open(ui.ctx()) {
+        painter.rect_filled(gear, 4.0, tokens.selection_bg);
+    } else if gear_response.hovered() {
+        painter.rect_filled(gear, 4.0, tokens.hover_bg);
+    }
+    paint_gear(&painter, gear, tokens);
+    if gear_response.clicked() {
+        quick.toggle = true;
+    }
 
     let pinned = settings.stay_on_top;
     let pin_response = ui
@@ -194,6 +231,22 @@ fn paint_switch(painter: &Painter, rect: Rect, on: bool, tokens: &Tokens) {
         3.5,
         knob,
     );
+}
+
+/// The gear of quick settings: a ring with six teeth.
+fn paint_gear(painter: &Painter, rect: Rect, tokens: &Tokens) {
+    let c = rect.center();
+    let stroke = Stroke::new(1.2, tokens.text_secondary);
+    painter.circle_stroke(c, 3.6, stroke);
+    painter.circle_filled(c, 1.2, tokens.text_secondary);
+    for tooth in 0..6 {
+        let angle = std::f32::consts::TAU * tooth as f32 / 6.0;
+        let way = vec2(angle.cos(), angle.sin());
+        painter.line_segment(
+            [c + way * 3.6, c + way * 5.8],
+            Stroke::new(1.8, tokens.text_secondary),
+        );
+    }
 }
 
 /// The pin, filled in the accent while the window stays on top.

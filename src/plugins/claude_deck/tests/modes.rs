@@ -82,6 +82,7 @@ fn seen(mouse_in: bool) -> fade::Seen {
         mouse_in,
         focused: false,
         new_wait: false,
+        menu_open: false,
     }
 }
 
@@ -142,6 +143,18 @@ fn focus_a_new_wait_or_the_setting_off_keep_it_solid() {
     fade.step(off, start);
     assert_eq!(fade.step(off, long), None);
     assert_eq!(fade.alpha, 1.0, "the setting is off");
+
+    let mut fade = Fade::default();
+    let menu = fade::Seen {
+        menu_open: true,
+        ..seen(false)
+    };
+    fade.step(menu, start);
+    assert_eq!(fade.step(menu, long), None);
+    assert_eq!(
+        fade.alpha, 1.0,
+        "an open menu (quick settings) keeps it solid"
+    );
 
     let mut fade = Fade::default();
     fade.step(seen(false), start);

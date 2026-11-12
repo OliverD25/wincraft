@@ -105,12 +105,14 @@ pub(super) fn tell_tray(shared: &mut Shared, state: &mut DeckUi, tip: Option<Str
 /// One frame of the fade. Returns when it needs the next frame.
 pub(super) fn fade_step(ctx: &egui::Context, state: &mut DeckUi, on: bool) -> Option<Duration> {
     let (mouse_in, focused) = ctx.input(|i| (i.pointer.has_pointer(), i.focused));
+    let menu_open = egui::Popup::is_any_open(ctx) || state.quick.is_open(ctx);
     let waiting = &state.cache.waiting_ids;
     let seen = fade::Seen {
         on,
         mouse_in,
         focused,
         new_wait: select::new_wait(&state.waiting_before, waiting),
+        menu_open,
     };
     state.waiting_before = waiting.clone();
     let next = state.fade.step(seen, Instant::now());
