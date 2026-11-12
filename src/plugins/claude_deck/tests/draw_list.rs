@@ -383,6 +383,21 @@ fn resting_the_mouse_on_a_row_shows_the_hover_panel_with_the_full_text() {
 }
 
 #[test]
+fn the_hover_panel_stays_away_while_a_menu_is_open() {
+    let mut deck = deck();
+    let painted = deck.settle();
+    let on = painted.at("Chat b1");
+    deck.right_click(on);
+    assert!(deck.settle().has(menu::HIDE), "the menu is open");
+    let shown = deck.rest(on, 12);
+    assert!(
+        !shown.has("Reading the files, then the tests."),
+        "the panel would cover the menu: {:?}",
+        shown.texts
+    );
+}
+
+#[test]
 fn the_header_buttons_report_to_the_window() {
     let mut deck = deck();
     deck.settle();

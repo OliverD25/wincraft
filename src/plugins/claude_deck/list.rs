@@ -187,7 +187,9 @@ pub(super) fn show(
                 state.menu_for = None;
             }
             dragging(ui, area, lines, &placed, look, state);
-            if let Some((row, chat)) = resting.filter(|_| state.drag.is_none()) {
+            // The hover panel never covers a menu: with a menu open it stays away.
+            let menu_open = state.menu_for.is_some() || egui::Popup::is_any_open(ui.ctx());
+            if let Some((row, chat)) = resting.filter(|_| state.drag.is_none() && !menu_open) {
                 let still = ui.ctx().input(|i| i.pointer.time_since_last_movement());
                 if still >= hover::DELAY {
                     hover::show(ui.ctx(), row, ui.clip_rect(), chat, look);
