@@ -75,7 +75,7 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ### 17. Install 0.20.101 and drag a chat in ClaudeDeck
 
-- **State:** Wait: 0.20.101 is not released yet.
+- **State:** Ready to test (0.20.101 released 2026-11-12; the release has wincraft.exe and its checksum).
 - **Kind:** test · **Added:** 2026-11-13 (PC)
 - **Why:** on 0.20.100 you could not drag chats with the mouse (step 8 of the first test). A fork row did not react to a drag; now it moves its whole family. A real mouse on your screen is the last proof.
 - **Known, do not report:** cold chats (under the line "N cold chats") and hidden chats cannot be dragged; every waiting chat shows the speech bubble ("Asks you") until task 16 is done.
