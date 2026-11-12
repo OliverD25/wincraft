@@ -42,24 +42,26 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 **Done when:** step 1 printed a commit, and a waiting question card stays **Waiting** in WindowDeck.
 
-### 15. Check Rename, group renames, app updates and status chips in an open group
+### 19. Install 0.20.104 and try the rename box and Rename in ClaudeDeck
 
-- **State:** Ready to test (0.20.99 released 2026-11-12).
+- **State:** Wait: 0.20.104 is not released yet.
 - **Kind:** test · **Added:** 2026-11-12 (PC)
-- **Why:** these need the real Claude app, a real group and the mouse; tests cannot see them.
+- **Why:** you asked for both on 0.20.103. The rename box was seen in a test copy on a Notepad window; ClaudeDeck's new menu item and `F2` need your real Claude windows.
+- **Known, do not report:** **Rename the window…** is greyed for a chat with no window; the name belongs to the window (WindowNamer keeps it), not to the chat in the Claude app.
 
 **Steps**
 
-1. Right-click the WinCraft icon in the tray and click **Settings…**. Click **About**, then **Check for updates**, then **Update now**. WinCraft restarts; About shows 0.20.99.
-2. Open WindowDeck on the Claude app and open your WinCraft group (click its stack). Each window in the group shows its own status chip (**Idle**, **Working**, **Background** or **Waiting**) at the top left of its picture.
-3. Right-click a window in the open group. The menu starts with **Rename…** (and **Clear name** when it has one).
-4. In the Claude app, rename one of the chats in that group (its name at the top left). Open WindowDeck again: the chat is still in the group, under its new name.
-5. Your groups made before the Claude update (the first "WinCraft Rust" group and the first "NewsHQ") now show only once, and still group their windows.
+1. Right-click the WinCraft icon in the tray and click **Settings…**.
+2. Click **About** in the left list, then **Check for updates**, then **Update now**. WinCraft restarts; About shows 0.20.104.
+3. Open WindowDeck on your Claude windows, right-click a window and click **Rename…**. The rename box opens with the window's current name typed and selected. Press `→`, change one letter, press `Enter`. The window has the new name.
+4. Press `Win+Alt+X`. In ClaudeDeck, right-click a chat that has a window and click **Rename the window…**. The same rename box opens. Type a name and press `Enter`. The chat's row in ClaudeDeck shows the new name within a few seconds.
+5. Pick a chat with the arrow keys in ClaudeDeck and press `F2`. The rename box opens for that chat's window. Press `Esc`: nothing changes.
 
-**Done when:** steps 2-5 look as described, or you report what did not.
+**Done when:** steps 3 to 5 look as described.
 
 ## Done
 
+- **15. Check Rename, group renames, app updates and status chips in an open group**: done 2026-11-12. The user tested on 0.20.103: "all works as intended". Asked after it: the rename box should start with the current name, and ClaudeDeck should get Rename; both are in 0.20.104 (task 19).
 - **16. Have the attention hook tell WinCraft when a chat needs approval**: done 2026-11-12. The user said "task 16 is done". Checked: the installed `claude-attention.py` adds `--kind approval` for a permission prompt, and its log shows "PermissionRequest (approval)" marks for this chat that WinCraft took (3 of 3 targets).
 - **18. Install 0.20.103 and check the marked row and the Working status in ClaudeDeck**: done 2026-11-12. The user said "done 18" after the test on 0.20.103: the marked row follows the chat window in front, and a chat that gets a message in the middle of its turn keeps **Working**.
 - **17. Install 0.20.101 and drag a chat in ClaudeDeck**: done 2026-11-12. The user said "done 17" after the retest on 0.20.101. The first test on 0.20.100 passed steps 4 to 7 and 9 to 13; the busy `Win+Alt+C` became the default `Win+Alt+X`. Found after: the close button lost the window's place, and the hover panel covered the right-click menu; both fixed in 0.20.102.
