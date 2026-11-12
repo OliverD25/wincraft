@@ -5,52 +5,9 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ## Open
 
-### 22. Pick the ClaudeDeck icon
-
-- **State:** Waits for your answer.
-- **Kind:** decision · **Added:** 2026-11-12 (PC, main d2d6d79)
-- **Why:** ClaudeDeck gets its own icon for its taskbar button, its window
-  title and its row on the Plugins and Store pages. Until you pick, it shows
-  the WinCraft icon. You asked for it: "lets build the claude deck icon
-  design first".
-- **Agent can check:** this task's line in the chat, or a "22:" answer.
-
-**Steps**
-
-1. Open https://claude.ai/artifact/S5fEimN5sS6oqHgwJVRxPn in your browser.
-2. Click the page name at the top left (it shows "Shortcut Manager" or the
-   last page you opened), then click "ClaudeDeck" in the list.
-3. Scroll to the end, to "12. The ClaudeDeck icon (pick one)". Each idea
-   shows 16, 24, 32, 48 and 256 px, a light and a dark taskbar, and the
-   WinCraft icon next to it:
-   - **B. Amber list** (recommended): the list on an amber tile; it never
-     looks like the dark WinCraft icon in the taskbar.
-   - **A. The list**: WinCraft's dark tile and amber ring, three chat rows.
-   - **C. A deck of chats**: an amber card behind a dark one.
-   - **D. A chat bubble**: a dark speech bubble, not a square.
-4. In any session of this project, say "22: B" (or A, C, D), or what to
-   change.
-
-**Done when:** the pick is recorded here and the ClaudeDeck coding session
-has the path of the chosen SVG.
-
-### 23. Install 0.20.107: fork a chat in a terminal, and the waits on the server line
-
-- **State:** Ready to test (0.20.107 released 2026-11-12; the release has wincraft.exe and its checksum).
-- **Kind:** test · **Added:** 2026-11-12 (PC)
-- **Why:** you asked for both after testing 0.20.106. Opening a terminal and a forked chat can only be checked on your screen.
-
-**Steps**
-
-1. Press `Alt+Space` (your palette hotkey), type `update`, pick **Update WinCraft** and press `Enter`. The bottom right corner of the palette then shows "WinCraft v0.20.107" or newer.
-2. Press `Win+Alt+X`. Right-click any PC chat row, for example **WinCraft Rust Master**, and pick **Fork in a terminal**. Windows Terminal opens in that chat's folder and Claude starts with the chat's history. Type `/status` or ask "what were we doing?" to see it knows the chat. Close the terminal window when done; the original chat is not changed.
-3. Server chats: right-click a home1 or home2 chat whose line is NOT "Remote Control is ready" (those have no chat yet, so they have no **Fork in a terminal**). Pick **Fork in a terminal**. A terminal opens with ssh, and Claude starts there with the chat's history and Remote Control on. If every server chat says "Remote Control is ready", skip this step and say so.
-4. In any Claude chat on this PC, ask: `run /c/Windows/System32/OpenSSH/ssh.exe rdehome2 sleep 60 in the foreground`. While it runs, the **home2** line shows "1 PC chat waits · 8" in blue instead of CPU and RAM. After it ends, CPU and RAM come back within 30 seconds.
-
-**Done when:** steps 2 and 4 look as described, and step 3 does or was skipped for the reason above.
-
 ## Done
 
+- **22. Pick the ClaudeDeck icon**: done 2026-11-12. The user picked "B. Amber list": the chat list on an amber tile. Source: design/claude-design/claudedeck-icon/claudedeck-icon-b.svg; the ClaudeDeck coding session builds the .ico from it.
 - **21. Install 0.20.106 and check the homelab servers in ClaudeDeck**: done 2026-11-12. The user said "21 task. all done": three server lines, the health hover, terminals, and **Waits on home2** on the PC chat during a foreground ssh.
 - **13. Install the attention hook fix: a question stays Waiting while other tools finish**: done 2026-11-12. The user said "13 is done" after the test. The hook log has 13 "ignored: the mark waits for" lines, so the hook keeps a question mark while other tools finish.
 - **11. Check that a stack list row shows its window**: done 2026-11-12. The user said "11 done" after the test: resting the mouse on a row of a stack's list shows that window in front.
