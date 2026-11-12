@@ -100,6 +100,7 @@ fn folded_chat(id: &str) -> Saved {
     }
 }
 
+mod around;
 mod arrange;
 mod chats;
 mod deck;

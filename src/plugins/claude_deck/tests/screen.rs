@@ -97,14 +97,10 @@ impl Screen {
     /// A left click at `at`: the pointer moves there in one frame, then
     /// the button goes down and up in the next.
     pub fn click(&mut self, at: egui::Pos2, draw: &mut impl FnMut(&mut Ui)) -> Painted {
-        self.right_or_left(at, egui::PointerButton::Primary, draw)
+        self.pointer(at, egui::PointerButton::Primary, draw)
     }
 
-    pub fn right_click(&mut self, at: egui::Pos2, draw: &mut impl FnMut(&mut Ui)) -> Painted {
-        self.right_or_left(at, egui::PointerButton::Secondary, draw)
-    }
-
-    fn right_or_left(
+    fn pointer(
         &mut self,
         at: egui::Pos2,
         button: egui::PointerButton,
@@ -120,21 +116,5 @@ impl Screen {
         };
         self.frame(vec![press(true)], &mut *draw);
         self.frame(vec![press(false)], &mut *draw)
-    }
-
-    pub fn key(
-        &mut self,
-        key: egui::Key,
-        modifiers: egui::Modifiers,
-        draw: &mut impl FnMut(&mut Ui),
-    ) -> Painted {
-        let event = |pressed| Event::Key {
-            key,
-            physical_key: None,
-            pressed,
-            repeat: false,
-            modifiers,
-        };
-        self.frame(vec![event(true), event(false)], &mut *draw)
     }
 }

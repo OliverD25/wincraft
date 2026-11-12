@@ -149,3 +149,6 @@ pub(super) fn publish_chat_windows() {
         claude_windows::publish(Vec::new());
     }
 }
+
+#[cfg(test)]
+mod tests;
