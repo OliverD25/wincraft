@@ -180,6 +180,7 @@ pub fn ready_chats(
             text: Some(if failed { RC_STOPPED } else { RC_READY }.to_string()),
             full: None,
             fork: None,
+            terminal: None,
         });
     }
     rows
@@ -274,5 +275,6 @@ pub fn chat(
                 .as_deref()
                 .filter(|cwd| super::terminal::safe_path(cwd)),
         ),
+        terminal: None,
     }
 }

@@ -114,6 +114,8 @@ pub struct Chat {
     pub full: Option<String>,
     /// What "Fork in a terminal" needs; None when the chat cannot be forked.
     pub fork: Option<super::fork::Fork>,
+    /// Set for a fork running in a terminal (see `forks`): where it runs.
+    pub terminal: Option<String>,
 }
 
 const QUIET_MEANS_IDLE_MS: u64 = 60 * 60 * 1000;
@@ -173,6 +175,7 @@ pub fn chat(
             &session.cli_session_id,
             lineage.cwd.as_deref().or(lineage.folder()),
         ),
+        terminal: None,
     }
 }
 
@@ -450,6 +453,7 @@ pub fn stand_in(archived: &Archived, id: &str, folder: Option<String>, created: 
         text: None,
         full: None,
         fork: None,
+        terminal: None,
     }
 }
 

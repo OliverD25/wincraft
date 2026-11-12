@@ -30,6 +30,7 @@ fn chat(id: &str, folder: Option<&str>, created: u64) -> Chat {
         text: None,
         full: None,
         fork: None,
+        terminal: None,
     }
 }
 

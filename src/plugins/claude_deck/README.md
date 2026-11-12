@@ -277,6 +277,16 @@ Terminal is missing). On a server it uses ssh and adds `--remote-control`,
 so the fork also shows in the Claude app. A Remote Control service with no
 chat yet has nothing to fork.
 
+**Forks in a terminal show as rows.** WinCraft names the new chat itself
+(`--session-id`) and opens the terminal as a new window with a fixed title.
+While a window with that title is open, the fork is listed under its chat
+with a small terminal icon, and its status is read from its own transcript
+(a server fork has no local transcript and says where it runs). Click the
+row to bring the terminal forward. The starts are kept in
+`claude_deck.forks.json` next to the list file: at most 20, and a fork whose
+window is gone is forgotten. A console window (used when Windows Terminal
+is missing) cannot be found again, so it gets no row.
+
 ClaudeDeck only reads the Claude app's own session files on this PC
 (`%APPDATA%\Claude\claude-code-sessions`) and the transcripts of the chats
 it lists (those with a window, or active in the last day), in steps: only

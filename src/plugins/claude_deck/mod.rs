@@ -15,6 +15,7 @@ mod edit;
 mod emit;
 mod fade;
 mod fork;
+mod forks;
 mod header;
 mod hover;
 mod keys;

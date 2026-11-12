@@ -21,6 +21,7 @@ fn chat(mark: Mark) -> Chat {
         text: None,
         full: None,
         fork: None,
+        terminal: None,
     }
 }
 

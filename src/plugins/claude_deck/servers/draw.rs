@@ -234,7 +234,7 @@ fn chat_menu(
         }
         if let Some(fork) = &chat.fork {
             if item(ui, FORK, "") {
-                terminal::open_fork(server, fork);
+                terminal::open_fork(server, fork, &chat.id, &chat.title);
                 ui.close();
             }
         }

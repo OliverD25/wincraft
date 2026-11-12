@@ -266,6 +266,7 @@ fn working(id: &str) -> Chat {
         text: None,
         full: None,
         fork: None,
+        terminal: None,
     }
 }
 
@@ -947,6 +948,7 @@ fn a_server_line_says_when_pc_chats_wait_on_it() {
     assert_eq!(view::waiting_on("rdehome1", &waits), 0);
 }
 
+const NEW_ID: &str = "11111111-2222-4333-8444-555555555555";
 const FORK_ID: &str = "0f3a9c1e-1b2d-4c5e-8f60-123456789abc";
 
 #[test]
@@ -988,17 +990,25 @@ fn a_server_chat_with_a_transcript_can_be_forked_but_a_ready_row_cannot() {
 #[test]
 fn the_server_fork_command_keeps_the_folder_and_turns_remote_control_on() {
     assert_eq!(
-        terminal::fork_command("/home/rde/projects/app", FORK_ID).as_deref(),
+        terminal::fork_command("/home/rde/projects/app", FORK_ID, NEW_ID).as_deref(),
         Some(
-            "cd '/home/rde/projects/app' && exec $SHELL -lc 'claude --resume 0f3a9c1e-1b2d-4c5e-8f60-123456789abc --fork-session --remote-control'"
+            "cd '/home/rde/projects/app' && exec $SHELL -lc 'claude --resume 0f3a9c1e-1b2d-4c5e-8f60-123456789abc --fork-session --session-id 11111111-2222-4333-8444-555555555555 --remote-control'"
         )
     );
-    assert_eq!(terminal::fork_command("/x'; rm -rf /", FORK_ID), None);
-    assert_eq!(terminal::fork_command("/home/rde/app", "a'; id #"), None);
-    assert_eq!(terminal::fork_command("/home/rde/app", ""), None);
+    assert_eq!(
+        terminal::fork_command("/x'; rm -rf /", FORK_ID, NEW_ID),
+        None
+    );
+    assert_eq!(
+        terminal::fork_command("/home/rde/app", "a'; id #", NEW_ID),
+        None
+    );
+    assert_eq!(terminal::fork_command("/home/rde/app", "", NEW_ID), None);
     let fork = crate::plugins::claude_deck::fork::Fork::new(FORK_ID, Some("/home/rde/app"))
         .expect("a fork");
-    let args = terminal::fork_args("rdehome2", &fork).expect("safe");
+    let args = terminal::fork_args("rdehome2", &fork, NEW_ID).expect("safe");
     assert_eq!(args[..3], ["-t", "--", "rdehome2"]);
-    assert!(args[3].contains("--fork-session --remote-control"));
+    assert!(args[3].contains("--session-id"));
+    assert!(args[3].contains("--remote-control"));
+    assert_eq!(terminal::fork_args("rdehome2", &fork, "x; id"), None);
 }
