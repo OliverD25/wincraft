@@ -5,24 +5,6 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ## Open
 
-### 10. Install 0.20.94 and check the Background chip on a Claude chat
-
-- **State:** Ready to test. Steps 4 and 5 passed on 2026-11-12 (chip "Background 24 s · 1 job" with a still ring; the chat sat in the Working column of the board); step 6 left.
-- **Kind:** test · **Added:** 2026-11-11 (PC)
-- **Why:** the Background chip was checked only by unit tests, not on a live chat.
-- **Agent can check:** the WinCraft log (`%LOCALAPPDATA%\WinCraft\wincraft.log`).
-
-**Steps**
-
-1. Right-click the WinCraft icon in the tray and click **Settings…**.
-2. Click **About** in the left list, then **Update now**. WinCraft restarts; About shows 0.20.94.
-3. In a Claude chat, ask for a job in the background, for example: "run `sleep 120` in the background and tell me when it ends".
-4. When the chat's reply ends, open WindowDeck on the Claude app. That chat's card should show a blue chip **Background … · 1 job** with a still ring (not turning).
-5. Press `B`. The chat should be in the **Working** column, below any real Working chats.
-6. After the job ends and the chat answers, the chip should go back to **Idle** within a few seconds.
-
-**Done when:** steps 4 to 6 look as described.
-
 ### 11. Check that a stack list row shows its window
 
 - **State:** Ready to test (0.20.96 released 2026-11-11).
@@ -61,6 +43,7 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ## Done
 
+- **10. Install 0.20.94 and check the Background chip on a Claude chat**: done 2026-11-12. The user checked steps 4-6: the chip showed "Background 24 s · 1 job" with a still ring, the chat sat in the Working column of the board, and it went back to Idle after the job ended.
 - **7. Release and test WindowDeck groups with the fixes**: done 2026-11-11. The user tested steps 1-10 on 0.20.93 and 0.20.95; the hidden "Drop to group" mark was fixed in 0.20.95. Follow-up: list rows show their window (task 11).
 - **9. Install 0.20.92 and test Custom WindowDeck on your Claude windows**: done 2026-11-11. The user said "task 9 done". Found while testing: a chat with a background task still running shows "Idle"; that is new work, not a failed test.
 - **1. Install 0.20.90 and test the drop gap and the "waiting for you" marks**: done 2026-11-10. The user confirmed step 3 ("1.3 is passed") and steps 5-6 ("Orange, cleared after").
