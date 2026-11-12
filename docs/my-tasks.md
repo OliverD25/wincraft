@@ -42,6 +42,22 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 **Done when:** step 1 printed a commit, and a waiting question card stays **Waiting** in WindowDeck.
 
+### 20. Install 0.20.105 and move the cursor with the mouse in the rename box
+
+- **State:** Wait: 0.20.105 is not released yet.
+- **Kind:** test · **Added:** 2026-11-12 (PC)
+- **Why:** on 0.20.104 a press on the name in the rename box dragged the whole palette. A test covers the fix; a real mouse is the last proof.
+
+**Steps**
+
+1. Press `Alt+Space` (your palette hotkey), type `update`, pick **Update WinCraft** and press `Enter`. WinCraft checks, installs the newer version and restarts.
+2. Press `Alt+Space` again. The bottom right corner of the palette shows "WinCraft v0.20.105" or newer. Press `Esc`.
+3. Press `Win+Alt+X`, pick a chat that has a window and press `F2`. The rename box opens with the name typed.
+4. Click in the middle of the name. The cursor goes there and the palette stays where it is. Press and move the mouse over a few letters: they are selected, and the palette does not move.
+5. Press and hold on the empty part right of the name and move the mouse. The palette moves, as before. Press `Esc`.
+
+**Done when:** steps 4 and 5 look as described.
+
 ## Done
 
 - **19. Install 0.20.104 and try the rename box and Rename in ClaudeDeck**: done 2026-11-12. The user said "done task #19" after the test on 0.20.104: the rename box starts with the current name, and **Rename the window…** and `F2` work in ClaudeDeck.
