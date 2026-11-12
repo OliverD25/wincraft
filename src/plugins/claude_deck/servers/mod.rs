@@ -6,6 +6,7 @@
 //! changed on them.
 
 pub mod aliases;
+pub mod busy;
 pub mod draw;
 pub mod poll;
 pub mod probe;

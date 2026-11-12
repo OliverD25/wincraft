@@ -217,6 +217,13 @@ this off: nothing is read and no server group shows.
   Control service failed or keeps restarting shows **Failed** (red) with
   "Remote Control stopped".
 
+When two chats work on the same repo at the same time (told by the last
+part of the folder, a git worktree counting as its repo), on this PC or a
+server in any mix, both rows start with "Also busy on home2" (or "Also busy
+on this PC"), and the hover panel says "Two chats work on this repo at the
+same time. Their changes can conflict." Only chats that work or wait on a
+server count; idle ones do not. It shows on the line of text.
+
 How it reads: while the ClaudeDeck window is open, and only then, one
 `ssh <name> sh -s` call per server every 30 s (the first at once), with
 Windows' own ssh, `BatchMode=yes` (never a password prompt), a 6 s connect

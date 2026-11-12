@@ -460,6 +460,7 @@ fn refresh(state: &mut DeckUi, to_host: &HostChannel) {
     );
     state.chats = chats;
     state.servers.waits = waits;
+    servers::busy::warn_pc(&mut state.chats, &state.servers.views());
     state.archived = data::archived(&state.chats);
     if state.written.is_none() {
         let (saved, writable) = store::load(&store::path()).start();

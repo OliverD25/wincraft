@@ -43,7 +43,8 @@ fn height(line: &ServerLine, two: bool) -> f32 {
 
 /// The servers' lines, as the window's state gives them.
 pub fn lines_of(state: &DeckUi, look: &Look) -> (Vec<(String, super::HostView)>, Vec<ServerLine>) {
-    let views = state.servers.views();
+    let mut views = state.servers.views();
+    super::busy::warn_servers(&state.chats, &mut views);
     let shape = Shape {
         pinned: &state.saved.pinned,
         hidden: &state.saved.hidden,

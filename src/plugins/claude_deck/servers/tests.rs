@@ -673,3 +673,83 @@ fn the_servers_health_is_read_and_shown() {
     let words = view::hover_text("rdehome2", &host, &[], NOW);
     assert!(words.contains("Busiest: dockerd 85%"), "{words}");
 }
+
+// Extra 2: the same repo busy in two places.
+
+fn busy_chat(id: &str, folder: &str, mark: Mark) -> Chat {
+    Chat {
+        folder: Some(folder.to_string()),
+        mark,
+        text: Some("Running a command".to_string()),
+        full: Some("Last words".to_string()),
+        ..working(id)
+    }
+}
+
+#[test]
+fn two_busy_chats_on_one_repo_both_say_where_the_other_works() {
+    use super::busy;
+    assert_eq!(
+        busy::repo_of(r"E:\code\verdict-ai\.claude\worktrees\x").as_deref(),
+        Some("verdict-ai")
+    );
+    assert_eq!(
+        busy::repo_of("/home/rde/projects/Verdict-AI/").as_deref(),
+        Some("verdict-ai")
+    );
+    let mut pc = vec![
+        busy_chat("pc1", r"E:\code\verdict-ai", Mark::WaitsOnServer),
+        busy_chat("pc2", r"E:\code\wincraft", Mark::Working),
+        busy_chat("pc3", r"E:\code\wincraft", Mark::Idle(Age::Fresh)),
+    ];
+    let mut views = vec![(
+        "rdehome2".to_string(),
+        view_of(
+            vec![busy_chat(
+                "s1",
+                "/home/rde/projects/verdict-ai",
+                Mark::Working,
+            )],
+            true,
+        ),
+    )];
+    busy::warn_pc(&mut pc, &views);
+    busy::warn_servers(&pc, &mut views);
+    assert_eq!(
+        pc[0].text.as_deref(),
+        Some("Also busy on home2 \u{b7} Running a command")
+    );
+    assert!(pc[0]
+        .full
+        .as_deref()
+        .is_some_and(|f| f.starts_with(busy::CONFLICT)));
+    assert_eq!(
+        views[0].1.chats[0].text.as_deref(),
+        Some("Also busy on this PC \u{b7} Running a command")
+    );
+    assert_eq!(
+        pc[1].text.as_deref(),
+        Some("Running a command"),
+        "an idle chat does not count"
+    );
+    assert_eq!(pc[2].text.as_deref(), Some("Running a command"));
+}
+
+#[test]
+fn an_offline_server_or_an_idle_chat_raises_no_warning() {
+    use super::busy;
+    let mut pc = vec![busy_chat("pc1", r"E:\code\verdict-ai", Mark::Working)];
+    let views = vec![(
+        "rdehome2".to_string(),
+        view_of(
+            vec![busy_chat(
+                "s1",
+                "/home/rde/projects/verdict-ai",
+                Mark::Working,
+            )],
+            false,
+        ),
+    )];
+    busy::warn_pc(&mut pc, &views);
+    assert_eq!(pc[0].text.as_deref(), Some("Running a command"));
+}
