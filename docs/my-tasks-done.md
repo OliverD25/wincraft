@@ -2,6 +2,7 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
+- **29. Show me the Claude app's chat menu (for Archive and Rename in ClaudeDeck)**: done 2026-11-12 by the session: UI Automation opened the list and read the menu (Open in, Pin, Mark as unread, Rename, Fork, Move to section, Archive, Delete).
 - **27. Two quick checks for ClaudeDeck's open and archive features**: done 2026-11-12. Answers: the claude://code/continue?session= link only brings the app forward on a new empty chat; yes, the flaky-test chat may be the archive test chat (it was already archived; editing isArchived in its file is not seen by the running app).
 - **26. Install 0.20.110: the header switch and the top edge of ClaudeDeck**: done 2026-11-12. The user said "26 done": the switch knob is centred and the top edge resizes the window.
 - **25. Install 0.20.109: ClaudeDeck's taskbar button, quick settings, and the drag between monitors**: done 2026-11-12. The user said "25 done". Step 7 (the hidden words **Only open windows** in a narrow window): no change asked, so taken as "keep".

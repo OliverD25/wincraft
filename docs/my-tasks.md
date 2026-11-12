@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 28. Install 0.20.111: open a chat that has no window of its own
 
-- **State:** Ready to test (0.20.111 released 2026-11-12; the release has wincraft.exe and its checksum).
+- **State:** Wait: the fix for step 3 is being built (2026-11-12: you tested 0.20.111, and it only brought the narrow "New session" window forward; the chat list was hidden). A new version comes with Archive and Rename.
 - **Kind:** test · **Added:** 2026-11-12 (PC)
 - **Why:** a double-click on a chat shown only in the main Claude window did nothing. Now WinCraft presses that chat in the Claude sidebar; only your screen shows that it works.
 
@@ -22,17 +22,3 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 4. Try a chat whose group is folded in the Claude sidebar. A WinCraft tray message says it could not find the chat in the Claude app's list.
 
 **Done when:** steps 3 and 4 look as described.
-
-### 29. Show me the Claude app's chat menu (for Archive and Rename in ClaudeDeck)
-
-- **State:** Ready (nothing to install).
-- **Kind:** decision · **Added:** 2026-11-12 (PC)
-- **Why:** the Claude app does not notice changes to its chat files, so ClaudeDeck must press the app's own **Archive** and **Rename** items. I need their exact place and wording, and your main Claude window is on a monitor I cannot see.
-
-**Steps**
-
-1. In the main Claude window (the one with the list of chats on the left), open that list if it is hidden: click the sidebar button at the top left.
-2. Right-click any chat in the list. Take a screenshot of the menu that opens and send it to the chat. Press `Esc`.
-3. If right-click shows no menu, rest the mouse on a chat: if a small "…" button appears at its right end, click it and send a screenshot of that menu instead.
-
-**Done when:** the chat has the screenshot of the menu.
