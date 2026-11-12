@@ -1,6 +1,6 @@
 # Tasks on you: WinCraft
 
-Updated: 2026-11-12. Kept by the my-tasks skill. `/my-tasks` shows this
+Updated: 2026-11-11. Kept by the my-tasks skill. `/my-tasks` shows this
 list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ## Open
@@ -22,7 +22,27 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 **Done when:** steps 5 and 6 look as described.
 
-### 13. Review the design of the new ClaudeDeck plugin
+### 13. Install the attention hook fix: a question stays Waiting while other tools finish
+
+- **State:** Ready to test. Step 1 done on 2026-11-12 (config commit c7c3338, the installed hook matches the tested copy); step 2 left.
+- **Kind:** test · **Added:** 2026-11-12 (PC)
+- **Why:** on 2026-11-12 the VerdictAI chat showed a question, but its WindowDeck card said Idle. The hook cleared the mark when any tool finished; now only the tool that waits clears it. This chat cannot write to the hooks folder.
+- **Agent can check:** the installed hook matches the scratchpad copy, and `~/.claude/claude-attention.log` shows "ignored: the mark waits for" lines.
+
+**Steps**
+
+1. Open the WSL terminal and paste this block:
+
+   ```bash
+   cd /mnt/c/Users/Admin/.claude && cp "/mnt/c/Users/Admin/AppData/Local/Temp/claude/9e02bdafa49d6b9c/db2a44a3-eed1-4ce2-8060-89ab0229d84b/scratchpad/claude-attention.py" hooks/claude-attention.py && git add hooks/claude-attention.py && git commit -m "claude-attention: only the waiting tool's PostToolUse clears a mark" && git log --oneline -1
+   ```
+
+   It prints one commit line.
+2. Next time a Claude chat shows a question card while it also has other work going (an away run, background agents), open WindowDeck. Its card shows **Waiting** with an orange frame until you answer.
+
+**Done when:** step 1 printed a commit, and a waiting question card stays **Waiting** in WindowDeck.
+
+### 14. Review the design of the new ClaudeDeck plugin
 
 - **State:** Wait: the design session is still making the page "ClaudeDeck".
 - **Kind:** review · **Added:** 2026-11-12 (PC)

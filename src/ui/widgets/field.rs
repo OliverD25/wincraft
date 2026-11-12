@@ -3,6 +3,7 @@ use windows_sys::Win32::UI::Controls::Dialogs::{
     GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR, OFN_PATHMUSTEXIST, OPENFILENAMEW,
 };
 
+use crate::core::theme;
 use crate::core::theme::Tokens;
 use crate::core::traits::FieldKind;
 use crate::core::ui_bridge::FieldInfo;
@@ -10,10 +11,12 @@ use crate::core::wide;
 use crate::ui::widgets::button::{self, Kind};
 use crate::ui::widgets::icons::Icon;
 use crate::ui::widgets::row::{self, RowText};
-use crate::ui::widgets::{choice, input, slider, toggle};
+use crate::ui::widgets::{choice, input, sketch, slider, toggle};
 
 const TEXT_WIDTH: f32 = 240.0;
 const PATH_WIDTH: f32 = 280.0;
+/// The space under a choice's pictures, before the row's rule.
+const PICTURES_BOTTOM: f32 = 12.0;
 
 /// Draws one declared setting as a settings row and returns its new value
 /// when the user changed it. This is the only code that knows what each field
@@ -22,58 +25,95 @@ pub fn show(ui: &mut egui::Ui, field: &FieldInfo) -> Option<Value> {
     let tokens = Tokens::get(ui.ctx());
     let mut changed = None;
     let text = RowText::new(&field.label).desc(&field.help, tokens.text_secondary);
+    let pictured = match field.kind {
+        FieldKind::Choice(options)
+            if !options.is_empty() && field.sketches.len() == options.len() =>
+        {
+            Some(options)
+        }
+        _ => None,
+    };
 
-    row::settings_row(ui, &field.key, text, false, |ui| match field.kind {
-        FieldKind::Toggle => {
-            let mut on = field.value.as_bool().unwrap_or(false);
-            if toggle::toggle(ui, &mut on).changed() {
-                changed = Some(Value::Bool(on));
-            }
-        }
-        FieldKind::Slider { min, max, step } => {
-            let mut value = field.value.as_f64().unwrap_or(min);
-            if slider::slider(ui, &mut value, min, max, step).changed() {
-                changed = number(value);
-            }
-        }
-        FieldKind::Number { min, max } => {
-            let mut value = field.value.as_f64().unwrap_or(min);
-            if input::number(ui, &field.key, &mut value, min, max) {
-                changed = number(value);
-            }
-        }
-        FieldKind::Text => {
-            let mut value = field.value.as_str().unwrap_or_default().to_string();
-            if input::text(ui, &field.key, &mut value, input::Face::Text, TEXT_WIDTH).changed() {
-                changed = Some(Value::String(value));
-            }
-        }
-        FieldKind::Choice(options) => {
-            let current = field.value.as_str().unwrap_or_default();
-            let selected = options.iter().position(|option| *option == current);
-            if let Some(index) = choice::choice(ui, &field.key, options, selected) {
-                changed = Some(Value::String(options[index].to_string()));
-            }
-        }
-        FieldKind::Path => {
-            let mut value = field.value.as_str().unwrap_or_default().to_string();
-            if input::text(ui, &field.key, &mut value, input::Face::Mono, PATH_WIDTH).changed() {
-                changed = Some(Value::String(value.clone()));
-            }
-            if button::with_icon(
-                ui,
-                "Browse\u{2026}",
-                Kind::Secondary,
-                Some(Icon::FolderOpen),
-            )
-            .clicked()
-            {
-                if let Some(path) = browse_for_file() {
-                    changed = Some(Value::String(path));
+    let left = ui.cursor().left();
+    let width = ui.available_width();
+    row::settings_row_ruled(
+        ui,
+        &field.key,
+        text,
+        false,
+        pictured.is_none(),
+        |ui| match field.kind {
+            FieldKind::Toggle => {
+                let mut on = field.value.as_bool().unwrap_or(false);
+                if toggle::toggle(ui, &mut on).changed() {
+                    changed = Some(Value::Bool(on));
                 }
             }
+            FieldKind::Slider { min, max, step } => {
+                let mut value = field.value.as_f64().unwrap_or(min);
+                if slider::slider(ui, &mut value, min, max, step).changed() {
+                    changed = number(value);
+                }
+            }
+            FieldKind::Number { min, max } => {
+                let mut value = field.value.as_f64().unwrap_or(min);
+                if input::number(ui, &field.key, &mut value, min, max) {
+                    changed = number(value);
+                }
+            }
+            FieldKind::Text => {
+                let mut value = field.value.as_str().unwrap_or_default().to_string();
+                if input::text(ui, &field.key, &mut value, input::Face::Text, TEXT_WIDTH).changed()
+                {
+                    changed = Some(Value::String(value));
+                }
+            }
+            FieldKind::Choice(options) => {
+                let current = field.value.as_str().unwrap_or_default();
+                let selected = options.iter().position(|option| *option == current);
+                if let Some(index) = choice::choice(ui, &field.key, options, selected) {
+                    changed = Some(Value::String(options[index].to_string()));
+                }
+            }
+            FieldKind::Path => {
+                let mut value = field.value.as_str().unwrap_or_default().to_string();
+                if input::text(ui, &field.key, &mut value, input::Face::Mono, PATH_WIDTH).changed()
+                {
+                    changed = Some(Value::String(value.clone()));
+                }
+                if button::with_icon(
+                    ui,
+                    "Browse\u{2026}",
+                    Kind::Secondary,
+                    Some(Icon::FolderOpen),
+                )
+                .clicked()
+                {
+                    if let Some(path) = browse_for_file() {
+                        changed = Some(Value::String(path));
+                    }
+                }
+            }
+        },
+    );
+    if let Some(options) = pictured {
+        let current = field.value.as_str().unwrap_or_default();
+        let selected = options.iter().position(|option| *option == current);
+        let block = ui.scope(|ui| {
+            let picked = sketch::options(ui, field.sketches, options, selected);
+            ui.add_space(PICTURES_BOTTOM);
+            picked
+        });
+        if let Some(index) = block.inner {
+            changed = Some(Value::String(options[index].to_string()));
         }
-    });
+        let line = theme::line(ui.ctx(), tokens.border);
+        ui.painter().hline(
+            left..=left + width,
+            block.response.rect.bottom() - line.width / 2.0,
+            line,
+        );
+    }
     changed
 }
 
