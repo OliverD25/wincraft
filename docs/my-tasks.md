@@ -58,23 +58,9 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 **Done when:** steps 2-5 look as described, or you report what did not.
 
-### 16. Have the attention hook tell WinCraft when a chat needs approval
-
-- **State:** Ready (0.20.100 released 2026-11-13). Do task 17 step 2 first, so you have that version.
-- **Kind:** other · **Added:** 2026-11-13 (PC)
-- **Why:** ClaudeDeck can show "Needs approval" apart from "Asks you" only when the hook sends the kind. The hook is in the config folder, which a WinCraft chat cannot edit.
-
-**Steps**
-
-1. Open the chat "Claude Code Global settings and skills" in the Claude desktop app.
-2. Paste this message and send it: `Apply the hook change described in E:\codespace\_claude_code\_rde\wincraft_windows_utilities_rust\docs\claude-deck-hook-kind.md to hooks/claude-attention.py, test it, and commit.`
-3. That chat changes the hook and reports "done". Nothing else is needed from you there.
-4. To see it work: open ClaudeDeck with `Win+Alt+X`, then let any Claude chat ask for permission to run a command. Its row shows an orange triangle instead of the speech bubble.
-
-**Done when:** a chat that waits for a permission shows the orange triangle in ClaudeDeck.
-
 ## Done
 
+- **16. Have the attention hook tell WinCraft when a chat needs approval**: done 2026-11-12. The user said "task 16 is done". Checked: the installed `claude-attention.py` adds `--kind approval` for a permission prompt, and its log shows "PermissionRequest (approval)" marks for this chat that WinCraft took (3 of 3 targets).
 - **18. Install 0.20.103 and check the marked row and the Working status in ClaudeDeck**: done 2026-11-12. The user said "done 18" after the test on 0.20.103: the marked row follows the chat window in front, and a chat that gets a message in the middle of its turn keeps **Working**.
 - **17. Install 0.20.101 and drag a chat in ClaudeDeck**: done 2026-11-12. The user said "done 17" after the retest on 0.20.101. The first test on 0.20.100 passed steps 4 to 7 and 9 to 13; the busy `Win+Alt+C` became the default `Win+Alt+X`. Found after: the close button lost the window's place, and the hover panel covered the right-click menu; both fixed in 0.20.102.
 - **14. Review the design of the new ClaudeDeck plugin**: done 2026-11-12. The design session recorded the approval in commit c2afaca: status marks A "Shapes", forks A "Tree lines", the rest of the page "ClaudeDeck" approved as drawn (artifact version 24).
