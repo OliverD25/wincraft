@@ -270,3 +270,16 @@ open." and drops the number badge on the tray icon (tooltip only); 11 puts
 "Also busy on ..." at the start of the line of text and adds an idle
 "Remote Control is ready" row. Rows of CODE-CHANGES.md that this covers
 are marked "in design", each with what is still not drawn.
+
+## 2026-11-12 (night): ClaudeDeck, icon options
+
+Version 32 of the artifact, copied byte for byte. The user asked for a
+ClaudeDeck icon of its own (via the ClaudeDeck coding session). The page
+gets section 12, "The ClaudeDeck icon (pick one)": four ideas (A. The list,
+B. Amber list, C. A deck of chats, D. A chat bubble), each at 16, 24, 32,
+48 and 256 px on a light and a dark taskbar, next to the WinCraft icon.
+The SVG sources are in `claudedeck-icon/` (claudedeck-icon-a.svg to -d.svg,
+drawn on a 32 px grid), with `make_claudedeck_icons.py`, the script that
+writes them and the section. The pick is task 22 in docs/my-tasks.md.
+Version 31 was the same section with a two-column layout; version 30 was
+another session's change to a different page.

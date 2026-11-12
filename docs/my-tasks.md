@@ -5,6 +5,19 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ## Open
 
+### 22. Pick the ClaudeDeck icon
+
+State: Ready to decide (2026-11-12). Asked by you in the WinCraft coding chat: "lets build the claude deck icon design first".
+Why: ClaudeDeck gets its own icon for its taskbar button, its window title and its row on the Plugins and Store pages. Until you pick, it shows the WinCraft icon.
+
+1. Open https://claude.ai/artifact/S5fEimN5sS6oqHgwJVRxPn in your browser.
+2. Click the page name at the top left (it shows "Shortcut Manager" or the last page you opened), then click "ClaudeDeck" in the list.
+3. Scroll to the end, to "12. The ClaudeDeck icon (pick one)". You see four ideas: **A. The list**, **B. Amber list**, **C. A deck of chats**, **D. A chat bubble**. Each shows 16, 24, 32, 48 and 256 px, a light and a dark taskbar, and the WinCraft icon next to it.
+4. Tell the chat which one you pick (for example "icon B"), or what to change.
+
+Recommended: **B. Amber list**. It keeps the WinCraft colours and the list idea, and the amber tile tells it apart from the dark WinCraft icon at a glance in the taskbar.
+Done when: the pick is recorded here and the ClaudeDeck coding session has the path of the chosen SVG.
+
 ## Done
 
 - **21. Install 0.20.106 and check the homelab servers in ClaudeDeck**: done 2026-11-12. The user said "21 task. all done": three server lines, the health hover, terminals, and **Waits on home2** on the PC chat during a foreground ssh.
