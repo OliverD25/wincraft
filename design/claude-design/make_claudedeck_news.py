@@ -114,6 +114,8 @@ def news_body(card=False, wait=True, n=None):
     rows = NEWS if n is None else NEWS[:n]
     out += head("Last 24 hours", len(rows))
     out += "".join(item(a, b, c, d, u, None, sv, cls) for a, b, c, d, u, sv in rows)
+    if n is None:
+        out += older_head(4, False)
     return out
 
 
@@ -175,8 +177,21 @@ def cap(text, *chips):
     return f'<div class="cap">{text}{"".join(chips)}</div>'
 
 
-REC = ' <span class="rec">Recommended</span>'
-PROP = ' <span class="prop">Proposal</span>'
+REC = ' <span class="rec">Chosen</span>'
+PROP = REC
+OLDER = [
+    ("Luminart site", "luminart.app", "1 day", "Published the redirects for the old gallery links. All 38 old links answer.", False, None),
+    ("Backup check", "homelab", "2 days", "The nightly backup to the NAS worked for 7 days in a row. The oldest copy is 30 days old.", True, "home2"),
+    ("Playwise - Kids Learn", "playwise", "3 days", "The parent page is moved to the new colours. The sound button size waits for your pick.", False, None),
+    ("Verdict - AI", "verdict-ai", "5 days", "The court list import is done for 2024. 2025 needs the new export from the court site.", False, None),
+]
+def older_head(n, open_):
+    rot = "0" if open_ else "-90"
+    return (f'<div class="ghead"><svg width="10" height="10" viewBox="0 0 10 10" style="transform:rotate({rot}deg)" aria-hidden="true">'
+            f'<path d="M2 3.5l3 3 3-3" fill="none" stroke="var(--text2)" stroke-width="1.4"/></svg><span class="gname">Older</span>'
+            f'<span class="gcount">{n}</span></div>')
+OLDER_OPEN = (head("Last 24 hours", 2) + "".join(item(a, b, c, d, u, None, sv) for a, b, c, d, u, sv in NEWS[4:6])
+              + older_head(len(OLDER), True) + "".join(item(a, b, c, d, u, None, sv) for a, b, c, d, u, sv in OLDER))
 
 MINI = ('<div class="dark mini"><div title="Full list" style="height:18px;display:flex;align-items:center;justify-content:center">'
         '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2v8M7.5 4l2 2-2 2" fill="none" '
@@ -200,7 +215,7 @@ prop_body = (f'<div class="ghead">{CHEV}<span class="gname">Last 24 hours</span>
              + "".join(item(a, b, c, d, u, None, sv) for a, b, c, d, u, sv in NEWS[:3]))
 
 section = (
-    '<section><h2>13. News: the latest replies of every chat (for your OK)</h2>'
+    '<section><h2>13. News: the latest replies of every chat (approved 2026-11-12)</h2>'
     '<p>With many chats at once, a chat can go Idle while its last reply matters and nobody read it. The News tab sits next to the chat '
     'list and shows every reply a chat finished in the last 24 hours, newest first, several per chat. Chats that wait for your OK or ask '
     'you a question are pinned at the top. Server chats are in it too, with the server icon and name. Each item shows the chat, its '
@@ -212,7 +227,7 @@ section = (
     f'<div>{cap("The News tab, light")}{deck("light", news_body())}</div>'
     '</div>'
     '<h3 style="margin-top:22px">The look of an item: two options</h3>'
-    '<p>Option 1 keeps the list flat, like the chat rows, with a thin line between items; it fits the most replies. Option 2 puts each '
+    '<p>Chosen on 2026-11-12: option 1. Option 1 keeps the list flat, like the chat rows, with a thin line between items; it fits the most replies. Option 2 puts each '
     'reply on its own card with an amber edge while unseen; it separates replies more but fits about a third fewer.</p>'
     '<div class="side">'
     f'<div>{cap("Option 1: rows", REC)}{deck("dark", news_body(wait=False, n=4))}</div>'
@@ -230,12 +245,20 @@ section = (
     '<h3 style="margin-top:22px">Open an item</h3>'
     '<p>The first click opens the item in place with the whole reply and makes it seen. "Open the chat" (or Enter, or a double-click) '
     'opens the chat in the Claude app. A second click on the item closes it. A long reply is cut after about eleven lines with '
-    '"Show all", so the list never has a scroll area inside a scroll area; option B is an inner scroll area instead.</p>'
+    '"Show all", so the list never has a scroll area inside a scroll area; option B is an inner scroll area instead. Chosen on 2026-11-12: A.</p>'
     '<div class="side">'
     f'<div>{cap("A short reply, open")}{frame("dark", plain(open_short))}</div>'
     f'<div>{cap("A long reply, A: cut, then Show all", REC)}'
     f'{frame("dark", plain(open_item(LONG, "ncut", chr(10) + "<div class=nact style=margin-top:4px><span class=nlink>Show all · 24 lines</span></div>")))}</div>'
     f'<div>{cap("A long reply, B: an inner scroll area")}{frame("dark", plain(open_item(LONG, "nscroll")))}</div>'
+    '</div>'
+    '<h3 style="margin-top:22px">Older replies</h3>'
+    '<p>Replies older than 24 hours are not hidden. Below "Last 24 hours" sits the group "Older", folded at first, with its count. '
+    'Unfolded, it shows the latest older reply of each chat, newest first, as the same rows; unseen ones keep the amber dot. '
+    'A click on the group line, or ← and → on it, folds and unfolds it, and ClaudeDeck remembers the choice.</p>'
+    '<div class="side">'
+    f'<div>{cap("Older, folded (as at first)")}{deck("dark", head("Last 24 hours", 2) + "".join(item(a, b, c, d, u, None, sv) for a, b, c, d, u, sv in NEWS[4:6]) + older_head(len(OLDER), False))}</div>'
+    f'<div>{cap("Older, unfolded")}{deck("dark", OLDER_OPEN)}</div>'
     '</div>'
     '<h3 style="margin-top:22px">Empty, and the keyboard</h3>'
     '<p>Ctrl+Tab and Ctrl+Shift+Tab switch between Chats and News. On News, ↑ ↓ move between items, Space or → opens an item, ← closes it, '
@@ -247,7 +270,7 @@ section = (
     '</div>'
     '<h3 style="margin-top:22px">Two small extras</h3>'
     '<p>"Mark all seen" makes every reply in the list seen at once, without opening the chats in the Claude app. "Only unseen" hides the '
-    'seen replies. Both sit at the right of the "Last 24 hours" line. Pick one, both or none.</p>'
+    'seen replies. Both sit at the right of the "Last 24 hours" line. Both chosen on 2026-11-12, and the count in mini mode too.</p>'
     '<div class="side">'
     f'<div>{cap("Mark all seen and Only unseen", PROP)}{deck("dark", prop_body)}</div>'
     '</div>'

@@ -298,3 +298,15 @@ a proposal for mini mode); an open item (short, and a long reply cut with
 keyboard; and two proposed extras ("Mark all seen", "Only unseen").
 `make_claudedeck_news.py` is the script that wrote the section. Nothing is
 built yet: the build waits for the creator's approval.
+
+## 2026-11-12 (night, last): ClaudeDeck, the News tab approved
+
+Version 39 of the artifact, copied byte for byte. The creator approved
+section 13 (via the CC HomeLab upgrade chat) and picked: item look 1, rows;
+long replies A, cut with "Show all · N lines"; both extras ("Mark all
+seen", "Only unseen"); the unseen count in mini mode; the tab count counts
+unseen replies only. The picks now carry a "Chosen" chip. New: the "Older"
+group below "Last 24 hours", folded at first, unfolded showing each chat's
+latest older reply as the same rows (drawn folded and unfolded, and folded
+at the end of the main drawings). The section title says "approved
+2026-11-12".
