@@ -73,29 +73,9 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 **Done when:** a chat that waits for a permission shows the orange triangle in ClaudeDeck.
 
-### 17. Install 0.20.101 and drag a chat in ClaudeDeck
-
-- **State:** Ready to test (0.20.101 released 2026-11-12; the release has wincraft.exe and its checksum).
-- **Kind:** test · **Added:** 2026-11-13 (PC)
-- **Why:** on 0.20.100 you could not drag chats with the mouse (step 8 of the first test). A fork row did not react to a drag; now it moves its whole family. A real mouse on your screen is the last proof.
-- **Known, do not report:** cold chats (under the line "N cold chats") and hidden chats cannot be dragged; every waiting chat shows the speech bubble ("Asks you") until task 16 is done.
-
-**Steps**
-
-1. Right-click the WinCraft icon in the tray and click **Settings…**.
-2. Click **About** in the left list, then **Check for updates**, then **Update now**. WinCraft restarts; About shows 0.20.101.
-3. Press `Win+Alt+X` (your ClaudeDeck hotkey). ClaudeDeck opens.
-4. Press the left mouse button on a chat at the top of a family, move the mouse to another group and let go. A blue line shows where it lands; the chat moves there with its forks.
-5. Do the same starting on a fork (a row under a tree line). The whole family lifts and moves: the chat at the top and all its forks.
-
-**Done when:** steps 4 and 5 move the chats.
-
-**History**
-
-- 2026-11-12, 0.20.100: steps 4 to 7 and 9 to 13 of the first test passed (statuses, click, hover panel, pin, keyboard, mini mode, fade, restart, WindowDeck unchanged). Step 3: `Win+Alt+C` was held by another app, so you set `Win+Alt+X`; that is now the default. Step 8: chats could not be dragged.
-
 ## Done
 
+- **17. Install 0.20.101 and drag a chat in ClaudeDeck**: done 2026-11-12. The user said "done 17" after the retest on 0.20.101. The first test on 0.20.100 passed steps 4 to 7 and 9 to 13; the busy `Win+Alt+C` became the default `Win+Alt+X`. Found after: the close button lost the window's place, and the hover panel covered the right-click menu; both fixed in 0.20.102.
 - **14. Review the design of the new ClaudeDeck plugin**: done 2026-11-12. The design session recorded the approval in commit c2afaca: status marks A "Shapes", forks A "Tree lines", the rest of the page "ClaudeDeck" approved as drawn (artifact version 24).
 - **12. Try both ways an open group shows, and pick one**: done 2026-11-12. The user tested both on 0.20.97 ("all tests run successfully") and chose "keep both as a setting": **Open a group as** stays, with both options. The small fixes found while testing went to their own work (the group selection follows the mouse, a picture for the setting, Settings comes to the front, the hotkey row overlap).
 - **10. Install 0.20.94 and check the Background chip on a Claude chat**: done 2026-11-12. The user checked steps 4-6: the chip showed "Background 24 s · 1 job" with a still ring, the chat sat in the Working column of the board, and it went back to Idle after the job ended.
