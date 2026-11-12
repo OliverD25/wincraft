@@ -296,6 +296,36 @@ fn dragging_a_chat_to_another_place_moves_it_and_escape_stops_the_drag() {
 }
 
 #[test]
+fn dragging_a_fork_moves_its_whole_family() {
+    let mut deck = deck();
+    let painted = deck.settle();
+    let from = painted.at("Chat f");
+    let to = pos2(from.x + 20.0, painted.at("Chat b1").y + 4.0);
+    let before = deck.state.saved.clone();
+    let press = |pressed, at| Event::PointerButton {
+        pos: at,
+        button: PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    deck.frame(vec![Event::PointerMoved(from)]);
+    deck.frame(vec![press(true, from)]);
+    deck.frame(vec![Event::PointerMoved(pos2(from.x, from.y + 12.0))]);
+    deck.frame(vec![Event::PointerMoved(to)]);
+    let Some(Pick::Chat(lead)) = deck.state.drag.clone() else {
+        panic!("a drag from a fork lifts its family");
+    };
+    assert!(
+        before.groups.iter().any(|g| g.chats.contains(&lead)),
+        "the lifted chat is the one at the top of the family"
+    );
+    deck.frame(vec![press(false, to)]);
+    deck.settle();
+    assert!(deck.state.drag.is_none());
+    assert_ne!(deck.state.saved, before, "the family has a new place");
+}
+
+#[test]
 fn dragging_a_group_header_moves_the_group() {
     let mut deck = deck();
     let painted = deck.settle();

@@ -86,6 +86,7 @@ pub(super) fn show(
             let mut resting: Option<(Rect, &Chat)> = None;
             let mut acts: Vec<Act> = Vec::new();
             let mut group: Option<&str> = None;
+            let mut family: Option<&str> = None;
             let mut menu_found = false;
             let mut numbered = 0;
             state.digit_rows.clear();
@@ -100,8 +101,15 @@ pub(super) fn show(
                     bottom: rect.bottom(),
                 });
                 match line {
-                    Line::Group(g) => group = Some(&g.key),
-                    Line::Cold(_) | Line::Hidden(_) => group = None,
+                    Line::Group(g) => {
+                        group = Some(&g.key);
+                        family = None;
+                    }
+                    Line::Cold(_) | Line::Hidden(_) => {
+                        group = None;
+                        family = None;
+                    }
+                    Line::Chat(c) if c.depth == 0 => family = Some(&c.chat.id),
                     Line::Chat(_) => {}
                 }
                 let pick = match line {
@@ -161,6 +169,7 @@ pub(super) fn show(
                             rect,
                             line: c,
                             group,
+                            family,
                             key: key.filter(|_| state.keyboard),
                         };
                         let draw = Draw {
@@ -344,6 +353,9 @@ struct Row<'a> {
     line: &'a ChatLine,
     /// The group it is in; None under the cold and hidden lines.
     group: Option<&'a str>,
+    /// The chat at the top of its family. A drag that starts on a fork
+    /// moves this chat with all its forks.
+    family: Option<&'a str>,
     /// The digit shown before the mark.
     key: Option<u8>,
 }
@@ -360,7 +372,8 @@ fn chat_line(
     let line = row.line;
     let look = draw.look;
     let pick = Pick::Chat(line.chat.id.clone());
-    let draggable = row.group.is_some() && line.depth == 0 && !line.hidden;
+    let lead = row.family.filter(|_| row.group.is_some() && !line.hidden);
+    let draggable = lead.is_some();
     let sense = if draggable {
         Sense::click_and_drag()
     } else {
@@ -386,8 +399,8 @@ fn chat_line(
     if selected && std::mem::take(&mut state.scroll_to_selected) {
         ui.scroll_to_rect(row.rect, None);
     }
-    if response.drag_started_by(egui::PointerButton::Primary) && draggable {
-        state.drag = Some(pick.clone());
+    if let Some(lead) = lead.filter(|_| response.drag_started_by(egui::PointerButton::Primary)) {
+        state.drag = Some(Pick::Chat(lead.to_string()));
         state.selected = Some(pick.clone());
     }
     if response.clicked() {
