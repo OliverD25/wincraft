@@ -13,7 +13,9 @@ use std::time::{Duration, Instant};
 use egui::{pos2, vec2, Color32, Rect, Ui};
 use serde_json::Value;
 use windows_sys::Win32::Foundation::HWND;
-use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, IsWindow};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    GetForegroundWindow, IsIconic, IsWindow, ShowWindow, SW_RESTORE,
+};
 
 use crate::core::claude_sessions;
 use crate::core::claude_windows;
@@ -189,6 +191,11 @@ impl PluginWindow for DeckWindow {
             if in_front && !keep_open {
                 state.closed = true;
             } else {
+                // A minimised window does not draw, so it would never ask
+                // to come forward: restore it here, at its last place.
+                if state.window != 0 && unsafe { IsIconic(state.window as HWND) } != 0 {
+                    unsafe { ShowWindow(state.window as HWND, SW_RESTORE) };
+                }
                 state.focus_wanted = true;
             }
             if let Some(before) = by_hotkey.filter(|_| !in_front) {

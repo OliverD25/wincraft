@@ -232,7 +232,7 @@ Opened by: `Win+Alt+S`, Tray menu → **Shortcut manager**, or the palette comma
 - **No shortcuts match.**, **Scanning…**.
 
 ## ClaudeDeck
-Opened by: `Win+Alt+X`, Tray menu → **ClaudeDeck**, or the palette command **Open ClaudeDeck**. `Win+Alt+X` again while it is in front closes it.
+Opened by: `Win+Alt+X`, Tray menu → **ClaudeDeck**, or the palette command **Open ClaudeDeck**. `Win+Alt+X` again while it is in front closes it; while it is minimized, `Win+Alt+X` brings it back at its last place.
 - The window has no Windows title bar. Drag its header to move it; drag an edge or a corner to resize it. It opens again at the same place and size.
 - When all four counts need the room (the default 360 px width with four statuses), the label **Only open windows** goes and only the switch stays; its tooltip reads **Only open windows**.
 - Quick settings (the header's gear, `Ctrl+,` in the window, or the palette command **ClaudeDeck: Quick settings**): a menu under the gear with a check mark on each setting that is on: **Fade when the mouse is away**, **Only open windows**, **Stay on top**, **Mini mode**, **Fold chats idle for over 1 day**, **Show a count on the tray icon**, a line, **A line of text (the question, or what it does)**, **Time in the status**, **Project and branch**, **Job count**, **Model name**, a line, **All settings…** (opens Settings on ClaudeDeck's page). A click or `Enter` turns a row on or off and saves it; the menu stays open. `↑` `↓` move between rows (`Ctrl+,` puts the keyboard on the first row), `Esc` closes it. While any menu is open the window does not fade. In mini mode `Ctrl+,` opens the same menu in a small window beside the column; it closes on `Esc`, on **All settings…**, or when you click elsewhere.
