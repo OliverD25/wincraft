@@ -1,6 +1,6 @@
 # UI map: WinCraft
 
-Updated: 2026-11-08. Exact labels are in **bold**, copied from the code.
+Updated: 2026-11-12. Exact labels are in **bold**, copied from the code.
 Before telling the user where to click, find the label here. A label that
 is missing here: grep the code, then add it here in the same commit.
 
@@ -21,6 +21,7 @@ Shown only while the plugin is switched on, between two separators.
 - WindowDeck: **WindowDeck: Open**, and a check mark item **WindowDeck on taskbar hover**.
 - QuickJump: **Open quick access**.
 - ShortcutManager: **Shortcut manager**.
+- ClaudeDeck: **ClaudeDeck**.
 - QuickActions: a check mark item **Keep awake**; while keep awake is on with an end time it reads **Keep awake until {time}**.
 - LanguageIndicator and WindowNamer have no tray item.
 
@@ -53,6 +54,7 @@ Opened by: the palette hotkey (default `Win+Alt+P`; changed in Settings → Gene
 - WindowNamer: **Rename the active window**, **Clear all names**.
 - QuickJump: **Jump to a pinned window**, **Pin this window…**.
 - ShortcutManager: **Open shortcut manager**, **Show free combinations**.
+- ClaudeDeck: **Open ClaudeDeck**.
 - QuickActions (named Area: Verb):
   - Window: **Window: Toggle Always on Top**, **Window: Center**, **Window: Resize to 1280 × 720**, **Window: Resize to 1920 × 1080**, **Window: Resize to 80 % of the Monitor**, **Window: Resize…**.
   - Display: **Display: Toggle Keep Awake**, **Display: Keep Awake for…**.
@@ -108,6 +110,7 @@ Opened by: Settings → **Plugins** → click the plugin's tile.
 - QuickJump: **Open Quick access in the middle of the screen**, **Point to a window on another monitor**.
 - WindowNamer: **Keep names after restart**, **Title shows**.
 - ShortcutManager: **Show free combinations**.
+- ClaudeDeck: **Stay on top**, **Only open windows**, **Fold chats idle for over 1 day**. Under the heading **On each row**: **Status mark** (**Shapes**, **Shapes and words** or **Off**), **Time in the status**, **Project and branch**, **Job count**, **Model name**.
 - LanguageIndicator: **How long it stays**, **Where it appears**, **Show on focus change**, **Show the layout name**.
 - QuickActions: no fields.
 
@@ -227,6 +230,16 @@ Opened by: `Win+Alt+S`, Tray menu → **Shortcut manager**, or the palette comma
 - Answer panel: **Press it for real**, **Change**, **Remove key**, **Save**, **Cancel**, **Back to the full list**.
 - **No shortcuts match.**, **Scanning…**.
 
+## ClaudeDeck
+Opened by: `Win+Alt+C`, Tray menu → **ClaudeDeck**, or the palette command **Open ClaudeDeck**. `Win+Alt+C` again while it is in front closes it.
+- The window has no Windows title bar. Drag its header to move it; drag an edge or a corner to resize it. It opens again at the same place and size.
+- Header, left to right: a status mark and a count for the chats that need approval, ask you, work, or are done (only the statuses that have chats); the switch **Only open windows** (click the switch or its label); the pin (tooltip **Stay on top**), filled while the window stays on top; the close button (tooltip **Close**).
+- A group header per project folder: click it to fold or unfold the group. Folded, it shows the most urgent mark and **{n} chats**. **New**: the group at the top for chats with no known folder.
+- A chat row: the status mark, the name, the branch, **{n} jobs** while background jobs run, and the time in the status at the right edge. Click the row (or pick it with `↑` `↓` and press `Enter`) to bring the chat's window to the front; a chat with no open window does nothing.
+- Forks hang under their chat with tree lines. The small arrow before a chat folds its forks; folded, the row shows the most urgent mark of the family and **{n} forks**. A grey dashed stand-in **{title} · archived** (or **Chat not found**) holds forks whose chat is gone; click it to fold them.
+- The grey line **{n} cold chats** at the end holds the chats idle for over 1 day (when **Fold chats idle for over 1 day** is on): click it to list them under it.
+- Empty: **No Claude chats yet.** **Chats show here when Claude Code runs.** With **Only open windows** on and no chat window open: **No chat has a window open.**
+
 ## Notices
 Opened by: they show by themselves above the taskbar after a change. They take the mouse but never the keyboard.
 - **Undo**: the button on QuickJump and QuickActions notices (`Ctrl+Z` works while the notice shows).
@@ -249,6 +262,7 @@ Defaults. Every one can be changed in Settings → Hotkeys.
 | **Pin this window…** | none | Settings → Hotkeys |
 | **Rename the active window** | `Win+Alt+E` | Settings → Hotkeys |
 | **Open shortcut manager** | `Win+Alt+S` | Settings → Hotkeys |
+| **Open ClaudeDeck** | `Win+Alt+C` | Settings → Hotkeys |
 | **Cover the monitor** (also **Cover left monitor**, **Cover right monitor**, **Cover monitor 2**, **Cover monitor 3**) | `Win+Alt+F1`, `F2`, `F3` | Settings → Hotkeys |
 | **Turn the monitor off** (also **Turn left monitor off**, **Turn right monitor off**, **Turn monitor 2 off**, **Turn monitor 3 off**) | `Win+Alt+Shift+F1`, `F2`, `F3` | Settings → Hotkeys |
 | **Wake all monitors** | `Win+Alt+F12` | Settings → Hotkeys |

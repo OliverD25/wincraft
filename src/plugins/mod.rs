@@ -1,3 +1,4 @@
+pub mod claude_deck;
 pub mod language_indicator;
 pub mod layout_keeper;
 pub mod quick_actions;
@@ -20,6 +21,7 @@ pub fn load_active_plugins() -> Vec<Box<dyn WinCraftPlugin>> {
         Box::new(window_namer::WindowNamer::new()),
         Box::new(quick_jump::QuickJump::new()),
         Box::new(quick_actions::QuickActions::new()),
+        Box::new(claude_deck::ClaudeDeck::new()),
     ]
 }
 

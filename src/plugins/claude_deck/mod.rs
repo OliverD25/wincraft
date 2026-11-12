@@ -1,0 +1,319 @@
+//! ClaudeDeck: a small window that lists the user's Claude Code chats,
+//! grouped by project, with forks under the chat they came from and a mark
+//! for what each chat is doing. It only reads: a click or Enter brings a
+//! chat's own window to the front, nothing else (Principle 1).
+//!
+//! The list is drawn on the UI thread (`window.rs`). While it is open it
+//! asks the host every few seconds to read the chats again
+//! (`HostRequest::ClaudeDeckRefresh`); when it is closed nothing runs.
+
+mod header;
+mod labels;
+mod marks;
+mod model;
+mod place;
+mod rows;
+mod tree;
+mod window;
+
+use std::sync::{Arc, Mutex};
+
+use serde_json::Value;
+use windows_sys::Win32::Foundation::HWND;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
+
+use crate::core::traits::{
+    FieldKind, HostContext, Hotkey, HotkeyAction, PluginMetadata, PluginWindow, SettingField,
+    TrayAction, WinCraftPlugin,
+};
+use crate::core::ui_bridge::ArrangeAction;
+use crate::core::{claude_windows, host, instance, window_actions};
+
+const ID: &str = "claude_deck";
+const ACTION_OPEN: u32 = 1;
+
+pub(crate) const STAY_ON_TOP_KEY: &str = "stay_on_top";
+pub(crate) const ONLY_OPEN_KEY: &str = "only_open_windows";
+const FOLD_COLD_KEY: &str = "fold_cold_chats";
+const MARK_KEY: &str = "status_mark";
+const TIME_KEY: &str = "show_time";
+const PROJECT_KEY: &str = "show_project";
+const JOBS_KEY: &str = "show_jobs";
+const MODEL_KEY: &str = "show_model";
+
+const MARK_SHAPES: &str = "Shapes";
+const MARK_WORDS: &str = "Shapes and words";
+const MARK_OFF: &str = "Off";
+
+/// A test instance opens the window at start with this flag, so a scene
+/// can show it without a hotkey.
+const SCENE_FLAG: &str = "--open-claude-deck";
+
+/// How the status mark is drawn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MarkStyle {
+    #[default]
+    Shapes,
+    ShapesAndWords,
+    Off,
+}
+
+/// The settings, as the window reads them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Settings {
+    pub stay_on_top: bool,
+    pub only_open: bool,
+    pub fold_cold: bool,
+    pub mark: MarkStyle,
+    pub time: bool,
+    pub project: bool,
+    pub jobs: bool,
+    pub model: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            stay_on_top: true,
+            only_open: false,
+            fold_cold: true,
+            mark: MarkStyle::Shapes,
+            time: true,
+            project: true,
+            jobs: true,
+            model: false,
+        }
+    }
+}
+
+impl Settings {
+    fn read(settings: &Value) -> Self {
+        let defaults = Settings::default();
+        let flag = |key: &str, default: bool| {
+            settings
+                .get(key)
+                .and_then(Value::as_bool)
+                .unwrap_or(default)
+        };
+        let mark = match settings.get(MARK_KEY).and_then(Value::as_str) {
+            Some(MARK_WORDS) => MarkStyle::ShapesAndWords,
+            Some(MARK_OFF) => MarkStyle::Off,
+            _ => MarkStyle::Shapes,
+        };
+        Settings {
+            stay_on_top: flag(STAY_ON_TOP_KEY, defaults.stay_on_top),
+            only_open: flag(ONLY_OPEN_KEY, defaults.only_open),
+            fold_cold: flag(FOLD_COLD_KEY, defaults.fold_cold),
+            mark,
+            time: flag(TIME_KEY, defaults.time),
+            project: flag(PROJECT_KEY, defaults.project),
+            jobs: flag(JOBS_KEY, defaults.jobs),
+            model: flag(MODEL_KEY, defaults.model),
+        }
+    }
+}
+
+/// What the plugin and its window share.
+#[derive(Default)]
+pub struct Shared {
+    pub open: bool,
+    pub settings: Settings,
+}
+
+pub type Handle = Arc<Mutex<Shared>>;
+
+#[derive(Default)]
+pub struct ClaudeDeck {
+    shared: Handle,
+}
+
+impl ClaudeDeck {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Opens the window. A second press brings it to the front, or closes
+    /// it when it is already in front (the window decides, on its thread).
+    fn open(&mut self) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.open = true;
+        }
+        host::show_window(ID, window::WINDOW_ID);
+    }
+
+    fn apply(&mut self, settings: &Value) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.settings = Settings::read(settings);
+        }
+    }
+}
+
+/// Whether a click may bring this window forward: it must be one of the
+/// Claude windows the host listed last. A test copy never does it.
+fn may_activate(hwnd: isize, listed: &[claude_windows::ChatWindow], test: bool) -> bool {
+    !test && hwnd != 0 && listed.iter().any(|window| window.hwnd == hwnd)
+}
+
+impl WinCraftPlugin for ClaudeDeck {
+    fn metadata(&self) -> PluginMetadata {
+        PluginMetadata {
+            id: ID,
+            name: "ClaudeDeck",
+            description: "A small list of your Claude Code chats by project, with what each one is doing. A click brings a chat's window to the front.",
+            author: "community",
+            version: "0.1.0",
+            readme: include_str!("README.md"),
+            category: "Windows",
+            icon: Some("sparkles"),
+            thumbnail: None,
+        }
+    }
+
+    fn default_settings(&self) -> Value {
+        serde_json::json!({
+            STAY_ON_TOP_KEY: true,
+            ONLY_OPEN_KEY: false,
+            FOLD_COLD_KEY: true,
+            MARK_KEY: MARK_SHAPES,
+            TIME_KEY: true,
+            PROJECT_KEY: true,
+            JOBS_KEY: true,
+            MODEL_KEY: false,
+        })
+    }
+
+    fn settings_fields(&self) -> Vec<SettingField> {
+        vec![
+            SettingField {
+                key: STAY_ON_TOP_KEY,
+                label: "Stay on top",
+                help: "Keep ClaudeDeck above other windows. The pin in its header does the same.",
+                kind: FieldKind::Toggle,
+            },
+            SettingField {
+                key: ONLY_OPEN_KEY,
+                label: "Only open windows",
+                help: "List only the chats that have a window open.",
+                kind: FieldKind::Toggle,
+            },
+            SettingField {
+                key: FOLD_COLD_KEY,
+                label: "Fold chats idle for over 1 day",
+                help: "Old idle chats go into one grey line at the end.",
+                kind: FieldKind::Toggle,
+            },
+            SettingField {
+                key: MARK_KEY,
+                label: "Status mark",
+                help: "A shape for each status, a shape and a short word, or no mark.",
+                kind: FieldKind::Choice(&[MARK_SHAPES, MARK_WORDS, MARK_OFF]),
+            },
+            SettingField {
+                key: TIME_KEY,
+                label: "Time in the status",
+                help: "How long the chat has been in its status, at the right edge.",
+                kind: FieldKind::Toggle,
+            },
+            SettingField {
+                key: PROJECT_KEY,
+                label: "Project and branch",
+                help: "The chat's git branch after its name.",
+                kind: FieldKind::Toggle,
+            },
+            SettingField {
+                key: JOBS_KEY,
+                label: "Job count",
+                help: "How many background jobs a chat runs.",
+                kind: FieldKind::Toggle,
+            },
+            SettingField {
+                key: MODEL_KEY,
+                label: "Model name",
+                help: "The Claude model the chat uses.",
+                kind: FieldKind::Toggle,
+            },
+        ]
+    }
+
+    fn settings_group(&self, key: &str) -> Option<&'static str> {
+        matches!(
+            key,
+            MARK_KEY | TIME_KEY | PROJECT_KEY | JOBS_KEY | MODEL_KEY
+        )
+        .then_some("On each row")
+    }
+
+    fn on_settings_changed(&mut self, settings: &Value) -> bool {
+        self.apply(settings);
+        true
+    }
+
+    fn init(&mut self, ctx: &HostContext) -> Result<(), String> {
+        self.apply(ctx.settings);
+        if instance::is_test() && std::env::args().skip(1).any(|arg| arg == SCENE_FLAG) {
+            self.open();
+        }
+        Ok(())
+    }
+
+    fn hotkey_actions(&self) -> Vec<HotkeyAction> {
+        vec![HotkeyAction {
+            id: ACTION_OPEN,
+            name: "open",
+            label: "Open ClaudeDeck",
+            default: Hotkey {
+                modifiers: MOD_NOREPEAT | MOD_WIN | MOD_ALT,
+                vk: u32::from(b'C'),
+            },
+        }]
+    }
+
+    fn on_hotkey(&mut self, action_id: u32) {
+        if action_id == ACTION_OPEN {
+            self.open();
+        }
+    }
+
+    fn tray_actions(&self) -> Vec<TrayAction> {
+        vec![TrayAction {
+            id: ACTION_OPEN,
+            label: "ClaudeDeck",
+        }]
+    }
+
+    fn on_tray_action(&mut self, action_id: u32) {
+        if action_id == ACTION_OPEN {
+            self.open();
+        }
+    }
+
+    fn page_action(&self) -> Option<u32> {
+        Some(ACTION_OPEN)
+    }
+
+    fn windows(&self) -> Vec<Box<dyn PluginWindow>> {
+        vec![Box::new(window::DeckWindow::new(self.shared.clone()))]
+    }
+
+    fn on_arrange_action(&mut self, action: &ArrangeAction) {
+        let ArrangeAction::Activate(hwnd) = action else {
+            return;
+        };
+        if instance::is_test() {
+            log::info!("read-only test instance: switching to a Claude chat skipped");
+            return;
+        }
+        if may_activate(*hwnd, &claude_windows::latest(), false) {
+            window_actions::activate(*hwnd as HWND);
+        }
+    }
+
+    fn teardown(&mut self) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.open = false;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

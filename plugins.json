@@ -77,6 +77,16 @@
       "readme": "src/plugins/quick_actions/README.md",
       "category": "System",
       "icon": "settings"
+    },
+    {
+      "id": "claude_deck",
+      "name": "ClaudeDeck",
+      "version": "0.1.0",
+      "author": "community",
+      "description": "A small list of your Claude Code chats by project, with what each one is doing. A click brings a chat's window to the front.",
+      "readme": "src/plugins/claude_deck/README.md",
+      "category": "Windows",
+      "icon": "sparkles"
     }
   ]
 }
