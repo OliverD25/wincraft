@@ -44,7 +44,7 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ### 20. Install 0.20.105 and move the cursor with the mouse in the rename box
 
-- **State:** Wait: 0.20.105 is not released yet.
+- **State:** Ready to test (0.20.105 released 2026-11-12; the release has wincraft.exe and its checksum).
 - **Kind:** test · **Added:** 2026-11-12 (PC)
 - **Why:** on 0.20.104 a press on the name in the rename box dragged the whole palette. A test covers the fix; a real mouse is the last proof.
 
