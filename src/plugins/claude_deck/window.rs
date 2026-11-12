@@ -20,7 +20,7 @@ use crate::core::claude_windows;
 use crate::core::theme::{self, Tokens};
 use crate::core::traits::{PluginWindow, WindowFrame};
 use crate::core::ui_bridge::{ArrangeAction, HostChannel, HostRequest};
-use crate::core::{animations, claude_jobs, window_place};
+use crate::core::{animations, claude_jobs, dpi_follow, window_place};
 use crate::ui::dwm_thumbs;
 use crate::ui::settings;
 use crate::ui::widgets::{focus, text};
@@ -34,7 +34,7 @@ use super::keys;
 use super::list;
 use super::mini;
 use super::model::{self, Archived, Chat, Line, Mark, View};
-use super::modes::{fade_step, give_back, min_size, switch_mode, tell_tray};
+use super::modes::{fade_step, give_back, keep_min_size, min_size, switch_mode, tell_tray};
 use super::place::{self, Place};
 use super::rows::Look;
 use super::select;
@@ -136,6 +136,8 @@ pub(super) struct DeckUi {
     /// The mode the window has now; None before the first frame.
     pub(super) mini_on: Option<bool>,
     pub(super) mini_size: Option<egui::Vec2>,
+    /// The mode and scale the smallest size was last sent for.
+    pub(super) min_for: Option<(bool, f32)>,
     pub(super) fade: Fade,
     pub(super) waiting_before: Vec<String>,
     pub(super) cache: Cache,
@@ -257,6 +259,7 @@ impl PluginWindow for DeckWindow {
                 state.scroll_to_selected = true;
             }
             follow_front(&mut state, &lines);
+            keep_min_size(ui.ctx(), &mut state, settings.mini);
             switch_mode(ui.ctx(), &mut state, settings.mini, &lines);
             let turn = ring_turn(&state);
             let menu_was_open = egui::Popup::is_any_open(ui.ctx());
@@ -414,6 +417,7 @@ fn find_and_place(state: &mut DeckUi, palette: isize, tokens: &Tokens, to_host: 
     if state.window == 0 {
         return;
     }
+    dpi_follow::follow(state.window);
     if state.border != Some(tokens.border) {
         state.border = Some(tokens.border);
         dwm_thumbs::round_corners(state.window as HWND, theme::colorref(tokens.border));

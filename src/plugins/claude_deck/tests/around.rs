@@ -280,6 +280,7 @@ fn the_kept_place_saves_loads_and_ignores_what_is_too_small_or_broken() {
         y: 40,
         width: 360,
         height: 480,
+        dpi: 144,
     };
     place::save(&path, wanted);
     assert_eq!(place::load(&path), Some(wanted));

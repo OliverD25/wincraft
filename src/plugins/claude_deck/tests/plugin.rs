@@ -112,6 +112,7 @@ fn the_place_is_kept_only_when_it_is_worth_it_and_reads_back() {
         y: -20,
         width: 360,
         height: 480,
+        dpi: 144,
     };
     assert!(worth_keeping(false, true, place));
     assert!(!worth_keeping(true, true, place));

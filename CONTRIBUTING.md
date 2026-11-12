@@ -479,6 +479,10 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   (after you bring a window to the front, `window_hint::show` points to it
   when it is on another monitor than the one the user looks at) and
   `animations` (whether the Windows setting "Animation effects" is on).
+  A frameless egui window that the user drags by its own header calls
+  `dpi_follow::follow(hwnd)` once, so it keeps its size in points and does
+  not flip between two scales when it is dragged to a monitor with another
+  scale.
 - **Clean up in `teardown`.** A plugin can be switched off and on again from
   the settings window, so `init` must work a second time.
 - **`cargo fmt`, `cargo test`, `cargo clippy --all-targets` and a

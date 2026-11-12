@@ -38,8 +38,6 @@ pub(super) fn switch_mode(ctx: &egui::Context, state: &mut DeckUi, mini: bool, l
     }
     let was = state.mini_on.replace(mini);
     state.mini_size = size;
-    let [width, height] = min_size(mini);
-    ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(vec2(width, height)));
     match size {
         Some(size) => {
             if was == Some(false) {
@@ -55,6 +53,23 @@ pub(super) fn switch_mode(ctx: &egui::Context, state: &mut DeckUi, mini: bool, l
         },
         None => {}
     }
+}
+
+/// Gives the window its smallest size again when the mode or the scale
+/// changed. egui turns the size in points into pixels when it is sent, so
+/// after a move to a monitor with another scale it must be sent again, or
+/// the old monitor's smallest size would hold the window.
+pub(super) fn keep_min_size(ctx: &egui::Context, state: &mut DeckUi, mini: bool) {
+    if state.window == 0 {
+        return;
+    }
+    let now = (mini, ctx.pixels_per_point());
+    if state.min_for == Some(now) {
+        return;
+    }
+    state.min_for = Some(now);
+    let [width, height] = min_size(mini);
+    ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(vec2(width, height)));
 }
 
 /// Esc: the keyboard goes back to the window that was in front when the

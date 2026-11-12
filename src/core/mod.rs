@@ -18,6 +18,7 @@ pub mod config;
 pub mod deck_groups;
 pub mod desktop_manager;
 pub mod detailed;
+pub mod dpi_follow;
 pub mod glass;
 pub mod host;
 pub mod hotkeys;
