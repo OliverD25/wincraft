@@ -5,43 +5,6 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ## Open
 
-### 11. Check that a stack list row shows its window
-
-- **State:** Ready to test (0.20.96 released 2026-11-11).
-- **Kind:** test · **Added:** 2026-11-11 (PC)
-- **Why:** the window comes forward only on a real screen with a real mouse; tests cannot see it.
-
-**Steps**
-
-1. Press `Alt+Space` (your palette hotkey), type `update`, pick **Update WinCraft** and press `Enter`. WinCraft checks, installs the newer version and restarts.
-2. Press `Alt+Space` again. The bottom right corner of the palette shows "WinCraft v0.20.96" or newer. Press `Esc`.
-3. Open WindowDeck on an app that has a group (for example the Notepad group from task 7).
-4. Move the mouse onto the stack. Its list of windows opens.
-5. Move the mouse down into the list and rest it on a row. After a short moment that window shows in front, as when you rest the mouse on a card.
-6. Move to another row: that row's window shows instead. Move the mouse out of the list: the window goes back.
-
-**Done when:** steps 5 and 6 look as described.
-
-### 13. Install the attention hook fix: a question stays Waiting while other tools finish
-
-- **State:** Ready to test. Step 1 done on 2026-11-12 (config commit c7c3338, the installed hook matches the tested copy); step 2 left.
-- **Kind:** test · **Added:** 2026-11-12 (PC)
-- **Why:** on 2026-11-12 the VerdictAI chat showed a question, but its WindowDeck card said Idle. The hook cleared the mark when any tool finished; now only the tool that waits clears it. This chat cannot write to the hooks folder.
-- **Agent can check:** the installed hook matches the scratchpad copy, and `~/.claude/claude-attention.log` shows "ignored: the mark waits for" lines.
-
-**Steps**
-
-1. Open the WSL terminal and paste this block:
-
-   ```bash
-   cd /mnt/c/Users/Admin/.claude && cp "/mnt/c/Users/Admin/AppData/Local/Temp/claude/9e02bdafa49d6b9c/db2a44a3-eed1-4ce2-8060-89ab0229d84b/scratchpad/claude-attention.py" hooks/claude-attention.py && git add hooks/claude-attention.py && git commit -m "claude-attention: only the waiting tool's PostToolUse clears a mark" && git log --oneline -1
-   ```
-
-   It prints one commit line.
-2. Next time a Claude chat shows a question card while it also has other work going (an away run, background agents), open WindowDeck. Its card shows **Waiting** with an orange frame until you answer.
-
-**Done when:** step 1 printed a commit, and a waiting question card stays **Waiting** in WindowDeck.
-
 ### 21. Install 0.20.106 and check the homelab servers in ClaudeDeck
 
 - **State:** Ready to test (0.20.106 released 2026-11-12; the release has wincraft.exe and its checksum).
@@ -62,6 +25,8 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ## Done
 
+- **13. Install the attention hook fix: a question stays Waiting while other tools finish**: done 2026-11-12. The user said "13 is done" after the test. The hook log has 13 "ignored: the mark waits for" lines, so the hook keeps a question mark while other tools finish.
+- **11. Check that a stack list row shows its window**: done 2026-11-12. The user said "11 done" after the test: resting the mouse on a row of a stack's list shows that window in front.
 - **20. Install 0.20.105 and move the cursor with the mouse in the rename box**: done 2026-11-12. The user said "done 20" after the test on 0.20.105: a press on the name places the cursor and the palette stays where it is.
 - **19. Install 0.20.104 and try the rename box and Rename in ClaudeDeck**: done 2026-11-12. The user said "done task #19" after the test on 0.20.104: the rename box starts with the current name, and **Rename the window…** and `F2` work in ClaudeDeck.
 - **15. Check Rename, group renames, app updates and status chips in an open group**: done 2026-11-12. The user tested on 0.20.103: "all works as intended". Asked after it: the rename box should start with the current name, and ClaudeDeck should get Rename; both are in 0.20.104 (task 19).
