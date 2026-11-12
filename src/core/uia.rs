@@ -37,7 +37,38 @@ struct IUIAutomationVtbl {
     _get_control_view_walker: unsafe extern "system" fn(),
     _get_content_view_walker: unsafe extern "system" fn(),
     get_raw_view_walker: unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> HRESULT,
+    _get_raw_view_condition: unsafe extern "system" fn(),
+    _get_control_view_condition: unsafe extern "system" fn(),
+    _get_content_view_condition: unsafe extern "system" fn(),
+    _create_cache_request: unsafe extern "system" fn(),
+    _create_true_condition: unsafe extern "system" fn(),
+    _create_false_condition: unsafe extern "system" fn(),
+    create_property_condition:
+        unsafe extern "system" fn(*mut c_void, i32, Variant, *mut *mut c_void) -> HRESULT,
+    _create_property_condition_ex: unsafe extern "system" fn(),
+    create_and_condition: unsafe extern "system" fn(
+        *mut c_void,
+        *mut c_void,
+        *mut c_void,
+        *mut *mut c_void,
+    ) -> HRESULT,
 }
+
+/// A VARIANT, as far as the two kinds of value used here need it: a string
+/// (`VT_BSTR`) or a 32-bit number (`VT_I4`). It is 24 bytes, as on x64.
+#[repr(C)]
+struct Variant {
+    vt: u16,
+    _reserved: [u16; 3],
+    value: [u64; 2],
+}
+
+const VT_I4: u16 = 3;
+const VT_BSTR: u16 = 8;
+const PROPERTY_CONTROL_TYPE: i32 = 30003;
+const PROPERTY_NAME: i32 = 30005;
+/// `TreeScope_Descendants`.
+const SCOPE_DESCENDANTS: i32 = 4;
 
 type WalkStep = unsafe extern "system" fn(*mut c_void, *mut c_void, *mut *mut c_void) -> HRESULT;
 
@@ -105,7 +136,8 @@ struct IUIAutomationElementVtbl {
     _base: IUnknown_Vtbl,
     set_focus: unsafe extern "system" fn(*mut c_void) -> HRESULT,
     _get_runtime_id: unsafe extern "system" fn(),
-    _find_first: unsafe extern "system" fn(),
+    find_first:
+        unsafe extern "system" fn(*mut c_void, i32, *mut c_void, *mut *mut c_void) -> HRESULT,
     _find_all: unsafe extern "system" fn(),
     _find_first_build_cache: unsafe extern "system" fn(),
     _find_all_build_cache: unsafe extern "system" fn(),
@@ -180,6 +212,79 @@ impl Automation {
             (self.vtable().element_from_point)(self.automation.as_raw(), POINT { x, y }, &mut raw)
         };
         taken(hr, raw).ok_or_else(|| format!("ElementFromPoint failed ({})", com::hex(hr)))
+    }
+
+    fn property_condition(&self, property: i32, value: Variant) -> Option<ComPtr> {
+        let mut raw = std::ptr::null_mut();
+        let hr = unsafe {
+            (self.vtable().create_property_condition)(
+                self.automation.as_raw(),
+                property,
+                value,
+                &mut raw,
+            )
+        };
+        taken(hr, raw)
+    }
+
+    /// The first descendant of `root` with exactly this name (and, when
+    /// given, this control type), found by the app that draws the elements,
+    /// so the walk does not cross processes once per element.
+    pub fn find_first(
+        &self,
+        root: &ComPtr,
+        name: &str,
+        control_type: Option<i32>,
+    ) -> Option<ComPtr> {
+        let mut wide: Vec<u16> = name.encode_utf16().collect();
+        wide.push(0);
+        let bstr = unsafe { SysAllocString(wide.as_ptr()) };
+        if bstr.is_null() {
+            return None;
+        }
+        let by_name = self.property_condition(
+            PROPERTY_NAME,
+            Variant {
+                vt: VT_BSTR,
+                _reserved: [0; 3],
+                value: [bstr as usize as u64, 0],
+            },
+        );
+        unsafe { SysFreeString(bstr) };
+        let by_name = by_name?;
+        let condition = match control_type {
+            Some(kind) => {
+                let by_type = self.property_condition(
+                    PROPERTY_CONTROL_TYPE,
+                    Variant {
+                        vt: VT_I4,
+                        _reserved: [0; 3],
+                        value: [u64::from(kind as u32), 0],
+                    },
+                )?;
+                let mut raw = std::ptr::null_mut();
+                let hr = unsafe {
+                    (self.vtable().create_and_condition)(
+                        self.automation.as_raw(),
+                        by_name.as_raw(),
+                        by_type.as_raw(),
+                        &mut raw,
+                    )
+                };
+                taken(hr, raw)?
+            }
+            None => by_name,
+        };
+        let mut found = std::ptr::null_mut();
+        let hr = unsafe {
+            (element_vtable(root).find_first)(
+                root.as_raw(),
+                SCOPE_DESCENDANTS,
+                condition.as_raw(),
+                &mut found,
+            )
+        };
+        taken(hr, found)
     }
 
     pub fn element_from_handle(&self, hwnd: HWND) -> Result<ComPtr, String> {

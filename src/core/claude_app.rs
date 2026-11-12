@@ -65,6 +65,17 @@ pub trait Tree {
     fn select(&self, node: &Self::Node) -> Result<(), String>;
     fn expand(&self, node: &Self::Node) -> Result<(), String>;
     fn invoke(&self, node: &Self::Node) -> Result<(), String>;
+    /// The first descendant of this kind and exact name. The default walks
+    /// the tree element by element; the real tree asks the app that draws it.
+    fn find_first(&self, root: &Self::Node, kind: Kind, name: &str) -> Option<Self::Node>
+    where
+        Self: Sized,
+    {
+        search(self, root, DEPTH, ITEMS, false, &|tree, node| {
+            named(tree, node, kind, name)
+        })
+        .map(|found| found.node)
+    }
 }
 
 /// A node a walk found, and how many nodes matched.
@@ -124,12 +135,9 @@ fn named<T: Tree>(tree: &T, node: &T::Node, kind: Kind, name: &str) -> bool {
 }
 
 /// The button whose name is `title` (trimmed, exact), first in reading
-/// order, and how many buttons have that name.
+/// order.
 pub fn find_button<T: Tree>(tree: &T, root: &T::Node, title: &str) -> Option<Found<T::Node>> {
-    let title = title.trim();
-    search(tree, root, DEPTH, ITEMS, true, &|tree, node| {
-        named(tree, node, Kind::Button, title)
-    })
+    find_named(tree, root, Kind::Button, title.trim())
 }
 
 /// The first element of this kind and exact name.
@@ -139,9 +147,8 @@ pub fn find_named<T: Tree>(
     kind: Kind,
     name: &str,
 ) -> Option<Found<T::Node>> {
-    search(tree, root, DEPTH, ITEMS, false, &|tree, node| {
-        named(tree, node, kind, name)
-    })
+    tree.find_first(root, kind, name)
+        .map(|node| Found { node, matches: 1 })
 }
 
 /// The first edit field below `root`.
@@ -217,6 +224,27 @@ impl Tree for Real<'_> {
     fn invoke(&self, node: &Self::Node) -> Result<(), String> {
         uia::invoke(node)
     }
+
+    fn find_first(&self, root: &Self::Node, kind: Kind, name: &str) -> Option<Self::Node> {
+        let control_type = match kind {
+            Kind::Button => Some(uia::CONTROL_BUTTON),
+            Kind::Group => Some(uia::CONTROL_GROUP),
+            Kind::MenuItem => Some(uia::CONTROL_MENU_ITEM),
+            Kind::Edit => Some(uia::CONTROL_EDIT),
+            Kind::Radio => Some(uia::CONTROL_RADIO),
+            Kind::Other => None,
+        };
+        self.0.find_first(root, name, control_type)
+    }
+}
+
+/// Whether the window belongs to the app (`claude.exe`).
+fn is_app_window(hwnd: HWND) -> bool {
+    let mut pid = 0;
+    unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+    windows_list::exe_path(pid)
+        .to_lowercase()
+        .ends_with(PROGRAM)
 }
 
 /// The visible top-level windows of the app (`claude.exe`), those with the
@@ -225,13 +253,7 @@ pub(crate) fn app_windows() -> Vec<HWND> {
     let mut windows: Vec<HWND> = windows_list::top_windows()
         .into_iter()
         .filter(|hwnd| unsafe { IsWindowVisible(*hwnd) } != 0)
-        .filter(|hwnd| {
-            let mut pid = 0;
-            unsafe { GetWindowThreadProcessId(*hwnd, &mut pid) };
-            windows_list::exe_path(pid)
-                .to_lowercase()
-                .ends_with(PROGRAM)
-        })
+        .filter(|hwnd| is_app_window(*hwnd))
         .collect();
     windows.sort_by_key(|hwnd| windows_list::class_name(*hwnd) != WINDOW_CLASS);
     windows
@@ -240,6 +262,23 @@ pub(crate) fn app_windows() -> Vec<HWND> {
 /// The home window: the one titled "Claude Home", else the app window
 /// that has a chat list. Popped-out chat windows have neither.
 fn locate(automation: &Automation) -> Option<(HWND, com::ComPtr)> {
+    // The window title says it at once: no UI Automation look at the
+    // other windows of the app is needed.
+    let titled = windows_list::top_windows().into_iter().find(|hwnd| {
+        let visible = unsafe { IsWindowVisible(*hwnd) } != 0;
+        visible
+            && windows_list::window_text(*hwnd) == HOME_TITLE
+            && windows_list::class_name(*hwnd) == WINDOW_CLASS
+            && is_app_window(*hwnd)
+    });
+    if let Some(root) = titled.and_then(|hwnd| {
+        automation
+            .element_from_handle(hwnd)
+            .ok()
+            .map(|root| (hwnd, root))
+    }) {
+        return Some(root);
+    }
     let mut windows: Vec<HWND> = app_windows()
         .into_iter()
         .filter(|hwnd| windows_list::class_name(*hwnd) == WINDOW_CLASS)
@@ -565,7 +604,11 @@ pub(crate) fn on_com_thread(
 /// Opens the chat with this title in the app's main window, on a thread of
 /// its own. `failed` gets the notice text when the chat cannot be found.
 /// A test copy of WinCraft only reads; unit tests start nothing.
-pub fn open_chat(title: &str, failed: impl FnOnce(String) + Send + 'static) {
+pub fn open_chat(
+    title: &str,
+    failed: impl FnOnce(String) + Send + 'static,
+    finished: impl FnOnce() + Send + 'static,
+) {
     if cfg!(test) {
         return;
     }
@@ -575,7 +618,14 @@ pub fn open_chat(title: &str, failed: impl FnOnce(String) + Send + 'static) {
         title.trim()
     );
     on_com_thread(title.trim().to_string(), failed, move |title| {
-        run(title, dry)
+        let began = Instant::now();
+        let outcome = run(title, dry);
+        log::info!(
+            "ClaudeDeck: opening \"{title}\" took {} ms",
+            began.elapsed().as_millis()
+        );
+        finished();
+        outcome
     });
 }
 

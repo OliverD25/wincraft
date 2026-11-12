@@ -6,6 +6,7 @@
 //! changes it in the app, so there is one name for the chat.
 
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use crate::core::ui_bridge::{ArrangeAction, HostChannel, HostRequest, Prompt};
 use crate::core::{claude_app, host, window_names};
@@ -31,7 +32,86 @@ pub(super) fn open_chat(window: Option<isize>, title: &str, to_host: &HostChanne
     if window.is_some() {
         bring_forward(window, to_host);
     } else {
-        claude_app::open_chat(title, say);
+        open_in_app(title);
+    }
+}
+
+/// What the row says while the chat is being opened in the app.
+pub(crate) const OPENING_LINE: &str = "Opening in the Claude app\u{2026}";
+/// A second open of the same chat within this long of the first is ignored.
+const REPEAT: Duration = Duration::from_secs(2);
+/// An open that never reported its end is forgotten after this long.
+const STALE: Duration = Duration::from_secs(15);
+
+/// The chats being opened in the app, and when each open began and ended.
+#[derive(Default)]
+pub(crate) struct Opening {
+    entries: Vec<(String, Instant, Option<Instant>)>,
+}
+
+impl Opening {
+    /// Whether the open may start. False for a chat that is being opened,
+    /// or was opened a moment ago: a double-click must open it once.
+    pub(crate) fn begin(&mut self, title: &str, now: Instant) -> bool {
+        self.entries.retain(|(_, began, ended)| match ended {
+            Some(ended) => now.saturating_duration_since(*ended) < REPEAT,
+            None => now.saturating_duration_since(*began) < STALE,
+        });
+        if self.entries.iter().any(|(name, _, _)| name == title) {
+            return false;
+        }
+        self.entries.push((title.to_string(), now, None));
+        true
+    }
+
+    pub(crate) fn end(&mut self, title: &str, now: Instant) {
+        for (name, _, ended) in &mut self.entries {
+            if name == title && ended.is_none() {
+                *ended = Some(now);
+            }
+        }
+    }
+
+    /// Whether the chat's open is still running.
+    pub(crate) fn is_opening(&self, title: &str, now: Instant) -> bool {
+        self.entries.iter().any(|(name, began, ended)| {
+            name == title && ended.is_none() && now.saturating_duration_since(*began) < STALE
+        })
+    }
+}
+
+static OPENING: Mutex<Opening> = Mutex::new(Opening {
+    entries: Vec::new(),
+});
+
+fn open_in_app(title: &str) {
+    let allowed = OPENING
+        .lock()
+        .map(|mut opening| opening.begin(title, Instant::now()))
+        .unwrap_or(true);
+    if !allowed {
+        log::info!("ClaudeDeck: \"{title}\" is already being opened; the repeat is ignored");
+        return;
+    }
+    let name = title.to_string();
+    claude_app::open_chat(title, say, move || {
+        if let Ok(mut opening) = OPENING.lock() {
+            opening.end(&name, Instant::now());
+        }
+    });
+}
+
+/// Puts "Opening in the Claude app…" on the rows of the chats being
+/// opened, so a click shows something at once.
+pub(super) fn show_opening(chats: &mut [super::model::Chat]) {
+    let Ok(opening) = OPENING.lock() else {
+        return;
+    };
+    let now = Instant::now();
+    for chat in chats {
+        if chat.window.is_none() && opening.is_opening(&chat.title, now) {
+            chat.text = Some(OPENING_LINE.to_string());
+        }
     }
 }
 
@@ -181,6 +261,27 @@ pub(super) fn pending_rename() -> Option<(String, Option<isize>)> {
 mod tests {
     use super::*;
 
+    fn plain(title: &str) -> crate::plugins::claude_deck::model::Chat {
+        use crate::plugins::claude_deck::model::{Chat, Mark};
+        Chat {
+            id: title.to_string(),
+            title: title.to_string(),
+            folder: None,
+            branch: None,
+            model: None,
+            parent: None,
+            created: 0,
+            mark: Mark::Unknown,
+            since: None,
+            jobs: 0,
+            window: None,
+            text: None,
+            full: None,
+            fork: None,
+            terminal: None,
+        }
+    }
+
     #[test]
     fn a_waiting_notice_is_handed_over_once() {
         PENDING.lock().unwrap().push("one".to_string());
@@ -222,5 +323,63 @@ mod tests {
         let no_window = plan_rename(waiting(), 0, "New", true).unwrap();
         assert_eq!(no_window.clear, None);
         assert_eq!(with.title, "T");
+    }
+
+    #[test]
+    fn a_repeat_open_of_the_same_chat_is_ignored_while_it_runs_and_for_two_seconds() {
+        let start = Instant::now();
+        let mut opening = Opening::default();
+        assert!(opening.begin("A", start));
+        assert!(
+            !opening.begin("A", start + Duration::from_millis(300)),
+            "running"
+        );
+        assert!(opening.begin("B", start), "another chat is not blocked");
+        opening.end("A", start + Duration::from_secs(1));
+        assert!(
+            !opening.begin("A", start + Duration::from_millis(2500)),
+            "just ended"
+        );
+        assert!(
+            opening.begin("A", start + Duration::from_millis(3500)),
+            "after the window"
+        );
+    }
+
+    #[test]
+    fn an_open_that_never_ended_is_forgotten() {
+        let start = Instant::now();
+        let mut opening = Opening::default();
+        assert!(opening.begin("A", start));
+        assert!(opening.is_opening("A", start + Duration::from_secs(1)));
+        assert!(!opening.is_opening("A", start + STALE + Duration::from_secs(1)));
+        assert!(opening.begin("A", start + STALE + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn the_row_of_a_chat_being_opened_reads_opening_until_the_open_ends() {
+        let mut chat = plain("Row being opened");
+        chat.text = Some("Last: done".into());
+        OPENING
+            .lock()
+            .unwrap()
+            .begin("Row being opened", Instant::now());
+        let mut chats = vec![chat];
+        show_opening(&mut chats);
+        assert_eq!(chats[0].text.as_deref(), Some(OPENING_LINE));
+        OPENING
+            .lock()
+            .unwrap()
+            .end("Row being opened", Instant::now());
+        let mut again = vec![plain("Row being opened")];
+        show_opening(&mut again);
+        assert_ne!(again[0].text.as_deref(), Some(OPENING_LINE));
+        // A chat with a window of its own is not "opened in the app".
+        OPENING.lock().unwrap().begin("Windowed", Instant::now());
+        let mut windowed = plain("Windowed");
+        windowed.window = Some(5);
+        let mut chats = vec![windowed];
+        show_opening(&mut chats);
+        assert_ne!(chats[0].text.as_deref(), Some(OPENING_LINE));
     }
 }

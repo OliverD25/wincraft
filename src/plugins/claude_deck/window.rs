@@ -375,6 +375,7 @@ pub(super) fn build(state: &mut DeckUi, settings: &super::Settings, now: u64) {
         hidden_open: state.hidden_open,
         saved: state.saved.clone(),
     };
+    open_app::show_opening(&mut state.chats);
     let lines = model::lines(&state.chats, &state.archived, &view, now);
     let listed = listed(state);
     state.cache = Cache {

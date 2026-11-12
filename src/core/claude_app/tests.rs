@@ -135,7 +135,7 @@ fn of_two_buttons_with_one_title_the_first_is_used() {
     let tree = home(&[("Twin", Kind::Button), ("Twin", Kind::Button)]);
     let found = find_button(&tree, &0, "Twin").unwrap();
     assert_eq!(found.node, 3);
-    assert_eq!(found.matches, 2);
+    assert_eq!(found.matches, 1, "the app finds the first one");
 }
 
 #[test]
@@ -220,9 +220,13 @@ fn the_notice_names_claudedeck_and_the_chat() {
 #[test]
 fn unit_tests_start_nothing() {
     let (sender, receiver) = std::sync::mpsc::channel::<String>();
-    open_chat("Any chat", move |text| {
-        let _ = sender.send(text);
-    });
+    open_chat(
+        "Any chat",
+        move |text| {
+            let _ = sender.send(text);
+        },
+        || {},
+    );
     assert!(receiver.recv_timeout(Duration::from_millis(100)).is_err());
 }
 

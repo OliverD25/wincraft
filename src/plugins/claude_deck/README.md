@@ -291,7 +291,11 @@ and pressing through its screens was judged too fragile. If a step fails,
 WindowNamer name on the chat's window is cleared after a rename. A test copy
 only reads. Every step is written to the log.
 
-**Opening a chat with no window of its own.** Such a chat lives only in the
+**Opening a chat with no window of its own.** (The row reads "Opening in
+the Claude app…" while it runs, a repeat click within two seconds is
+ignored, the home window is found by its title, and the buttons are found
+by the app itself, not by walking its tree element by element. The log
+says how long each open took.) Such a chat lives only in the
 Claude app's main window, and the app has no link that opens a given chat.
 So ClaudeDeck finds the main window through UI Automation (the same
 Windows service screen readers use), brings it forward and presses the
