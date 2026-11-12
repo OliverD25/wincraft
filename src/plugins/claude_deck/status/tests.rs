@@ -20,6 +20,7 @@ fn chat(mark: Mark) -> Chat {
         window: None,
         text: None,
         full: None,
+        fork: None,
     }
 }
 

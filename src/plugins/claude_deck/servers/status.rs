@@ -15,6 +15,7 @@ use serde_json::Value;
 
 use crate::core::claude_sessions::Age;
 use crate::core::claude_turns::{End, Tail, Turn};
+use crate::plugins::claude_deck::fork::Fork;
 use crate::plugins::claude_deck::model::{Chat, Mark};
 use crate::plugins::claude_deck::status::{full_text, line_text};
 
@@ -178,6 +179,7 @@ pub fn ready_chats(
             window: None,
             text: Some(if failed { RC_STOPPED } else { RC_READY }.to_string()),
             full: None,
+            fork: None,
         });
     }
     rows
@@ -265,5 +267,12 @@ pub fn chat(
             line_text(mark, Some(turn))
         },
         full: full_text(mark, Some(turn)),
+        fork: Fork::new(
+            raw.file.strip_suffix(".jsonl").unwrap_or_default(),
+            parsed
+                .cwd
+                .as_deref()
+                .filter(|cwd| super::terminal::safe_path(cwd)),
+        ),
     }
 }

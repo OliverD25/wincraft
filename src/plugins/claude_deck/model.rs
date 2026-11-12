@@ -112,6 +112,8 @@ pub struct Chat {
     pub text: Option<String>,
     /// The hover panel's text: the full question or the last result.
     pub full: Option<String>,
+    /// What "Fork in a terminal" needs; None when the chat cannot be forked.
+    pub fork: Option<super::fork::Fork>,
 }
 
 const QUIET_MEANS_IDLE_MS: u64 = 60 * 60 * 1000;
@@ -167,6 +169,10 @@ pub fn chat(
         window: window.map(|w| w.hwnd),
         text: None,
         full: None,
+        fork: super::fork::Fork::new(
+            &session.cli_session_id,
+            lineage.cwd.as_deref().or(lineage.folder()),
+        ),
     }
 }
 
@@ -443,6 +449,7 @@ pub fn stand_in(archived: &Archived, id: &str, folder: Option<String>, created: 
         window: None,
         text: None,
         full: None,
+        fork: None,
     }
 }
 

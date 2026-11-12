@@ -29,6 +29,7 @@ fn chat(id: &str, folder: Option<&str>, created: u64) -> Chat {
         window: None,
         text: None,
         full: None,
+        fork: None,
     }
 }
 

@@ -8,6 +8,7 @@ use std::process::Command;
 use windows_sys::Win32::System::Threading::CREATE_NEW_CONSOLE;
 
 use crate::core::instance;
+use crate::plugins::claude_deck::fork::{valid_id, Fork};
 
 use super::probe::ssh_program;
 
@@ -23,25 +24,57 @@ pub fn remote_command(cwd: Option<&str>) -> String {
 /// A path that can go between single quotes on the server and through
 /// Windows Terminal's command line: no quote, no `;` (Windows Terminal
 /// splits its tabs there), no control character.
-fn safe_path(path: &str) -> bool {
+pub(super) fn safe_path(path: &str) -> bool {
     path.starts_with('/')
         && !path
             .chars()
             .any(|c| matches!(c, '\'' | '"' | ';' | '\\' | '`' | '$') || c.is_control())
 }
 
+/// The command that forks a chat on the server, with Remote Control on so
+/// the fork also shows in the Claude app. None when the session id or the
+/// path is not safe to put in a command.
+pub fn fork_command(cwd: &str, session: &str) -> Option<String> {
+    (safe_path(cwd) && valid_id(session)).then(|| {
+        format!(
+            "cd '{cwd}' && exec $SHELL -lc 'claude --resume {session} --fork-session --remote-control'"
+        )
+    })
+}
+
 /// The arguments of ssh for an interactive shell there.
 pub fn ssh_args(host: &str, cwd: Option<&str>) -> Vec<String> {
+    ssh_args_for(host, remote_command(cwd))
+}
+
+fn ssh_args_for(host: &str, command: String) -> Vec<String> {
     vec![
         "-t".to_string(),
         "--".to_string(),
         host.to_string(),
-        remote_command(cwd),
+        command,
     ]
+}
+
+/// The arguments of ssh that fork a chat; None when it is not safe.
+pub fn fork_args(host: &str, fork: &Fork) -> Option<Vec<String>> {
+    fork_command(&fork.folder, &fork.session).map(|command| ssh_args_for(host, command))
 }
 
 /// Opens the terminal. A test copy of WinCraft opens nothing.
 pub fn open(host: &str, cwd: Option<&str>) {
+    launch(host, ssh_args(host, cwd));
+}
+
+/// Opens a terminal that forks a server chat.
+pub fn open_fork(host: &str, fork: &Fork) {
+    match fork_args(host, fork) {
+        Some(args) => launch(host, args),
+        None => log::warn!("ClaudeDeck: a chat on {host} cannot be forked safely"),
+    }
+}
+
+fn launch(host: &str, args: Vec<String>) {
     // Unit tests never start ssh.
     if cfg!(test) {
         return;
@@ -51,7 +84,6 @@ pub fn open(host: &str, cwd: Option<&str>) {
         return;
     }
     let ssh = ssh_program();
-    let args = ssh_args(host, cwd);
     let terminal = Command::new("wt.exe").arg(&ssh).args(&args).spawn();
     if terminal.is_ok() {
         return;

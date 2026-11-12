@@ -49,6 +49,7 @@ struct Act {
     /// The chat's window and name, for Open and Copy.
     window: Option<isize>,
     title: String,
+    fork: Option<super::fork::Fork>,
     /// The group the line is in.
     group: Option<String>,
 }
@@ -280,6 +281,7 @@ fn group_line(
             pick,
             window: None,
             title: line.name.clone(),
+            fork: None,
             group: Some(line.key.clone()),
         });
     }
@@ -425,6 +427,7 @@ fn chat_line(
             pick,
             window: line.chat.window,
             title: line.chat.title.clone(),
+            fork: line.chat.fork.clone(),
             group: row.group.map(str::to_string),
         });
     }
@@ -553,6 +556,7 @@ fn apply(act: Act, state: &mut DeckUi, to_host: &HostChannel) {
             }
         }
         Choice::RenameWindow => rename_window(act.window, to_host),
+        Choice::Fork => act.fork.iter().for_each(super::fork::open),
         Choice::FoldForks => edit::fold_chat(saved, &id),
         Choice::MoveTo(group) => edit::place_chat(saved, &id, &edit::Spot::End(group)),
         Choice::NewWith => {

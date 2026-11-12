@@ -13,7 +13,7 @@ use windows_sys::Win32::Foundation::HWND;
 use crate::core::clipboard;
 use crate::core::theme;
 use crate::plugins::claude_deck::hover;
-use crate::plugins::claude_deck::menu::{COPY, HIDE, PIN, SHOW, UNPIN};
+use crate::plugins::claude_deck::menu::{COPY, FORK, HIDE, PIN, SHOW, UNPIN};
 use crate::plugins::claude_deck::model::{ChatLine, ColdLine, Fold, HiddenLine, Line};
 use crate::plugins::claude_deck::rows::{self, Look, GROUP, GROUP_GAP, ROW, ROW_TWO};
 use crate::plugins::claude_deck::window::{DeckUi, Pick};
@@ -231,6 +231,12 @@ fn chat_menu(
         if item(ui, OPEN_TERMINAL, "Enter") {
             terminal::open(server, chat.folder.as_deref());
             ui.close();
+        }
+        if let Some(fork) = &chat.fork {
+            if item(ui, FORK, "") {
+                terminal::open_fork(server, fork);
+                ui.close();
+            }
         }
         if item(ui, if pinned { UNPIN } else { PIN }, "") {
             if pinned {
