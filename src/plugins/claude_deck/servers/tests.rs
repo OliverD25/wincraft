@@ -753,3 +753,134 @@ fn an_offline_server_or_an_idle_chat_raises_no_warning() {
     busy::warn_pc(&mut pc, &views);
     assert_eq!(pc[0].text.as_deref(), Some("Running a command"));
 }
+
+// Fixes after the probe ran on all three servers (2026-11-12).
+
+#[test]
+fn a_remote_control_folder_with_no_transcript_is_a_ready_row() {
+    // home2: eight services, five of them never started a chat.
+    let text = format!(
+        "NOW {NOW_S}\nHOME /home/rde\nRC verdict-ai\nRC intellekt.dev\nRC swift-secure\nRCFAIL dou-ua-parser\n\
+         READY -home-rde-projects-intellekt-dev {}\nDONE\n",
+        NOW_S - 600
+    );
+    let mut cache = Cache::new();
+    let mut host = HostView::default();
+    poll::take_reply("rdehome2", Ok(text), &mut cache, &mut host, NOW);
+    let find = |title: &str| {
+        host.chats
+            .iter()
+            .find(|chat| chat.title == title)
+            .unwrap_or_else(|| panic!("a row for {title}: {:?}", host.chats))
+    };
+    let ready = find("intellekt.dev");
+    assert_eq!(ready.mark, Mark::Idle(Age::Fresh));
+    assert_eq!(ready.text.as_deref(), Some(status::RC_READY));
+    assert_eq!(
+        ready.since,
+        Some(NOW - 600_000),
+        "the bridge pointer's time"
+    );
+    assert_eq!(
+        ready.folder.as_deref(),
+        Some("/home/rde/projects/intellekt.dev")
+    );
+    assert_eq!(ready.id, "rdehome2/-home-rde-projects-intellekt-dev");
+    let no_time = find("swift-secure");
+    assert_eq!(no_time.since, None, "no projects folder yet: no time");
+    let failed = find("dou-ua-parser");
+    assert_eq!(failed.mark, Mark::Failed, "a failed service stays red");
+    assert_eq!(failed.text.as_deref(), Some(status::RC_STOPPED));
+    assert_eq!(host.chats.len(), 4);
+}
+
+#[test]
+fn a_remote_control_folder_with_a_transcript_gets_no_second_row() {
+    let mut cache = Cache::new();
+    let mut host = HostView::default();
+    let text = two_chat_reply().replace("NOW ", "HOME /home/rde\nNOW ");
+    poll::take_reply("s", Ok(text), &mut cache, &mut host, NOW);
+    let verdict = host
+        .chats
+        .iter()
+        .filter(|chat| chat.id.ends_with("-projects-verdict-ai"))
+        .count();
+    assert_eq!(verdict, 1);
+    assert_eq!(host.chats.len(), 2);
+}
+
+#[test]
+fn base64_lines_that_look_like_probe_lines_stay_base64() {
+    // Real base64 lines can start like a probe word: "RCBmb3Jj...".
+    let tail = b"RC fake line\nUP and away\nTOP of the file\n";
+    let encoded = b64(tail);
+    let mut lines: Vec<String> = Vec::new();
+    for word in [
+        "RCBmb3JjZSBk",
+        "UPAAAAAA",
+        "TOPAAAAA",
+        "DONEAAAA",
+        "NOWAAAAA",
+    ] {
+        assert!(word.len() % 4 == 0);
+        lines.push(word.to_string());
+    }
+    let text = format!(
+        "NOW {NOW_S}\nCHAT d f 1 2\nRCBmb3JjZSBkZWxldGU=\nEND\nCHAT e f 1 2\n{}\nEND\nDONE\n",
+        encoded
+    );
+    let reply = reply::parse(&text).expect("a reply");
+    assert!(reply.rc.is_empty(), "never read as an RC line");
+    assert_eq!(reply.health.up, None);
+    assert_eq!(reply.chats.len(), 2);
+    assert!(reply.chats[0]
+        .tail
+        .as_deref()
+        .is_some_and(|t| t.starts_with(b"D force delete")));
+    assert_eq!(reply.chats[1].tail.as_deref(), Some(&tail[..]));
+    let mixed = format!(
+        "NOW {NOW_S}\nCHAT d f 1 2\n{}\nEND\nDONE\n",
+        lines.join("\n")
+    );
+    let reply = reply::parse(&mixed).expect("a reply");
+    assert!(reply.rc.is_empty() && reply.health.top.is_none() && reply.health.up.is_none());
+    assert_eq!(reply.chats.len(), 1, "the lines are one block of base64");
+}
+
+#[test]
+fn real_health_values_from_the_three_servers_read_right() {
+    let home1 = format!("NOW {NOW_S}\nUP 4470282\nREBOOT 1\nDISK 779211848 1056295896\nDONE\n");
+    let health = reply::parse(&home1).expect("home1").health;
+    assert_eq!(
+        view::health_lines(&health),
+        vec![
+            "Up 51 days \u{b7} Restart needed",
+            "Disk 743 GB free of 1007 GB"
+        ]
+    );
+    let home2 = format!("NOW {NOW_S}\nTOP 99 rsync\nDISK 30286796 164553912\nDONE\n");
+    let health = reply::parse(&home2).expect("home2").health;
+    assert_eq!(
+        view::health_lines(&health),
+        vec!["Disk 29 GB free of 157 GB", "Busiest: rsync 99%"]
+    );
+    let office1 = format!("NOW {NOW_S}\nCPU 2\nMEM 1000 500\nDONE\n");
+    let mut cache = Cache::new();
+    let mut host = HostView::default();
+    poll::take_reply("rdeoffice1", Ok(office1), &mut cache, &mut host, NOW);
+    assert!(host.online && host.chats.is_empty());
+    assert_eq!(view::line_text(&host, NOW), "No Claude chats");
+}
+
+#[test]
+fn the_busiest_process_skips_the_probes_own() {
+    let script = probe::script(&[]);
+    assert!(
+        script.contains("awk -v me=$$ '$1 != me && $2 != me"),
+        "{script}"
+    );
+    assert!(
+        !script.contains("ps -eo pcpu=,comm="),
+        "the old form took ps itself"
+    );
+}

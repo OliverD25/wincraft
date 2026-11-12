@@ -221,7 +221,9 @@ this off: nothing is read and no server group shows.
   be seen on a server (on the PC a hook says it, and nothing is installed
   on the servers), so such a chat shows **Working**. A chat whose Remote
   Control service failed or keeps restarting shows **Failed** (red) with
-  "Remote Control stopped".
+  "Remote Control stopped". A Remote Control service that has not started
+  a chat yet (it writes nothing until you do) still shows as a row:
+  **Idle**, "Remote Control is ready", in `~/projects/<name>`.
 
 When two chats work on the same repo at the same time (told by the last
 part of the folder, a git worktree counting as its repo), on this PC or a

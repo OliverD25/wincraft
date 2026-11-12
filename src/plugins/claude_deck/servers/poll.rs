@@ -140,6 +140,16 @@ pub fn take_reply(
         cache.insert(raw.dir.clone(), (meta, parsed));
     }
     cache.retain(|dir, _| listed.contains(dir));
+    let ready = status::ready_chats(
+        server,
+        reply.home.as_deref(),
+        &running,
+        &reply.ready,
+        &chats,
+        reply.now * 1000,
+        now,
+    );
+    chats.extend(ready);
     chats.sort_by_key(|chat| std::cmp::Reverse(chat.created));
     view.chats = chats;
 }

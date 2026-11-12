@@ -31,6 +31,11 @@ pub struct Reply {
     pub procs: Vec<String>,
     pub chats: Vec<RawChat>,
     pub health: Health,
+    /// The server's home folder.
+    pub home: Option<String>,
+    /// Remote Control folders with no transcript yet, with the time of
+    /// their `bridge-pointer.json` (server seconds).
+    pub ready: Vec<(String, u64)>,
 }
 
 /// How the server itself is, for the hover panel.
@@ -114,6 +119,19 @@ pub fn parse(text: &str) -> Option<Reply> {
                 {
                     let name: String = name.chars().filter(|c| !c.is_control()).take(40).collect();
                     reply.health.top = Some((cpu, name));
+                }
+            }
+            "HOME" if rest.trim().starts_with('/') => {
+                reply.home = Some(rest.trim().trim_end_matches('/').to_string());
+            }
+            "READY" => {
+                let mut parts = rest.split_whitespace();
+                if let (Some(dir), Some(Ok(mtime)), None) = (
+                    parts.next(),
+                    parts.next().map(str::parse::<u64>),
+                    parts.next(),
+                ) {
+                    reply.ready.push((dir.to_string(), mtime));
                 }
             }
             "DONE" => done = true,

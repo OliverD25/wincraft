@@ -20,6 +20,9 @@ use crate::plugins::claude_deck::status::{full_text, line_text};
 
 use super::reply::RawChat;
 
+/// The line of a Remote Control chat that waits for its first message.
+pub const RC_READY: &str = "Remote Control is ready";
+
 /// The line of a chat whose Remote Control service is broken.
 pub const RC_STOPPED: &str = "Remote Control stopped";
 
@@ -119,6 +122,69 @@ impl Running<'_> {
             .iter()
             .any(|proc| encode(proc) == dir || Some(proc.as_str()) == cwd)
     }
+}
+
+/// A row for each Remote Control unit (running or failed) that has no
+/// transcript among `listed`: an idle service writes nothing until a chat
+/// starts, yet it is there and ready. Its folder is
+/// `<home>/projects/<name>`; its time is `ready`'s, when the server gave one.
+pub fn ready_chats(
+    server: &str,
+    home: Option<&str>,
+    running: &Running,
+    ready: &[(String, u64)],
+    listed: &[Chat],
+    server_now: u64,
+    now: u64,
+) -> Vec<Chat> {
+    let units = running
+        .rc
+        .iter()
+        .map(|name| (name, false))
+        .chain(running.rc_failed.iter().map(|name| (name, true)));
+    let mut rows: Vec<Chat> = Vec::new();
+    for (name, failed) in units {
+        let tail = format!("-projects-{}", encode(name));
+        let has_row = |id: &str| id.starts_with(&format!("{server}/")) && id.ends_with(&tail);
+        if listed
+            .iter()
+            .chain(rows.iter())
+            .any(|chat| has_row(&chat.id))
+        {
+            continue;
+        }
+        let folder = home.map(|home| format!("{home}/projects/{name}"));
+        let dir = match &folder {
+            Some(folder) => encode(folder),
+            None => tail.clone(),
+        };
+        let since = ready
+            .iter()
+            .find(|(ready_dir, _)| ready_dir.ends_with(&tail))
+            .map(|(_, mtime)| now.saturating_sub(server_now.saturating_sub(mtime * 1000)));
+        let quiet = since.map_or(0, |at| now.saturating_sub(at));
+        let mark = if failed {
+            Mark::Failed
+        } else {
+            Mark::Idle(Age::of(quiet))
+        };
+        rows.push(Chat {
+            id: format!("{server}/{dir}"),
+            title: name.clone(),
+            folder,
+            branch: None,
+            model: None,
+            parent: None,
+            created: since.unwrap_or(0),
+            mark,
+            since,
+            jobs: 0,
+            window: None,
+            text: Some(if failed { RC_STOPPED } else { RC_READY }.to_string()),
+            full: None,
+        });
+    }
+    rows
 }
 
 /// The last part of a folder path.

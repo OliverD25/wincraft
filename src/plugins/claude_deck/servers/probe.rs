@@ -30,11 +30,16 @@ pub const KILL_AFTER: Duration = Duration::from_secs(20);
 /// busiest process: its CPU % and name), `RC`, `RCFAIL` (a Remote Control
 /// unit that failed or keeps restarting), `PROC`, then per transcript
 /// `CHAT dir file mtime size` with the base64 of its end and `END`, or
-/// `SAME dir file mtime size` when it has not changed since the last call;
-/// `DONE` last.
+/// `SAME dir file mtime size` when it has not changed since the last call,
+/// or `READY dir mtime` for a Remote Control folder with no transcript yet
+/// (an idle service writes nothing until a chat starts; the time is its
+/// `bridge-pointer.json`'s); `DONE` last. `HOME` names the home folder, so
+/// a Remote Control unit's folder is `$HOME/projects/<name>`.
+/// `TOP` skips the probe's own processes (its `ps` and `awk`).
 const BODY: &str = r#"export LC_ALL=C
 now=$(date +%s)
 echo "NOW $now"
+echo "HOME $HOME"
 cpu() { read -r _ u n s i w q sq st _ < /proc/stat; echo "$((u+n+s+i+w+q+sq+st)) $((i+w))"; }
 set -- $(cpu); t1=$1; i1=$2
 sleep 0.5
@@ -47,7 +52,7 @@ while read -r k v _; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esa
 read -r up _ < /proc/uptime && echo "UP ${up%.*}"
 [ -e /var/run/reboot-required ] && echo "REBOOT 1"
 df -Pk / 2>/dev/null | awk 'NR == 2 { print "DISK", $4, $2 }'
-ps -eo pcpu=,comm= --sort=-pcpu 2>/dev/null | awk 'NR == 1 { printf "TOP %d %s\n", $1, $2 }'
+ps -eo pid=,ppid=,pcpu=,comm= --sort=-pcpu 2>/dev/null | awk -v me=$$ '$1 != me && $2 != me { printf "TOP %d %s\n", $3, $4; exit }'
 rc=
 for u in $(systemctl --user list-units --state=active --no-legend --plain 'claude-rc@*' 2>/dev/null | cut -d' ' -f1); do
   f=${u#claude-rc@}; f=${f%.service}
@@ -65,12 +70,17 @@ for d in */; do
   d=${d%/}
   f=
   for g in $(ls -t -- "$d"/*.jsonl 2>/dev/null); do [ -s "$g" ] && { f=$g; break; }; done
-  [ -n "$f" ] || continue
+  keep=; isrc=
+  for e in $rc; do case $d in *-projects-"$e") keep=1; isrc=1;; esac; done
+  if [ -z "$f" ]; then
+    if [ -n "$isrc" ]; then
+      m=$(stat -c %Y -- "$d/bridge-pointer.json" 2>/dev/null || stat -c %Y -- "$d") && echo "READY $d $m"
+    fi
+    continue
+  fi
   m=$(stat -c %Y -- "$f") || continue
   s=$(stat -c %s -- "$f") || continue
-  keep=
   [ $((now - m)) -le 86400 ] && keep=1
-  for e in $rc; do case $d in *-projects-"$e") keep=1;; esac; done
   [ -n "$keep" ] || continue
   case " $known " in *" $d:$m:$s "*) echo "SAME $d ${f##*/} $m $s"; continue;; esac
   echo "CHAT $d ${f##*/} $m $s"
