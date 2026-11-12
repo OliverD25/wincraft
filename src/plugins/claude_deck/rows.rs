@@ -12,10 +12,12 @@ use crate::core::theme::{self, Tokens};
 use crate::ui::widgets::text;
 
 use super::labels::{
-    chats_label, cold_label, days_label, forks_label, jobs_label, model_label, time_label,
+    chats_label, cold_label, days_label, forks_label, hidden_label, jobs_label, model_label,
+    time_label,
 };
 use super::marks;
-use super::model::{ChatLine, ColdLine, Fold, GroupLine, Line, Mark};
+use super::model::{ChatLine, ColdLine, Fold, GroupLine, HiddenLine, Line, Mark};
+use super::store::Colour;
 use super::{MarkStyle, Settings};
 
 pub const ROW: f32 = 22.0;
@@ -45,6 +47,10 @@ const SMALL: f32 = 12.0;
 /// A branch or model squeezed below this is left out instead.
 const SMALLEST_TAG: f32 = 24.0;
 const STAND_IN_OPACITY: f32 = 0.6;
+const DOT: f32 = 8.0;
+/// The drop line: 2 px, 12 px in from the left and 10 px from the right.
+const DROP_LEFT: f32 = 12.0;
+const DROP_RIGHT: f32 = 10.0;
 
 /// What every line needs to be painted.
 pub struct Look<'a> {
@@ -62,7 +68,7 @@ pub fn height(line: &Line, first: bool, two: bool) -> f32 {
         Line::Chat(_) if two => ROW_TWO,
         Line::Chat(_) => ROW,
         Line::Group(_) if first => GROUP,
-        Line::Group(_) | Line::Cold(_) => GROUP + GROUP_GAP,
+        Line::Group(_) | Line::Cold(_) | Line::Hidden(_) => GROUP + GROUP_GAP,
     }
 }
 
@@ -170,7 +176,7 @@ pub fn chat(
         painter.rect_filled(row, 0.0, tokens.hover_bg);
     }
     let mut painter = painter.clone();
-    if line.stand_in {
+    if line.stand_in || line.hidden {
         painter.multiply_opacity(STAND_IN_OPACITY);
     }
     tree_lines(&painter, row, line, tokens.border);
@@ -314,11 +320,47 @@ fn parts(painter: &Painter, row: Rect, left: f32, line: &ChatLine, look: &Look) 
     }
 }
 
-/// A group's header: the fold arrow, the name, and the count, or while
-/// folded the most urgent mark and "N chats".
-pub fn group(painter: &Painter, rect: Rect, line: &GroupLine, look: &Look, hovered: bool) {
+/// The theme colour of a group colour.
+pub fn colour_of(colour: Colour, tokens: &Tokens) -> Color32 {
+    match colour {
+        Colour::Blue => tokens.info,
+        Colour::Green => tokens.success,
+        Colour::Yellow => tokens.warning,
+        Colour::Red => tokens.danger,
+        Colour::Grey => tokens.text_secondary,
+    }
+}
+
+/// How a group header is drawn besides its line.
+#[derive(Clone, Copy, Default)]
+pub struct GroupState {
+    pub hovered: bool,
+    pub selected: bool,
+    /// The name is being renamed: a box is drawn where it goes, and the
+    /// caller puts the text field in it.
+    pub renaming: bool,
+}
+
+/// A group's header: the fold arrow, its colour dot, the name, and the
+/// count, or while folded the most urgent mark and "N chats". Returns the
+/// room the name has.
+pub fn group(
+    painter: &Painter,
+    rect: Rect,
+    line: &GroupLine,
+    look: &Look,
+    state: GroupState,
+) -> Rect {
     let tokens = look.tokens;
-    if hovered {
+    if state.selected {
+        painter.rect_filled(rect, 0.0, tokens.selection_bg);
+        painter.rect_stroke(
+            rect,
+            0.0,
+            Stroke::new(1.0, tokens.accent),
+            StrokeKind::Inside,
+        );
+    } else if state.hovered {
         painter.rect_filled(rect, 0.0, tokens.hover_bg);
     }
     let middle = rect.center().y;
@@ -351,7 +393,26 @@ pub fn group(painter: &Painter, rect: Rect, line: &GroupLine, look: &Look, hover
             look.turn,
         );
     }
-    let name_left = left + CHEVRON + PART_GAP;
+    let mut name_left = left + CHEVRON + PART_GAP;
+    if let Some(colour) = line.colour {
+        let dot = Rect::from_min_size(pos2(name_left, middle - DOT / 2.0), vec2(DOT, DOT));
+        painter.rect_filled(dot, 2.0, colour_of(colour, tokens));
+        name_left += DOT + PART_GAP;
+    }
+    let room = Rect::from_min_max(
+        pos2(name_left, middle - 9.0),
+        pos2(right - PART_GAP, middle + 9.0),
+    );
+    if state.renaming {
+        painter.rect_filled(room, 3.0, tokens.elevated_bg);
+        painter.rect_stroke(
+            room,
+            3.0,
+            Stroke::new(1.0, tokens.accent),
+            StrokeKind::Inside,
+        );
+        return room;
+    }
     let job = text::job(
         &line.name,
         theme::semibold(SMALL),
@@ -363,6 +424,51 @@ pub fn group(painter: &Painter, rect: Rect, line: &GroupLine, look: &Look, hover
         name_left,
         middle,
         cut(painter, job, right - PART_GAP - name_left),
+    );
+    room
+}
+
+/// The line that shows where a dragged chat or group lands.
+pub fn drop_line(painter: &Painter, width: Rect, y: f32, tokens: &Tokens) {
+    let line = Rect::from_min_max(
+        pos2(width.left() + DROP_LEFT, y - 1.0),
+        pos2(width.right() - DROP_RIGHT, y + 1.0),
+    );
+    painter.rect_filled(line, 1.0, tokens.accent);
+}
+
+/// The line that holds the chats the user hid; a click lists them.
+pub fn hidden(painter: &Painter, rect: Rect, line: &HiddenLine, look: &Look, hovered: bool) {
+    let tokens = look.tokens;
+    if hovered {
+        painter.rect_filled(rect, 0.0, tokens.hover_bg);
+    }
+    painter.extend(Shape::dashed_line(
+        &[rect.left_top(), rect.right_top()],
+        Stroke::new(1.0, tokens.border),
+        3.0,
+        3.0,
+    ));
+    let middle = rect.center().y;
+    let left = rect.left() + GROUP_PAD;
+    chevron(
+        painter,
+        pos2(left, middle - CHEVRON / 2.0),
+        !line.open,
+        tokens.text_secondary,
+    );
+    let label_left = left + CHEVRON + PART_GAP;
+    let label = text::job(
+        &hidden_label(line.chats),
+        theme::regular(SMALL),
+        tokens.text_secondary,
+        None,
+    );
+    put(
+        painter,
+        label_left,
+        middle,
+        cut(painter, label, rect.right() - PAD_RIGHT - label_left),
     );
 }
 

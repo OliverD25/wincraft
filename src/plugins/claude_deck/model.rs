@@ -1,15 +1,17 @@
 //! What ClaudeDeck lists, worked out without any drawing: each chat's
 //! status mark, the groups by project folder, the fork tree inside a group,
-//! the roll-up of a folded chat or group, and the line of cold chats.
-//! Rows never move by themselves: groups go by name, chats by the time
-//! they were made.
+//! the roll-up of a folded chat or group, the line of cold chats and the
+//! line of hidden chats. Rows never move by themselves: the groups and the
+//! chats in them keep the user's saved order (`arrange`).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::core::claude_sessions::{self, Age, Session, Status};
 use crate::core::claude_windows::ChatWindow;
 
-use super::labels::fork_line;
+use super::arrange::{arrange, hidden_chats, hidden_roots};
+use super::emit::{is_cold, most_urgent, Emit};
+use super::store::{Colour, Saved};
 use super::tree::{families, Family, Tree};
 
 pub const DAY_MS: u64 = 24 * 60 * 60 * 1000;
@@ -186,17 +188,15 @@ pub fn group_name(folder: &str) -> String {
 /// The name of the group of chats with no known folder.
 pub const NEW_GROUP: &str = "New";
 
-/// Which parts of the list the user folded or switched.
+/// Which parts of the list the user folded or switched, and the user's
+/// arrangement of it.
 #[derive(Clone, Debug, Default)]
 pub struct View {
     pub only_open: bool,
     pub fold_cold: bool,
-    /// Group keys (lower-case folders; "" for New) that are folded.
-    pub folded_groups: HashSet<String>,
-    /// Chats whose forks are folded.
-    pub folded_chats: HashSet<String>,
-    /// The cold chats are listed under their line.
-    pub cold_open: bool,
+    /// The hidden chats are listed under their line.
+    pub hidden_open: bool,
+    pub saved: Saved,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -215,12 +215,15 @@ pub enum Line {
     /// other lines.
     Chat(Box<ChatLine>),
     Cold(ColdLine),
+    Hidden(HiddenLine),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GroupLine {
+    /// The group's id in the saved arrangement.
     pub key: String,
     pub name: String,
+    pub colour: Option<Colour>,
     pub chats: usize,
     pub folded: bool,
     /// The most urgent mark inside, shown while folded.
@@ -241,6 +244,10 @@ pub struct ChatLine {
     /// The last fork of its chat: its line ends at this row.
     pub last: bool,
     pub fold: Fold,
+    /// Kept at the top of its group by the user.
+    pub pinned: bool,
+    /// Listed under the "hidden chats" line.
+    pub hidden: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -251,29 +258,11 @@ pub struct ColdLine {
     pub open: bool,
 }
 
-fn is_cold(chat: &Chat) -> bool {
-    matches!(chat.mark, Mark::Idle(age) if age.is_cold())
-}
-
-/// The most urgent of these chats; on a tie the first.
-fn most_urgent<'a>(chats: impl Iterator<Item = &'a Chat>) -> Option<&'a Chat> {
-    chats.min_by_key(|chat| chat.mark.rank())
-}
-
-/// A folded chat shows the most urgent of its family; when that is a fork,
-/// its line says so: "A fork needs approval: Waits for your OK".
-fn roll_up(shown: &mut Chat, urgent: &Chat) {
-    if urgent.id == shown.id {
-        return;
-    }
-    shown.mark = urgent.mark;
-    shown.since = urgent.since;
-    let fork = fork_line(urgent.mark);
-    shown.text = Some(match &urgent.text {
-        Some(text) => format!("{fork}: {text}"),
-        None => fork.to_string(),
-    });
-    shown.full.clone_from(&urgent.full);
+/// The line that holds the chats the user hid from the list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HiddenLine {
+    pub chats: usize,
+    pub open: bool,
 }
 
 /// The titles of archived chats, by id, to name the stand-ins.
@@ -287,181 +276,81 @@ pub fn stand_in_title(archived: &Archived, id: &str) -> String {
     }
 }
 
-struct Emit<'a> {
-    tree: &'a Tree<'a>,
-    view: &'a View,
-    archived: &'a Archived,
-    lines: Vec<Line>,
-    /// Chats already drawn, so a loop of forks cannot draw forever.
-    drawn: HashSet<usize>,
-}
-
-impl Emit<'_> {
-    fn family(&mut self, family: &Family) {
-        if let Some(top) = family.top {
-            self.chat(top, 0, Vec::new(), false);
-            return;
-        }
-        let kids: Vec<usize> = family
-            .members
-            .iter()
-            .copied()
-            .filter(|at| self.tree.chats[*at].parent.as_deref() == Some(family.missing.as_str()))
-            .collect();
-        let folded = self.view.folded_chats.contains(&family.missing);
-        let mut stand_in = Chat {
-            id: family.missing.clone(),
-            title: stand_in_title(self.archived, &family.missing),
-            folder: family.folder.clone(),
-            branch: None,
-            model: None,
-            parent: None,
-            created: family.created,
-            mark: Mark::Unknown,
-            since: None,
-            jobs: 0,
-            window: None,
-            text: None,
-            full: None,
-        };
-        let fold = if folded {
-            let members = family.members.iter().map(|at| &self.tree.chats[*at]);
-            if let Some(urgent) = most_urgent(members) {
-                roll_up(&mut stand_in, urgent);
-            }
-            Fold::Folded(family.members.len())
-        } else {
-            Fold::Open
-        };
-        self.lines.push(Line::Chat(Box::new(ChatLine {
-            chat: stand_in,
-            stand_in: true,
-            depth: 0,
-            rails: Vec::new(),
-            last: false,
-            fold,
-        })));
-        if !folded {
-            self.kids(&kids, 1, Vec::new());
-        }
-    }
-
-    fn kids(&mut self, kids: &[usize], depth: usize, rails: Vec<bool>) {
-        for (index, &kid) in kids.iter().enumerate() {
-            let last = index + 1 == kids.len();
-            self.chat(kid, depth, rails.clone(), last);
-        }
-    }
-
-    fn chat(&mut self, at: usize, depth: usize, rails: Vec<bool>, last: bool) {
-        if !self.drawn.insert(at) {
-            return;
-        }
-        let chat = &self.tree.chats[at];
-        let kids: Vec<usize> = self
-            .tree
-            .kids(&chat.id)
-            .iter()
-            .copied()
-            .filter(|kid| !self.drawn.contains(kid))
-            .collect();
-        let folded = self.view.folded_chats.contains(&chat.id);
-        let mut shown = chat.clone();
-        let fold = if kids.is_empty() {
-            Fold::None
-        } else if folded {
-            let mut below = Vec::new();
-            self.tree
-                .below(&chat.id, &mut HashSet::from([at]), &mut below);
-            let all = std::iter::once(chat).chain(below.iter().map(|b| &self.tree.chats[*b]));
-            if let Some(urgent) = most_urgent(all) {
-                roll_up(&mut shown, urgent);
-            }
-            Fold::Folded(below.len())
-        } else {
-            Fold::Open
-        };
-        self.lines.push(Line::Chat(Box::new(ChatLine {
-            chat: shown,
-            stand_in: false,
-            depth,
-            rails: rails.clone(),
-            last,
-            fold,
-        })));
-        if !kids.is_empty() && !folded {
-            let mut deeper = rails;
-            if depth > 0 {
-                deeper.push(!last);
-            }
-            self.kids(&kids, depth + 1, deeper);
-        }
+/// The key a family is saved under: its top chat, or the missing chat its
+/// forks came from.
+fn key_of(tree: &Tree, family: &Family) -> String {
+    match family.top {
+        Some(at) => tree.chats[at].id.clone(),
+        None => family.missing.clone(),
     }
 }
 
-/// One group before it becomes lines: its key, its name and its families.
-type Group = (String, String, Vec<Family>);
-
-/// The lines of the list, top to bottom: "New" first, then the groups by
-/// name, then the line of cold chats. `archived` names the chats forks
-/// came from that are no longer listed.
+/// The lines of the list, top to bottom: the groups in the user's order,
+/// each with its chats in the user's order, then the line of cold chats and
+/// the line of hidden chats. `archived` names the chats forks came from
+/// that are no longer listed.
 pub fn lines(chats: &[Chat], archived: &Archived, view: &View, now: u64) -> Vec<Line> {
-    let tree = Tree::new(chats, view.only_open);
-    let mut groups: Vec<Group> = Vec::new();
+    let saved = arrange(&view.saved, chats, now);
+    let hidden = hidden_chats(chats, &saved.hidden);
+    let shown: Vec<Chat> = chats
+        .iter()
+        .enumerate()
+        .filter(|(at, _)| !hidden.contains(at))
+        .map(|(_, chat)| chat.clone())
+        .collect();
+    let tree = Tree::new(&shown, view.only_open);
+    let mut by_key: HashMap<String, Family> = HashMap::new();
     let mut cold: Vec<Family> = Vec::new();
     for family in families(&tree) {
-        let all_cold = family.members.iter().all(|at| is_cold(&chats[*at]));
+        let all_cold = family.members.iter().all(|at| is_cold(&shown[*at]));
         if view.fold_cold && all_cold {
             cold.push(family);
-            continue;
-        }
-        let key = family
-            .folder
-            .as_deref()
-            .map(str::to_lowercase)
-            .unwrap_or_default();
-        match groups.iter_mut().find(|(k, _, _)| *k == key) {
-            Some((_, _, list)) => list.push(family),
-            None => {
-                let name = family
-                    .folder
-                    .as_deref()
-                    .map_or(NEW_GROUP.to_string(), group_name);
-                groups.push((key, name, vec![family]));
-            }
+        } else {
+            by_key.insert(key_of(&tree, &family), family);
         }
     }
-    groups.sort_by(|a, b| {
-        let rank = |g: &Group| (!g.0.is_empty(), g.1.to_lowercase(), g.0.clone());
-        rank(a).cmp(&rank(b))
-    });
     let mut emit = Emit {
         tree: &tree,
-        view,
+        folded: &saved.folded_chats,
+        pinned: &saved.pinned,
         archived,
         lines: Vec::new(),
-        drawn: HashSet::new(),
+        drawn: Default::default(),
     };
-    for (key, name, mut families) in groups {
-        families.sort_by_key(|family| family.created);
+    for group in &saved.groups {
+        let families: Vec<Family> = group
+            .chats
+            .iter()
+            .filter_map(|key| by_key.remove(key))
+            .collect();
+        if families.is_empty() && !(group.keep && !view.only_open) {
+            continue;
+        }
         let members: Vec<&Chat> = families
             .iter()
-            .flat_map(|f| f.members.iter().map(|at| &chats[*at]))
+            .flat_map(|f| f.members.iter().map(|at| &shown[*at]))
             .collect();
         let roll = most_urgent(members.iter().copied()).map_or(Mark::Unknown, |c| c.mark);
-        let folded = view.folded_groups.contains(&key);
         emit.lines.push(Line::Group(GroupLine {
-            key,
-            name,
+            key: group.id.clone(),
+            name: group.name.clone(),
+            colour: group.colour,
             chats: members.len(),
-            folded,
+            folded: group.folded,
             roll,
         }));
-        if !folded {
+        if !group.folded {
             for family in &families {
                 emit.family(family);
             }
         }
+    }
+    // `arrange` places every family, so nothing is left here; should one
+    // be, it is still listed rather than lost.
+    let mut left: Vec<Family> = by_key.into_values().collect();
+    left.sort_by_key(|family| family.created);
+    for family in &left {
+        emit.family(family);
     }
     if !cold.is_empty() {
         cold.sort_by_key(|family| family.created);
@@ -469,7 +358,7 @@ pub fn lines(chats: &[Chat], archived: &Archived, view: &View, now: u64) -> Vec<
             .iter()
             .flat_map(|f| f.members.iter())
             .map(|at| {
-                chats[*at]
+                shown[*at]
                     .since
                     .map_or(0, |since| now.saturating_sub(since) / DAY_MS)
             })
@@ -480,15 +369,73 @@ pub fn lines(chats: &[Chat], archived: &Archived, view: &View, now: u64) -> Vec<
                 days.iter().copied().min().unwrap_or(0),
                 days.iter().copied().max().unwrap_or(0),
             ),
-            open: view.cold_open,
+            open: saved.cold_open,
         }));
-        if view.cold_open {
+        if saved.cold_open {
             for family in &cold {
                 emit.family(family);
             }
         }
     }
-    emit.lines
+    let mut lines = emit.lines;
+    hidden_lines(&mut lines, chats, archived, &saved, view.hidden_open);
+    lines
+}
+
+/// The line of hidden chats and, while it is open, one plain row for each.
+fn hidden_lines(
+    lines: &mut Vec<Line>,
+    chats: &[Chat],
+    archived: &Archived,
+    saved: &Saved,
+    open: bool,
+) {
+    let roots = hidden_roots(chats, &saved.hidden);
+    if roots.is_empty() {
+        return;
+    }
+    lines.push(Line::Hidden(HiddenLine {
+        chats: roots.len(),
+        open,
+    }));
+    if !open {
+        return;
+    }
+    for id in roots {
+        let (chat, stand_in) = match chats.iter().find(|chat| chat.id == id) {
+            Some(chat) => (chat.clone(), false),
+            None => (stand_in(archived, &id, None, 0), true),
+        };
+        lines.push(Line::Chat(Box::new(ChatLine {
+            chat,
+            stand_in,
+            depth: 0,
+            rails: Vec::new(),
+            last: false,
+            fold: Fold::None,
+            pinned: false,
+            hidden: true,
+        })));
+    }
+}
+
+/// The grey chat a stand-in row shows for a missing chat.
+pub fn stand_in(archived: &Archived, id: &str, folder: Option<String>, created: u64) -> Chat {
+    Chat {
+        id: id.to_string(),
+        title: stand_in_title(archived, id),
+        folder,
+        branch: None,
+        model: None,
+        parent: None,
+        created,
+        mark: Mark::Unknown,
+        since: None,
+        jobs: 0,
+        window: None,
+        text: None,
+        full: None,
+    }
 }
 
 /// How many listed chats have each counted mark, in the header's order;

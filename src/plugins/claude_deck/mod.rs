@@ -7,16 +7,24 @@
 //! asks the host every few seconds to read the chats again
 //! (`HostRequest::ClaudeDeckRefresh`); when it is closed nothing runs.
 
+mod arrange;
 mod data;
+mod drop;
 mod edges;
+mod edit;
+mod emit;
 mod header;
 mod hover;
+mod keys;
 mod labels;
+mod list;
 mod marks;
+mod menu;
 mod model;
 mod place;
 mod rows;
 mod status;
+mod store;
 mod tree;
 mod window;
 

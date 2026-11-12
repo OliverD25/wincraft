@@ -72,7 +72,7 @@ fn a_folded_chat_shows_its_forks_most_urgent_status() {
     chats[2].mark = Mark::AsksYou;
     chats[2].since = Some(NOW - 7 * MIN);
     let view = View {
-        folded_chats: HashSet::from(["rust".to_string()]),
+        saved: folded_chat("rust"),
         ..View::default()
     };
     let got = lines(&chats, &Archived::new(), &view, NOW);
@@ -90,8 +90,10 @@ fn a_folded_group_shows_its_count_and_most_urgent_status() {
         chat("b", Some(r"E:\NewsHQ"), 2),
     ];
     chats[1].mark = Mark::Background;
+    let mut saved = arrange(&Saved::default(), &chats, NOW);
+    saved.groups[0].folded = true;
     let view = View {
-        folded_groups: HashSet::from([r"e:\newshq".to_string()]),
+        saved,
         ..View::default()
     };
     let got = lines(&chats, &Archived::new(), &view, NOW);
@@ -127,7 +129,7 @@ fn a_fork_of_an_archived_or_missing_chat_keeps_a_stand_in() {
     assert!(!chat_line(&got, "other").last);
 
     let view = View {
-        folded_chats: HashSet::from(["gone".to_string()]),
+        saved: folded_chat("gone"),
         ..View::default()
     };
     let mut urgent = chats.clone();
@@ -202,10 +204,8 @@ fn chats_idle_over_a_day_fold_into_one_line_at_the_end() {
     assert_eq!(line.days, (1, 9));
     assert!(!line.open);
 
-    let open = View {
-        cold_open: true,
-        ..view.clone()
-    };
+    let mut open = view.clone();
+    open.saved.cold_open = true;
     let got = lines(&chats, &Archived::new(), &open, NOW);
     assert_eq!(&shape(&got)[4..], ["~ 2", "C old1 0", "C old9 0"]);
 
@@ -242,7 +242,7 @@ fn a_folded_chat_says_when_a_fork_is_the_most_urgent() {
     chats[1].mark = Mark::NeedsApproval;
     chats[1].text = Some("Waits for your OK to run a command".into());
     let view = View {
-        folded_chats: HashSet::from(["rust".to_string()]),
+        saved: folded_chat("rust"),
         ..View::default()
     };
     let lines = lines(&chats, &Archived::new(), &view, NOW);

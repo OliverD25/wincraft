@@ -1,7 +1,10 @@
 //! The tests of ClaudeDeck, by topic; the helpers here make chats and
 //! read lines back as short words.
 
-use std::collections::HashSet;
+use std::collections::BTreeSet;
+
+use crate::plugins::claude_deck::arrange::*;
+use crate::plugins::claude_deck::store::*;
 
 use crate::core::claude_sessions::{Age, Lineage, Session};
 use crate::core::claude_windows::ChatWindow;
@@ -45,7 +48,7 @@ fn cold(id: &str, folder: Option<&str>, days: u64) -> Chat {
 }
 
 /// The lines as short words: "G name count", "C id depth", "S title",
-/// "~ count".
+/// "~ count", "H count".
 fn shape(lines: &[Line]) -> Vec<String> {
     lines
         .iter()
@@ -54,6 +57,7 @@ fn shape(lines: &[Line]) -> Vec<String> {
             Line::Chat(c) if c.stand_in => format!("S {}", c.chat.title),
             Line::Chat(c) => format!("C {} {}", c.chat.id, c.depth),
             Line::Cold(c) => format!("~ {}", c.chats),
+            Line::Hidden(h) => format!("H {}", h.chats),
         })
         .collect()
 }
@@ -88,6 +92,18 @@ fn session(id: &str) -> Session {
     }
 }
 
+/// A saved arrangement with only this chat's forks folded.
+fn folded_chat(id: &str) -> Saved {
+    Saved {
+        folded_chats: BTreeSet::from([id.to_string()]),
+        ..Saved::default()
+    }
+}
+
+mod arrange;
 mod chats;
+mod drop;
+mod edit;
 mod list;
 mod plugin;
+mod store;

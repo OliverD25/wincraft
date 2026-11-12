@@ -12,6 +12,14 @@ pub fn cold_label(chats: usize) -> String {
     }
 }
 
+/// "2 hidden chats", "1 hidden chat".
+pub fn hidden_label(chats: usize) -> String {
+    match chats {
+        1 => "1 hidden chat".to_string(),
+        n => format!("{n} hidden chats"),
+    }
+}
+
 /// "2 jobs", "1 job".
 pub fn jobs_label(jobs: usize) -> String {
     match jobs {

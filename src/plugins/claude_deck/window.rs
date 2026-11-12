@@ -5,11 +5,10 @@
 //! seconds; it repaints only for that, for the times, and for the turning
 //! ring of a working chat when Windows allows animations.
 
-use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use egui::{pos2, vec2, Color32, Key, Rect, Sense, Ui};
+use egui::{pos2, vec2, Color32, Rect, Ui};
 use serde_json::Value;
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
@@ -24,14 +23,17 @@ use crate::ui::dwm_thumbs;
 use crate::ui::settings;
 use crate::ui::widgets::{focus, text};
 
+use super::arrange::{arrange, hidden_chats};
 use super::data;
 use super::edges;
 use super::header::{self, Click};
-use super::hover;
+use super::keys;
+use super::list;
 use super::model::{self, Archived, Chat, Line, Mark, View};
 use super::place::{self, Place};
-use super::rows::{self, Look};
+use super::rows::Look;
 use super::status::Seen;
+use super::store::{self, Saved};
 use super::{Handle, ID, ONLY_OPEN_KEY, STAY_ON_TOP_KEY};
 
 pub const WINDOW_ID: &str = "deck";
@@ -46,28 +48,56 @@ const BUILD_EVERY: Duration = Duration::from_secs(1);
 /// The Working ring: one turn in this time, drawn in this many steps.
 const TURN: Duration = Duration::from_secs(2);
 const RING_STEP: Duration = Duration::from_millis(100);
-const LIST_TOP_PAD: f32 = 4.0;
-const LIST_BOTTOM_PAD: f32 = 6.0;
 const EMPTY_SIZE: f32 = 13.0;
 const EMPTY_PAD: f32 = 28.0;
 
 const EMPTY: &str = "No Claude chats yet.\nChats show here when Claude Code runs.";
 const NONE_OPEN: &str = "No chat has a window open.";
 
+/// A line the keyboard or a drag acts on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum Pick {
+    Chat(String),
+    Group(String),
+}
+
+/// A group whose name is being changed.
+pub(super) struct Rename {
+    pub id: String,
+    pub text: String,
+    /// The text is to be selected whole on the next frame.
+    pub fresh: bool,
+    /// The field has had the keyboard; losing it again saves.
+    pub focused: bool,
+}
+
 #[derive(Default)]
-struct DeckUi {
-    window: isize,
+pub(super) struct DeckUi {
+    pub window: isize,
     placed: bool,
     focus_wanted: bool,
     closed: bool,
     asked: Option<Instant>,
     built: Option<Instant>,
-    chats: Vec<Chat>,
+    pub chats: Vec<Chat>,
     archived: Archived,
     animate: bool,
-    folds: View,
-    selected: Option<String>,
-    scroll_to_selected: bool,
+    /// The user's arrangement, and the copy last written to its file
+    /// (None until the file was read).
+    pub saved: Saved,
+    written: Option<Saved>,
+    writable: bool,
+    pub hidden_open: bool,
+    pub selected: Option<Pick>,
+    pub scroll_to_selected: bool,
+    pub drag: Option<Pick>,
+    pub renaming: Option<Rename>,
+    /// A rename ended this frame: its Enter or Esc is not the list's.
+    pub renamed: bool,
+    /// The keyboard asked for this line's menu.
+    pub menu_for: Option<Pick>,
+    pub menu_at: Option<egui::Pos2>,
+    pub menu_key_down: bool,
     border: Option<Color32>,
     kept: Option<Place>,
     started: Option<Instant>,
@@ -157,12 +187,15 @@ impl PluginWindow for DeckWindow {
             find_and_place(&mut state, palette, &tokens, &to_host);
             refresh(&mut state, &to_host);
             let settings = shared.settings.clone();
-            let mut view = state.folds.clone();
-            view.only_open = settings.only_open;
-            view.fold_cold = settings.fold_cold;
+            let view = View {
+                only_open: settings.only_open,
+                fold_cold: settings.fold_cold,
+                hidden_open: state.hidden_open,
+                saved: state.saved.clone(),
+            };
             let now = claude_sessions::now_ms();
             let lines = model::lines(&state.chats, &state.archived, &view, now);
-            let counts = model::counts(&state.chats, settings.only_open);
+            let counts = model::counts(&listed(&state), settings.only_open);
             let turn = ring_turn(&state);
             let mut clicked = None;
             egui::CentralPanel::default()
@@ -182,11 +215,12 @@ impl PluginWindow for DeckWindow {
                     if lines.is_empty() {
                         empty(&mut list_ui, &tokens, !state.chats.is_empty());
                     } else {
-                        list_lines(&mut list_ui, &lines, &look, &mut state, &to_host);
+                        list::show(&mut list_ui, &lines, &look, &mut state, &to_host);
                     }
                 });
             edges::resize(ui);
-            keys(ui, &lines, &mut state, &to_host);
+            keys::keys(ui, &lines, &mut state, &to_host);
+            commit(&mut state);
             match clicked {
                 Some(Click::OnlyOpen) => {
                     shared.settings.only_open = !settings.only_open;
@@ -222,9 +256,12 @@ fn forget(state: &mut DeckUi) {
     }
     claude_jobs::want_for_deck(Vec::new());
     claude_windows::publish(Vec::new());
-    let kept = state.kept;
+    commit(state);
     *state = DeckUi {
-        kept,
+        kept: state.kept,
+        saved: std::mem::take(&mut state.saved),
+        written: state.written.take(),
+        writable: state.writable,
         ..DeckUi::default()
     };
 }
@@ -284,7 +321,39 @@ fn refresh(state: &mut DeckUi, to_host: &HostChannel) {
     state.seen.note(&windows, claude_windows::foreground(), now);
     state.chats = data::chats(&sessions, &windows, &state.seen, now);
     state.archived = data::archived(&state.chats);
+    if state.written.is_none() {
+        let (saved, writable) = store::load(&store::path()).start();
+        state.written = Some(saved.clone());
+        state.saved = saved;
+        state.writable = writable;
+    }
+    // Before the first read there are no chats yet; arranging then would
+    // count every saved chat as gone.
+    if !state.chats.is_empty() {
+        state.saved = arrange(&state.saved, &state.chats, now);
+    }
     keep_place(state);
+}
+
+/// Writes the arrangement when it changed.
+fn commit(state: &mut DeckUi) {
+    if !state.writable || state.written.as_ref() == Some(&state.saved) || state.written.is_none() {
+        return;
+    }
+    store::save(&store::path(), &state.saved);
+    state.written = Some(state.saved.clone());
+}
+
+/// The chats that are not hidden, for the header's counts.
+fn listed(state: &DeckUi) -> Vec<Chat> {
+    let hidden = hidden_chats(&state.chats, &state.saved.hidden);
+    state
+        .chats
+        .iter()
+        .enumerate()
+        .filter(|(at, _)| !hidden.contains(at))
+        .map(|(_, chat)| chat.clone())
+        .collect()
 }
 
 /// Saves the window's place and size when they changed.
@@ -350,139 +419,14 @@ fn empty(ui: &mut Ui, tokens: &Tokens, filtered: bool) {
     );
 }
 
-/// The lines in a scrolling list, and what a click on one does.
-fn list_lines(ui: &mut Ui, lines: &[Line], look: &Look, state: &mut DeckUi, to_host: &HostChannel) {
-    egui::ScrollArea::vertical()
-        .auto_shrink(false)
-        .show(ui, |ui| {
-            let width = ui.available_width();
-            let total: f32 = lines
-                .iter()
-                .enumerate()
-                .map(|(at, line)| rows::height(line, at == 0, look.settings.text))
-                .sum::<f32>()
-                + LIST_TOP_PAD
-                + LIST_BOTTOM_PAD;
-            let (area, _) = ui.allocate_exact_size(vec2(width, total), Sense::hover());
-            let painter = ui.painter_at(area);
-            let mut top = area.top() + LIST_TOP_PAD;
-            let mut resting: Option<(Rect, &Chat)> = None;
-            for (at, line) in lines.iter().enumerate() {
-                let height = rows::height(line, at == 0, look.settings.text);
-                let whole = Rect::from_min_size(pos2(area.left(), top), vec2(width, height));
-                top += height;
-                let rect = rows::body(line, whole);
-                if !ui.is_rect_visible(rect) {
-                    continue;
-                }
-                let id = ui.id().with(("claude-deck-line", at));
-                let response = ui.interact(rect, id, Sense::click());
-                let hovered = response.hovered();
-                match line {
-                    Line::Group(group) => {
-                        rows::group(&painter, rect, group, look, hovered);
-                        if response.clicked() {
-                            flip(&mut state.folds.folded_groups, &group.key);
-                        }
-                    }
-                    Line::Cold(cold) => {
-                        rows::cold(&painter, rect, cold, look, hovered);
-                        if response.clicked() {
-                            state.folds.cold_open = !state.folds.cold_open;
-                        }
-                    }
-                    Line::Chat(chat) => {
-                        let selected = state.selected.as_deref() == Some(chat.chat.id.as_str());
-                        rows::chat(&painter, rect, chat, look, hovered, selected);
-                        if hovered && !chat.stand_in {
-                            resting = Some((rect, &chat.chat));
-                        }
-                        if selected && std::mem::take(&mut state.scroll_to_selected) {
-                            ui.scroll_to_rect(rect, None);
-                        }
-                        if !response.clicked() {
-                            continue;
-                        }
-                        let on_arrow = chat.fold != model::Fold::None
-                            && response.interact_pointer_pos().is_some_and(|at| {
-                                rows::chevron_rect(rect, chat.depth).contains(at)
-                            });
-                        if on_arrow || chat.stand_in {
-                            flip(&mut state.folds.folded_chats, &chat.chat.id);
-                        } else {
-                            state.selected = Some(chat.chat.id.clone());
-                            bring_forward(chat.chat.window, to_host);
-                        }
-                    }
-                }
-            }
-            if let Some((row, chat)) = resting {
-                let still = ui.ctx().input(|i| i.pointer.time_since_last_movement());
-                if still >= hover::DELAY {
-                    hover::show(ui.ctx(), row, ui.clip_rect(), chat, look);
-                } else {
-                    ui.ctx()
-                        .request_repaint_after(Duration::from_secs_f32(hover::DELAY - still));
-                }
-            }
-        });
-}
-
-fn flip(set: &mut HashSet<String>, key: &str) {
-    if !set.remove(key) {
-        set.insert(key.to_string());
-    }
-}
-
 /// Brings a chat's window to the front through the plugin, which checks
 /// that it is a Claude window and that this is not a test copy. A chat
 /// with no window does nothing.
-fn bring_forward(window: Option<isize>, to_host: &HostChannel) {
+pub(super) fn bring_forward(window: Option<isize>, to_host: &HostChannel) {
     if let Some(hwnd) = window {
         to_host.send(HostRequest::Arrange {
             plugin: ID.to_string(),
             action: ArrangeAction::Activate(hwnd),
         });
-    }
-}
-
-/// Up and Down pick a chat; Enter brings its window to the front.
-fn keys(ui: &Ui, lines: &[Line], state: &mut DeckUi, to_host: &HostChannel) {
-    let (down, up, enter) = ui.ctx().input(|i| {
-        (
-            i.key_pressed(Key::ArrowDown),
-            i.key_pressed(Key::ArrowUp),
-            i.key_pressed(Key::Enter),
-        )
-    });
-    let chats: Vec<&Chat> = lines
-        .iter()
-        .filter_map(|line| match line {
-            Line::Chat(chat) if !chat.stand_in => Some(&chat.chat),
-            _ => None,
-        })
-        .collect();
-    if chats.is_empty() {
-        return;
-    }
-    let at = state
-        .selected
-        .as_deref()
-        .and_then(|id| chats.iter().position(|chat| chat.id == id));
-    let next = match (down, up, at) {
-        (true, _, Some(at)) => Some((at + 1).min(chats.len() - 1)),
-        (true, _, None) => Some(0),
-        (_, true, Some(at)) => Some(at.saturating_sub(1)),
-        (_, true, None) => Some(chats.len() - 1),
-        _ => None,
-    };
-    if let Some(next) = next {
-        state.selected = Some(chats[next].id.clone());
-        state.scroll_to_selected = true;
-    }
-    if enter {
-        if let Some(chat) = at.map(|at| chats[at]) {
-            bring_forward(chat.window, to_host);
-        }
     }
 }
