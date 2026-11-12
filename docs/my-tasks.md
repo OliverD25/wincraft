@@ -25,7 +25,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 27. Two quick checks for ClaudeDeck's open and archive features
 
-- **State:** Ready to test (nothing to install; the Claude app as it is now).
+- **State:** Partly ready: step 3 answered on 2026-11-12 (the link only brought the Claude app forward on a new empty chat); step 4 waits for your answer.
 - **Kind:** test · **Added:** 2026-11-12 (PC)
 - **Why:** a double-click on a chat with no window of its own does nothing, and you want an archive item. Both depend on what the Claude app accepts, which only your screen shows.
 
