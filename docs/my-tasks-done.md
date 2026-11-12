@@ -2,6 +2,7 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
+- **27. Two quick checks for ClaudeDeck's open and archive features**: done 2026-11-12. Answers: the claude://code/continue?session= link only brings the app forward on a new empty chat; yes, the flaky-test chat may be the archive test chat (it was already archived; editing isArchived in its file is not seen by the running app).
 - **26. Install 0.20.110: the header switch and the top edge of ClaudeDeck**: done 2026-11-12. The user said "26 done": the switch knob is centred and the top edge resizes the window.
 - **25. Install 0.20.109: ClaudeDeck's taskbar button, quick settings, and the drag between monitors**: done 2026-11-12. The user said "25 done". Step 7 (the hidden words **Only open windows** in a narrow window): no change asked, so taken as "keep".
 - **24. Install 0.20.108: a fork in a terminal shows in ClaudeDeck**: done 2026-11-12. The user said "24 done" after the test: the terminal fork shows under its chat with the terminal icon and goes when the terminal closes.
