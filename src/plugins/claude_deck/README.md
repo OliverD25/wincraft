@@ -20,13 +20,84 @@ and which one is idle.
   grey line at the end; click it to see them.
 - Rows never move by themselves. Only your drag, `Alt+Up` or `Alt+Down`
   changes the order.
-- Click a chat, or pick it with the arrow keys and press `Enter`, to bring
-  its window to the front. A chat with no open window does nothing.
+- Click a chat to bring its window to the front. A chat with no open window
+  does nothing.
 - The header shows how many chats need approval, ask you, work, or are done.
   **Only open windows** lists only the chats that have a window open. The pin
-  keeps ClaudeDeck above other windows.
+  keeps ClaudeDeck above other windows. The arrow button switches to mini
+  mode.
 - Drag the header to move the window, and its edges to resize it. It opens
   again at the same place and size.
+
+## Status marks
+
+Each status has its own colour and its own shape, so it reads without colour
+too:
+
+- **Needs approval** (triangle): Claude waits for your OK to use a tool.
+- **Asks you** (speech bubble): Claude asked you a question.
+- **Done, not seen** (tick): the chat finished while you were not looking.
+- **Working** (turning ring): Claude is busy on its turn.
+- **Background** (dashed ring): the turn is over, background jobs still run.
+- **Idle** (hollow circle): nothing happens. Grey when fresh, lighter after
+  an hour, blue after a day, a snowflake after three days.
+- **Stopped** (square): you stopped the chat.
+- **Failed** (cross): its last request failed.
+- **Unknown** (dashed "?"): WinCraft cannot tell.
+
+The setting **Status mark** adds a short word after each shape, or hides
+the marks.
+
+How WinCraft tells each status:
+
+- **Needs approval** and **Asks you**: a Claude Code hook said the chat
+  waits (`wincraft.exe --waiting`). The hook says `--kind approval` for a
+  permission prompt; without it every wait is "Asks you". The hook's change
+  is in `docs/claude-deck-hook-kind.md`.
+- **Working**, **Background**, **Idle**: the same rules as WindowDeck.
+- **Done, not seen**: the chat's turn ended while ClaudeDeck was open, and
+  since then you have not had its window in front. A turn that ended while
+  ClaudeDeck was closed shows as Idle, because WinCraft cannot know whether
+  you saw it.
+- **Stopped**: the chat's last record is your stop. **Failed**: its last
+  record is a failed request. Both only for chats active in the last day.
+- **Unknown**: the session file does not say enough.
+
+## The keyboard
+
+- `Win+Alt+C` brings ClaudeDeck to the front with the keyboard in it. The
+  chat that has waited longest (Needs approval or Asks you) is selected;
+  with none waiting, the row you used last.
+- `Up` and `Down` move, `Home` and `End` go to the first and the last line.
+- `1` to `9` pick the chat with that digit. While you use the keyboard, the
+  first nine chat rows on screen show their digit in a small box.
+- `Left` folds the picked group (or the picked chat's forks), `Right`
+  unfolds it.
+- `Enter` opens the picked chat, or folds the picked group.
+- `Esc` gives the keyboard back to the window that was in front when you
+  pressed `Win+Alt+C`. It closes nothing. While you rename a group, drag a
+  line or have a menu open, `Esc` first ends that.
+- `Ctrl+M` switches mini mode. The hotkey command **ClaudeDeck mini mode**
+  does the same from anywhere; it has no keys until you set some in
+  Settings → Hotkeys.
+- `Alt+Up` and `Alt+Down` move the picked chat or group, `F2` renames the
+  picked group, `Ctrl+C` copies the picked chat's name, and the Menu key or
+  `Shift+F10` opens its menu.
+
+## Mini mode
+
+Click the arrow button in the header (or press `Ctrl+M`) and the window
+becomes a narrow column of status marks: one per chat, in list order, with
+a thin line between groups. A folded group shows one mark, its most urgent.
+Cold and hidden chats are left out.
+
+- Click a mark to bring that chat's window to the front.
+- Rest the mouse on a mark to see the hover panel beside the column.
+- Drag the strip at the top to move the column.
+- The button at the top (**Full list**) brings the full list back, at the
+  place and size it had.
+
+Mini mode is remembered when WinCraft starts again.
 
 ## Your own order
 
@@ -36,7 +107,8 @@ and which one is idle.
   tree. With the keyboard, pick a chat or a group with the arrow keys and
   press `Alt+Up` or `Alt+Down`.
 - Double-click a group's header, or pick it and press `F2`, to rename it:
-  `Enter` saves, `Esc` puts the old name back.
+  `Enter` saves, `Esc` puts the old name back. Scrolling the group out of
+  sight saves the new name too.
 - Right-click a chat (or press the Menu key or `Shift+F10`) to open it, pin
   it to the top of its group, hide it, copy its name, fold its forks, move
   it to another group or start a new group with it.
@@ -61,31 +133,6 @@ again from project folders; a file from a newer WinCraft is used but never
 written. A chat that is no longer listed keeps its place for 30 days, so it
 comes back where it was; after that it is forgotten.
 
-## Status marks
-
-Each status has its own colour and its own shape, so it reads without colour
-too: a triangle for approval, a speech bubble for a question, a tick for
-done, a turning ring for working, a dashed ring for background jobs, a
-hollow circle for idle (grey when fresh, lighter after an hour, blue after a
-day, a snowflake after three days), a square for stopped, a cross for
-failed, and a dashed "?" when WinCraft cannot tell. The setting
-**Status mark** adds a short word after each shape, or hides the marks.
-
-How WinCraft tells each status:
-
-- **Needs approval** and **Asks you**: a Claude Code hook said the chat
-  waits (`wincraft.exe --waiting`). The hook says `--kind approval` for a
-  permission prompt; without it every wait is "Asks you". The hook's change
-  is in `docs/claude-deck-hook-kind.md`.
-- **Working**, **Background**, **Idle**: the same rules as WindowDeck.
-- **Done, not seen**: the chat's turn ended while ClaudeDeck was open, and
-  since then you have not had its window in front. A turn that ended while
-  ClaudeDeck was closed shows as Idle, because WinCraft cannot know whether
-  you saw it.
-- **Stopped**: the chat's last record is your stop. **Failed**: its last
-  record is a failed request. Both only for chats active in the last day.
-- **Unknown**: the session file does not say enough.
-
 ## The line of text and the hover panel
 
 With **A line of text (the question, or what it does)** on, each row has a
@@ -98,6 +145,34 @@ The text is only what Claude showed in the chat, at most 600 characters.
 Code blocks are left out, and words that look like keys or tokens show as
 "[hidden]". A tool's input, a command, a file or a tool's result is never
 shown; a tool shows only as plain words for its name.
+
+## Settings
+
+- **Stay on top**: keep ClaudeDeck above other windows (the pin does the
+  same).
+- **Only open windows**: list only the chats that have a window open.
+- **Fade when the mouse is away**: 3 seconds after the mouse leaves,
+  ClaudeDeck turns half see-through. It is solid again when the mouse comes
+  back, when it has the keyboard, or when a chat starts to wait.
+- **Fold chats idle for over 1 day**: old idle chats go into one grey line
+  at the end.
+- **Show a count on the tray icon**: while ClaudeDeck is open, the tray
+  icon's tooltip says how many chats wait for you, for example
+  "WinCraft — 2 chats wait for you". The icon itself does not change.
+- Under **On each row**: **Status mark**, **A line of text (the question,
+  or what it does)**, **Time in the status**, **Project and branch**,
+  **Job count**, **Model name**.
+
+## What ClaudeDeck never does
+
+- It never changes a chat: no archive, close, rename or message. A click
+  only brings the chat's own window to the front.
+- It never moves, closes or changes another window, and never moves the
+  mouse pointer. `Esc` only gives the keyboard back to the window that had
+  it before the hotkey.
+- It makes no sound. The list, the tray tooltip and the fade are its only
+  signals.
+- Nothing runs while its window is closed.
 
 ## Privacy
 

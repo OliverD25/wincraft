@@ -1,8 +1,10 @@
-//! The keyboard in ClaudeDeck's list. Up and Down pick a chat or a group,
-//! Enter opens the chat (or folds the group), Alt+Up and Alt+Down move the
-//! picked chat or group, F2 renames the picked group, Ctrl+C copies the
-//! picked chat's name, and the Menu key or Shift+F10 opens its menu. Stage
-//! 4 adds the rest (1-9, Esc).
+//! The keyboard in ClaudeDeck's list (design section 9). Up and Down pick a
+//! chat or a group, Home and End the first and the last, 1 to 9 the chat
+//! with that digit, Left and Right fold and unfold. Enter opens the chat
+//! (or folds the group), Alt+Up and Alt+Down move the picked chat or group,
+//! F2 renames the picked group, Ctrl+C copies the picked chat's name, and
+//! the Menu key or Shift+F10 opens its menu. Ctrl+M switches mini mode, and
+//! Esc gives the keyboard back to the window that had it before the hotkey.
 
 use egui::{Key, Ui};
 use windows_sys::Win32::Foundation::HWND;
@@ -13,7 +15,8 @@ use crate::core::ui_bridge::HostChannel;
 use super::drop::{self, kinds, Placed};
 use super::edit;
 use super::list::start_rename;
-use super::model::Line;
+use super::model::{Fold, Line};
+use super::select::DIGITS;
 use super::window::{bring_forward, DeckUi, Pick};
 
 /// The keys pressed this frame that the list acts on.
@@ -26,6 +29,29 @@ struct Pressed {
     rename: bool,
     copy: bool,
     menu: bool,
+    home: bool,
+    end: bool,
+    left: bool,
+    right: bool,
+    digit: Option<usize>,
+    esc: bool,
+    mini: bool,
+}
+
+impl Pressed {
+    /// A key that picks a line: the list then shows the digits.
+    fn picks(&self) -> bool {
+        self.up || self.down || self.home || self.end || self.digit.is_some()
+    }
+}
+
+/// What the window does after the keys.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Asked {
+    /// Esc: give the keyboard back.
+    pub give_back: bool,
+    /// Ctrl+M: switch mini mode.
+    pub mini: bool,
 }
 
 /// The lines that can be picked, top to bottom.
@@ -75,32 +101,70 @@ fn read(ui: &Ui, state: &mut DeckUi) -> Pressed {
             rename: i.key_pressed(Key::F2),
             copy: i.events.iter().any(|e| matches!(e, egui::Event::Copy)),
             menu: (menu_pressed && i.focused) || shift_f10,
+            home: i.key_pressed(Key::Home),
+            end: i.key_pressed(Key::End),
+            left: i.key_pressed(Key::ArrowLeft),
+            right: i.key_pressed(Key::ArrowRight),
+            digit: (!i.modifiers.any())
+                .then(|| DIGITS.iter().position(|key| i.key_pressed(*key)))
+                .flatten(),
+            esc: i.key_pressed(Key::Escape),
+            mini: i.modifiers.command && i.key_pressed(Key::M),
         }
     })
 }
 
-pub fn keys(ui: &Ui, lines: &[Line], state: &mut DeckUi, to_host: &HostChannel) {
+/// The keys of one frame. `menu_was_open`: a menu was open when the frame
+/// began, so an Esc that closed it is not the list's.
+pub fn keys(
+    ui: &Ui,
+    lines: &[Line],
+    state: &mut DeckUi,
+    to_host: &HostChannel,
+    menu_was_open: bool,
+) -> Asked {
     // A menu, a rename or a drag has the keys while it is on.
     let renamed = std::mem::take(&mut state.renamed);
-    let busy = egui::Popup::is_any_open(ui.ctx()) || state.renaming.is_some() || renamed;
+    let busy =
+        menu_was_open || egui::Popup::is_any_open(ui.ctx()) || state.renaming.is_some() || renamed;
     if busy || state.drag.is_some() {
-        return;
+        return Asked::default();
     }
     let pressed = read(ui, state);
+    let asked = Asked {
+        give_back: pressed.esc,
+        mini: pressed.mini,
+    };
     let picks = picks(lines);
+    if pressed.picks() {
+        state.keyboard = true;
+    }
     if pressed.alt && (pressed.up || pressed.down) {
         move_picked(lines, state, pressed.up);
-        return;
+        return asked;
     }
-    if pressed.up || pressed.down {
-        if let Some(next) = step(&picks, state.selected.as_ref(), pressed.up) {
-            state.selected = Some(next);
-            state.scroll_to_selected = true;
-        }
+    let next = if pressed.up || pressed.down {
+        step(&picks, state.selected.as_ref(), pressed.up)
+    } else if pressed.home {
+        picks.first().cloned()
+    } else if pressed.end {
+        picks.last().cloned()
+    } else {
+        pressed
+            .digit
+            .and_then(|n| state.digit_rows.get(n))
+            .map(|id| Pick::Chat(id.clone()))
+    };
+    if let Some(next) = next {
+        state.selected = Some(next);
+        state.scroll_to_selected = true;
     }
     let Some(picked) = state.selected.clone().filter(|pick| picks.contains(pick)) else {
-        return;
+        return asked;
     };
+    if pressed.left || pressed.right {
+        fold_picked(lines, state, &picked, pressed.right);
+    }
     if pressed.menu {
         state.menu_for = Some(picked.clone());
         state.scroll_to_selected = true;
@@ -123,7 +187,7 @@ pub fn keys(ui: &Ui, lines: &[Line], state: &mut DeckUi, to_host: &HostChannel) 
                 _ => None,
             });
             let Some(line) = line else {
-                return;
+                return asked;
             };
             if pressed.enter {
                 if line.stand_in {
@@ -135,6 +199,26 @@ pub fn keys(ui: &Ui, lines: &[Line], state: &mut DeckUi, to_host: &HostChannel) 
             if pressed.copy && !line.stand_in {
                 let _ = clipboard::put_text(state.window as HWND, &line.chat.title);
             }
+        }
+    }
+    asked
+}
+
+/// Left folds the picked group or chat's forks, Right unfolds them; a line
+/// already that way stays.
+fn fold_picked(lines: &[Line], state: &mut DeckUi, picked: &Pick, open: bool) {
+    for line in lines {
+        match (line, picked) {
+            (Line::Group(g), Pick::Group(id)) if &g.key == id && g.folded == open => {
+                edit::fold_group(&mut state.saved, id);
+            }
+            (Line::Chat(c), Pick::Chat(id)) if &c.chat.id == id => {
+                let folded = matches!(c.fold, Fold::Folded(_));
+                if c.fold != Fold::None && folded == open {
+                    edit::fold_chat(&mut state.saved, id);
+                }
+            }
+            _ => {}
         }
     }
 }

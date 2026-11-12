@@ -54,7 +54,7 @@ Opened by: the palette hotkey (default `Win+Alt+P`; changed in Settings → Gene
 - WindowNamer: **Rename the active window**, **Clear all names**.
 - QuickJump: **Jump to a pinned window**, **Pin this window…**.
 - ShortcutManager: **Open shortcut manager**, **Show free combinations**.
-- ClaudeDeck: **Open ClaudeDeck**.
+- ClaudeDeck: **Open ClaudeDeck**, **ClaudeDeck mini mode**.
 - QuickActions (named Area: Verb):
   - Window: **Window: Toggle Always on Top**, **Window: Center**, **Window: Resize to 1280 × 720**, **Window: Resize to 1920 × 1080**, **Window: Resize to 80 % of the Monitor**, **Window: Resize…**.
   - Display: **Display: Toggle Keep Awake**, **Display: Keep Awake for…**.
@@ -110,7 +110,7 @@ Opened by: Settings → **Plugins** → click the plugin's tile.
 - QuickJump: **Open Quick access in the middle of the screen**, **Point to a window on another monitor**.
 - WindowNamer: **Keep names after restart**, **Title shows**.
 - ShortcutManager: **Show free combinations**.
-- ClaudeDeck: **Stay on top**, **Only open windows**, **Fold chats idle for over 1 day**. Under the heading **On each row**: **Status mark** (**Shapes**, **Shapes and words** or **Off**), **A line of text (the question, or what it does)**, **Time in the status**, **Project and branch**, **Job count**, **Model name**.
+- ClaudeDeck: **Stay on top**, **Only open windows**, **Fade when the mouse is away**, **Fold chats idle for over 1 day**, **Show a count on the tray icon** (the count is in the tray icon's tooltip, while ClaudeDeck is open). Under the heading **On each row**: **Status mark** (**Shapes**, **Shapes and words** or **Off**), **A line of text (the question, or what it does)**, **Time in the status**, **Project and branch**, **Job count**, **Model name**.
 - LanguageIndicator: **How long it stays**, **Where it appears**, **Show on focus change**, **Show the layout name**.
 - QuickActions: no fields.
 
@@ -234,7 +234,11 @@ Opened by: `Win+Alt+S`, Tray menu → **Shortcut manager**, or the palette comma
 ## ClaudeDeck
 Opened by: `Win+Alt+C`, Tray menu → **ClaudeDeck**, or the palette command **Open ClaudeDeck**. `Win+Alt+C` again while it is in front closes it.
 - The window has no Windows title bar. Drag its header to move it; drag an edge or a corner to resize it. It opens again at the same place and size.
-- Header, left to right: a status mark and a count for the chats that need approval, ask you, work, or are done (only the statuses that have chats); the switch **Only open windows** (click the switch or its label); the pin (tooltip **Stay on top**), filled while the window stays on top; the close button (tooltip **Close**).
+- Header, left to right: a status mark and a count for the chats that need approval, ask you, work, or are done (only the statuses that have chats); the switch **Only open windows** (click the switch or its label); the pin (tooltip **Stay on top**), filled while the window stays on top; the mini mode button (tooltip **Mini mode**); the close button (tooltip **Close**).
+- Mini mode (the header's mini mode button, `Ctrl+M` in the window, or the hotkey command **ClaudeDeck mini mode**, which has no keys until you set some): the window becomes a 30 px column of status marks, one per chat in list order, with a thin line between groups (a folded group shows one mark; cold and hidden chats are left out). Click a mark to bring its chat's window to the front; rest the mouse on it for the hover panel beside the column. The button at the top (tooltip **Full list**) brings the full list back at its old place and size. Drag the strip at the top to move the column. Mini mode is remembered after a restart.
+- Keyboard: `Win+Alt+C` brings ClaudeDeck to the front with the chat that waits longest selected (else the row used last). `↑` `↓` move, `Home` `End` go to the first and the last line, `1`–`9` pick the chat with that digit (the digits show in small boxes before the marks while you use the keyboard), `←` folds and `→` unfolds the picked group or chat's forks, `Enter` opens the chat, and `Esc` gives the keyboard back to the window that was in front before `Win+Alt+C` (it first ends a rename, a drag or a menu).
+- Fading (when **Fade when the mouse is away** is on): 3 seconds after the mouse leaves, the window turns half see-through. It is solid again when the mouse comes back, when it has the keyboard, or when a chat starts to wait.
+- The tray icon's tooltip (when **Show a count on the tray icon** is on and ClaudeDeck is open): "WinCraft — {n} chats wait for you" (or "1 chat waits for you") while chats need approval or ask you.
 - A group header: the fold arrow, the group's colour dot (when it has a colour), the name, and the count. Click it to fold or unfold the group; folded, it shows the most urgent mark and **{n} chats**. The first time, there is one group per project folder; after that the groups are yours. **New**: the group at the top for chats of a project no group holds yet. Double-click a header (or pick it and press `F2`) to rename it in place: `Enter` saves, `Esc` puts the old name back.
 - Drag a group header to move the group, or the chat at the top of a family to move it with its forks; a blue line shows where it lands. A fork stays under its chat. `Alt+↑` and `Alt+↓` move the picked chat or group one place (a chat at the edge of a group moves into the next group). `Esc` stops a drag.
 - Right-click a chat (or pick it and press the Menu key or `Shift+F10`): **Open the chat** (`Enter`), **Pin to the top** (or **Unpin**), **Hide this chat**, **Copy the name** (`Ctrl+C`), then **Fold its forks** (or **Unfold its forks**, only for a chat with forks), **Move to group** (a list of the other groups) and **New group with this chat**. A fork has no pin and no move. A stand-in has no open and no copy.
@@ -270,6 +274,7 @@ Defaults. Every one can be changed in Settings → Hotkeys.
 | **Rename the active window** | `Win+Alt+E` | Settings → Hotkeys |
 | **Open shortcut manager** | `Win+Alt+S` | Settings → Hotkeys |
 | **Open ClaudeDeck** | `Win+Alt+C` | Settings → Hotkeys |
+| **ClaudeDeck mini mode** | none | Settings → Hotkeys |
 | **Cover the monitor** (also **Cover left monitor**, **Cover right monitor**, **Cover monitor 2**, **Cover monitor 3**) | `Win+Alt+F1`, `F2`, `F3` | Settings → Hotkeys |
 | **Turn the monitor off** (also **Turn left monitor off**, **Turn right monitor off**, **Turn monitor 2 off**, **Turn monitor 3 off**) | `Win+Alt+Shift+F1`, `F2`, `F3` | Settings → Hotkeys |
 | **Wake all monitors** | `Win+Alt+F12` | Settings → Hotkeys |

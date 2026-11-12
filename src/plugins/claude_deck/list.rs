@@ -22,6 +22,7 @@ use super::hover;
 use super::menu::{self, Choice, Context, Item};
 use super::model::{Chat, ChatLine, Fold, GroupLine, Line};
 use super::rows::{self, GroupState, Look};
+use super::select;
 use super::window::{bring_forward, DeckUi, Pick, Rename};
 
 const LIST_TOP_PAD: f32 = 4.0;
@@ -86,6 +87,8 @@ pub(super) fn show(
             let mut acts: Vec<Act> = Vec::new();
             let mut group: Option<&str> = None;
             let mut menu_found = false;
+            let mut numbered = 0;
+            state.digit_rows.clear();
             for (at, (line, kind)) in lines.iter().zip(&kinds).enumerate() {
                 let height = rows::height(line, at == 0, look.settings.text);
                 let whole = Rect::from_min_size(pos2(area.left(), top), vec2(width, height));
@@ -108,6 +111,7 @@ pub(super) fn show(
                 };
                 menu_found |= pick.is_some() && pick == state.menu_for;
                 if !ui.is_rect_visible(rect) {
+                    end_hidden_rename(line, state);
                     continue;
                 }
                 match line {
@@ -149,10 +153,15 @@ pub(super) fn show(
                             can_open: c.chat.window.is_some(),
                             colour: &|colour| rows::colour_of(colour, look.tokens),
                         };
+                        let key = select::digit_for(true, c.stand_in || c.hidden, &mut numbered);
+                        if key.is_some() {
+                            state.digit_rows.push(c.chat.id.clone());
+                        }
                         let row = Row {
                             rect,
                             line: c,
                             group,
+                            key: key.filter(|_| state.keyboard),
                         };
                         let draw = Draw {
                             painter: &painter,
@@ -273,6 +282,17 @@ pub(super) fn start_rename(state: &mut DeckUi, id: &str, name: &str) {
     });
 }
 
+/// A group being renamed was scrolled out of view: its name is saved and
+/// the rename ends, so the list's keys work again.
+fn end_hidden_rename(line: &Line, state: &mut DeckUi) {
+    let Line::Group(group) = line else {
+        return;
+    };
+    if let Some(rename) = state.renaming.take_if(|r| r.id == group.key) {
+        edit::rename(&mut state.saved, &rename.id, &rename.text);
+    }
+}
+
 /// The name of a group being renamed: Enter or a click elsewhere saves,
 /// Esc puts the old name back.
 fn rename_field(ui: &mut Ui, room: Rect, state: &mut DeckUi, look: &Look) {
@@ -324,6 +344,8 @@ struct Row<'a> {
     line: &'a ChatLine,
     /// The group it is in; None under the cold and hidden lines.
     group: Option<&'a str>,
+    /// The digit shown before the mark.
+    key: Option<u8>,
 }
 
 /// One chat row. True when the mouse rests on it, for the hover panel.
@@ -352,7 +374,15 @@ fn chat_line(
     if state.drag.as_ref() == Some(&pick) {
         row_painter.multiply_opacity(0.4);
     }
-    rows::chat(&row_painter, row.rect, line, look, hovered, selected);
+    rows::chat(
+        &row_painter,
+        row.rect,
+        line,
+        look,
+        hovered,
+        selected,
+        row.key,
+    );
     if selected && std::mem::take(&mut state.scroll_to_selected) {
         ui.scroll_to_rect(row.rect, None);
     }
@@ -409,6 +439,8 @@ fn dragging(
     let Some(at) = at.filter(|_| !esc) else {
         if esc || !down {
             state.drag = None;
+            // The Esc that stopped the drag is not the list's.
+            state.renamed |= esc;
         }
         return;
     };
@@ -481,7 +513,7 @@ fn lifted(painter: &Painter, area: Rect, at: Pos2, lines: &[Line], pick: &Pick, 
     }
     painter.rect_filled(rect, 4.0, tokens.elevated_bg);
     match line {
-        Line::Chat(c) => rows::chat(painter, rect, c, look, false, false),
+        Line::Chat(c) => rows::chat(painter, rect, c, look, false, false, None),
         Line::Group(g) => {
             rows::group(painter, rect, g, look, GroupState::default());
         }

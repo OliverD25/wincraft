@@ -153,7 +153,8 @@ fn tree_lines(painter: &Painter, row: Rect, line: &ChatLine, colour: Color32) {
     painter.hline(x(own)..=x(own) + 7.0, elbow + 0.5, stroke);
 }
 
-/// A chat's row.
+/// A chat's row. `key` is the digit that jumps to it, shown in a small box
+/// before the mark while the keyboard is in use.
 pub fn chat(
     painter: &Painter,
     row: Rect,
@@ -161,6 +162,7 @@ pub fn chat(
     look: &Look,
     hovered: bool,
     selected: bool,
+    key: Option<u8>,
 ) {
     let tokens = look.tokens;
     let settings = look.settings;
@@ -191,6 +193,9 @@ pub fn chat(
         );
     }
     x += CHEVRON + GAP;
+    if let Some(digit) = key {
+        x += key_box(&painter, pos2(x, row.top() + MARK_TOP), digit, tokens) + GAP;
+    }
     let mark_at = pos2(x, row.top() + MARK_TOP);
     if line.stand_in && !matches!(line.fold, Fold::Folded(_)) {
         if settings.mark != MarkStyle::Off {
@@ -227,6 +232,27 @@ pub fn chat(
             );
         }
     }
+}
+
+/// The digit's box, as on the design page: 14 px, a thin border, the
+/// digit in 12 px. Returns its width.
+fn key_box(painter: &Painter, at: Pos2, digit: u8, tokens: &Tokens) -> f32 {
+    let rect = Rect::from_min_size(at, vec2(marks::SIZE, marks::SIZE));
+    painter.rect_stroke(
+        rect,
+        3.0,
+        Stroke::new(1.0, tokens.border),
+        StrokeKind::Inside,
+    );
+    let galley = painter.layout_job(text::job(
+        &digit.to_string(),
+        theme::regular(SMALL),
+        tokens.text_secondary,
+        None,
+    ));
+    let size = galley.size();
+    painter.galley(rect.center() - size / 2.0, galley, Color32::PLACEHOLDER);
+    rect.width()
 }
 
 /// The name and its parts after the mark, and the time at the right edge.

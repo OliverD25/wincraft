@@ -2,8 +2,10 @@
 //! with no Windows title bar, the header, and the list. It is dragged by
 //! the header, resized by its edges, and comes back at the same place and
 //! size. While it is open it asks the host for fresh data every few
-//! seconds; it repaints only for that, for the times, and for the turning
-//! ring of a working chat when Windows allows animations.
+//! seconds; it repaints only for that, for the times, for the turning
+//! ring of a working chat when Windows allows animations, and for the
+//! short fade step. The list's lines are built again only when the chats,
+//! the arrangement or the view changed.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -26,20 +28,24 @@ use crate::ui::widgets::{focus, text};
 use super::arrange::{arrange, hidden_chats};
 use super::data;
 use super::edges;
+use super::fade::Fade;
 use super::header::{self, Click};
 use super::keys;
 use super::list;
+use super::mini;
 use super::model::{self, Archived, Chat, Line, Mark, View};
+use super::modes::{fade_step, give_back, min_size, switch_mode, tell_tray};
 use super::place::{self, Place};
 use super::rows::Look;
+use super::select;
 use super::status::Seen;
 use super::store::{self, Saved};
-use super::{Handle, ID, ONLY_OPEN_KEY, STAY_ON_TOP_KEY};
+use super::{Handle, ID, MINI_KEY, ONLY_OPEN_KEY, STAY_ON_TOP_KEY};
 
 pub const WINDOW_ID: &str = "deck";
 const TITLE: &str = "WinCraft \u{b7} ClaudeDeck";
-const SIZE: [f32; 2] = [360.0, 480.0];
-const MIN_SIZE: [f32; 2] = [220.0, 90.0];
+pub(super) const SIZE: [f32; 2] = [360.0, 480.0];
+pub(super) const MIN_SIZE: [f32; 2] = [220.0, 90.0];
 /// How often the host is asked to read the chats again; the reader itself
 /// reads at most this often too.
 const ASK_EVERY: Duration = claude_sessions::READ_EVERY;
@@ -71,6 +77,18 @@ pub(super) struct Rename {
     pub focused: bool,
 }
 
+/// The lines built last, and what they were built from.
+#[derive(Default)]
+pub(super) struct Cache {
+    built: Option<Instant>,
+    saved: Saved,
+    view: (bool, bool, bool),
+    lines: Arc<Vec<Line>>,
+    counts: Vec<(Mark, usize)>,
+    pub(super) waiting: usize,
+    pub(super) waiting_ids: Vec<String>,
+}
+
 #[derive(Default)]
 pub(super) struct DeckUi {
     pub window: isize,
@@ -99,9 +117,24 @@ pub(super) struct DeckUi {
     pub menu_at: Option<egui::Pos2>,
     pub menu_key_down: bool,
     border: Option<Color32>,
-    kept: Option<Place>,
+    pub(super) kept: Option<Place>,
     started: Option<Instant>,
     seen: Seen,
+    /// The keyboard is in use: the rows show their digits.
+    pub keyboard: bool,
+    /// The chat ids the digits 1 to 9 pick, top to bottom.
+    pub digit_rows: Vec<String>,
+    /// The hotkey opened the window: select the row it should.
+    select_on_open: bool,
+    /// The window in front when the hotkey was pressed.
+    pub(super) before: Option<isize>,
+    /// The mode the window has now; None before the first frame.
+    pub(super) mini_on: Option<bool>,
+    pub(super) mini_size: Option<egui::Vec2>,
+    pub(super) fade: Fade,
+    pub(super) waiting_before: Vec<String>,
+    pub(super) cache: Cache,
+    pub(super) tip_sent: Option<Option<String>>,
 }
 
 pub struct DeckWindow {
@@ -128,15 +161,26 @@ impl PluginWindow for DeckWindow {
     }
 
     /// The hotkey again: brings the window to the front, or closes it when
-    /// it is already in front.
+    /// it is already in front. Brought by the hotkey, it selects the chat
+    /// that waits longest and remembers the window that was in front.
     fn open(&mut self) {
+        let Ok(mut shared) = self.shared.lock() else {
+            return;
+        };
+        let by_hotkey = shared.by_hotkey.take();
+        let keep_open = std::mem::take(&mut shared.keep_open);
         if let Ok(mut state) = self.state.lock() {
             let in_front =
                 state.window != 0 && unsafe { GetForegroundWindow() } as isize == state.window;
-            if in_front {
+            if in_front && !keep_open {
                 state.closed = true;
             } else {
                 state.focus_wanted = true;
+            }
+            if let Some(before) = by_hotkey.filter(|_| !in_front) {
+                state.before = Some(before).filter(|hwnd| *hwnd != state.window);
+                state.select_on_open = true;
+                state.keyboard = true;
             }
         }
     }
@@ -160,12 +204,13 @@ impl PluginWindow for DeckWindow {
             .lock()
             .map(|shared| shared.settings.stay_on_top)
             .unwrap_or(true);
+        let mini = self.shared.lock().is_ok_and(|shared| shared.settings.mini);
         let mut builder = egui::ViewportBuilder::default()
             .with_title(TITLE)
             .with_decorations(false)
             .with_resizable(true)
             .with_inner_size(SIZE)
-            .with_min_inner_size(MIN_SIZE)
+            .with_min_inner_size(min_size(mini))
             .with_window_level(if on_top {
                 egui::WindowLevel::AlwaysOnTop
             } else {
@@ -187,39 +232,60 @@ impl PluginWindow for DeckWindow {
             find_and_place(&mut state, palette, &tokens, &to_host);
             refresh(&mut state, &to_host);
             let settings = shared.settings.clone();
-            let view = View {
-                only_open: settings.only_open,
-                fold_cold: settings.fold_cold,
-                hidden_open: state.hidden_open,
-                saved: state.saved.clone(),
-            };
             let now = claude_sessions::now_ms();
-            let lines = model::lines(&state.chats, &state.archived, &view, now);
-            let counts = model::counts(&listed(&state), settings.only_open);
+            build(&mut state, &settings, now);
+            let lines = Arc::clone(&state.cache.lines);
+            let counts = state.cache.counts.clone();
+            if state.select_on_open && !state.chats.is_empty() {
+                state.select_on_open = false;
+                state.selected = select::open_pick(&lines, state.selected.as_ref());
+                state.scroll_to_selected = true;
+            }
+            switch_mode(ui.ctx(), &mut state, settings.mini, &lines);
             let turn = ring_turn(&state);
+            let menu_was_open = egui::Popup::is_any_open(ui.ctx());
             let mut clicked = None;
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(tokens.window_bg))
                 .show(ui, |ui| {
                     let full = ui.max_rect();
-                    let top = Rect::from_min_size(full.min, vec2(full.width(), header::HEIGHT));
-                    clicked = header::show(ui, top, &counts, &settings, &tokens, turn);
-                    let list = Rect::from_min_max(pos2(full.left(), top.bottom()), full.max);
-                    let mut list_ui = ui.new_child(egui::UiBuilder::new().max_rect(list));
                     let look = Look {
                         tokens: &tokens,
                         settings: &settings,
                         now,
                         turn,
                     };
+                    if settings.mini {
+                        if mini::show(ui, &lines, &look, &mut state, &to_host) {
+                            clicked = Some(Click::Mini);
+                        }
+                        return;
+                    }
+                    let top = Rect::from_min_size(full.min, vec2(full.width(), header::HEIGHT));
+                    clicked = header::show(ui, top, &counts, &settings, &tokens, turn);
+                    let list = Rect::from_min_max(pos2(full.left(), top.bottom()), full.max);
+                    let mut list_ui = ui.new_child(egui::UiBuilder::new().max_rect(list));
                     if lines.is_empty() {
                         empty(&mut list_ui, &tokens, !state.chats.is_empty());
                     } else {
                         list::show(&mut list_ui, &lines, &look, &mut state, &to_host);
                     }
                 });
-            edges::resize(ui);
-            keys::keys(ui, &lines, &mut state, &to_host);
+            if settings.mini {
+                state.digit_rows = mini::first_nine(&lines);
+            } else {
+                edges::resize(ui);
+            }
+            if ui.ctx().input(|i| i.pointer.any_click() || !i.focused) {
+                state.keyboard = false;
+            }
+            let asked = keys::keys(ui, &lines, &mut state, &to_host, menu_was_open);
+            if asked.give_back {
+                give_back(&mut state, &to_host);
+            }
+            if asked.mini {
+                clicked = Some(Click::Mini);
+            }
             commit(&mut state);
             match clicked {
                 Some(Click::OnlyOpen) => {
@@ -230,6 +296,11 @@ impl PluginWindow for DeckWindow {
                     shared.settings.stay_on_top = !settings.stay_on_top;
                     save(&to_host, STAY_ON_TOP_KEY, shared.settings.stay_on_top);
                 }
+                Some(Click::Mini) => {
+                    shared.settings.mini = !settings.mini;
+                    save(&to_host, MINI_KEY, shared.settings.mini);
+                    ui.ctx().request_repaint();
+                }
                 Some(Click::Close) => state.closed = true,
                 None => {}
             }
@@ -238,14 +309,47 @@ impl PluginWindow for DeckWindow {
             }
             if state.closed {
                 shared.open = false;
+                tell_tray(&mut shared, &mut state, None);
                 forget(&mut state);
                 ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
                 return;
             }
+            let tip = select::tray_tip(settings.tray_count, state.cache.waiting);
+            tell_tray(&mut shared, &mut state, tip);
+            let fade_next = fade_step(ui.ctx(), &mut state, settings.fade);
+            let next = next_frame(&state, &lines, now);
             ui.ctx()
-                .request_repaint_after(next_frame(&state, &lines, now));
+                .request_repaint_after(fade_next.map_or(next, |fade| fade.min(next)));
         });
     }
+}
+
+/// Builds the lines again when the chats, the arrangement or the view
+/// changed since they were built last.
+fn build(state: &mut DeckUi, settings: &super::Settings, now: u64) {
+    let view_now = (settings.only_open, settings.fold_cold, state.hidden_open);
+    let cache = &state.cache;
+    let same = cache.built.is_some() && cache.built == state.built && cache.view == view_now;
+    if same && cache.saved == state.saved {
+        return;
+    }
+    let view = View {
+        only_open: settings.only_open,
+        fold_cold: settings.fold_cold,
+        hidden_open: state.hidden_open,
+        saved: state.saved.clone(),
+    };
+    let lines = model::lines(&state.chats, &state.archived, &view, now);
+    let listed = listed(state);
+    state.cache = Cache {
+        built: state.built,
+        saved: view.saved,
+        view: view_now,
+        lines: Arc::new(lines),
+        counts: model::counts(&listed, settings.only_open),
+        waiting: select::waiting(&listed, settings.only_open),
+        waiting_ids: select::waiting_ids(&listed),
+    };
 }
 
 /// Keeps the place, and stops what only an open window needs: the jobs
@@ -262,6 +366,8 @@ fn forget(state: &mut DeckUi) {
         saved: std::mem::take(&mut state.saved),
         written: state.written.take(),
         writable: state.writable,
+        // The row used last is selected when the hotkey opens it again.
+        selected: state.selected.take(),
         ..DeckUi::default()
     };
 }
@@ -356,8 +462,12 @@ fn listed(state: &DeckUi) -> Vec<Chat> {
         .collect()
 }
 
-/// Saves the window's place and size when they changed.
-fn keep_place(state: &mut DeckUi) {
+/// Saves the window's place and size when they changed; never the
+/// column's, so the full place comes back after mini mode.
+pub(super) fn keep_place(state: &mut DeckUi) {
+    if state.mini_on == Some(true) {
+        return;
+    }
     let Some(now) = place::read(state.window) else {
         return;
     };

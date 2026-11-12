@@ -104,6 +104,8 @@ mod arrange;
 mod chats;
 mod drop;
 mod edit;
+mod keyboard;
 mod list;
+mod modes;
 mod plugin;
 mod store;

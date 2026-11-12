@@ -1,6 +1,7 @@
 //! The 26 px header, as on the design page: the counts of the statuses
-//! that have chats, the "Only open windows" switch, the pin for stay on top
-//! and the close button. The rest of it drags the window.
+//! that have chats, the "Only open windows" switch, the pin for stay on top,
+//! the mini mode button and the close button. The rest of it drags the
+//! window.
 
 use egui::{pos2, vec2, Color32, CursorIcon, Painter, Rect, Sense, Shape, Stroke, StrokeKind, Ui};
 
@@ -22,12 +23,14 @@ const SMALL: f32 = 12.0;
 
 pub const ONLY_OPEN: &str = "Only open windows";
 const PIN_TIP: &str = "Stay on top";
+pub const MINI_TIP: &str = "Mini mode";
 const CLOSE_TIP: &str = "Close";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Click {
     OnlyOpen,
     Pin,
+    Mini,
     Close,
 }
 
@@ -56,7 +59,8 @@ pub fn show(
     let button =
         |right: f32| Rect::from_min_size(pos2(right - BUTTON.x, middle - BUTTON.y / 2.0), BUTTON);
     let close = button(rect.right() - PAD_RIGHT);
-    let pin = button(close.left() - GAP);
+    let mini = button(close.left() - COUNT_GAP);
+    let pin = button(mini.left() - COUNT_GAP);
     let label = painter.layout_job(text::job(
         ONLY_OPEN,
         theme::regular(SMALL),
@@ -131,6 +135,22 @@ pub fn show(
     paint_pin(&painter, pin, pinned, tokens);
     if pin_response.clicked() {
         clicked = Some(Click::Pin);
+    }
+
+    let mini_response = ui
+        .interact(mini, ui.id().with("claude-deck-mini"), Sense::click())
+        .on_hover_text(MINI_TIP);
+    if mini_response.hovered() {
+        painter.rect_filled(mini, 4.0, tokens.hover_bg);
+    }
+    let m = mini.center() - vec2(6.0, 6.0);
+    let at = |x: f32, y: f32| m + vec2(x, y);
+    let stroke = Stroke::new(1.2, tokens.text_secondary);
+    painter.line_segment([at(7.5, 2.0), at(7.5, 10.0)], stroke);
+    painter.line_segment([at(4.5, 4.0), at(2.5, 6.0)], stroke);
+    painter.line_segment([at(2.5, 6.0), at(4.5, 8.0)], stroke);
+    if mini_response.clicked() {
+        clicked = Some(Click::Mini);
     }
 
     let close_response = ui

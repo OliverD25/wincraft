@@ -13,6 +13,7 @@ mod drop;
 mod edges;
 mod edit;
 mod emit;
+mod fade;
 mod header;
 mod hover;
 mod keys;
@@ -20,9 +21,12 @@ mod labels;
 mod list;
 mod marks;
 mod menu;
+mod mini;
 mod model;
+mod modes;
 mod place;
 mod rows;
+mod select;
 mod status;
 mod store;
 mod tree;
@@ -33,6 +37,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
+use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
 use crate::core::traits::{
     FieldKind, HostContext, Hotkey, HotkeyAction, PluginMetadata, PluginWindow, SettingField,
@@ -43,6 +48,10 @@ use crate::core::{claude_windows, host, instance, window_actions};
 
 const ID: &str = "claude_deck";
 const ACTION_OPEN: u32 = 1;
+const ACTION_MINI: u32 = 2;
+/// The `host::post_to_plugins` id the window sends when the tray count
+/// changed.
+pub(crate) const TRAY_POST_ID: usize = 0xC1A0_DEC0;
 
 pub(crate) const STAY_ON_TOP_KEY: &str = "stay_on_top";
 pub(crate) const ONLY_OPEN_KEY: &str = "only_open_windows";
@@ -53,6 +62,10 @@ const PROJECT_KEY: &str = "show_project";
 const JOBS_KEY: &str = "show_jobs";
 const MODEL_KEY: &str = "show_model";
 const TEXT_KEY: &str = "show_text";
+const FADE_KEY: &str = "fade_when_away";
+const TRAY_KEY: &str = "tray_count";
+/// Not on the settings page: the window's mini mode, kept across restarts.
+pub(crate) const MINI_KEY: &str = "mini_mode";
 
 const MARK_SHAPES: &str = "Shapes";
 const MARK_WORDS: &str = "Shapes and words";
@@ -84,6 +97,10 @@ pub struct Settings {
     pub model: bool,
     /// The line of text under the name.
     pub text: bool,
+    pub fade: bool,
+    pub tray_count: bool,
+    /// The narrow column of marks instead of the list.
+    pub mini: bool,
 }
 
 impl Default for Settings {
@@ -98,6 +115,9 @@ impl Default for Settings {
             jobs: true,
             model: false,
             text: true,
+            fade: true,
+            tray_count: true,
+            mini: false,
         }
     }
 }
@@ -126,6 +146,9 @@ impl Settings {
             jobs: flag(JOBS_KEY, defaults.jobs),
             model: flag(MODEL_KEY, defaults.model),
             text: flag(TEXT_KEY, defaults.text),
+            fade: flag(FADE_KEY, defaults.fade),
+            tray_count: flag(TRAY_KEY, defaults.tray_count),
+            mini: flag(MINI_KEY, defaults.mini),
         }
     }
 }
@@ -135,6 +158,15 @@ impl Settings {
 pub struct Shared {
     pub open: bool,
     pub settings: Settings,
+    /// The hotkey opened the window: the window that was in front then,
+    /// which Esc gives the keyboard back to.
+    pub by_hotkey: Option<isize>,
+    /// What the tray tooltip should say; the plugin sets it on the host
+    /// thread.
+    pub tray_tip: Option<String>,
+    /// The next `open` only brings the window forward: the mini mode
+    /// hotkey never closes it.
+    pub keep_open: bool,
 }
 
 pub type Handle = Arc<Mutex<Shared>>;
@@ -142,6 +174,8 @@ pub type Handle = Arc<Mutex<Shared>>;
 #[derive(Default)]
 pub struct ClaudeDeck {
     shared: Handle,
+    /// The tooltip this plugin set last, so it only takes back its own.
+    tip_set: Option<String>,
 }
 
 impl ClaudeDeck {
@@ -156,6 +190,19 @@ impl ClaudeDeck {
             shared.open = true;
         }
         host::show_window(ID, window::WINDOW_ID);
+    }
+
+    /// Sets the tray tooltip to what the window asked for, when it changed.
+    fn show_tip(&mut self) {
+        let wanted = self
+            .shared
+            .lock()
+            .ok()
+            .and_then(|shared| shared.tray_tip.clone());
+        if wanted != self.tip_set {
+            self.tip_set = wanted.clone();
+            host::set_tray_tip(wanted);
+        }
     }
 
     fn apply(&mut self, settings: &Value) {
@@ -197,6 +244,8 @@ impl WinCraftPlugin for ClaudeDeck {
             JOBS_KEY: true,
             MODEL_KEY: false,
             TEXT_KEY: true,
+            FADE_KEY: true,
+            TRAY_KEY: true,
         })
     }
 
@@ -215,9 +264,21 @@ impl WinCraftPlugin for ClaudeDeck {
                 kind: FieldKind::Toggle,
             },
             SettingField {
+                key: FADE_KEY,
+                label: "Fade when the mouse is away",
+                help: "ClaudeDeck turns half see-through a few seconds after the mouse leaves it. It is solid again when the mouse comes back, when it has the keyboard, or when a chat starts to wait for you.",
+                kind: FieldKind::Toggle,
+            },
+            SettingField {
                 key: FOLD_COLD_KEY,
                 label: "Fold chats idle for over 1 day",
                 help: "Old idle chats go into one grey line at the end.",
+                kind: FieldKind::Toggle,
+            },
+            SettingField {
+                key: TRAY_KEY,
+                label: "Show a count on the tray icon",
+                help: "While ClaudeDeck is open, the tray icon's tooltip says how many chats need approval or ask you, for example \"WinCraft \u{2014} 2 chats wait for you\". Closed, ClaudeDeck reads nothing, so the tooltip is plain again.",
                 kind: FieldKind::Toggle,
             },
             SettingField {
@@ -281,20 +342,56 @@ impl WinCraftPlugin for ClaudeDeck {
     }
 
     fn hotkey_actions(&self) -> Vec<HotkeyAction> {
-        vec![HotkeyAction {
-            id: ACTION_OPEN,
-            name: "open",
-            label: "Open ClaudeDeck",
-            default: Hotkey {
-                modifiers: MOD_NOREPEAT | MOD_WIN | MOD_ALT,
-                vk: u32::from(b'C'),
+        vec![
+            HotkeyAction {
+                id: ACTION_OPEN,
+                name: "open",
+                label: "Open ClaudeDeck",
+                default: Hotkey {
+                    modifiers: MOD_NOREPEAT | MOD_WIN | MOD_ALT,
+                    vk: u32::from(b'C'),
+                },
             },
-        }]
+            HotkeyAction {
+                id: ACTION_MINI,
+                name: "mini",
+                label: "ClaudeDeck mini mode",
+                default: Hotkey::NONE,
+            },
+        ]
     }
 
     fn on_hotkey(&mut self, action_id: u32) {
-        if action_id == ACTION_OPEN {
-            self.open();
+        match action_id {
+            ACTION_OPEN => {
+                // The window in front now gets the keyboard back on Esc.
+                let before = unsafe { GetForegroundWindow() } as isize;
+                if let Ok(mut shared) = self.shared.lock() {
+                    shared.by_hotkey = Some(before);
+                }
+                self.open();
+            }
+            ACTION_MINI => {
+                let mini = match self.shared.lock() {
+                    Ok(mut shared) => {
+                        shared.settings.mini = !shared.settings.mini;
+                        shared.keep_open = true;
+                        Some(shared.settings.mini)
+                    }
+                    Err(_) => None,
+                };
+                if let Some(mini) = mini {
+                    host::save_setting(ID, MINI_KEY, Value::Bool(mini));
+                }
+                self.open();
+            }
+            _ => {}
+        }
+    }
+
+    fn on_windows_message(&mut self, msg: u32, wparam: usize, _lparam: isize) {
+        if msg == host::PLUGIN_POST && wparam == TRAY_POST_ID {
+            self.show_tip();
         }
     }
 
@@ -335,7 +432,9 @@ impl WinCraftPlugin for ClaudeDeck {
     fn teardown(&mut self) {
         if let Ok(mut shared) = self.shared.lock() {
             shared.open = false;
+            shared.tray_tip = None;
         }
+        self.show_tip();
     }
 }
 

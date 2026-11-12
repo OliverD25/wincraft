@@ -62,21 +62,28 @@ fn wrapped(painter: &Painter, words: &str, size: f32, colour: Color32, width: f3
     painter.layout_job(job)
 }
 
-/// Paints the panel for `chat`, hovered in `row`, inside `area` (the list).
-pub fn show(ctx: &Context, row: Rect, area: Rect, chat: &Chat, look: &Look) {
+/// The panel's laid-out text, ready to paint.
+pub struct Panel {
+    head: Arc<Galley>,
+    place: Arc<Galley>,
+    body: Option<Arc<Galley>>,
+    no_window: Option<Arc<Galley>>,
+    pub size: egui::Vec2,
+}
+
+/// Lays the panel out at `width`.
+pub fn layout(painter: &Painter, chat: &Chat, look: &Look, width: f32) -> Panel {
     let tokens: &Tokens = look.tokens;
-    let painter = ctx.layer_painter(LayerId::new(Order::Tooltip, Id::new("claude-deck-hover")));
-    let width = WIDTH.min(area.width() - 2.0 * MARGIN).max(80.0);
     let inner = width - 2.0 * PAD_X;
     let head = wrapped(
-        &painter,
+        painter,
         &head_line(chat, look.now),
         HEAD_SIZE,
         tokens.text_secondary,
         inner - marks::SIZE - GAP,
     );
     let place = wrapped(
-        &painter,
+        painter,
         &place_line(chat),
         HEAD_SIZE,
         tokens.text_secondary,
@@ -85,15 +92,30 @@ pub fn show(ctx: &Context, row: Rect, area: Rect, chat: &Chat, look: &Look) {
     let body = chat
         .full
         .as_deref()
-        .map(|words| wrapped(&painter, words, BODY_SIZE, tokens.text_primary, inner));
+        .map(|words| wrapped(painter, words, BODY_SIZE, tokens.text_primary, inner));
     let no_window = chat
         .window
         .is_none()
-        .then(|| wrapped(&painter, NO_WINDOW, HEAD_SIZE, tokens.text_disabled, inner));
+        .then(|| wrapped(painter, NO_WINDOW, HEAD_SIZE, tokens.text_disabled, inner));
     let mut height = PAD_Y * 2.0 + head.size().y.max(marks::SIZE) + GAP + place.size().y;
     for part in body.iter().chain(no_window.iter()) {
         height += GAP + part.size().y;
     }
+    Panel {
+        head,
+        place,
+        body,
+        no_window,
+        size: vec2(width, height),
+    }
+}
+
+/// Paints the panel for `chat`, hovered in `row`, inside `area` (the list).
+pub fn show(ctx: &Context, row: Rect, area: Rect, chat: &Chat, look: &Look) {
+    let painter = ctx.layer_painter(LayerId::new(Order::Tooltip, Id::new("claude-deck-hover")));
+    let width = WIDTH.min(area.width() - 2.0 * MARGIN).max(80.0);
+    let panel = layout(&painter, chat, look, width);
+    let height = panel.size.y;
     let left = (row.left() + IN_FROM_LEFT)
         .min(area.right() - MARGIN - width)
         .max(area.left() + MARGIN);
@@ -102,18 +124,34 @@ pub fn show(ctx: &Context, row: Rect, area: Rect, chat: &Chat, look: &Look) {
         top = (row.top() - BELOW - height).max(area.top() + MARGIN);
     }
     let rect = Rect::from_min_size(pos2(left, top), vec2(width, height));
-    if tokens.shadows {
+    if look.tokens.shadows {
         let shadow = Shadow {
             offset: [0, 8],
             blur: 24,
             spread: 0,
-            color: tokens.palette_shadow,
+            color: look.tokens.palette_shadow,
         };
         painter.add(shadow.as_shape(rect, RADIUS));
     }
+    paint(&painter, rect, RADIUS, panel, chat, look);
+}
+
+/// The panel's width when it has a window of its own (mini mode).
+pub const OWN_WIDTH: f32 = WIDTH;
+
+/// Paints a laid-out panel in `rect`.
+pub fn paint(painter: &Painter, rect: Rect, radius: u8, panel: Panel, chat: &Chat, look: &Look) {
+    let tokens: &Tokens = look.tokens;
+    let Panel {
+        head,
+        place,
+        body,
+        no_window,
+        ..
+    } = panel;
     painter.rect(
         rect,
-        RADIUS,
+        radius,
         tokens.elevated_bg,
         Stroke::new(1.0, tokens.border),
         egui::StrokeKind::Inside,
@@ -121,7 +159,7 @@ pub fn show(ctx: &Context, row: Rect, area: Rect, chat: &Chat, look: &Look) {
     let x = rect.left() + PAD_X;
     let mut y = rect.top() + PAD_Y;
     marks::paint(
-        &painter,
+        painter,
         pos2(x, y),
         chat.mark,
         MarkStyle::Shapes,

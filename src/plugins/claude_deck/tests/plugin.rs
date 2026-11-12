@@ -22,6 +22,40 @@ fn settings_read_with_defaults_for_what_is_missing() {
     assert_eq!(set.mark, MarkStyle::ShapesAndWords);
     let off = Settings::read(&serde_json::json!({ "status_mark": "Off" }));
     assert_eq!(off.mark, MarkStyle::Off);
+    assert!(defaults.fade && defaults.tray_count && !defaults.mini);
+    let later = Settings::read(&serde_json::json!({
+        "fade_when_away": false,
+        "tray_count": false,
+        "mini_mode": true,
+    }));
+    assert!(!later.fade && !later.tray_count && later.mini);
+}
+
+#[test]
+fn every_setting_of_the_design_page_is_there_and_mini_mode_is_not_one() {
+    use crate::core::traits::WinCraftPlugin;
+    let deck = crate::plugins::claude_deck::ClaudeDeck::new();
+    let labels: Vec<&str> = deck.settings_fields().iter().map(|f| f.label).collect();
+    assert_eq!(
+        labels,
+        [
+            "Stay on top",
+            "Only open windows",
+            "Fade when the mouse is away",
+            "Fold chats idle for over 1 day",
+            "Show a count on the tray icon",
+            "Status mark",
+            "A line of text (the question, or what it does)",
+            "Time in the status",
+            "Project and branch",
+            "Job count",
+            "Model name",
+        ]
+    );
+    let defaults = deck.default_settings();
+    for field in deck.settings_fields() {
+        assert!(defaults.get(field.key).is_some(), "{}", field.key);
+    }
 }
 
 #[test]
