@@ -144,30 +144,39 @@ click on it brings the full window back on the News tab.
 Under the header are two tabs: **Chats**, the list, and **News**. With many
 chats at once, a chat can go idle while its last reply matters and nobody
 read it. The News tab shows every reply a chat finished in the last 24
-hours, newest first, several per chat:
+hours, one block per chat, the chat with the newest reply first:
 
 - **Waits for you**, pinned at the top: the chats that need approval or ask
-  you, with their status mark and question.
-- **Last 24 hours**: every finished reply, with the chat's name, project,
-  time and the first three lines. Server chats are in it too, with the
-  server's icon and name.
+  you, each with its question and its replies of the day.
+- **Last 24 hours**: the other chats' finished replies. Server chats are in
+  it too, with the server's icon and name.
 - **Older**, folded at first: each chat's latest reply from before that.
+
+A block line shows the chat once: the fold arrow, its status mark, its name,
+its project, its server and an amber count of its unseen replies. Under it,
+each reply takes one or two lines, with its time at the right. A chat shows
+all its unseen replies, or only its newest when you have seen them all; the
+others fold into one amber line, "2 earlier replies". A click on that line,
+or on the block line's arrow, unfolds the chat. It stays unfolded until the
+chat gets a new reply.
 
 A reply is **unseen** when the chat finished it after you last opened the
 chat in the Claude app, and you have not opened it here. An unseen reply has
-an amber dot and a bold name. A server chat has no "last opened" time, so
+an amber dot and its text in full colour. A server chat has no "last opened" time, so
 its replies stay unseen until you open them here. The **News** tab shows how
 many replies are unseen; on **Chats**, a row with an unseen reply has an
 amber dot after its name, and the tray tooltip adds ", 4 new replies".
 
-- Click an item to open it in place. It shows the whole reply and counts as
+- Click a reply to open it in place. It shows the whole reply and counts as
   seen. A long reply is cut after 11 lines with **Show all**.
 - **Open the chat**, `Enter` or a double-click opens the chat the way the
-  Chats tab does.
+  Chats tab does. A click on a block line opens its chat too, and all its
+  replies count as seen.
 - **Only unseen** hides the replies you have seen. **Mark all seen** counts
   every reply as seen, without opening the chats.
-- Keys: `Ctrl+Tab` switches tabs; `↑` `↓` move; `Space` or `→` opens an item
-  and `←` closes it (on a group line they unfold and fold it); `Home` and
+- Keys: `Ctrl+Tab` switches tabs; `↑` `↓` move over group lines, block lines
+  and replies; `Space` or `→` opens a reply and `←` closes it; on a block or
+  group line `→` unfolds and `←` folds; `Enter` opens the chat; `Home` and
   `End` go to the ends. The digits work only on the Chats tab.
 
 How a finished reply is found: Claude's text at the end of a turn, that is
