@@ -67,6 +67,18 @@ pub fn open_pick(lines: &[Line], last: Option<&Pick>) -> Option<Pick> {
     chats().next().map(|chat| Pick::Chat(chat.id.clone()))
 }
 
+/// The row of the chat whose window is in front, so the list marks the
+/// chat the user works in. None when the window in front is no shown
+/// chat's window: the row marked before then stays.
+pub fn front_pick(lines: &[Line], front: isize) -> Option<Pick> {
+    lines.iter().find_map(|line| match line {
+        Line::Chat(c) if !c.stand_in && !c.hidden && c.chat.window == Some(front) => {
+            Some(Pick::Chat(c.chat.id.clone()))
+        }
+        _ => None,
+    })
+}
+
 /// The digit a chat row shows: the first nine chat rows on screen get 1
 /// to 9, top to bottom. `seen` counts the ones already numbered.
 pub fn digit_for(on_screen: bool, stand_in: bool, seen: &mut usize) -> Option<u8> {

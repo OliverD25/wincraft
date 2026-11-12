@@ -164,3 +164,24 @@ fn a_waiting_chat_out_of_sight_is_picked_by_the_line_that_holds_it() {
         .iter()
         .any(|line| matches!(line, Line::Group(g) if g.key == key && g.name == "NewsHQ")));
 }
+
+#[test]
+fn the_chat_whose_window_is_in_front_is_the_marked_row() {
+    let chats = vec![
+        Chat {
+            window: Some(0x10),
+            ..chat("one", Some(r"E:\code\WinCraft"), 1)
+        },
+        Chat {
+            window: Some(0x20),
+            ..chat("two", Some(r"E:\code\WinCraft"), 2)
+        },
+    ];
+    let got = lines(&chats, &Archived::new(), &View::default(), NOW);
+    assert_eq!(front_pick(&got, 0x20), Some(Pick::Chat("two".into())));
+    assert_eq!(
+        front_pick(&got, 0x99),
+        None,
+        "another app in front changes nothing"
+    );
+}

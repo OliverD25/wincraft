@@ -53,6 +53,8 @@ const ASK_EVERY: Duration = claude_sessions::READ_EVERY;
 const BUILD_EVERY: Duration = Duration::from_secs(1);
 /// The Working ring: one turn in this time, drawn in this many steps.
 const TURN: Duration = Duration::from_secs(2);
+/// How often the list looks which window is in front.
+const FRONT_EVERY: Duration = Duration::from_millis(400);
 const RING_STEP: Duration = Duration::from_millis(100);
 const EMPTY_SIZE: f32 = 13.0;
 const EMPTY_PAD: f32 = 28.0;
@@ -126,6 +128,8 @@ pub(super) struct DeckUi {
     pub digit_rows: Vec<String>,
     /// The hotkey opened the window: select the row it should.
     select_on_open: bool,
+    /// The window in front when the list last looked, once chats are in.
+    front_seen: Option<isize>,
     /// The window in front when the hotkey was pressed.
     pub(super) before: Option<isize>,
     /// The mode the window has now; None before the first frame.
@@ -246,6 +250,7 @@ impl PluginWindow for DeckWindow {
                 state.selected = select::open_pick(&lines, state.selected.as_ref());
                 state.scroll_to_selected = true;
             }
+            follow_front(&mut state, &lines);
             switch_mode(ui.ctx(), &mut state, settings.mini, &lines);
             let turn = ring_turn(&state);
             let menu_was_open = egui::Popup::is_any_open(ui.ctx());
@@ -323,8 +328,11 @@ impl PluginWindow for DeckWindow {
             tell_tray(&mut shared, &mut state, tip);
             let fade_next = fade_step(ui.ctx(), &mut state, settings.fade);
             let next = next_frame(&state, &lines, now);
-            ui.ctx()
-                .request_repaint_after(fade_next.map_or(next, |fade| fade.min(next)));
+            ui.ctx().request_repaint_after(
+                fade_next
+                    .map_or(next, |fade| fade.min(next))
+                    .min(FRONT_EVERY),
+            );
         });
     }
 }
@@ -472,6 +480,26 @@ pub(super) fn listed(state: &DeckUi) -> Vec<Chat> {
         .filter(|(at, _)| !hidden.contains(at))
         .map(|(_, chat)| chat.clone())
         .collect()
+}
+
+/// When another window comes to the front and it is a shown chat's window,
+/// that chat's row becomes the marked one. The user then sees in the list
+/// which chat they work in. A menu, a rename or a drag is left alone.
+fn follow_front(state: &mut DeckUi, lines: &[Line]) {
+    if state.chats.is_empty() {
+        return;
+    }
+    let front = unsafe { GetForegroundWindow() } as isize;
+    if state.front_seen.replace(front) == Some(front) {
+        return;
+    }
+    let busy = state.drag.is_some() || state.renaming.is_some() || state.menu_for.is_some();
+    if let Some(pick) = select::front_pick(lines, front).filter(|_| !busy) {
+        if state.selected.as_ref() != Some(&pick) {
+            state.selected = Some(pick);
+            state.scroll_to_selected = true;
+        }
+    }
 }
 
 /// Saves the window's place and size when they changed; never the
