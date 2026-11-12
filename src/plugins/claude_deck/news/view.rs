@@ -1,5 +1,6 @@
 //! What the News tab shows, worked out without drawing: its lines in
-//! order, the group counts, the cut of a long reply and the words.
+//! order (groups, one block per chat, its replies, the folded ones), the
+//! counts, the cut of a long reply and the words.
 
 use super::collect::{Item, News};
 
@@ -14,8 +15,8 @@ pub const OPEN_CHAT: &str = "Open the chat";
 pub const OPEN_HINT: &str = "or Enter, or a double-click";
 pub const EMPTY: &str = "No replies in the last 24 hours. Each reply a chat finishes shows here.";
 pub const NOT_SEEN: &str = "Not seen yet";
-/// A closed item shows this many lines of its reply.
-pub const SHORT_LINES: usize = 3;
+/// A closed reply shows this many lines.
+pub const SHORT_LINES: usize = 2;
 /// An open item shows this many lines before "Show all".
 pub const LONG_LINES: usize = 11;
 
@@ -51,68 +52,192 @@ impl Head {
 /// One line of the tab.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Line<'a> {
-    /// A group's line: its count, whether it is folded, and whether an
-    /// unseen reply is folded away in it.
+    /// A group's line: its count of chats, whether it is folded, and
+    /// whether an unseen reply is folded away in it.
     Head {
         head: Head,
         count: usize,
         folded: bool,
         dot: bool,
     },
+    /// A chat's block line: its newest item gives the name, the folder
+    /// and the server. `unseen` counts its unseen replies; `open` is
+    /// false while some of its replies are folded away.
+    Block {
+        head: Head,
+        item: &'a Item,
+        unseen: usize,
+        open: bool,
+    },
     Item(&'a Item),
+    /// "N earlier replies" under a folded chat.
+    Earlier {
+        chat: String,
+        count: usize,
+    },
     /// The words of an empty tab.
     Empty,
 }
 
+/// What the lines depend on besides the items.
+pub trait Folds {
+    fn only_unseen(&self) -> bool;
+    fn head_folded(&self, head: Head) -> bool;
+    /// The user unfolded this chat and no new reply came since.
+    fn chat_open(&self, chat: &str) -> bool;
+    /// An item that must stay listed even when its chat is folded: the
+    /// open one and the one the keyboard is on.
+    fn keep(&self, key: &str) -> bool;
+}
+
+/// The words of the line that unfolds a chat.
+pub fn earlier(n: usize) -> String {
+    match n {
+        1 => "1 earlier reply".to_string(),
+        n => format!("{n} earlier replies"),
+    }
+}
+
+/// The key a chat's block line has among the picks.
+pub fn block_key(head: Head, chat: &str) -> String {
+    format!("chat:{}:{chat}", head.name())
+}
+
+/// The group and the chat of a block line's key.
+pub fn of_block_key(key: &str) -> Option<(Head, &str)> {
+    let rest = key.strip_prefix("chat:")?;
+    [Head::Waits, Head::Recent, Head::Older]
+        .into_iter()
+        .find_map(|head| Some((head, rest.strip_prefix(head.name())?.strip_prefix(':')?)))
+}
+
+/// The items grouped by chat. The items come newest first, so the blocks
+/// are in the order of their newest reply, and so are the items in each.
+pub fn by_chat<'a>(items: impl IntoIterator<Item = &'a Item>) -> Vec<Vec<&'a Item>> {
+    let mut blocks: Vec<Vec<&'a Item>> = Vec::new();
+    for item in items {
+        match blocks.iter_mut().find(|block| block[0].chat == item.chat) {
+            Some(block) => block.push(item),
+            None => blocks.push(vec![item]),
+        }
+    }
+    blocks
+}
+
+/// The items a folded chat lists: every unseen one, or the newest when
+/// all are seen, and the kept ones. The second number is how many fold
+/// away; nothing folds in an unfolded chat.
+pub fn fold<'a>(
+    items: &[&'a Item],
+    open: bool,
+    keep: impl Fn(&str) -> bool,
+) -> (Vec<&'a Item>, usize) {
+    if open {
+        return (items.to_vec(), 0);
+    }
+    let any_unseen = items.iter().any(|item| item.unseen);
+    let shown: Vec<&'a Item> = items
+        .iter()
+        .enumerate()
+        .filter(|(at, item)| item.unseen || keep(&item.key) || (!any_unseen && *at == 0))
+        .map(|(_, item)| *item)
+        .collect();
+    let folded = items.len() - shown.len();
+    (shown, folded)
+}
+
+/// The unseen replies in a block; a pinned question is not a reply.
+pub fn unseen_replies(items: &[&Item]) -> usize {
+    items
+        .iter()
+        .filter(|item| item.unseen && item.mark.is_none())
+        .count()
+}
+
 /// The lines, top to bottom: the pinned chats, the last 24 hours, the
-/// older replies. "Only unseen" hides the seen replies, never a pinned
-/// chat. The empty words show only when nothing at all happened.
-pub fn lines<'a>(
-    news: &'a News,
-    only_unseen: bool,
-    folded: impl Fn(Head) -> bool,
-) -> Vec<Line<'a>> {
+/// older replies, each group one block per chat. A chat that waits shows
+/// its question and its replies of the day in its pinned block only.
+/// "Only unseen" hides the seen replies and a block left with none, never
+/// a pinned chat. The empty words show only when nothing happened.
+pub fn lines<'a>(news: &'a News, folds: &impl Folds) -> Vec<Line<'a>> {
     if news.is_empty() {
         return vec![Line::Empty];
     }
-    let shown = |items: &'a [Item]| -> Vec<&'a Item> {
-        items
+    let only_unseen = folds.only_unseen();
+    let shown = |item: &&'a Item| !only_unseen || item.unseen;
+    let waiting: Vec<&str> = news.pinned.iter().map(|item| item.chat.as_str()).collect();
+    let pinned: Vec<Vec<&'a Item>> = news
+        .pinned
+        .iter()
+        .map(|question| {
+            let mut block = vec![question];
+            block.extend(
+                news.recent
+                    .iter()
+                    .filter(|item| item.chat == question.chat)
+                    .filter(shown),
+            );
+            block
+        })
+        .collect();
+    let recent = by_chat(
+        news.recent
             .iter()
-            .filter(|item| !only_unseen || item.unseen)
-            .collect()
-    };
+            .filter(|item| !waiting.contains(&item.chat.as_str()))
+            .filter(shown),
+    );
+    let older = by_chat(news.older.iter().filter(shown));
     let mut lines = Vec::new();
-    let mut part = |head: Head, items: Vec<&'a Item>, always: bool| {
-        if items.is_empty() && !always {
+    let mut part = |head: Head, blocks: Vec<Vec<&'a Item>>, always: bool| {
+        if blocks.is_empty() && !always {
             return;
         }
-        let folded = folded(head);
+        let folded = folds.head_folded(head);
         lines.push(Line::Head {
             head,
-            count: items.len(),
+            count: blocks.len(),
             folded,
-            dot: folded && items.iter().any(|item| item.unseen && item.mark.is_none()),
+            dot: folded && blocks.iter().any(|block| unseen_replies(block) > 0),
         });
-        if !folded {
-            lines.extend(items.into_iter().map(Line::Item));
+        if folded {
+            return;
+        }
+        for block in blocks {
+            let chat = &block[0].chat;
+            let (listed, rest) = fold(&block, folds.chat_open(chat), |key| folds.keep(key));
+            lines.push(Line::Block {
+                head,
+                item: block[0],
+                unseen: unseen_replies(&block),
+                open: rest == 0,
+            });
+            lines.extend(listed.into_iter().map(Line::Item));
+            if rest > 0 {
+                lines.push(Line::Earlier {
+                    chat: chat.clone(),
+                    count: rest,
+                });
+            }
         }
     };
-    part(Head::Waits, news.pinned.iter().collect(), false);
+    part(Head::Waits, pinned, false);
     // The line of the last 24 hours holds "Only unseen" and "Mark all
     // seen", so it stays even when it has no reply.
-    part(Head::Recent, shown(&news.recent), true);
-    part(Head::Older, shown(&news.older), false);
+    part(Head::Recent, recent, true);
+    part(Head::Older, older, false);
     lines
 }
 
-/// The keys of the lines the keyboard reaches, top to bottom.
+/// The keys of the lines the keyboard reaches, top to bottom. The
+/// "earlier replies" line is skipped: Right on the block line unfolds.
 pub fn picks(lines: &[Line]) -> Vec<String> {
     lines
         .iter()
         .filter_map(|line| match line {
             Line::Head { head, .. } => Some(head.key()),
+            Line::Block { head, item, .. } => Some(block_key(*head, &item.chat)),
             Line::Item(item) => Some(item.key.clone()),
-            Line::Empty => None,
+            Line::Earlier { .. } | Line::Empty => None,
         })
         .collect()
 }

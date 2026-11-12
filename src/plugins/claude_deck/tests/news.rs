@@ -1,6 +1,6 @@
 //! The tabs and the News tab in a whole window frame: the strip and its
-//! count, a click and the keys on items and groups, opening a chat, the
-//! dot on chat rows and the count in mini mode.
+//! count, a click and the keys on replies, chats' blocks and groups,
+//! opening a chat, the dot on chat rows and the count in mini mode.
 
 use egui::{Key, Modifiers};
 
@@ -9,6 +9,7 @@ use super::*;
 use crate::core::ui_bridge::{ArrangeAction, HostRequest};
 use crate::plugins::claude_deck::header::Click;
 use crate::plugins::claude_deck::news::collect::{Item, News};
+use crate::plugins::claude_deck::news::view::Folds;
 use crate::plugins::claude_deck::news::{load, view, Tab};
 use crate::plugins::claude_deck::{mini, Settings};
 
@@ -25,6 +26,7 @@ fn item(key: &str, ago: u64, text: &str, unseen: bool) -> Item {
         text: text.to_string(),
         unseen,
         mark: None,
+        status: Mark::Idle(Age::Fresh),
     }
 }
 
@@ -116,7 +118,12 @@ fn a_click_opens_an_item_and_reads_it_and_open_the_chat_brings_its_window() {
     let mut deck = news_deck(Settings::default(), "click");
     deck.state.news.tab = Tab::News;
     let painted = deck.settle();
-    deck.click(painted.at("Title r1"));
+    assert!(painted.has(&view::earlier(1)), "{:?}", painted.texts);
+    assert!(
+        !painted.has("The lesson screen works."),
+        "a seen reply folds under an unseen one"
+    );
+    deck.click(painted.at("Line 1 of the reply."));
     assert_eq!(deck.state.news.open.as_deref(), Some("r1"));
     assert_eq!(deck.state.news.count, 1, "opening it read it");
     let painted = deck.settle();
@@ -136,6 +143,28 @@ fn a_click_opens_an_item_and_reads_it_and_open_the_chat_brings_its_window() {
     assert!(painted.has("Line 24 of the reply."));
     let saved = load(deck.state.news.file.as_ref().expect("a file"), NOW);
     assert!(saved.has("r1"), "the mark is saved");
+    deck.click(painted.at("Line 1 of the reply."));
+    assert_eq!(deck.state.news.open, None, "a second click closes it");
+    let painted = deck.settle();
+    deck.click(painted.at(&view::earlier(1)));
+    let painted = deck.settle();
+    assert!(painted.has("The lesson screen works."), "the chat unfolds");
+    assert!(!painted.has(&view::earlier(1)));
+}
+
+#[test]
+fn a_click_on_a_block_line_opens_the_chat_and_reads_its_replies() {
+    let mut deck = news_deck(Settings::default(), "block");
+    deck.state.news.tab = Tab::News;
+    let painted = deck.settle();
+    deck.requests();
+    deck.click(painted.at("Title r1"));
+    assert!(activated(&deck, 1234), "the chat's window comes forward");
+    assert_eq!(deck.state.news.open, None, "no reply opens in place");
+    assert_eq!(
+        deck.state.news.count, 0,
+        "every reply of the chat counts as seen, the older one too"
+    );
 }
 
 #[test]
@@ -174,8 +203,17 @@ fn the_keys_move_open_fold_and_enter_opens_the_chat() {
         deck.state.news.selected.as_deref(),
         Some("head:Waits for you")
     );
-    deck.key(Key::ArrowDown);
-    deck.key(Key::ArrowDown);
+    for _ in 0..4 {
+        deck.key(Key::ArrowDown);
+    }
+    assert_eq!(
+        deck.state.news.selected.as_deref(),
+        Some("chat:Last 24 hours:b1")
+    );
+    deck.key(Key::ArrowRight);
+    assert!(deck.state.news.chat_open("b1"), "Right unfolds the chat");
+    deck.key(Key::ArrowLeft);
+    assert!(!deck.state.news.chat_open("b1"), "Left folds it");
     deck.key(Key::ArrowDown);
     assert_eq!(deck.state.news.selected.as_deref(), Some("r1"));
     deck.key(Key::Space);

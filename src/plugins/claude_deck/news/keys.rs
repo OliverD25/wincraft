@@ -1,10 +1,12 @@
-//! The keyboard on the tabs (design section 13). Ctrl+Tab and
+//! The keyboard on the tabs (design sections 13 and 14). Ctrl+Tab and
 //! Ctrl+Shift+Tab switch between Chats and News on either tab. On News:
-//! Up and Down move between the items and group lines, Home and End go to
-//! the first and the last, Space or Right opens an item (Right unfolds a
-//! group), Left closes it (or folds a group), Enter opens the chat (or
-//! folds a group), Esc gives the keyboard back. The digits 1 to 9 stay
-//! on the Chats tab.
+//! Up and Down move over the group lines, the chats' block lines and the
+//! replies ("N earlier replies" is skipped), Home and End go to the first
+//! and the last, Esc gives the keyboard back. On a group line Right
+//! unfolds, Left folds, Enter or Space does both. On a block line Right
+//! unfolds the chat, Left folds it, Space does both, Enter opens the chat.
+//! On a reply Space or Right opens it in place, Left closes it, Enter
+//! opens the chat. The digits 1 to 9 stay on the Chats tab.
 
 use egui::{Key, Ui};
 
@@ -13,8 +15,8 @@ use crate::core::ui_bridge::HostChannel;
 use super::super::keys::{self, Asked};
 use super::super::model::Line as ChatLine;
 use super::super::window::DeckUi;
-use super::draw::open_item;
-use super::view::Head;
+use super::draw::{open_block, open_item};
+use super::view::{self, Folds, Head};
 use super::Tab;
 
 #[derive(Default)]
@@ -135,6 +137,23 @@ fn news_keys(ui: &Ui, state: &mut DeckUi, to_host: &HostChannel, now: u64) -> As
             news.fold(head, false);
         } else if pressed.enter || pressed.space {
             news.fold(head, !folded);
+        }
+        return asked;
+    }
+    if let Some((_, chat)) = view::of_block_key(&picked) {
+        let chat = chat.to_string();
+        if pressed.right {
+            news.fold_chat(&chat, false);
+        } else if pressed.left {
+            news.fold_chat(&chat, true);
+        } else if pressed.space {
+            let open = news.chat_open(&chat);
+            news.fold_chat(&chat, open);
+        } else if pressed.enter {
+            let item = news.news.all().find(|item| item.chat == chat).cloned();
+            if let Some(item) = item {
+                open_block(state, &item, to_host, now);
+            }
         }
         return asked;
     }

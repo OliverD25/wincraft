@@ -1,7 +1,7 @@
 //! Drawing the tabs strip under the header, the News tab, and the unseen
-//! count in mini mode. Sizes are the design page's (section 13): a 30 px
-//! strip, flat items with a thin line between them, 13 px names and 12 px
-//! text on 16 px lines.
+//! count in mini mode. Sizes are the design page's (sections 13 and 14):
+//! a 30 px strip, 24 px group lines, and one block per chat drawn by
+//! `groups`, with a thin line between the blocks.
 
 use std::sync::Arc;
 
@@ -12,16 +12,14 @@ use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::HostChannel;
 use crate::ui::widgets::text;
 
-use super::super::labels::time_label;
 use super::super::list;
-use super::super::marks;
 use super::super::model::Line as ChatLine;
 use super::super::open_app::open_chat;
 use super::super::rows::Look;
 use super::super::servers;
 use super::super::window::{empty, DeckUi};
-use super::super::MarkStyle;
 use super::collect::Item;
+use super::groups::{self, BlockParts, Shown};
 use super::view::{self, Head, Line};
 use super::Tab;
 
@@ -30,29 +28,17 @@ const TAB_PAD: f32 = 10.0;
 const TAB_GAP: f32 = 2.0;
 const STRIP_PAD: f32 = 6.0;
 const TAB_SIZE: f32 = 13.0;
-const SMALL: f32 = 12.0;
+pub(super) const SMALL: f32 = 12.0;
 const BADGE_H: f32 = 16.0;
 const BADGE_MIN: f32 = 18.0;
 const BADGE_PAD: f32 = 5.0;
 
 const HEAD: f32 = 24.0;
 const HEAD_GAP: f32 = 4.0;
-const PAD: f32 = 10.0;
-const PAD_TOP: f32 = 6.0;
-const PAD_BOTTOM: f32 = 7.0;
-const LEAD: f32 = 14.0;
-const LEAD_GAP: f32 = 7.0;
-const L1: f32 = 15.0;
-const TEXT_GAP: f32 = 3.0;
+pub(super) const PAD: f32 = 10.0;
 const LINE: f32 = 16.0;
-const NAME: f32 = 13.0;
 const DOT: f32 = 8.0;
-const PART_GAP: f32 = 6.0;
-const SMALLEST_TAG: f32 = 24.0;
-const LINK_GAP: f32 = 4.0;
-const ACT_GAP: f32 = 8.0;
-const BUTTON_H: f32 = 24.0;
-const BUTTON_PAD: f32 = 10.0;
+pub(super) const PART_GAP: f32 = 6.0;
 const SWITCH: egui::Vec2 = egui::Vec2::new(24.0, 13.0);
 const LIST_BOTTOM: f32 = 6.0;
 /// The count's height in mini mode.
@@ -80,11 +66,16 @@ pub(in crate::plugins::claude_deck) fn body(
     }
 }
 
-fn galley(painter: &Painter, words: &str, font: egui::FontId, colour: Color32) -> Arc<Galley> {
+pub(super) fn galley(
+    painter: &Painter,
+    words: &str,
+    font: egui::FontId,
+    colour: Color32,
+) -> Arc<Galley> {
     painter.layout_job(text::job(words, font, colour, None))
 }
 
-fn cut_job(mut job: LayoutJob, width: f32, rows: usize) -> LayoutJob {
+pub(super) fn cut_job(mut job: LayoutJob, width: f32, rows: usize) -> LayoutJob {
     job.wrap = TextWrapping {
         max_width: width.max(1.0),
         max_rows: rows,
@@ -94,7 +85,7 @@ fn cut_job(mut job: LayoutJob, width: f32, rows: usize) -> LayoutJob {
     job
 }
 
-fn put(painter: &Painter, left: f32, middle: f32, galley: Arc<Galley>) -> f32 {
+pub(super) fn put(painter: &Painter, left: f32, middle: f32, galley: Arc<Galley>) -> f32 {
     let size = galley.size();
     painter.galley(
         pos2(left, middle - size.y / 2.0),
@@ -198,21 +189,6 @@ fn text_of(
     (painter.layout_job(cut_job(job, width, rows)), link)
 }
 
-fn text_width(width: f32) -> f32 {
-    width - PAD * 2.0 - LEAD - LEAD_GAP
-}
-
-fn item_height(text: &Galley, open: bool, link: bool) -> f32 {
-    let mut height = PAD_TOP + L1 + TEXT_GAP + text.size().y + PAD_BOTTOM;
-    if open {
-        if link {
-            height += LINK_GAP + LINE;
-        }
-        height += ACT_GAP + BUTTON_H;
-    }
-    height
-}
-
 fn head_height(first: bool) -> f32 {
     if first {
         HEAD
@@ -221,28 +197,41 @@ fn head_height(first: bool) -> f32 {
     }
 }
 
-/// An item's text, laid out, and the words of its "Show all" link.
-type Laid = (Arc<Galley>, Option<String>);
+/// A reply's text, laid out, the words of its "Show all" link, its time.
+type Laid = (Arc<Galley>, Option<String>, Arc<Galley>);
 
 /// What a frame of the tab asks for, applied after drawing.
 #[derive(Default)]
-struct Asks {
-    toggle: Option<String>,
-    open_chat: Option<Item>,
-    whole: Option<String>,
-    fold: Option<Head>,
-    only_unseen: bool,
-    mark_all: bool,
-    select: Option<String>,
+pub(super) struct Asks {
+    pub toggle: Option<String>,
+    pub open_chat: Option<Item>,
+    /// A block line's chat to open.
+    pub open_block: Option<Item>,
+    pub whole: Option<String>,
+    pub fold: Option<Head>,
+    /// A chat to fold (true) or unfold.
+    pub fold_chat: Option<(String, bool)>,
+    pub only_unseen: bool,
+    pub mark_all: bool,
+    pub select: Option<String>,
+}
+
+/// Whether the line at `at` is the last of a chat's block.
+fn ends_block(lines: &[Line], at: usize) -> bool {
+    matches!(
+        lines[at],
+        Line::Block { .. } | Line::Item(_) | Line::Earlier { .. }
+    ) && !matches!(
+        lines.get(at + 1),
+        Some(Line::Item(_) | Line::Earlier { .. })
+    )
 }
 
 /// One frame of the News tab.
 fn show(ui: &mut Ui, look: &Look, state: &mut DeckUi, to_host: &HostChannel) {
     let tokens = look.tokens;
     let news = Arc::clone(&state.news.news);
-    let lines = view::lines(&news, state.news.only_unseen, |head| {
-        state.news.is_folded(head)
-    });
+    let lines = view::lines(&news, &state.news);
     state.news.picks = view::picks(&lines);
     if lines == [Line::Empty] {
         empty_tab(ui, tokens);
@@ -254,32 +243,58 @@ fn show(ui: &mut Ui, look: &Look, state: &mut DeckUi, to_host: &HostChannel) {
         .show(ui, |ui| {
             let width = ui.available_width();
             let painter = ui.painter().clone();
-            let laid: Vec<(f32, Option<Laid>)> = lines
+            let laid: Vec<(f32, f32, Option<Laid>)> = lines
                 .iter()
                 .enumerate()
-                .map(|(at, line)| match line {
-                    Line::Head { .. } => (head_height(at == 0), None),
-                    Line::Item(item) => {
-                        let open = state.news.open.as_deref() == Some(item.key.as_str());
-                        let whole = state.news.whole.contains(&item.key);
-                        let (galley, link) =
-                            text_of(&painter, item, open, whole, text_width(width), tokens);
-                        (
-                            item_height(&galley, open, link.is_some()),
-                            Some((galley, link)),
-                        )
+                .map(|(at, line)| {
+                    let bottom = if ends_block(&lines, at) {
+                        groups::BLOCK_BOTTOM
+                    } else {
+                        0.0
+                    };
+                    match line {
+                        Line::Head { .. } => (head_height(at == 0), 0.0, None),
+                        Line::Block { .. } => (
+                            groups::BLOCK_TOP + groups::BLOCK_LINE + bottom,
+                            bottom,
+                            None,
+                        ),
+                        Line::Item(item) => {
+                            let open = state.news.open.as_deref() == Some(item.key.as_str());
+                            let whole = state.news.whole.contains(&item.key);
+                            let time = groups::time(&painter, item, look);
+                            let room = groups::text_width(width, &time);
+                            let (galley, link) = text_of(&painter, item, open, whole, room, tokens);
+                            let height = groups::reply_height(&galley, open, link.is_some());
+                            (height + bottom, bottom, Some((galley, link, time)))
+                        }
+                        Line::Earlier { .. } => (groups::EARLIER + bottom, bottom, None),
+                        Line::Empty => (0.0, 0.0, None),
                     }
-                    Line::Empty => (0.0, None),
                 })
                 .collect();
-            let total: f32 = laid.iter().map(|(h, _)| h).sum::<f32>() + LIST_BOTTOM;
+            let total: f32 = laid.iter().map(|(h, _, _)| h).sum::<f32>() + LIST_BOTTOM;
             let (area, _) = ui.allocate_exact_size(vec2(width, total), Sense::hover());
             let painter = ui.painter_at(area);
             let mut top = area.top();
-            let mut item_before = false;
-            for ((line, (height, laid)), at) in lines.iter().zip(&laid).zip(0..) {
+            for ((line, (height, bottom, laid)), at) in lines.iter().zip(&laid).zip(0..) {
                 let whole = Rect::from_min_size(pos2(area.left(), top), vec2(width, *height));
+                let rect =
+                    Rect::from_min_max(whole.min, pos2(whole.right(), whole.bottom() - bottom));
                 top += height;
+                let key = match line {
+                    Line::Head { head, .. } => Some(head.key()),
+                    Line::Block { head, item, .. } => Some(view::block_key(*head, &item.chat)),
+                    Line::Item(item) => Some(item.key.clone()),
+                    Line::Earlier { .. } | Line::Empty => None,
+                };
+                let selected = key.is_some() && state.news.selected == key;
+                if selected && std::mem::take(&mut state.news.scroll_to_selected) {
+                    ui.scroll_to_rect(rect, None);
+                }
+                if !ui.is_rect_visible(whole) {
+                    continue;
+                }
                 match line {
                     Line::Head {
                         head,
@@ -287,19 +302,10 @@ fn show(ui: &mut Ui, look: &Look, state: &mut DeckUi, to_host: &HostChannel) {
                         folded,
                         dot,
                     } => {
-                        item_before = false;
                         let rect = Rect::from_min_max(
                             pos2(whole.left(), whole.bottom() - HEAD),
                             whole.max,
                         );
-                        let key = head.key();
-                        let selected = state.news.selected.as_deref() == Some(key.as_str());
-                        if selected && std::mem::take(&mut state.news.scroll_to_selected) {
-                            ui.scroll_to_rect(rect, None);
-                        }
-                        if !ui.is_rect_visible(rect) {
-                            continue;
-                        }
                         let parts = HeadParts {
                             head: *head,
                             count: *count,
@@ -310,33 +316,37 @@ fn show(ui: &mut Ui, look: &Look, state: &mut DeckUi, to_host: &HostChannel) {
                         };
                         head_line(ui, &painter, rect, &parts, tokens, &mut asks, at);
                     }
+                    Line::Block {
+                        head,
+                        item,
+                        unseen,
+                        open,
+                    } => {
+                        let parts = BlockParts {
+                            head: *head,
+                            item,
+                            unseen: *unseen,
+                            open: *open,
+                            selected,
+                            after_block: at > 0 && !matches!(lines[at - 1], Line::Head { .. }),
+                        };
+                        groups::block_line(ui, &painter, rect, &parts, look, &mut asks);
+                    }
                     Line::Item(item) => {
-                        if item_before {
-                            painter.hline(
-                                whole.x_range(),
-                                whole.top() + 0.5,
-                                Stroke::new(1.0, tokens.hover_bg),
-                            );
-                        }
-                        item_before = true;
-                        let selected = state.news.selected.as_deref() == Some(item.key.as_str());
-                        if selected && std::mem::take(&mut state.news.scroll_to_selected) {
-                            ui.scroll_to_rect(whole, None);
-                        }
-                        if !ui.is_rect_visible(whole) {
-                            continue;
-                        }
-                        let Some((galley, link)) = laid else {
+                        let Some((galley, link, time)) = laid else {
                             continue;
                         };
-                        let open = state.news.open.as_deref() == Some(item.key.as_str());
                         let shown = Shown {
-                            open,
+                            open: state.news.open.as_deref() == Some(item.key.as_str()),
                             selected,
                             galley: galley.clone(),
                             link: link.clone(),
+                            time: time.clone(),
                         };
-                        item_line(ui, &painter, whole, item, &shown, look, &mut asks);
+                        groups::reply(ui, &painter, rect, item, &shown, look, &mut asks);
+                    }
+                    Line::Earlier { chat, count } => {
+                        groups::earlier(ui, &painter, rect, chat, *count, tokens, &mut asks);
                     }
                     Line::Empty => {}
                 }
@@ -361,6 +371,9 @@ fn apply(asks: Asks, state: &mut DeckUi, to_host: &HostChannel, now: u64) {
         let folded = news.is_folded(head);
         news.fold(head, !folded);
     }
+    if let Some((chat, folded)) = asks.fold_chat {
+        news.fold_chat(&chat, folded);
+    }
     if asks.only_unseen {
         news.only_unseen = !news.only_unseen;
     }
@@ -369,6 +382,9 @@ fn apply(asks: Asks, state: &mut DeckUi, to_host: &HostChannel, now: u64) {
     }
     if let Some(item) = asks.open_chat {
         open_item(state, &item, to_host, now);
+    }
+    if let Some(item) = asks.open_block {
+        open_block(state, &item, to_host, now);
     }
 }
 
@@ -380,6 +396,13 @@ pub fn open_item(state: &mut DeckUi, item: &Item, to_host: &HostChannel, now: u6
         Some(server) => servers::open_terminal(server, item.folder.as_deref()),
         None => open_chat(item.window, &item.title, to_host),
     }
+}
+
+/// Opens a block line's chat; every reply of the chat counts as seen,
+/// since the user goes to the chat itself.
+pub fn open_block(state: &mut DeckUi, item: &Item, to_host: &HostChannel, now: u64) {
+    state.news.read_chat(&item.chat, now);
+    open_item(state, item, to_host, now);
 }
 
 struct HeadParts {
@@ -512,7 +535,7 @@ fn controls(
 }
 
 /// The fold arrow: pointing down when open, right when folded.
-fn chevron(painter: &Painter, at: egui::Pos2, folded: bool, colour: Color32) {
+pub(super) fn chevron(painter: &Painter, at: egui::Pos2, folded: bool, colour: Color32) {
     let points: [(f32, f32); 3] = if folded {
         [(3.5, 8.0), (6.5, 5.0), (3.5, 2.0)]
     } else {
@@ -523,187 +546,6 @@ fn chevron(painter: &Painter, at: egui::Pos2, folded: bool, colour: Color32) {
         .map(|(x, y)| pos2(at.x + x, at.y + y))
         .collect();
     painter.add(Shape::line(points, Stroke::new(1.4, colour)));
-}
-
-struct Shown {
-    open: bool,
-    selected: bool,
-    galley: Arc<Galley>,
-    link: Option<String>,
-}
-
-/// One item: the lead (a dot while unseen, or a pinned chat's mark), the
-/// name, project, server and time, and the reply's text. Open, it shows
-/// "Show all" when cut and the "Open the chat" button.
-fn item_line(
-    ui: &mut Ui,
-    painter: &Painter,
-    rect: Rect,
-    item: &Item,
-    shown: &Shown,
-    look: &Look,
-    asks: &mut Asks,
-) {
-    let tokens = look.tokens;
-    let response = ui.interact(rect, ui.id().with(("cd-news", &item.key)), Sense::click());
-    if shown.selected {
-        painter.rect_filled(rect, 0.0, tokens.selection_bg);
-        painter.rect_stroke(
-            rect,
-            0.0,
-            Stroke::new(1.0, tokens.accent),
-            egui::StrokeKind::Inside,
-        );
-    } else if shown.open {
-        painter.rect_filled(rect, 0.0, tokens.selection_bg);
-    } else if response.hovered() {
-        painter.rect_filled(rect, 0.0, tokens.hover_bg);
-    }
-    let left = rect.left() + PAD;
-    let l1_middle = rect.top() + PAD_TOP + L1 / 2.0;
-    match item.mark {
-        Some(mark) => {
-            let at = pos2(left, l1_middle - marks::SIZE / 2.0);
-            marks::paint(painter, at, mark, MarkStyle::Shapes, tokens, look.turn);
-        }
-        None if item.unseen => {
-            painter.circle_filled(pos2(left + LEAD / 2.0, l1_middle), DOT / 2.0, tokens.accent);
-        }
-        None => {}
-    }
-    let body = left + LEAD + LEAD_GAP;
-    first_line(painter, rect, body, item, look);
-    let text_top = rect.top() + PAD_TOP + L1 + TEXT_GAP;
-    let text_h = shown.galley.size().y;
-    painter.galley(
-        pos2(body, text_top),
-        shown.galley.clone(),
-        Color32::PLACEHOLDER,
-    );
-    let mut y = text_top + text_h;
-    if !shown.open {
-        if response.double_clicked() {
-            asks.open_chat = Some(item.clone());
-        } else if response.clicked() {
-            asks.toggle = Some(item.key.clone());
-            asks.select = Some(item.key.clone());
-        }
-        if item.unseen && item.mark.is_none() {
-            response.on_hover_text(view::NOT_SEEN);
-        }
-        return;
-    }
-    if let Some(link) = &shown.link {
-        y += LINK_GAP;
-        let words = galley(painter, link, theme::regular(SMALL), tokens.accent);
-        let link_rect = Rect::from_min_size(pos2(body, y), vec2(words.size().x, LINE));
-        put(painter, body, link_rect.center().y, words);
-        let click = ui
-            .interact(
-                link_rect,
-                ui.id().with(("cd-news-all", &item.key)),
-                Sense::click(),
-            )
-            .on_hover_cursor(CursorIcon::PointingHand);
-        if click.clicked() {
-            asks.whole = Some(item.key.clone());
-        }
-        y += LINE;
-    }
-    y += ACT_GAP;
-    let words = galley(
-        painter,
-        view::OPEN_CHAT,
-        theme::semibold(SMALL),
-        tokens.window_bg,
-    );
-    let button = Rect::from_min_size(
-        pos2(body, y),
-        vec2(words.size().x + 2.0 * BUTTON_PAD, BUTTON_H),
-    );
-    let pressed = ui
-        .interact(
-            button,
-            ui.id().with(("cd-news-open", &item.key)),
-            Sense::click(),
-        )
-        .on_hover_cursor(CursorIcon::PointingHand);
-    let fill = if pressed.hovered() {
-        tokens.accent_hover
-    } else {
-        tokens.accent
-    };
-    painter.rect_filled(button, 4.0, fill);
-    put(painter, body + BUTTON_PAD, button.center().y, words);
-    let hint = galley(
-        painter,
-        view::OPEN_HINT,
-        theme::regular(SMALL),
-        tokens.text_secondary,
-    );
-    put(painter, button.right() + 10.0, button.center().y, hint);
-    if pressed.clicked() || response.double_clicked() {
-        asks.open_chat = Some(item.clone());
-    } else if response.clicked() {
-        asks.toggle = Some(item.key.clone());
-        asks.select = Some(item.key.clone());
-    }
-}
-
-/// The name (bold while unseen), the project, the server and the time.
-fn first_line(painter: &Painter, rect: Rect, left: f32, item: &Item, look: &Look) {
-    let tokens = look.tokens;
-    let middle = rect.top() + PAD_TOP + L1 / 2.0;
-    let time = galley(
-        painter,
-        &time_label(Some(item.at), look.now),
-        theme::regular(SMALL),
-        tokens.text_secondary,
-    );
-    let mut right = rect.right() - PAD - time.size().x;
-    put(painter, right, middle, time);
-    right -= PART_GAP;
-    let server = item.server.as_deref().map(|server| {
-        galley(
-            painter,
-            &servers::group_name(server),
-            theme::regular(SMALL),
-            tokens.text_secondary,
-        )
-    });
-    let server_w = server
-        .as_ref()
-        .map_or(0.0, |g| 12.0 + 3.0 + g.size().x + PART_GAP);
-    let name_font = if item.unseen {
-        theme::semibold(NAME)
-    } else {
-        theme::regular(NAME)
-    };
-    let name_job = text::job(&item.title, name_font, tokens.text_primary, None);
-    let room = (right - left - server_w).max(0.0);
-    let name_natural = painter.layout_job(name_job.clone()).size().x;
-    let name_w = name_natural.min(room);
-    let mut x =
-        left + put(
-            painter,
-            left,
-            middle,
-            painter.layout_job(cut_job(name_job, name_w + 1.0, 1)),
-        ) + PART_GAP;
-    let tag_room = room - name_w - PART_GAP;
-    if let Some(project) = item.project.as_deref().filter(|_| tag_room >= SMALLEST_TAG) {
-        let job = text::job(project, theme::regular(SMALL), tokens.text_disabled, None);
-        x += put(
-            painter,
-            x,
-            middle,
-            painter.layout_job(cut_job(job, tag_room, 1)),
-        ) + PART_GAP;
-    }
-    if let Some(server) = server {
-        servers::draw::server_icon(painter, pos2(x, middle - 6.0), tokens.text_secondary);
-        put(painter, x + 15.0, middle, server);
-    }
 }
 
 /// The words of an empty tab.

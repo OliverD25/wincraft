@@ -43,6 +43,8 @@ pub struct Item {
     pub unseen: bool,
     /// A pinned chat's status mark; None for a reply.
     pub mark: Option<Mark>,
+    /// The chat's status mark now, for its block line.
+    pub status: Mark,
 }
 
 /// The tab's items, each part newest first.
@@ -111,6 +113,7 @@ fn item(source: &Source, key: String, at: u64, text: String) -> Item {
         text,
         unseen: false,
         mark: None,
+        status: chat.mark,
     }
 }
 

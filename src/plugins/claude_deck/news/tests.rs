@@ -8,7 +8,7 @@ use crate::core::claude_turns::Reply;
 
 use super::super::model::{Chat, Mark, DAY_MS};
 use super::collect::{collect, key_of, project_of, Item, News, Source, PER_CHAT};
-use super::view::{self, Head, Line};
+use super::view::{self, Folds, Head, Line};
 use super::*;
 
 const MIN: u64 = 60_000;
@@ -194,6 +194,7 @@ fn sample_news() -> News {
         text: format!("{key} said"),
         unseen,
         mark,
+        status: mark.unwrap_or(Mark::Idle(Age::Fresh)),
     };
     News {
         pinned: vec![item("p", true, Some(Mark::AsksYou))],
@@ -217,7 +218,20 @@ fn shape(lines: &[Line]) -> Vec<String> {
                 if *folded { " folded" } else { "" },
                 if *dot { " dot" } else { "" }
             ),
+            Line::Block {
+                item, unseen, open, ..
+            } => format!(
+                "[{}]{}{}",
+                item.chat,
+                if *unseen > 0 {
+                    format!(" {unseen}")
+                } else {
+                    String::new()
+                },
+                if *open { "" } else { " folded" }
+            ),
             Line::Item(item) => item.key.clone(),
+            Line::Earlier { chat, count } => format!("{chat}: {}", view::earlier(*count)),
             Line::Empty => "empty".into(),
         })
         .collect()
@@ -227,43 +241,56 @@ fn shape(lines: &[Line]) -> Vec<String> {
 fn the_lines_are_pinned_then_the_day_then_older_folded_with_its_count() {
     let news = sample_news();
     let ui = NewsUi::default();
-    let lines = view::lines(&news, false, |head| ui.is_folded(head));
+    let lines = view::lines(&news, &ui);
     assert_eq!(
         shape(&lines),
         [
             "Waits for you 1",
+            "[p]",
             "p",
             "Last 24 hours 2",
+            "[r1] 1",
             "r1",
+            "[r2]",
             "r2",
             "Older 2 folded dot"
         ]
     );
-    let mut ui = NewsUi::default();
+    let mut ui = NewsUi {
+        only_unseen: true,
+        ..NewsUi::default()
+    };
     ui.fold(Head::Older, false);
-    let lines = view::lines(&news, true, |head| ui.is_folded(head));
+    let lines = view::lines(&news, &ui);
     assert_eq!(
         shape(&lines),
         [
             "Waits for you 1",
+            "[p]",
             "p",
             "Last 24 hours 1",
+            "[r1] 1",
             "r1",
             "Older 1",
+            "[o1] 1",
             "o1"
         ],
         "only unseen hides seen replies, never a pinned chat"
     );
     assert_eq!(
-        view::picks(&lines)[..2],
-        ["head:Waits for you".to_string(), "p".to_string()]
+        view::picks(&lines)[..3],
+        [
+            "head:Waits for you".to_string(),
+            "chat:Waits for you:p".to_string(),
+            "p".to_string()
+        ]
     );
 }
 
 #[test]
 fn an_empty_tab_has_its_words_and_pinned_chats_keep_the_day_line() {
     let nothing = News::default();
-    let lines = view::lines(&nothing, false, |_| false);
+    let lines = view::lines(&nothing, &NewsUi::default());
     assert_eq!(shape(&lines), ["empty"]);
     assert_eq!(
         view::EMPTY,
@@ -274,8 +301,209 @@ fn an_empty_tab_has_its_words_and_pinned_chats_keep_the_day_line() {
         older: Vec::new(),
         ..sample_news()
     };
-    let lines = view::lines(&news, false, |_| false);
-    assert_eq!(shape(&lines), ["Waits for you 1", "p", "Last 24 hours 0"]);
+    let lines = view::lines(&news, &NewsUi::default());
+    assert_eq!(
+        shape(&lines),
+        ["Waits for you 1", "[p]", "p", "Last 24 hours 0"]
+    );
+}
+
+/// A reply of `chat`, `ago` minutes ago.
+fn said(chat: &str, key: &str, ago: u64, unseen: bool) -> Item {
+    Item {
+        key: key.to_string(),
+        chat: chat.to_string(),
+        title: chat.to_string(),
+        project: None,
+        server: None,
+        folder: None,
+        window: None,
+        at: NOW - ago * MIN,
+        text: format!("{key} said"),
+        unseen,
+        mark: None,
+        status: Mark::Idle(Age::Fresh),
+    }
+}
+
+fn day(recent: Vec<Item>) -> News {
+    News {
+        recent,
+        ..News::default()
+    }
+}
+
+#[test]
+fn replies_group_into_one_block_per_chat_in_the_order_of_their_newest() {
+    let news = day(vec![
+        said("a", "a1", 1, false),
+        said("b", "b1", 2, true),
+        said("a", "a2", 3, false),
+        said("b", "b2", 10, false),
+    ]);
+    let blocks = view::by_chat(&news.recent);
+    let keys: Vec<Vec<&str>> = blocks
+        .iter()
+        .map(|block| block.iter().map(|item| item.key.as_str()).collect())
+        .collect();
+    assert_eq!(keys, [["a1", "a2"], ["b1", "b2"]]);
+    let lines = view::lines(&news, &NewsUi::default());
+    assert_eq!(
+        shape(&lines),
+        [
+            "Last 24 hours 2",
+            "[a] folded",
+            "a1",
+            "a: 1 earlier reply",
+            "[b] 1 folded",
+            "b1",
+            "b: 1 earlier reply"
+        ]
+    );
+}
+
+#[test]
+fn a_folded_chat_lists_its_unseen_replies_or_its_newest() {
+    let items = [
+        said("a", "u1", 1, true),
+        said("a", "s1", 2, false),
+        said("a", "u2", 3, true),
+        said("a", "s2", 4, false),
+    ];
+    let all: Vec<&Item> = items.iter().collect();
+    let keys = |shown: &[&Item]| {
+        shown
+            .iter()
+            .map(|item| item.key.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let (shown, rest) = view::fold(&all, false, |_| false);
+    assert_eq!((keys(&shown), rest), ("u1 u2".to_string(), 2));
+    let (shown, rest) = view::fold(&all, false, |key| key == "s2");
+    assert_eq!(
+        (keys(&shown), rest),
+        ("u1 u2 s2".to_string(), 1),
+        "the open or picked reply stays"
+    );
+    let (shown, rest) = view::fold(&all, true, |_| false);
+    assert_eq!((shown.len(), rest), (4, 0), "an unfolded chat lists all");
+    let seen = [said("a", "s1", 1, false), said("a", "s2", 2, false)];
+    let seen: Vec<&Item> = seen.iter().collect();
+    let (shown, rest) = view::fold(&seen, false, |_| false);
+    assert_eq!((keys(&shown), rest), ("s1".to_string(), 1));
+    assert_eq!(view::earlier(1), "1 earlier reply");
+    assert_eq!(view::earlier(3), "3 earlier replies");
+}
+
+#[test]
+fn an_unfolded_chat_folds_again_when_it_gets_a_new_reply() {
+    let mut ui = NewsUi::default();
+    ui.take(day(vec![
+        said("a", "a1", 5, false),
+        said("a", "a2", 9, false),
+    ]));
+    ui.fold_chat("a", false);
+    let news = Arc::clone(&ui.news);
+    assert_eq!(
+        shape(&view::lines(&news, &ui)),
+        ["Last 24 hours 1", "[a]", "a1", "a2"]
+    );
+    ui.take(day(vec![
+        said("a", "a1", 5, false),
+        said("a", "a2", 9, false),
+    ]));
+    assert!(ui.chat_open("a"), "the same replies keep it open");
+    ui.take(day(vec![
+        said("a", "a0", 1, true),
+        said("a", "a1", 5, false),
+        said("a", "a2", 9, false),
+    ]));
+    assert!(!ui.chat_open("a"), "a new reply folds it");
+    let news = Arc::clone(&ui.news);
+    assert_eq!(
+        shape(&view::lines(&news, &ui)),
+        [
+            "Last 24 hours 1",
+            "[a] 1 folded",
+            "a0",
+            "a: 2 earlier replies"
+        ]
+    );
+    ui.fold_chat("a", false);
+    ui.fold_chat("a", true);
+    assert!(!ui.chat_open("a"));
+}
+
+#[test]
+fn only_unseen_hides_a_block_with_no_unseen_reply_but_never_a_waiting_chat() {
+    let mut question = said("w", "wait:w", 1, true);
+    question.mark = Some(Mark::AsksYou);
+    let news = News {
+        pinned: vec![question],
+        recent: vec![
+            said("w", "w1", 2, false),
+            said("a", "a1", 3, false),
+            said("b", "b1", 4, true),
+        ],
+        older: Vec::new(),
+    };
+    assert_eq!(
+        shape(&view::lines(&news, &NewsUi::default())),
+        [
+            "Waits for you 1",
+            "[w] folded",
+            "wait:w",
+            "w: 1 earlier reply",
+            "Last 24 hours 2",
+            "[a]",
+            "a1",
+            "[b] 1",
+            "b1"
+        ],
+        "a waiting chat's replies sit in its pinned block, not twice"
+    );
+    let ui = NewsUi {
+        only_unseen: true,
+        ..NewsUi::default()
+    };
+    assert_eq!(
+        shape(&view::lines(&news, &ui)),
+        [
+            "Waits for you 1",
+            "[w]",
+            "wait:w",
+            "Last 24 hours 1",
+            "[b] 1",
+            "b1"
+        ]
+    );
+}
+
+#[test]
+fn the_keys_go_over_groups_blocks_and_replies_and_skip_the_earlier_line() {
+    let news = day(vec![
+        said("a", "a1", 1, true),
+        said("a", "a2", 2, false),
+        said("b", "b1", 3, false),
+    ]);
+    let lines = view::lines(&news, &NewsUi::default());
+    assert_eq!(
+        view::picks(&lines),
+        [
+            "head:Last 24 hours",
+            "chat:Last 24 hours:a",
+            "a1",
+            "chat:Last 24 hours:b",
+            "b1"
+        ]
+    );
+    assert_eq!(
+        view::of_block_key("chat:Last 24 hours:a"),
+        Some((Head::Recent, "a"))
+    );
+    assert_eq!(view::of_block_key("a1"), None);
+    assert_eq!(view::of_block_key("head:Older"), None);
 }
 
 #[test]

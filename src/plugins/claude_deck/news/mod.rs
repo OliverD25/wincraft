@@ -1,7 +1,11 @@
-//! ClaudeDeck's News tab (design section 13): every reply a chat finished
-//! in the last 24 hours, newest first, several per chat; the chats that
-//! wait for the user pinned on top; each chat's latest older reply in a
-//! folded "Older" group. Server chats are in it too.
+//! ClaudeDeck's News tab (design sections 13 and 14): every reply a chat
+//! finished in the last 24 hours, one block per chat, the blocks in the
+//! order of their newest reply; the chats that wait for the user pinned
+//! on top; each chat's latest older reply in a folded "Older" group.
+//! Server chats are in it too. A chat's block lists its unseen replies,
+//! or its newest when all are seen; the rest fold into "N earlier
+//! replies" until the user unfolds the chat, and fold again when the chat
+//! gets a new reply.
 //!
 //! A reply is unseen when it finished after the chat was last opened in
 //! the Claude app (the session's `lastFocusedAt`, or its window seen in
@@ -13,10 +17,13 @@
 //! - `collect`: the items, from the chats and their replies (pure).
 //! - `view`: the lines the tab shows, the counts and the words (pure).
 //! - `draw`: the tabs strip, the tab, the mini mode count.
+//! - `groups`: drawing a chat's block line, its replies and the
+//!   "earlier replies" line.
 //! - `keys`: the keyboard on the tab.
 
 pub mod collect;
 pub mod draw;
+mod groups;
 pub mod keys;
 pub mod view;
 
@@ -32,7 +39,7 @@ use crate::core::config;
 
 use super::window::{listed, DeckUi};
 use collect::{collect, News, Source};
-use view::Head;
+use view::{Folds, Head};
 
 /// A read mark is kept this long, then dropped. A reply older than this
 /// counts as seen.
@@ -131,6 +138,9 @@ pub struct NewsUi {
     pub folded: BTreeSet<Head>,
     /// The groups the user unfolded, so "Older" stays open.
     pub unfolded: BTreeSet<Head>,
+    /// The chats the user unfolded, with the time of their newest item
+    /// then. A newer item folds the chat again.
+    pub open_chats: HashMap<String, u64>,
     pub only_unseen: bool,
     /// The item or group line the keyboard is on.
     pub selected: Option<String>,
@@ -173,6 +183,24 @@ impl NewsUi {
         }
     }
 
+    /// The time of a chat's newest item.
+    fn newest(&self, chat: &str) -> Option<u64> {
+        self.news
+            .all()
+            .filter(|item| item.chat == chat)
+            .map(|item| item.at)
+            .max()
+    }
+
+    /// Unfolds or folds a chat's block.
+    pub fn fold_chat(&mut self, chat: &str, folded: bool) {
+        if folded {
+            self.open_chats.remove(chat);
+        } else if let Some(at) = self.newest(chat) {
+            self.open_chats.insert(chat.to_string(), at);
+        }
+    }
+
     /// Marks these items read and saves the marks when any is new.
     pub fn mark_read<'a>(&mut self, items: impl IntoIterator<Item = (&'a str, u64)>, now: u64) {
         let marks = self.marks.get_or_insert_with(Marks::default);
@@ -195,6 +223,17 @@ impl NewsUi {
             .map(|item| (item.key.clone(), item.at))
             .collect();
         self.mark_read(all.iter().map(|(key, at)| (key.as_str(), *at)), now);
+    }
+
+    /// Marks every reply of one chat seen: its chat was opened.
+    pub fn read_chat(&mut self, chat: &str, now: u64) {
+        let replies: Vec<(String, u64)> = self
+            .news
+            .replies()
+            .filter(|item| item.chat == chat)
+            .map(|item| (item.key.clone(), item.at))
+            .collect();
+        self.mark_read(replies.iter().map(|(key, at)| (key.as_str(), *at)), now);
     }
 
     /// Opens an item, or closes it when it is open. Opening marks it seen.
@@ -247,7 +286,31 @@ impl NewsUi {
     /// Takes the items worked out again.
     pub fn take(&mut self, news: News) {
         self.news = Arc::new(news);
+        let open: Vec<(String, u64)> = self.open_chats.drain().collect();
+        for (chat, at) in open {
+            if self.newest(&chat).is_some_and(|newest| newest <= at) {
+                self.open_chats.insert(chat, at);
+            }
+        }
         self.recount();
+    }
+}
+
+impl Folds for NewsUi {
+    fn only_unseen(&self) -> bool {
+        self.only_unseen
+    }
+
+    fn head_folded(&self, head: Head) -> bool {
+        self.is_folded(head)
+    }
+
+    fn chat_open(&self, chat: &str) -> bool {
+        self.open_chats.contains_key(chat)
+    }
+
+    fn keep(&self, key: &str) -> bool {
+        self.open.as_deref() == Some(key) || self.selected.as_deref() == Some(key)
     }
 }
 
