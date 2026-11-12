@@ -48,6 +48,22 @@ impl Palette {
             pos2(chip.right() + 10.0, search.top()),
             pos2(search.right() - 16.0, search.bottom() - line.width),
         );
+        // Only the part right of the text moves the window. Without this the
+        // rule of the search box stayed on, and a press on the name dragged
+        // the palette instead of placing the cursor.
+        let typed = if self.query.is_empty() {
+            0.0
+        } else {
+            ui.painter()
+                .layout_no_wrap(
+                    self.query.clone(),
+                    theme::regular(16.0),
+                    tokens.text_primary,
+                )
+                .size()
+                .x
+        };
+        self.search_blank = view::search_blank(field, typed);
         let hint = egui::RichText::new(&prompt.placeholder)
             .color(tokens.text_disabled)
             .font(theme::regular(16.0));

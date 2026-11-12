@@ -2045,6 +2045,29 @@ fn press_and_move(palette: &mut Palette, from: egui::Pos2) -> WindowStep {
 }
 
 #[test]
+fn a_press_on_the_name_in_the_rename_box_does_not_drag_the_window() {
+    let name = "A long name for a window, long enough to press on it";
+    let ask = |palette: &mut Palette| {
+        let mut prompt = rename_prompt(true);
+        prompt.text = name.to_string();
+        palette.opened();
+        palette.ask(prompt);
+    };
+    let mut palette = Palette::new(Router::new(Vec::new(), &Default::default()));
+    ask(&mut palette);
+    let on_the_name = pos2(MARGIN + 300.0, MARGIN + SEARCH_HEIGHT / 2.0);
+    assert_eq!(press_and_move(&mut palette, on_the_name), WindowStep::None);
+    let mut palette = Palette::new(Router::new(Vec::new(), &Default::default()));
+    ask(&mut palette);
+    let right_of_it = pos2(MARGIN + 660.0, MARGIN + SEARCH_HEIGHT / 2.0);
+    assert_eq!(
+        press_and_move(&mut palette, right_of_it),
+        WindowStep::StartDrag,
+        "the empty part still moves the window"
+    );
+}
+
+#[test]
 fn holding_blank_space_and_moving_starts_a_window_drag() {
     let mut palette = places_palette(&["x"], &new_store());
     let list_below_the_row = pos2(MARGIN + 200.0, MARGIN + 300.0);
