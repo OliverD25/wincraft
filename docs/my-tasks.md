@@ -5,26 +5,9 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ## Open
 
-### 21. Install 0.20.106 and check the homelab servers in ClaudeDeck
-
-- **State:** Ready to test. Steps 1 and 2 are done (2026-11-12: you updated to 0.20.106; the session set the servers, because the empty setting kept the server groups off). Start at step 3.
-- **Kind:** test · **Added:** 2026-11-12 (PC)
-- **Why:** ClaudeDeck now shows the homelab servers and their Claude chats. A test copy showed all of it with the real servers, except two things only you can check: the terminal that a click opens, and a PC chat that waits on a server.
-
-**Steps**
-
-1. Press `Alt+Space` (your palette hotkey), type `update`, pick **Update WinCraft** and press `Enter`. WinCraft checks, installs the newer version and restarts. The bottom right corner of the palette then shows "WinCraft v0.20.106" or newer.
-2. Tray menu → **Settings…** → **Plugins** in the left list → click the **ClaudeDeck** tile. Under the heading **Homelab**, type `rdehome1, rdehome2, rdeoffice1` into **Servers (ssh names)**.
-3. Press `Win+Alt+X`. Under your PC chats you see three server lines, each with a server icon: **home1** and **home2** with a green dot and **CPU … · RAM …**, and **office1** with **No Claude chats**. home2 lists 8 chats, most of them "Remote Control is ready".
-4. Rest the mouse on the **home2** line. The panel shows CPU, RAM, uptime, free disk and the busiest process.
-5. Click a home2 chat row, for example **playground**. Windows Terminal opens with ssh to home2, already in `/home/rde/projects/playground`. Type `exit` to close it.
-6. Press `Alt+Space` (your palette hotkey), type `terminal on`, choose **ClaudeDeck: Open a terminal on a server**, then **ClaudeDeck: Open a terminal on home1**. A terminal opens on home1 in your home folder.
-7. In any Claude chat on this PC, ask: `run /c/Windows/System32/OpenSSH/ssh.exe rdehome2 sleep 60 in the foreground` (the plain `ssh` of Git Bash cannot find your servers). While it runs, that chat's row shows the server icon and **Waits on home2**, and the home2 line's hover panel names that chat.
-
-**Done when:** steps 3 to 7 look as described.
-
 ## Done
 
+- **21. Install 0.20.106 and check the homelab servers in ClaudeDeck**: done 2026-11-12. The user said "21 task. all done": three server lines, the health hover, terminals, and **Waits on home2** on the PC chat during a foreground ssh.
 - **13. Install the attention hook fix: a question stays Waiting while other tools finish**: done 2026-11-12. The user said "13 is done" after the test. The hook log has 13 "ignored: the mark waits for" lines, so the hook keeps a question mark while other tools finish.
 - **11. Check that a stack list row shows its window**: done 2026-11-12. The user said "11 done" after the test: resting the mouse on a row of a stack's list shows that window in front.
 - **20. Install 0.20.105 and move the cursor with the mouse in the rename box**: done 2026-11-12. The user said "done 20" after the test on 0.20.105: a press on the name places the cursor and the palette stays where it is.
