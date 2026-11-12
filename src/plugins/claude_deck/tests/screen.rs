@@ -18,11 +18,23 @@ pub struct Screen {
 pub struct Painted {
     pub shapes: usize,
     pub texts: Vec<String>,
+    /// Where each text was painted, on the screen.
+    pub rects: Vec<(String, Rect)>,
 }
 
 impl Painted {
     pub fn has(&self, words: &str) -> bool {
         self.texts.iter().any(|text| text.contains(words))
+    }
+
+    /// The middle of the first text that contains `words`.
+    pub fn at(&self, words: &str) -> egui::Pos2 {
+        let (_, rect) = self
+            .rects
+            .iter()
+            .find(|(text, _)| text.contains(words))
+            .unwrap_or_else(|| panic!("{words:?} not painted: {:?}", self.texts));
+        rect.center()
     }
 }
 
@@ -32,6 +44,8 @@ fn collect(shape: &Shape, out: &mut Painted) {
         Shape::Text(text) => {
             out.shapes += 1;
             out.texts.push(text.galley.text().to_string());
+            let rect = text.galley.rect.translate(text.pos.to_vec2());
+            out.rects.push((text.galley.text().to_string(), rect));
         }
         _ => out.shapes += 1,
     }
@@ -63,6 +77,7 @@ impl Screen {
         let mut painted = Painted {
             shapes: 0,
             texts: Vec::new(),
+            rects: Vec::new(),
         };
         for clipped in &output.shapes {
             collect(&clipped.shape, &mut painted);
@@ -107,7 +122,12 @@ impl Screen {
         self.frame(vec![press(false)], &mut *draw)
     }
 
-    pub fn key(&mut self, key: egui::Key, modifiers: egui::Modifiers, draw: &mut impl FnMut(&mut Ui)) -> Painted {
+    pub fn key(
+        &mut self,
+        key: egui::Key,
+        modifiers: egui::Modifiers,
+        draw: &mut impl FnMut(&mut Ui),
+    ) -> Painted {
         let event = |pressed| Event::Key {
             key,
             physical_key: None,

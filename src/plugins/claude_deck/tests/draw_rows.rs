@@ -217,7 +217,10 @@ fn forks_stand_ins_and_folded_parents_are_drawn_differently() {
         "tree line"
     );
     assert!(shapes(&last, &look_settings).shapes > 0);
-    assert!(shapes(&open, &look_settings).shapes > base.shapes, "chevron");
+    assert!(
+        shapes(&open, &look_settings).shapes > base.shapes,
+        "chevron"
+    );
     let f = shapes(&folded, &look_settings);
     assert!(f.has("3"), "the number of hidden forks: {:?}", f.texts);
     let s = shapes(&stand, &look_settings);
@@ -415,7 +418,10 @@ fn row_heights_and_the_drawn_body() {
     assert_eq!(rows::height(&c, false, true), rows::ROW_TWO);
     assert_eq!(rows::height(&g, true, true), rows::GROUP);
     assert_eq!(rows::height(&g, false, true), rows::GROUP + rows::GROUP_GAP);
-    assert_eq!(rows::height(&k, false, false), rows::GROUP + rows::GROUP_GAP);
+    assert_eq!(
+        rows::height(&k, false, false),
+        rows::GROUP + rows::GROUP_GAP
+    );
     assert_eq!(rows::height(&h, true, false), rows::GROUP + rows::GROUP_GAP);
     let whole = Rect::from_min_size(pos2(0.0, 100.0), vec2(300.0, 28.0));
     assert!(rows::body(&g, whole).height() <= whole.height());

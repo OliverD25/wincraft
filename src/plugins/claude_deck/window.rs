@@ -83,8 +83,8 @@ pub(super) struct Cache {
     built: Option<Instant>,
     saved: Saved,
     view: (bool, bool, bool),
-    lines: Arc<Vec<Line>>,
-    counts: Vec<(Mark, usize)>,
+    pub(super) lines: Arc<Vec<Line>>,
+    pub(super) counts: Vec<(Mark, usize)>,
     pub(super) waiting: usize,
     pub(super) waiting_ids: Vec<String>,
 }
@@ -96,10 +96,10 @@ pub(super) struct DeckUi {
     focus_wanted: bool,
     closed: bool,
     asked: Option<Instant>,
-    built: Option<Instant>,
+    pub(super) built: Option<Instant>,
     pub chats: Vec<Chat>,
     archived: Archived,
-    animate: bool,
+    pub(super) animate: bool,
     /// The user's arrangement, and the copy last written to its file
     /// (None until the file was read).
     pub saved: Saved,
@@ -118,7 +118,7 @@ pub(super) struct DeckUi {
     pub menu_key_down: bool,
     border: Option<Color32>,
     pub(super) kept: Option<Place>,
-    started: Option<Instant>,
+    pub(super) started: Option<Instant>,
     seen: Seen,
     /// The keyboard is in use: the rows show their digits.
     pub keyboard: bool,
@@ -326,7 +326,7 @@ impl PluginWindow for DeckWindow {
 
 /// Builds the lines again when the chats, the arrangement or the view
 /// changed since they were built last.
-fn build(state: &mut DeckUi, settings: &super::Settings, now: u64) {
+pub(super) fn build(state: &mut DeckUi, settings: &super::Settings, now: u64) {
     let view_now = (settings.only_open, settings.fold_cold, state.hidden_open);
     let cache = &state.cache;
     let same = cache.built.is_some() && cache.built == state.built && cache.view == view_now;
@@ -444,7 +444,7 @@ fn refresh(state: &mut DeckUi, to_host: &HostChannel) {
 }
 
 /// Writes the arrangement when it changed.
-fn commit(state: &mut DeckUi) {
+pub(super) fn commit(state: &mut DeckUi) {
     if !state.writable || state.written.as_ref() == Some(&state.saved) || state.written.is_none() {
         return;
     }
@@ -453,7 +453,7 @@ fn commit(state: &mut DeckUi) {
 }
 
 /// The chats that are not hidden, for the header's counts.
-fn listed(state: &DeckUi) -> Vec<Chat> {
+pub(super) fn listed(state: &DeckUi) -> Vec<Chat> {
     let hidden = hidden_chats(&state.chats, &state.saved.hidden);
     state
         .chats
@@ -479,7 +479,7 @@ pub(super) fn keep_place(state: &mut DeckUi) {
     }
 }
 
-fn ring_turn(state: &DeckUi) -> f32 {
+pub(super) fn ring_turn(state: &DeckUi) -> f32 {
     match state.started {
         Some(at) if state.animate => {
             (at.elapsed().as_secs_f32() % TURN.as_secs_f32()) / TURN.as_secs_f32()
@@ -490,7 +490,7 @@ fn ring_turn(state: &DeckUi) -> f32 {
 
 /// When to paint next: soon while a ring turns, each second while a time
 /// counts seconds, else when fresh data is due.
-fn next_frame(state: &DeckUi, lines: &[Line], now: u64) -> Duration {
+pub(super) fn next_frame(state: &DeckUi, lines: &[Line], now: u64) -> Duration {
     let shown = lines.iter().filter_map(|line| match line {
         Line::Chat(chat) => Some(&chat.chat),
         _ => None,
@@ -512,7 +512,7 @@ fn next_frame(state: &DeckUi, lines: &[Line], now: u64) -> Duration {
     wait
 }
 
-fn empty(ui: &mut Ui, tokens: &Tokens, filtered: bool) {
+pub(super) fn empty(ui: &mut Ui, tokens: &Tokens, filtered: bool) {
     let words = if filtered { NONE_OPEN } else { EMPTY };
     let mut job = text::job(
         words,
