@@ -42,7 +42,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 25. Install 0.20.109: ClaudeDeck's taskbar button, quick settings, and the drag between monitors
 
-- **State:** Wait: the release build of 0.20.109 is still running.
+- **State:** Ready to test (0.20.109 released 2026-11-12; the release has wincraft.exe and its checksum).
 - **Kind:** test · **Added:** 2026-11-12 (PC)
 - **Why:** you asked for all of these on 2026-11-12. A test copy showed them with a real mouse, but your eyes on the three monitors are the last proof. One design change needs your yes (step 7).
 
