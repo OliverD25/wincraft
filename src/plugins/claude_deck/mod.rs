@@ -7,13 +7,16 @@
 //! asks the host every few seconds to read the chats again
 //! (`HostRequest::ClaudeDeckRefresh`); when it is closed nothing runs.
 
+mod data;
 mod edges;
 mod header;
+mod hover;
 mod labels;
 mod marks;
 mod model;
 mod place;
 mod rows;
+mod status;
 mod tree;
 mod window;
 
@@ -41,6 +44,7 @@ const TIME_KEY: &str = "show_time";
 const PROJECT_KEY: &str = "show_project";
 const JOBS_KEY: &str = "show_jobs";
 const MODEL_KEY: &str = "show_model";
+const TEXT_KEY: &str = "show_text";
 
 const MARK_SHAPES: &str = "Shapes";
 const MARK_WORDS: &str = "Shapes and words";
@@ -70,6 +74,8 @@ pub struct Settings {
     pub project: bool,
     pub jobs: bool,
     pub model: bool,
+    /// The line of text under the name.
+    pub text: bool,
 }
 
 impl Default for Settings {
@@ -83,6 +89,7 @@ impl Default for Settings {
             project: true,
             jobs: true,
             model: false,
+            text: true,
         }
     }
 }
@@ -110,6 +117,7 @@ impl Settings {
             project: flag(PROJECT_KEY, defaults.project),
             jobs: flag(JOBS_KEY, defaults.jobs),
             model: flag(MODEL_KEY, defaults.model),
+            text: flag(TEXT_KEY, defaults.text),
         }
     }
 }
@@ -180,6 +188,7 @@ impl WinCraftPlugin for ClaudeDeck {
             PROJECT_KEY: true,
             JOBS_KEY: true,
             MODEL_KEY: false,
+            TEXT_KEY: true,
         })
     }
 
@@ -208,6 +217,12 @@ impl WinCraftPlugin for ClaudeDeck {
                 label: "Status mark",
                 help: "A shape for each status, a shape and a short word, or no mark.",
                 kind: FieldKind::Choice(&[MARK_SHAPES, MARK_WORDS, MARK_OFF]),
+            },
+            SettingField {
+                key: TEXT_KEY,
+                label: "A line of text (the question, or what it does)",
+                help: "A second line under the name: the question when the chat waits, else what it does or what it said last. Resting the mouse on a chat shows all of it.",
+                kind: FieldKind::Toggle,
             },
             SettingField {
                 key: TIME_KEY,
@@ -239,7 +254,7 @@ impl WinCraftPlugin for ClaudeDeck {
     fn settings_group(&self, key: &str) -> Option<&'static str> {
         matches!(
             key,
-            MARK_KEY | TIME_KEY | PROJECT_KEY | JOBS_KEY | MODEL_KEY
+            MARK_KEY | TEXT_KEY | TIME_KEY | PROJECT_KEY | JOBS_KEY | MODEL_KEY
         )
         .then_some("On each row")
     }

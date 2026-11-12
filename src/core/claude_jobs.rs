@@ -45,6 +45,7 @@ pub struct Scan {
 impl Scan {
     /// Reads bytes appended to the transcript. `seen_ms` is the start time
     /// of a job whose line has no `"timestamp"`.
+    #[cfg(test)]
     pub fn feed(&mut self, bytes: &[u8], seen_ms: u64) {
         self.feed_with(bytes, seen_ms, |_| {});
     }

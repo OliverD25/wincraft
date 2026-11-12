@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 use crate::core::claude_sessions::{self, Age, Session, Status};
 use crate::core::claude_windows::ChatWindow;
 
+use super::labels::fork_line;
 use super::tree::{families, Family, Tree};
 
 pub const DAY_MS: u64 = 24 * 60 * 60 * 1000;
@@ -100,6 +101,11 @@ pub struct Chat {
     pub jobs: usize,
     /// The window that shows the chat, if one is open.
     pub window: Option<isize>,
+    /// The line under the name: the question, what it does, or the last
+    /// result. Set by `status::refine`.
+    pub text: Option<String>,
+    /// The hover panel's text: the full question or the last result.
+    pub full: Option<String>,
 }
 
 /// The chat for a session, with its window (if open) and its running
@@ -143,6 +149,8 @@ pub fn chat(
         since,
         jobs: card.jobs,
         window: window.map(|w| w.hwnd),
+        text: None,
+        full: None,
     }
 }
 
@@ -240,6 +248,22 @@ fn most_urgent<'a>(chats: impl Iterator<Item = &'a Chat>) -> Option<&'a Chat> {
     chats.min_by_key(|chat| chat.mark.rank())
 }
 
+/// A folded chat shows the most urgent of its family; when that is a fork,
+/// its line says so: "A fork needs approval: Waits for your OK".
+fn roll_up(shown: &mut Chat, urgent: &Chat) {
+    if urgent.id == shown.id {
+        return;
+    }
+    shown.mark = urgent.mark;
+    shown.since = urgent.since;
+    let fork = fork_line(urgent.mark);
+    shown.text = Some(match &urgent.text {
+        Some(text) => format!("{fork}: {text}"),
+        None => fork.to_string(),
+    });
+    shown.full.clone_from(&urgent.full);
+}
+
 /// The titles of archived chats, by id, to name the stand-ins.
 pub type Archived = HashMap<String, String>;
 
@@ -285,12 +309,13 @@ impl Emit<'_> {
             since: None,
             jobs: 0,
             window: None,
+            text: None,
+            full: None,
         };
         let fold = if folded {
             let members = family.members.iter().map(|at| &self.tree.chats[*at]);
             if let Some(urgent) = most_urgent(members) {
-                stand_in.mark = urgent.mark;
-                stand_in.since = urgent.since;
+                roll_up(&mut stand_in, urgent);
             }
             Fold::Folded(family.members.len())
         } else {
@@ -338,8 +363,7 @@ impl Emit<'_> {
                 .below(&chat.id, &mut HashSet::from([at]), &mut below);
             let all = std::iter::once(chat).chain(below.iter().map(|b| &self.tree.chats[*b]));
             if let Some(urgent) = most_urgent(all) {
-                shown.mark = urgent.mark;
-                shown.since = urgent.since;
+                roll_up(&mut shown, urgent);
             }
             Fold::Folded(below.len())
         } else {

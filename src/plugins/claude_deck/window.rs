@@ -14,8 +14,8 @@ use serde_json::Value;
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
-use crate::core::claude_sessions::{self, Session};
-use crate::core::claude_windows::{self, ChatWindow};
+use crate::core::claude_sessions;
+use crate::core::claude_windows;
 use crate::core::theme::{self, Tokens};
 use crate::core::traits::{PluginWindow, WindowFrame};
 use crate::core::ui_bridge::{ArrangeAction, HostChannel, HostRequest};
@@ -24,11 +24,14 @@ use crate::ui::dwm_thumbs;
 use crate::ui::settings;
 use crate::ui::widgets::{focus, text};
 
+use super::data;
 use super::edges;
 use super::header::{self, Click};
+use super::hover;
 use super::model::{self, Archived, Chat, Line, Mark, View};
 use super::place::{self, Place};
 use super::rows::{self, Look};
+use super::status::Seen;
 use super::{Handle, ID, ONLY_OPEN_KEY, STAY_ON_TOP_KEY};
 
 pub const WINDOW_ID: &str = "deck";
@@ -68,6 +71,7 @@ struct DeckUi {
     border: Option<Color32>,
     kept: Option<Place>,
     started: Option<Instant>,
+    seen: Seen,
 }
 
 pub struct DeckWindow {
@@ -276,40 +280,11 @@ fn refresh(state: &mut DeckUi, to_host: &HostChannel) {
     state.animate = animations::on();
     let (sessions, _) = claude_sessions::sessions();
     let windows = claude_windows::latest();
-    state.chats = chats(&sessions, &windows);
-    state.archived = archived(&state.chats);
-    keep_place(state);
-}
-
-fn chats(sessions: &[Session], windows: &[ChatWindow]) -> Vec<Chat> {
     let now = claude_sessions::now_ms();
-    sessions
-        .iter()
-        .map(|session| {
-            let window = claude_windows::of(windows, &session.id);
-            let jobs = claude_jobs::running(&session.cli_session_id, now);
-            model::chat(session, window, jobs, now)
-        })
-        .collect()
-}
-
-/// The titles of archived chats that forks hang under. Read only when a
-/// fork's chat is not in the list.
-fn archived(chats: &[Chat]) -> Archived {
-    let listed: HashSet<&str> = chats.iter().map(|chat| chat.id.as_str()).collect();
-    let missing: HashSet<&str> = chats
-        .iter()
-        .filter_map(|chat| chat.parent.as_deref())
-        .filter(|parent| !listed.contains(parent))
-        .collect();
-    if missing.is_empty() {
-        return Archived::new();
-    }
-    claude_sessions::sessions_with_archived()
-        .into_iter()
-        .filter(|session| missing.contains(session.id.as_str()))
-        .map(|session| (session.id, session.title))
-        .collect()
+    state.seen.note(&windows, claude_windows::foreground(), now);
+    state.chats = data::chats(&sessions, &windows, &state.seen, now);
+    state.archived = data::archived(&state.chats);
+    keep_place(state);
 }
 
 /// Saves the window's place and size when they changed.
@@ -384,15 +359,16 @@ fn list_lines(ui: &mut Ui, lines: &[Line], look: &Look, state: &mut DeckUi, to_h
             let total: f32 = lines
                 .iter()
                 .enumerate()
-                .map(|(at, line)| rows::height(line, at == 0))
+                .map(|(at, line)| rows::height(line, at == 0, look.settings.text))
                 .sum::<f32>()
                 + LIST_TOP_PAD
                 + LIST_BOTTOM_PAD;
             let (area, _) = ui.allocate_exact_size(vec2(width, total), Sense::hover());
             let painter = ui.painter_at(area);
             let mut top = area.top() + LIST_TOP_PAD;
+            let mut resting: Option<(Rect, &Chat)> = None;
             for (at, line) in lines.iter().enumerate() {
-                let height = rows::height(line, at == 0);
+                let height = rows::height(line, at == 0, look.settings.text);
                 let whole = Rect::from_min_size(pos2(area.left(), top), vec2(width, height));
                 top += height;
                 let rect = rows::body(line, whole);
@@ -418,6 +394,9 @@ fn list_lines(ui: &mut Ui, lines: &[Line], look: &Look, state: &mut DeckUi, to_h
                     Line::Chat(chat) => {
                         let selected = state.selected.as_deref() == Some(chat.chat.id.as_str());
                         rows::chat(&painter, rect, chat, look, hovered, selected);
+                        if hovered && !chat.stand_in {
+                            resting = Some((rect, &chat.chat));
+                        }
                         if selected && std::mem::take(&mut state.scroll_to_selected) {
                             ui.scroll_to_rect(rect, None);
                         }
@@ -435,6 +414,15 @@ fn list_lines(ui: &mut Ui, lines: &[Line], look: &Look, state: &mut DeckUi, to_h
                             bring_forward(chat.chat.window, to_host);
                         }
                     }
+                }
+            }
+            if let Some((row, chat)) = resting {
+                let still = ui.ctx().input(|i| i.pointer.time_since_last_movement());
+                if still >= hover::DELAY {
+                    hover::show(ui.ctx(), row, ui.clip_rect(), chat, look);
+                } else {
+                    ui.ctx()
+                        .request_repaint_after(Duration::from_secs_f32(hover::DELAY - still));
                 }
             }
         });
@@ -496,28 +484,5 @@ fn keys(ui: &Ui, lines: &[Line], state: &mut DeckUi, to_host: &HostChannel) {
         if let Some(chat) = at.map(|at| chats[at]) {
             bring_forward(chat.window, to_host);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn archived_titles_are_read_only_for_a_missing_parent() {
-        let chat = |id: &str, parent: Option<&str>| Chat {
-            id: id.into(),
-            title: id.into(),
-            folder: None,
-            branch: None,
-            model: None,
-            parent: parent.map(str::to_string),
-            created: 0,
-            mark: Mark::Unknown,
-            since: None,
-            jobs: 0,
-            window: None,
-        };
-        assert!(archived(&[chat("a", None), chat("b", Some("a"))]).is_empty());
     }
 }

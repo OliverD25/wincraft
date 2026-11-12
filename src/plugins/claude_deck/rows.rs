@@ -1,6 +1,7 @@
 //! One line of the list, painted: a group's header, a chat's row with its
 //! tree lines, or the line of cold chats. Sizes are the design page's: a
-//! 22 px row, a 24 px group header and cold line, 14 px per tree level.
+//! 22 px row (34 px with its line of text), a 24 px group header and cold
+//! line, 14 px per tree level.
 
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{pos2, vec2, Color32, Galley, Painter, Pos2, Rect, Shape, Stroke, StrokeKind};
@@ -18,6 +19,8 @@ use super::model::{ChatLine, ColdLine, Fold, GroupLine, Line, Mark};
 use super::{MarkStyle, Settings};
 
 pub const ROW: f32 = 22.0;
+/// A row with its line of text under the name.
+pub const ROW_TWO: f32 = 34.0;
 pub const GROUP: f32 = 24.0;
 /// The space above a group's header (not the first) and the cold line.
 pub const GROUP_GAP: f32 = 4.0;
@@ -33,6 +36,8 @@ const CHEVRON: f32 = 10.0;
 const CHEVRON_TOP: f32 = 7.0;
 const MARK_TOP: f32 = 5.0;
 const TEXT_MIDDLE: f32 = 11.5;
+/// The middle of the line of text in a two-line row.
+const LINE_TWO_MIDDLE: f32 = 25.5;
 /// Where a tree line turns towards its fork.
 const ELBOW: f32 = 11.0;
 const NAME_SIZE: f32 = 13.0;
@@ -50,9 +55,11 @@ pub struct Look<'a> {
     pub turn: f32,
 }
 
-/// The height a line takes, its gap above included.
-pub fn height(line: &Line, first: bool) -> f32 {
+/// The height a line takes, its gap above included. `two` is the setting
+/// for the line of text; every chat row then has it, so rows line up.
+pub fn height(line: &Line, first: bool, two: bool) -> f32 {
     match line {
+        Line::Chat(_) if two => ROW_TWO,
         Line::Chat(_) => ROW,
         Line::Group(_) if first => GROUP,
         Line::Group(_) | Line::Cold(_) => GROUP + GROUP_GAP,
@@ -202,6 +209,18 @@ pub fn chat(
         }
     }
     parts(&painter, row, x, line, look);
+    if settings.text {
+        if let Some(words) = &line.chat.text {
+            let job = text::job(words, theme::regular(SMALL), tokens.text_secondary, None);
+            let room = row.right() - PAD_RIGHT - x;
+            put(
+                &painter,
+                x,
+                row.top() + LINE_TWO_MIDDLE,
+                cut(&painter, job, room),
+            );
+        }
+    }
 }
 
 /// The name and its parts after the mark, and the time at the right edge.

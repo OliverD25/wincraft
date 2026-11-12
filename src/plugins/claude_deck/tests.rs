@@ -21,6 +21,8 @@ fn chat(id: &str, folder: Option<&str>, created: u64) -> Chat {
         since: Some(NOW - MIN),
         jobs: 0,
         window: None,
+        text: None,
+        full: None,
     }
 }
 
@@ -492,7 +494,7 @@ fn the_row_fields_sit_under_on_each_row() {
     for field in deck.settings_fields() {
         let row = matches!(
             field.key,
-            "status_mark" | "show_time" | "show_project" | "show_jobs" | "show_model"
+            "status_mark" | "show_text" | "show_time" | "show_project" | "show_jobs" | "show_model"
         );
         assert_eq!(
             deck.settings_group(field.key),
@@ -547,4 +549,32 @@ fn the_place_is_kept_only_when_it_is_worth_it_and_reads_back() {
     std::fs::write(&path, r#"{"x":1,"y":2,"width":0,"height":5}"#).expect("written");
     assert_eq!(load(&path), None);
     let _ = std::fs::remove_dir_all(&folder);
+}
+
+#[test]
+fn a_folded_chat_says_when_a_fork_is_the_most_urgent() {
+    let mut chats = vec![
+        chat("rust", Some(r"E:\code\WinCraft"), 1),
+        fork("design", "rust", 20),
+    ];
+    chats[0].text = Some("Last: Done.".into());
+    chats[1].mark = Mark::NeedsApproval;
+    chats[1].text = Some("Waits for your OK to run a command".into());
+    let view = View {
+        folded_chats: HashSet::from(["rust".to_string()]),
+        ..View::default()
+    };
+    let lines = lines(&chats, &Archived::new(), &view, NOW);
+    let rust = chat_line(&lines, "rust");
+    assert_eq!(rust.chat.mark, Mark::NeedsApproval);
+    assert_eq!(
+        rust.chat.text.as_deref(),
+        Some("A fork needs approval: Waits for your OK to run a command")
+    );
+    // Open, each keeps its own line.
+    let lines = super::model::lines(&chats, &Archived::new(), &View::default(), NOW);
+    assert_eq!(
+        chat_line(&lines, "rust").chat.text.as_deref(),
+        Some("Last: Done.")
+    );
 }
