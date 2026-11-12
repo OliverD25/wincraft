@@ -562,3 +562,62 @@ fn a_click_on_the_open_groups_layer_switches_to_that_window() {
         assert_eq!(shared.stacks.layer, Some(placed.panel), "fan: {fan}");
     }
 }
+
+// The selection starts on the window under the resting mouse, so the layer
+// shows one lit window, in both styles.
+#[test]
+fn an_open_group_starts_on_the_window_under_the_resting_mouse() {
+    for fan in [false, true] {
+        let bridge = crate::core::ui_bridge::create();
+        let arrange = crate::ui::arrange::Arrange::new(bridge.to_host.clone(), 0);
+        let mut shared = arrange.shared.lock().expect("the strip's state");
+        let mut data = snapshot();
+        data.group_fan = fan;
+        shared.stacks.arrive(&mut data, true);
+        shared.snapshot = Some(data.clone());
+        let rep = shared.stacks.found[0].rep;
+        let card = Rect::from_min_size(pos2(400.0, 100.0), vec2(162.0, 124.0));
+        shared.card_hits = vec![(rep, card)];
+        super::act::open_group(&mut shared, rep);
+        let stack = shared.stacks.open_stack().cloned().expect("an open group");
+        let style = if fan {
+            overlay::Style::Fan
+        } else {
+            overlay::Style::Row
+        };
+        let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(1200.0, 600.0));
+        let placed = overlay::place(card, stack.members.len(), card.size(), screen, style);
+        let last = stack.members.len() - 1;
+        let at = pos2(
+            placed.cards[last].right() - 10.0,
+            placed.cards[last].center().y,
+        );
+        // The mouse is already there when the layer first draws, and rests.
+        run_layer(
+            &mut shared,
+            &data,
+            vec![vec![egui::Event::PointerMoved(at)], vec![], vec![]],
+        );
+        assert_eq!(shared.stacks.front, last, "fan: {fan}");
+    }
+}
+
+#[test]
+fn a_group_opened_away_from_the_mouse_starts_on_its_first_window() {
+    let bridge = crate::core::ui_bridge::create();
+    let arrange = crate::ui::arrange::Arrange::new(bridge.to_host.clone(), 0);
+    let mut shared = arrange.shared.lock().expect("the strip's state");
+    let mut data = snapshot();
+    shared.stacks.arrive(&mut data, true);
+    shared.snapshot = Some(data.clone());
+    let rep = shared.stacks.found[0].rep;
+    let card = Rect::from_min_size(pos2(400.0, 100.0), vec2(162.0, 124.0));
+    shared.card_hits = vec![(rep, card)];
+    super::act::open_group(&mut shared, rep);
+    run_layer(
+        &mut shared,
+        &data,
+        vec![vec![egui::Event::PointerMoved(pos2(5.0, 590.0))], vec![]],
+    );
+    assert_eq!(shared.stacks.front, 0);
+}

@@ -134,3 +134,40 @@ fn a_row_picture_keeps_only_the_part_the_layer_leaves_free() {
     let whole = picture.expand(5.0);
     assert!(!left_over(picture, whole).is_positive(), "covered whole");
 }
+
+// The user saw the selection on window 1 while the mouse rested on window 2
+// of a group they had just opened by a click (0.20.97).
+#[test]
+fn a_group_opened_with_the_mouse_starts_on_the_window_under_it() {
+    let stack = stack_at(732.0);
+    let row = place(stack, 3, CARD, window(), Style::Row);
+    // The click that opened it was on the stack: the middle window.
+    assert_eq!(start_at(&row, stack.center()), Some(1));
+    assert_eq!(start_at(&row, row.cards[2].center()), Some(2));
+    // In the gap between two windows, or on the panel's edge: the nearest.
+    let gap = pos2(row.cards[0].right() + 2.0, stack.center().y);
+    assert_eq!(start_at(&row, gap), Some(0));
+    let edge = pos2(row.panel.left() + 2.0, row.panel.top() + 2.0);
+    assert_eq!(start_at(&row, edge), Some(0));
+    // Not over the layer, as when Enter opened it: the first window stays.
+    assert_eq!(start_at(&row, pos2(10.0, 10.0)), None);
+
+    let fan = place(stack, 4, CARD, window(), Style::Fan);
+    let nearest = |x: f32| {
+        (0..4)
+            .min_by(|a, b| {
+                let a = (fan.cards[*a].center().x - x).abs();
+                let b = (fan.cards[*b].center().x - x).abs();
+                a.total_cmp(&b)
+            })
+            .expect("four windows")
+    };
+    for x in [
+        stack.left() + 5.0,
+        stack.center().x,
+        fan.cards[3].right() - 5.0,
+    ] {
+        let pointer = pos2(x, stack.center().y);
+        assert_eq!(start_at(&fan, pointer), Some(nearest(x)), "x = {x}");
+    }
+}

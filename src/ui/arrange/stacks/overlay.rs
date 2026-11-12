@@ -147,6 +147,28 @@ pub fn shown_parts(cards: &[Rect], front: usize) -> Vec<Rect> {
         .collect()
 }
 
+/// Where the selection starts when a group opens with the mouse over its
+/// layer (`pointer`): the window under it, or the nearest one when it is
+/// between or beside the windows. In a row that is usually the middle one,
+/// as the row is centred on the stack that was clicked. None when the
+/// pointer is not over the layer, as when Enter opened the group: then it
+/// starts on the first window.
+pub fn start_at(placed: &Placed, pointer: Pos2) -> Option<usize> {
+    if !placed.panel.contains(pointer) {
+        return None;
+    }
+    placed
+        .cards
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| {
+            let a = (a.center().x - pointer.x).abs();
+            let b = (b.center().x - pointer.x).abs();
+            a.total_cmp(&b)
+        })
+        .map(|(at, _)| at)
+}
+
 /// Left and Right among `count` windows, from `front`; no wrap.
 pub fn step(front: usize, count: usize, left: bool, right: bool) -> usize {
     let last = count.saturating_sub(1);
@@ -218,9 +240,19 @@ pub fn show(
         Style::Row
     };
     let n = stack.members.len();
-    let front = shared.stacks.front.min(n.saturating_sub(1));
     let window = ctx.content_rect();
     let placed = place(card, n, card.size(), window, style);
+    // The group's first frame: with the mouse over the layer the selection
+    // starts on the window under it, so one window is lit, not two.
+    if shared.stacks.layer.is_none() {
+        if let Some(at) = ctx
+            .input(|i| i.pointer.hover_pos())
+            .and_then(|pointer| start_at(&placed, pointer))
+        {
+            shared.stacks.front = at;
+        }
+    }
+    let front = shared.stacks.front.min(n.saturating_sub(1));
     let (order, parts) = match style {
         Style::Row => ((0..n).collect::<Vec<_>>(), placed.cards.clone()),
         Style::Fan => (draw_order(n, front), shown_parts(&placed.cards, front)),
@@ -310,7 +342,6 @@ pub fn show(
                         number: at + 1,
                         chip_left,
                         selected: *at == front,
-                        lit: hovered == Some(*at),
                         picture: pictures[*at],
                         edged: style == Style::Fan,
                     },
@@ -416,7 +447,6 @@ struct MemberLook {
     /// at the start of the part that shows.
     chip_left: f32,
     selected: bool,
-    lit: bool,
     picture: bool,
     /// A fan's cards get an edge, so each shows where it starts.
     edged: bool,
@@ -433,17 +463,12 @@ fn member_card(
 ) -> Rect {
     let ctx = painter.ctx();
     painter.rect_filled(rect, RADIUS, tokens.window_bg);
-    let fill = if look.selected {
-        selected_fill(tokens)
-    } else {
-        tokens.hover_bg
-    };
-    let lit = look.selected || look.lit;
+    let fill = selected_fill(tokens);
     paint_look(
         painter,
         rect,
         RADIUS,
-        card_look(tokens, lit.then_some(fill), window.attention),
+        card_look(tokens, look.selected.then_some(fill), window.attention),
     );
     if look.edged {
         painter.rect_stroke(
@@ -463,7 +488,7 @@ fn member_card(
             (rect.height() - 2.0 * CARD_PAD - TITLE_GAP - TITLE).max(0.0),
         ),
     );
-    let border = if lit {
+    let border = if look.selected {
         selected_ring(tokens)
     } else {
         tokens.border
