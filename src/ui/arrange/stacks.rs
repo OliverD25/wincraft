@@ -20,6 +20,7 @@ mod list;
 mod menu;
 mod overlay;
 mod paint;
+mod reorder;
 pub(super) use act::*;
 pub(super) use dialogs::send_followed;
 pub(super) use fold::{Found, Kind};
@@ -71,6 +72,8 @@ pub(super) enum Ask {
         dragged: isize,
         card: isize,
     },
+    /// A window of the open group dragged out of its layer.
+    TakeOut(isize),
 }
 
 #[derive(Default)]
@@ -104,6 +107,12 @@ pub(super) struct Stacks {
     layer: Option<Rect>,
     /// Ctrl+W on a window of the open group: it closes after the frame.
     close_member: Option<isize>,
+    /// Alt + Left (true) or Right on the open group: the layer moves the
+    /// selected window one place.
+    nudge: Option<bool>,
+    /// The window just moved inside the open group: the selection stays on
+    /// it while the new order arrives.
+    follow: Option<isize>,
     /// The stack's window list shown last frame.
     list: Option<list::Shown>,
     /// A row of that list was clicked: switch to this window.
@@ -332,6 +341,7 @@ pub fn with_group_hints(
                 ("1 \u{2013} 9", "Window in the group"),
                 ("Esc", "Close the group"),
                 ("Ctrl + G", "Take out of the group"),
+                ("Alt + \u{2190} \u{2192}", "Move in the group"),
             ]
             .into_iter()
             .enumerate()

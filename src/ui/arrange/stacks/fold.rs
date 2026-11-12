@@ -155,11 +155,18 @@ pub fn unfold(group: &mut ArrangeGroup, found: &[Found]) {
 }
 
 /// An order of the strip's cards with each stack's card replaced by its
-/// windows, for the taskbar.
+/// windows, for the taskbar. A stack whose other windows the order already
+/// lists (a move inside an open group) is not unfolded twice.
 pub fn expand_order(order: &[isize], found: &[Found]) -> Vec<isize> {
     let closed: HashMap<isize, &Found> = found
         .iter()
         .filter(|stack| stack.kind.is_card())
+        .filter(|stack| {
+            !stack
+                .hwnds()
+                .iter()
+                .any(|hwnd| *hwnd != stack.rep && order.contains(hwnd))
+        })
         .map(|stack| (stack.rep, stack))
         .collect();
     order

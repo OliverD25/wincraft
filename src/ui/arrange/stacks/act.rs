@@ -82,7 +82,7 @@ pub fn before_frame(
 }
 
 /// The keys while a group is open: Left and Right pick among its windows,
-/// Enter opens the picked one, Ctrl+G takes it out of the group and Ctrl+W
+/// Alt + Left and Right move the picked one, Enter opens the picked one, Ctrl+G takes it out of the group and Ctrl+W
 /// closes it. The row under the layer gets no keys; numbers are left for
 /// the strip, which asks `digit`.
 fn open_group_keys(ctx: &egui::Context, shared: &mut Shared, group: &ArrangeGroup) {
@@ -90,6 +90,16 @@ fn open_group_keys(ctx: &egui::Context, shared: &mut Shared, group: &ArrangeGrou
         .stacks
         .open_stack()
         .map_or(0, |stack| stack.members.len());
+    let (alt_left, alt_right) = ctx.input_mut(|i| {
+        (
+            i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowLeft),
+            i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowRight),
+        )
+    });
+    if alt_left || alt_right {
+        shared.stacks.nudge = Some(alt_left);
+        ctx.request_repaint();
+    }
     let (left, right, enter, ctrl_g, ctrl_w) = ctx.input_mut(|i| {
         (
             i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft),
@@ -102,6 +112,7 @@ fn open_group_keys(ctx: &egui::Context, shared: &mut Shared, group: &ArrangeGrou
     let front = shared.stacks.front.min(count.saturating_sub(1));
     shared.stacks.front = overlay::step(front, count, left, right);
     if left || right {
+        shared.stacks.follow = None;
         ctx.request_repaint();
     }
     let picked = shared.stacks.front();
@@ -432,6 +443,7 @@ pub fn open_group(shared: &mut Shared, hwnd: isize) {
         shared.stacks.refold(snapshot);
     }
     shared.stacks.front = 0;
+    shared.stacks.follow = None;
     shared.stacks.layer = None;
     shared.cursor = Some(hwnd);
     shared.cursor_ghost = false;
@@ -449,6 +461,8 @@ pub fn close_group(shared: &mut Shared) {
     }
     shared.stacks.layer = None;
     shared.stacks.close_member = None;
+    shared.stacks.follow = None;
+    shared.stacks.nudge = None;
     let rep = shared
         .stacks
         .found
@@ -493,6 +507,7 @@ fn answer(shared: &mut Shared, group: &ArrangeGroup, ask: Ask) {
             }
         }
         Ask::DropOn { dragged, card } => drop_on(shared, group, dragged, card),
+        Ask::TakeOut(hwnd) => take_out(shared, group, hwnd),
     }
 }
 

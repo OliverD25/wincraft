@@ -252,6 +252,13 @@ pub fn show(
             shared.stacks.front = at;
         }
     }
+    // A window just moved keeps the selection while the new order arrives.
+    if let Some(hwnd) = shared.stacks.follow {
+        match stack.members.iter().position(|w| w.hwnd == hwnd) {
+            Some(at) => shared.stacks.front = at,
+            None => shared.stacks.follow = None,
+        }
+    }
     let front = shared.stacks.front.min(n.saturating_sub(1));
     let (order, parts) = match style {
         Style::Row => ((0..n).collect::<Vec<_>>(), placed.cards.clone()),
@@ -266,6 +273,16 @@ pub fn show(
         })
         .collect();
     let full = unfolded(group, &stack);
+    let hwnds = stack.hwnds();
+    // A move inside the group: where the window was, and the new order.
+    let mut moves: Option<(usize, Vec<usize>)> = shared
+        .stacks
+        .nudge
+        .take()
+        .and_then(|left| reorder::nudge_slot(n, front, left))
+        .and_then(|slot| reorder::moved(n, front, slot))
+        .map(|order| (front, order));
+    let pointer = ctx.input(|i| i.pointer.latest_pos());
     // Each Claude window's own status chip, so the group's chip in the row
     // can be found again on the window it belongs to.
     let marks: Vec<Option<claude::Mark>> = stack
@@ -283,6 +300,8 @@ pub fn show(
     let mut clicked = None;
     let mut middle = None;
     let mut chosen = None;
+    let mut drag_from = None;
+    let mut dropped = None;
     let mut drawn: Vec<(usize, Rect)> = Vec::new();
     egui::Area::new(id)
         .order(egui::Order::Foreground)
@@ -294,9 +313,16 @@ pub fn show(
             // The whole panel takes the mouse, so the row under it does not.
             ui.interact(placed.panel, id.with("back"), Sense::click());
             for (at, window) in stack.members.iter().enumerate() {
-                let response = ui.interact(parts[at], id.with(window.hwnd), Sense::click());
+                let response =
+                    ui.interact(parts[at], id.with(window.hwnd), Sense::click_and_drag());
                 if response.hovered() {
                     hovered = Some(at);
+                }
+                if response.dragged() {
+                    drag_from = Some(at);
+                }
+                if response.drag_stopped() {
+                    dropped = Some(at);
                 }
                 if response.clicked() {
                     clicked = Some(window.hwnd);
@@ -332,7 +358,12 @@ pub fn show(
                 theme::line(ctx, theme::with_alpha(tokens.text_primary, 0.35)),
                 StrokeKind::Inside,
             );
-            header(&painter, &tokens, placed.panel, &stack, style);
+            let outside = pointer.is_some_and(|p| !placed.panel.contains(p));
+            let note = drag_from.map(|_| match outside {
+                true => " \u{b7} Release to take it out of the group",
+                false => " \u{b7} Drop between windows to move it, outside to take it out",
+            });
+            header(&painter, &tokens, placed.panel, &stack, style, note);
             let front = match (style, hovered) {
                 (Style::Row, Some(at)) if moved => at,
                 _ => front,
@@ -362,10 +393,49 @@ pub fn show(
                 chips[*at] = chip;
                 drawn.push((*at, picture));
             }
+            // The gap the dragged window lands in: a line between the cards.
+            let landing = drag_from
+                .zip(pointer.filter(|p| placed.panel.contains(*p)))
+                .map(|(from, p)| (from, reorder::drop_slot(&parts, p.x)))
+                .filter(|(from, slot)| reorder::moved(n, *from, *slot).is_some());
+            if let Some((_, slot)) = landing {
+                let x = reorder::gap_x(&parts, slot, GAP);
+                let top = placed
+                    .cards
+                    .iter()
+                    .map(|c| c.top())
+                    .fold(f32::MAX, f32::min);
+                let bottom = placed
+                    .cards
+                    .iter()
+                    .map(|c| c.bottom())
+                    .fold(f32::MIN, f32::max);
+                painter.line_segment(
+                    [pos2(x, top - 2.0), pos2(x, bottom + 2.0)],
+                    egui::Stroke::new(3.0, tokens.accent),
+                );
+            }
         });
+    if let (Some(from), Some(p)) = (dropped, pointer) {
+        if placed.panel.contains(p) {
+            if let Some(order) = reorder::moved(n, from, reorder::drop_slot(&parts, p.x)) {
+                moves = Some((from, order));
+            }
+        } else {
+            shared.stacks.asked.push(Ask::TakeOut(hwnds[from]));
+            ctx.request_repaint();
+        }
+    }
+    if let Some((from, order)) = moves {
+        frame.actions.push(reorder::reorder(&full, &hwnds, &order));
+        shared.stacks.follow = Some(hwnds[from]);
+        shared.stacks.front = order.iter().position(|at| *at == from).unwrap_or(from);
+        ctx.request_repaint();
+    }
     if moved {
         if let Some(at) = hovered.filter(|at| *at != shared.stacks.front) {
             shared.stacks.front = at;
+            shared.stacks.follow = None;
             ctx.request_repaint();
         }
     }
@@ -387,7 +457,8 @@ pub fn show(
             hwnd: stack.members[at].hwnd,
             dest: picture,
             clip: parts[at].intersect(window),
-            opacity: 255,
+            // The window being dragged fades, so it shows which one moves.
+            opacity: if drag_from == Some(at) { 140 } else { 255 },
             clear: chips[at],
             ghost: false,
             layer: true,
@@ -409,7 +480,15 @@ pub fn show(
 }
 
 /// The group's name and its keys, along the top of the panel.
-fn header(painter: &egui::Painter, tokens: &Tokens, panel: Rect, stack: &Found, style: Style) {
+/// While a window is dragged, `note` takes the place of the keys.
+fn header(
+    painter: &egui::Painter,
+    tokens: &Tokens,
+    panel: Rect,
+    stack: &Found,
+    style: Style,
+    note: Option<&str>,
+) {
     let at = pos2(panel.left() + PAD_X, panel.top() + PAD_TOP);
     let width = panel.width() - 2.0 * PAD_X;
     let one_line = |text: &str, font: egui::FontId, colour: Color32, width: f32| {
@@ -435,6 +514,7 @@ fn header(painter: &egui::Painter, tokens: &Tokens, panel: Rect, stack: &Found, 
         }
         Style::Fan => format!(" \u{b7} 1 \u{2013} {n} or \u{2190} \u{2192} \u{b7} Esc closes"),
     };
+    let keys = note.map_or(keys, str::to_string);
     let name_width = name.size().x;
     let rest = one_line(
         &keys,

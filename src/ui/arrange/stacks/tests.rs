@@ -99,6 +99,8 @@ fn an_open_group_stays_one_card_and_a_lone_window_keeps_its_card() {
     unfold(&mut group, &found);
     assert_eq!(hwnds(&group), [1, 2, 4, 5, 3]);
     assert_eq!(expand_order(&[1, 4, 3], &found), [1, 2, 4, 5, 3]);
+    // A move inside the open group already lists its windows: no second copy.
+    assert_eq!(expand_order(&[1, 5, 2, 4, 3], &found), [1, 5, 2, 4, 3]);
 
     let mut group = chrome();
     group.windows.retain(|w| w.hwnd != 4 && w.hwnd != 5);

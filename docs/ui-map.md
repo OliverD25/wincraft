@@ -196,7 +196,9 @@ Opened by: right-click a stack card (a closed group), with **Group related windo
 Opened by: a click on a stack, its number, or **Open the group** (`Enter`).
 - It opens on a layer over the row, on the stack's place; no card moves. The setting **Open a group as** picks a row centred on the stack or a fan.
 - Frame header: **{group} · 1 – {n} opens a window · Esc closes the group** (row), or **{group} · 1 – {n} or ← → · Esc closes** (fan).
-- Footer hints: **Window in the group** (`1 – 9`), **Close the group** (`Esc`), **Take out of the group** (`Ctrl + G`).
+- Footer hints: **Window in the group** (`1 – 9`), **Close the group** (`Esc`), **Take out of the group** (`Ctrl + G`), **Move in the group** (`Alt + ← →`).
+- Drag a window's card to a new place in the group (row and fan): a blue line shows where it lands, and the header reads **Drop between windows to move it, outside to take it out**. The new order is the taskbar order too. `Alt + ←` and `Alt + →` move the selected window one place.
+- Drag a window's card out of the group's frame: the header reads **Release to take it out of the group**; releasing takes it out, like `Ctrl + G`.
 - A click outside the frame closes the group; WindowDeck stays open.
 - Right-click on a window in the group: the card menu (**Rename…** and **Clear name** with WindowNamer on, **Close window**, **Taskbar place**, **Move to desktop**), then the group items.
 
