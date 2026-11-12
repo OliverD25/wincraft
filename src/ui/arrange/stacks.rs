@@ -21,6 +21,7 @@ mod menu;
 mod overlay;
 mod paint;
 pub(super) use act::*;
+pub(super) use dialogs::send_followed;
 pub(super) use fold::{Found, Kind};
 pub(super) use menu::*;
 pub(super) use overlay::show as show_open_group;
@@ -76,6 +77,12 @@ pub(super) enum Ask {
 pub(super) struct Stacks {
     /// What the last fold found, for every app.
     found: Vec<Found>,
+    /// The name each grouped window had at the last fold. A window renamed
+    /// outside WindowDeck (a Claude chat renamed in the app) keeps its group:
+    /// groups remember windows by name.
+    member_names: HashMap<isize, String>,
+    /// Groups changed by such a rename, to be saved by the host.
+    followed: Option<Vec<DeckGroup>>,
     /// The group shown open: its app and name.
     open: Option<(String, String)>,
     /// Windows picked with Ctrl + click or Shift + an arrow, for Ctrl+G.
@@ -128,8 +135,40 @@ impl Stacks {
             self.layer = None;
             self.close_member = None;
         }
+        self.follow_renames(snapshot);
         self.found.clear();
         self.fold_all(snapshot);
+        self.member_names = self
+            .found
+            .iter()
+            .flat_map(|stack| stack.members.iter().map(|w| (w.hwnd, w.label.clone())))
+            .collect();
+    }
+
+    /// Windows of a group whose name changed since the last fold keep their
+    /// place in it under the new name.
+    fn follow_renames(&mut self, snapshot: &mut ArrangeSnapshot) {
+        let Some(defs) = snapshot.deck_groups.as_mut() else {
+            return;
+        };
+        let mut changed = false;
+        for group in &snapshot.groups {
+            for window in &group.windows {
+                let Some(old) = self.member_names.get(&window.hwnd) else {
+                    continue;
+                };
+                changed |= deck_groups::follow_rename(defs, &group.key, old, &window.label);
+            }
+        }
+        if changed {
+            self.followed = Some(defs.clone());
+        }
+    }
+
+    /// Groups that changed because a window was renamed outside WindowDeck,
+    /// once.
+    pub fn take_followed(&mut self) -> Option<Vec<DeckGroup>> {
+        self.followed.take()
     }
 
     /// The groups or the open group changed here: fold the strip's data

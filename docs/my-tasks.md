@@ -42,6 +42,22 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 **Done when:** step 1 printed a commit, and a waiting question card stays **Waiting** in WindowDeck.
 
+### 15. Check Rename, group renames, app updates and status chips in an open group
+
+- **State:** Ready to test (0.20.99 released 2026-11-12).
+- **Kind:** test · **Added:** 2026-11-12 (PC)
+- **Why:** these need the real Claude app, a real group and the mouse; tests cannot see them.
+
+**Steps**
+
+1. Right-click the WinCraft icon in the tray and click **Settings…**. Click **About**, then **Check for updates**, then **Update now**. WinCraft restarts; About shows 0.20.99.
+2. Open WindowDeck on the Claude app and open your WinCraft group (click its stack). Each window in the group shows its own status chip (**Idle**, **Working**, **Background** or **Waiting**) at the top left of its picture.
+3. Right-click a window in the open group. The menu starts with **Rename…** (and **Clear name** when it has one).
+4. In the Claude app, rename one of the chats in that group (its name at the top left). Open WindowDeck again: the chat is still in the group, under its new name.
+5. Your groups made before the Claude update (the first "WinCraft Rust" group and the first "NewsHQ") now show only once, and still group their windows.
+
+**Done when:** steps 2-5 look as described, or you report what did not.
+
 ## Done
 
 - **14. Review the design of the new ClaudeDeck plugin**: done 2026-11-12. The design session recorded the approval in commit c2afaca: status marks A "Shapes", forks A "Tree lines", the rest of the page "ClaudeDeck" approved as drawn (artifact version 24).

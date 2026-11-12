@@ -117,6 +117,7 @@ impl Arrange {
         };
         shared.stacks.arrive(&mut snapshot, true);
         shared.snapshot = Some(snapshot);
+        stacks::send_followed(&mut shared);
         shared.holds.clear();
         shared.closed = false;
         shared.window = 0;
@@ -188,6 +189,7 @@ impl Arrange {
         }
         keep_leaving(&shared.leaving, &mut snapshot.groups);
         shared.snapshot = Some(snapshot);
+        stacks::send_followed(&mut shared);
     }
 
     /// The strip was just opened for a taskbar button: pick the window with

@@ -33,13 +33,55 @@ impl DeckGroup {
 pub fn group_of<'a>(groups: &'a [DeckGroup], app: &str, label: &str) -> Option<&'a DeckGroup> {
     groups
         .iter()
-        .find(|group| group.app == app && group.has(label))
+        .find(|group| same_app(&group.app, app) && group.has(label))
+}
+
+/// Whether two app keys name the same app. A Store app's program lives in
+/// a folder named after its package and version
+/// (`...\windowsapps\claude_4.23118.0.0_x64__pzs8sxrjxfjjc\app\claude.exe`),
+/// so each update gives it a new path. The groups are kept across updates
+/// by comparing the package's name and publisher, not its version, drive or
+/// install folder.
+pub fn same_app(a: &str, b: &str) -> bool {
+    a == b || app_family(a) == app_family(b)
+}
+
+/// `key` with a Store package folder reduced to its name and publisher,
+/// from that folder on; any other key, lowercased.
+fn app_family(key: &str) -> String {
+    let key = key.to_lowercase();
+    const STORE: &str = r"\windowsapps\";
+    let Some(at) = key.find(STORE) else {
+        return key;
+    };
+    let rest = &key[at + STORE.len()..];
+    let (folder, tail) = rest.split_once('\\').unwrap_or((rest, ""));
+    match folder.split_once("__") {
+        Some((left, publisher)) => {
+            let name = left.split('_').next().unwrap_or(left);
+            format!("{name}__{publisher}\\{tail}")
+        }
+        None => key,
+    }
+}
+
+/// One group per app and name: a list saved before an app update may hold
+/// the same group under the old and the new path. The later one stays.
+pub fn merge_updated(groups: Vec<DeckGroup>) -> Vec<DeckGroup> {
+    let mut kept: Vec<DeckGroup> = Vec::new();
+    for group in groups {
+        kept.retain(|old| !(old.name == group.name && same_app(&old.app, &group.app)));
+        kept.push(group);
+    }
+    kept
 }
 
 /// The groups of one app.
 pub fn of_app<'a>(groups: &'a [DeckGroup], app: &str) -> impl Iterator<Item = &'a DeckGroup> {
     let app = app.to_string();
-    groups.iter().filter(move |group| group.app == app)
+    groups
+        .iter()
+        .filter(move |group| same_app(&group.app, &app))
 }
 
 /// A name no other group of `app` has: `wanted`, or `wanted 2`, `wanted 3`.
@@ -59,7 +101,7 @@ fn free_name(groups: &[DeckGroup], app: &str, wanted: &str, skip: Option<&str>) 
 /// Takes `label` out of every group of `app`, and drops a group left with no
 /// names.
 fn take_out(groups: &mut Vec<DeckGroup>, app: &str, label: &str) {
-    for group in groups.iter_mut().filter(|group| group.app == app) {
+    for group in groups.iter_mut().filter(|group| same_app(&group.app, app)) {
         group.members.retain(|member| member != label);
     }
     groups.retain(|group| !group.members.is_empty());
@@ -109,7 +151,7 @@ pub fn add(groups: &mut Vec<DeckGroup>, app: &str, name: &str, label: &str) -> b
     take_out(groups, app, label);
     match groups
         .iter_mut()
-        .find(|group| group.app == app && group.name == name)
+        .find(|group| same_app(&group.app, app) && group.name == name)
     {
         Some(group) => {
             group.members.push(label.to_string());
@@ -135,7 +177,7 @@ pub fn rename(groups: &mut [DeckGroup], app: &str, old: &str, new: &str) -> Opti
     let free = free_name(groups, app, new, Some(old));
     match groups
         .iter_mut()
-        .find(|group| group.app == app && group.name == old)
+        .find(|group| same_app(&group.app, app) && group.name == old)
     {
         Some(group) => {
             group.name = free.clone();
@@ -147,16 +189,33 @@ pub fn rename(groups: &mut [DeckGroup], app: &str, old: &str, new: &str) -> Opti
 
 /// A window of the group got a new shown name: the group keeps it.
 pub fn rename_member(groups: &mut [DeckGroup], app: &str, old: &str, new: &str) {
-    for group in groups.iter_mut().filter(|group| group.app == app) {
+    for group in groups.iter_mut().filter(|group| same_app(&group.app, app)) {
         for member in group.members.iter_mut().filter(|member| *member == old) {
             *member = new.to_string();
         }
     }
 }
 
+/// A grouped window now shows `new` where it showed `old`: the group keeps
+/// it under the new name. Nothing changes when the name is the same, when
+/// no group of `app` has `old`, or when a group of `app` already has `new`
+/// (another window may have that name). True when a group changed.
+pub fn follow_rename(groups: &mut [DeckGroup], app: &str, old: &str, new: &str) -> bool {
+    let of_app = |group: &&DeckGroup| same_app(&group.app, app);
+    if old == new
+        || new.trim().is_empty()
+        || !groups.iter().filter(of_app).any(|group| group.has(old))
+        || groups.iter().filter(of_app).any(|group| group.has(new))
+    {
+        return false;
+    }
+    rename_member(groups, app, old, new);
+    true
+}
+
 /// Drops the group; its windows stay open as they are.
 pub fn ungroup(groups: &mut Vec<DeckGroup>, app: &str, name: &str) {
-    groups.retain(|group| !(group.app == app && group.name == name));
+    groups.retain(|group| !(same_app(&group.app, app) && group.name == name));
 }
 
 fn is_separator(c: char) -> bool {
@@ -305,7 +364,7 @@ pub fn load(path: &Path) -> Vec<DeckGroup> {
         return Vec::new();
     };
     match parse(&text) {
-        Ok(groups) => groups,
+        Ok(groups) => merge_updated(groups),
         Err(err) => {
             log::warn!(
                 "{} cannot be read ({err}); starting with no groups, the next save replaces it",
