@@ -24,7 +24,7 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ### 13. Install the attention hook fix: a question stays Waiting while other tools finish
 
-- **State:** Ready to test. The fixed hook is tested and waits in the scratchpad.
+- **State:** Ready to test. Step 1 done on 2026-11-12 (config commit c7c3338, the installed hook matches the tested copy); step 2 left.
 - **Kind:** test · **Added:** 2026-11-12 (PC)
 - **Why:** on 2026-11-12 the VerdictAI chat showed a question, but its WindowDeck card said Idle. The hook cleared the mark when any tool finished; now only the tool that waits clears it. This chat cannot write to the hooks folder.
 - **Agent can check:** the installed hook matches the scratchpad copy, and `~/.claude/claude-attention.log` shows "ignored: the mark waits for" lines.
