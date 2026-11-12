@@ -109,12 +109,13 @@ fn a_turn_that_ended_before_watching_stays_idle() {
     };
     let early = watching(Some(&reply), 0, None);
     assert_eq!(refine(chat(IDLE), &no_edge, &early).mark, IDLE);
-    // A transcript that ends in a tool call while idle is odd: stay idle.
-    let odd = turn(End::ToolCalled, None);
+    // A transcript that ends in a tool call: the turn is still open, so the
+    // chat works, whatever the session file says.
+    let open = turn(End::ToolCalled, None);
     let ended = session(MIN);
     assert_eq!(
-        refine(chat(IDLE), &ended, &watching(Some(&odd), 0, None)).mark,
-        IDLE
+        refine(chat(IDLE), &ended, &watching(Some(&open), 0, None)).mark,
+        Mark::Working
     );
 }
 
@@ -260,4 +261,37 @@ fn the_hover_panel_names_the_chat_its_place_and_status() {
     asks.folder = Some(r"E:\code\WinCraft".into());
     asks.branch = Some("design".into());
     assert_eq!(place_line(&asks), "WinCraft \u{b7} design");
+}
+
+#[test]
+fn an_open_turn_in_the_transcript_means_working_even_when_the_file_says_idle() {
+    let fresh = Mark::Idle(Age::Fresh);
+    let now_working = session(MIN);
+    for end in [End::ToolCalled, End::ToolDone, End::UserMessage] {
+        let open = turn(end, Some("Both fixes are pushed."));
+        let evidence = Evidence {
+            turn: Some(&open),
+            ..Evidence::default()
+        };
+        let got = refine(chat(fresh), &now_working, &evidence);
+        assert_eq!(got.mark, Mark::Working, "{end:?}");
+        assert_eq!(got.since, now_working.latest_user);
+    }
+    let replied = turn(End::Replied, Some("Done."));
+    let evidence = Evidence {
+        turn: Some(&replied),
+        ..Evidence::default()
+    };
+    assert_eq!(refine(chat(fresh), &now_working, &evidence).mark, fresh);
+    let cut_off = turn(End::ToolCalled, None);
+    let evidence = Evidence {
+        turn: Some(&cut_off),
+        ..Evidence::default()
+    };
+    let old = Mark::Idle(Age::Cooling);
+    assert_eq!(
+        refine(chat(old), &session(120 * MIN), &evidence).mark,
+        old,
+        "a turn cut off hours ago is not working"
+    );
 }

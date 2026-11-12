@@ -16,6 +16,10 @@
 //!   chats got the same second at the app's start) and not while the user
 //!   types in a window already in front. So a turn that ended while
 //!   ClaudeDeck was closed stays Idle.
+//! - **Working, by the transcript**: the session file says idle, the chat
+//!   was active in the last hour, and the transcript's last record is a
+//!   message or a tool. The session file is wrong after a message sent in
+//!   the middle of a turn.
 //! - `interruptedAwaitingPerson` was null in all 40 newest session files, so
 //!   it is not used.
 
@@ -70,6 +74,16 @@ impl Seen {
 
 /// The chat with its full status and its words.
 pub fn refine(mut chat: Chat, session: &Session, evidence: &Evidence) -> Chat {
+    // The session file can say "idle" in the middle of a turn: the app
+    // writes a turn edge when a message sent during the turn is handed to
+    // Claude (seen on 2026-11-12). The transcript knows better: a turn whose
+    // last record is a message or a tool is still open. Only while the chat
+    // was active in the last hour, so a turn cut off by a crash does not
+    // show Working for ever.
+    if chat.mark == Mark::Idle(Age::Fresh) && evidence.turn.is_some_and(|turn| open(turn.end)) {
+        chat.mark = Mark::Working;
+        chat.since = session.latest_user;
+    }
     if let Mark::Idle(age) = chat.mark {
         let recent = matches!(age, Age::Fresh | Age::Cooling);
         let ended = session.last_turn_edge.or(session.last_activity);
@@ -92,6 +106,11 @@ pub fn refine(mut chat: Chat, session: &Session, evidence: &Evidence) -> Chat {
     chat.text = line_text(chat.mark, evidence.turn);
     chat.full = full_text(chat.mark, evidence.turn);
     chat
+}
+
+/// Whether the transcript's last record means Claude is still at work.
+fn open(end: End) -> bool {
+    matches!(end, End::UserMessage | End::ToolCalled | End::ToolDone)
 }
 
 /// The turn ended while ClaudeDeck watched, and the user has not had the
