@@ -13,7 +13,7 @@ use crate::core::ui_bridge::{self, Bridge, HostRequest};
 use crate::plugins::claude_deck::header::{self, Click};
 use crate::plugins::claude_deck::rows::Look;
 use crate::plugins::claude_deck::window::{self, DeckUi};
-use crate::plugins::claude_deck::{keys, list, mini, Settings};
+use crate::plugins::claude_deck::{keys, mini, news, Settings};
 
 pub struct Deck {
     pub screen: Screen,
@@ -203,12 +203,7 @@ fn window_frame(
                 &mut Default::default(),
             );
             let rest = egui::Rect::from_min_max(egui::pos2(full.left(), top.bottom()), full.max);
-            let mut list_ui = ui.new_child(egui::UiBuilder::new().max_rect(rest));
-            if lines.is_empty() {
-                window::empty(&mut list_ui, &tokens, !state.chats.is_empty());
-            } else {
-                list::show(&mut list_ui, &lines, &look, state, &bridge.to_host);
-            }
+            news::draw::body(ui, rest, &lines, &look, state, &bridge.to_host);
         });
     if settings.mini {
         state.digit_rows = mini::first_nine(&lines);
@@ -216,7 +211,7 @@ fn window_frame(
     if ui.ctx().input(|i| i.pointer.any_click() || !i.focused) {
         state.keyboard = false;
     }
-    let got = keys::keys(ui, &lines, state, &bridge.to_host, menu_was_open);
+    let got = news::keys::keys(ui, &lines, state, &bridge.to_host, menu_was_open, NOW);
     if got != keys::Asked::default() {
         asked.push(got);
     }

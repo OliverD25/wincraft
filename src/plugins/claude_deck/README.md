@@ -131,7 +131,47 @@ Cold and hidden chats are left out.
 - The button at the top (**Full list**) brings the full list back, at the
   place and size it had.
 
-Mini mode is remembered when WinCraft starts again.
+Mini mode is remembered when WinCraft starts again. While some replies
+are unseen (see "News" below), an amber count sits under **Full list**; a
+click on it brings the full window back on the News tab.
+
+## News
+
+Under the header are two tabs: **Chats**, the list, and **News**. With many
+chats at once, a chat can go idle while its last reply matters and nobody
+read it. The News tab shows every reply a chat finished in the last 24
+hours, newest first, several per chat:
+
+- **Waits for you**, pinned at the top: the chats that need approval or ask
+  you, with their status mark and question.
+- **Last 24 hours**: every finished reply, with the chat's name, project,
+  time and the first three lines. Server chats are in it too, with the
+  server's icon and name.
+- **Older**, folded at first: each chat's latest reply from before that.
+
+A reply is **unseen** when the chat finished it after you last opened the
+chat in the Claude app, and you have not opened it here. An unseen reply has
+an amber dot and a bold name. A server chat has no "last opened" time, so
+its replies stay unseen until you open them here. The **News** tab shows how
+many replies are unseen; on **Chats**, a row with an unseen reply has an
+amber dot after its name, and the tray tooltip adds ", 4 new replies".
+
+- Click an item to open it in place. It shows the whole reply and counts as
+  seen. A long reply is cut after 11 lines with **Show all**.
+- **Open the chat**, `Enter` or a double-click opens the chat the way the
+  Chats tab does.
+- **Only unseen** hides the replies you have seen. **Mark all seen** counts
+  every reply as seen, without opening the chats.
+- Keys: `Ctrl+Tab` switches tabs; `↑` `↓` move; `Space` or `→` opens an item
+  and `←` closes it (on a group line they unfold and fold it); `Home` and
+  `End` go to the ends. The digits work only on the Chats tab.
+
+How a finished reply is found: Claude's text at the end of a turn, that is
+an answer with no tool call after it before your next message. Words Claude
+writes before it calls a tool are not a reply. ClaudeDeck reads this from
+the same part of the transcript it already reads for the statuses, so
+nothing is read twice. Which replies you read here is kept in
+`claude_deck.news.json` next to the list's file, for 7 days.
 
 ## Your own order
 

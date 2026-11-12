@@ -15,6 +15,7 @@ use crate::core::ui_bridge::HostChannel;
 use super::hover;
 use super::marks;
 use super::model::{Chat, Line, Mark};
+use super::news;
 use super::open_app::open_chat;
 use super::rows::Look;
 use super::window::{DeckUi, Pick};
@@ -136,10 +137,19 @@ pub(super) fn show(
         painter.rect_filled(button, 4.0, tokens.hover_bg);
     }
     paint_full_icon(&painter, button, tokens);
+    let count = state.news.count;
+    let badge = Rect::from_min_size(
+        pos2(full.left(), strip.bottom()),
+        vec2(full.width(), counted(count)),
+    );
+    let news_clicked = news::draw::mini_count(ui, badge, count, tokens);
+    if news_clicked {
+        state.news.tab = news::Tab::News;
+    }
 
     let items = items(lines);
     let tops = tops(&items);
-    let column = Rect::from_min_max(pos2(full.left(), strip.bottom()), full.max);
+    let column = Rect::from_min_max(pos2(full.left(), badge.bottom()), full.max);
     let mut resting: Option<(Rect, &Chat)> = None;
     let mut column_ui = ui.new_child(egui::UiBuilder::new().max_rect(column));
     egui::ScrollArea::vertical()
@@ -202,7 +212,17 @@ pub(super) fn show(
                 .request_repaint_after(Duration::from_secs_f32(hover::DELAY - still));
         }
     }
-    back.clicked()
+    back.clicked() || news_clicked
+}
+
+/// The room the unseen count takes under the Full list button: none
+/// when every reply was seen.
+pub fn counted(count: usize) -> f32 {
+    if count > 0 {
+        news::draw::MINI_COUNT
+    } else {
+        0.0
+    }
 }
 
 /// The place of one mark: the column's width, a little taller than the

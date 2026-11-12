@@ -91,15 +91,15 @@ fn the_tray_count_names_wincraft_and_counts_only_waiting_chats() {
     assert_eq!(super::super::select::waiting(&chats, false), 2);
     assert_eq!(super::super::select::waiting(&chats, true), 1);
     assert_eq!(
-        tray_tip(true, 2).as_deref(),
+        tray_tip(true, 2, 0).as_deref(),
         Some("WinCraft \u{2014} 2 chats wait for you")
     );
     assert_eq!(
-        tray_tip(true, 1).as_deref(),
+        tray_tip(true, 1, 0).as_deref(),
         Some("WinCraft \u{2014} 1 chat waits for you")
     );
-    assert_eq!(tray_tip(true, 0), None, "no count, the plain tooltip");
-    assert_eq!(tray_tip(false, 3), None, "the setting is off");
+    assert_eq!(tray_tip(true, 0, 0), None, "no count, the plain tooltip");
+    assert_eq!(tray_tip(false, 3, 4), None, "the setting is off");
 }
 
 #[test]

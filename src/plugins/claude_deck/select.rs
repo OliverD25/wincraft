@@ -112,13 +112,8 @@ pub fn new_wait(before: &[String], now: &[String]) -> bool {
     now.iter().any(|id| !before.contains(id))
 }
 
-/// The tray tooltip for this many waiting chats; it always names
-/// WinCraft. None leaves the plain tooltip.
-pub fn tray_tip(on: bool, count: usize) -> Option<String> {
-    match count {
-        _ if !on => None,
-        0 => None,
-        1 => Some("WinCraft \u{2014} 1 chat waits for you".to_string()),
-        n => Some(format!("WinCraft \u{2014} {n} chats wait for you")),
-    }
+/// The tray tooltip for this many waiting chats and unseen replies; it
+/// always names WinCraft. None leaves the plain tooltip.
+pub fn tray_tip(on: bool, count: usize, news: usize) -> Option<String> {
+    super::news::view::tray_tip(on, count, news)
 }

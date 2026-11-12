@@ -26,6 +26,7 @@ mod menu;
 mod mini;
 mod model;
 mod modes;
+mod news;
 mod open_app;
 mod place;
 mod quick;
@@ -334,7 +335,7 @@ impl WinCraftPlugin for ClaudeDeck {
             SettingField {
                 key: TRAY_KEY,
                 label: "Show a count on the tray icon",
-                help: "While ClaudeDeck is open, the tray icon's tooltip says how many chats need approval or ask you, for example \"WinCraft \u{2014} 2 chats wait for you\". Closed, ClaudeDeck reads nothing, so the tooltip is plain again.",
+                help: "While ClaudeDeck is open, the tray icon's tooltip says how many chats need approval or ask you, and how many replies you have not seen, for example \"WinCraft \u{2014} 2 chats wait for you, 4 new replies\". Closed, ClaudeDeck reads nothing, so the tooltip is plain again.",
                 kind: FieldKind::Toggle,
             },
             SettingField {

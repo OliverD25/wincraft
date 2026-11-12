@@ -33,11 +33,10 @@ use super::edges;
 use super::fade::Fade;
 use super::forks;
 use super::header::{self, Click};
-use super::keys;
-use super::list;
 use super::mini;
 use super::model::{self, Archived, Chat, Line, Mark, View};
 use super::modes::{fade_step, give_back, keep_min_size, min_size, switch_mode, tell_tray};
+use super::news;
 use super::open_app;
 use super::place::{self, Place};
 use super::quick;
@@ -128,7 +127,7 @@ pub(super) struct DeckUi {
     border: Option<Color32>,
     pub(super) kept: Option<Place>,
     pub(super) started: Option<Instant>,
-    seen: Seen,
+    pub(super) seen: Seen,
     /// The keyboard is in use: the rows show their digits.
     pub keyboard: bool,
     /// The chat ids the digits 1 to 9 pick, top to bottom.
@@ -151,6 +150,8 @@ pub(super) struct DeckUi {
     pub(super) tip_sent: Option<Option<String>>,
     /// The homelab servers; dropping it stops reading them.
     pub(super) servers: Deck,
+    /// The News tab.
+    pub(super) news: news::NewsUi,
 }
 
 pub struct DeckWindow {
@@ -293,13 +294,8 @@ impl PluginWindow for DeckWindow {
                     let top = Rect::from_min_size(full.min, vec2(full.width(), header::HEIGHT));
                     clicked =
                         header::show(ui, top, &counts, &settings, &tokens, turn, &mut state.quick);
-                    let list = Rect::from_min_max(pos2(full.left(), top.bottom()), full.max);
-                    let mut list_ui = ui.new_child(egui::UiBuilder::new().max_rect(list));
-                    if !servers::draw::has_lines(&lines, &state) {
-                        empty(&mut list_ui, &tokens, !state.chats.is_empty());
-                    } else {
-                        list::show(&mut list_ui, &lines, &look, &mut state, &to_host);
-                    }
+                    let rest = Rect::from_min_max(pos2(full.left(), top.bottom()), full.max);
+                    news::draw::body(ui, rest, &lines, &look, &mut state, &to_host);
                 });
             if settings.mini {
                 state.digit_rows = mini::first_nine(&lines);
@@ -309,7 +305,7 @@ impl PluginWindow for DeckWindow {
             if ui.ctx().input(|i| i.pointer.any_click() || !i.focused) {
                 state.keyboard = false;
             }
-            let asked = keys::keys(ui, &lines, &mut state, &to_host, menu_was_open);
+            let asked = news::keys::keys(ui, &lines, &mut state, &to_host, menu_was_open, now);
             if asked.give_back {
                 give_back(&mut state, &to_host);
             }
@@ -354,7 +350,7 @@ impl PluginWindow for DeckWindow {
                 ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
                 return;
             }
-            let tip = select::tray_tip(settings.tray_count, state.cache.waiting);
+            let tip = select::tray_tip(settings.tray_count, state.cache.waiting, state.news.count);
             tell_tray(&mut shared, &mut state, tip);
             let fade_next = fade_step(ui.ctx(), &mut state, settings.fade);
             let next = next_frame(&state, &lines, now);
@@ -414,6 +410,7 @@ fn forget(state: &mut DeckUi) {
         writable: state.writable,
         // The row used last is selected when the hotkey opens it again.
         selected: state.selected.take(),
+        news: state.news.carry(),
         ..DeckUi::default()
     };
 }
@@ -492,6 +489,7 @@ fn refresh(state: &mut DeckUi, to_host: &HostChannel) {
     open_app::send_pending_clears(to_host);
     servers::busy::warn_pc(&mut state.chats, &state.servers.views());
     state.archived = data::archived(&state.chats);
+    news::refresh(state, &sessions, now);
     if state.written.is_none() {
         let (saved, writable) = store::load(&store::path()).start();
         state.written = Some(saved.clone());

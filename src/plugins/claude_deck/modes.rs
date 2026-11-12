@@ -32,7 +32,8 @@ pub(super) fn switch_mode(ctx: &egui::Context, state: &mut DeckUi, mini: bool, l
     if state.window == 0 {
         return;
     }
-    let size = mini.then(|| mini::size(&mini::items(lines)));
+    let size =
+        mini.then(|| mini::size(&mini::items(lines)) + vec2(0.0, mini::counted(state.news.count)));
     if state.mini_on == Some(mini) && state.mini_size == size {
         return;
     }

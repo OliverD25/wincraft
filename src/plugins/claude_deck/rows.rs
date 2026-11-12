@@ -332,12 +332,18 @@ fn parts(painter: &Painter, row: Rect, left: f32, line: &ChatLine, look: &Look) 
     } else {
         0.0
     };
-    let name_room = (room - fixed_width - tag_room - icon).max(0.0);
+    // An unseen reply (the News tab): an amber dot after the name.
+    let dot = if chat.news { DOT + PART_GAP } else { 0.0 };
+    let name_room = (room - fixed_width - tag_room - icon - dot).max(0.0);
     let mut x = left;
     if chat.terminal.is_some() {
         x += terminal_icon(painter, x, middle, tokens.text_secondary) + GAP;
     }
     x += put(painter, x, middle, cut(painter, name_job, name_room)) + PART_GAP;
+    if chat.news {
+        painter.circle_filled(pos2(x + DOT / 2.0, middle), DOT / 2.0, tokens.accent);
+        x += dot;
+    }
     for part in fixed {
         x += put(painter, x, middle, part) + PART_GAP;
     }

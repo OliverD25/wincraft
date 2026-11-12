@@ -233,7 +233,7 @@ pub fn show(
 
 /// The small switch of the design: 24 x 13, the knob on the right and the
 /// accent fill when on.
-fn paint_switch(painter: &Painter, rect: Rect, on: bool, tokens: &Tokens) {
+pub(super) fn paint_switch(painter: &Painter, rect: Rect, on: bool, tokens: &Tokens) {
     let (fill, border, knob) = if on {
         (tokens.accent, tokens.accent, tokens.window_bg)
     } else {

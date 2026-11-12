@@ -115,6 +115,7 @@ mod edit;
 mod keyboard;
 mod list;
 mod modes;
+mod news;
 mod plugin;
 mod screen;
 mod servers_keys;

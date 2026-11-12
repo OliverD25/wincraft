@@ -113,7 +113,7 @@ pub fn section(ui: &mut Ui, look: &Look, state: &mut DeckUi) {
                 hidden,
             } => {
                 let response = ui.interact(rect, id, Sense::click());
-                let row = ChatLine {
+                let mut row = ChatLine {
                     chat: (**chat).clone(),
                     stand_in: false,
                     depth: 0,
@@ -123,6 +123,7 @@ pub fn section(ui: &mut Ui, look: &Look, state: &mut DeckUi) {
                     pinned: *pinned,
                     hidden: false,
                 };
+                row.chat.news = state.news.unseen_chats.contains(&chat.id);
                 let mut row_painter = painter.clone();
                 if *greyed {
                     row_painter.multiply_opacity(OFFLINE_OPACITY);
@@ -278,7 +279,7 @@ fn copy(window: isize, words: &str) {
 
 /// The server icon of a server's line and its hover panel: two stacked
 /// rounded boxes with a short line in each, in a 14 px square.
-fn server_icon(painter: &Painter, at: egui::Pos2, colour: Color32) {
+pub(crate) fn server_icon(painter: &Painter, at: egui::Pos2, colour: Color32) {
     let stroke = egui::Stroke::new(1.3, colour);
     for top in [2.0, 7.4] {
         let rect = Rect::from_min_size(pos2(at.x + 2.0, at.y + top), vec2(10.0, 4.6));

@@ -27,12 +27,14 @@ impl Painted {
         self.texts.iter().any(|text| text.contains(words))
     }
 
-    /// The middle of the first text that contains `words`.
+    /// The middle of the text that is `words`, else of the first text
+    /// that contains them.
     pub fn at(&self, words: &str) -> egui::Pos2 {
         let (_, rect) = self
             .rects
             .iter()
-            .find(|(text, _)| text.contains(words))
+            .find(|(text, _)| text == words)
+            .or_else(|| self.rects.iter().find(|(text, _)| text.contains(words)))
             .unwrap_or_else(|| panic!("{words:?} not painted: {:?}", self.texts));
         rect.center()
     }
