@@ -371,7 +371,9 @@ mod tests {
         assert!(view.pending.is_some(), "a first read starts at once");
         view.update(&ctx, &missing, true);
         let started = Instant::now();
-        while view.loaded.is_none() && started.elapsed() < Duration::from_secs(5) {
+        while (view.loaded.is_none() || view.pending.is_some())
+            && started.elapsed() < Duration::from_secs(5)
+        {
             std::thread::sleep(Duration::from_millis(10));
             view.update(&ctx, &missing, false);
         }
