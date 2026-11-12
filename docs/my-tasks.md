@@ -7,16 +7,32 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ### 22. Pick the ClaudeDeck icon
 
-State: Ready to decide (2026-11-12). Asked by you in the WinCraft coding chat: "lets build the claude deck icon design first".
-Why: ClaudeDeck gets its own icon for its taskbar button, its window title and its row on the Plugins and Store pages. Until you pick, it shows the WinCraft icon.
+- **State:** Waits for your answer.
+- **Kind:** decision · **Added:** 2026-11-12 (PC, main d2d6d79)
+- **Why:** ClaudeDeck gets its own icon for its taskbar button, its window
+  title and its row on the Plugins and Store pages. Until you pick, it shows
+  the WinCraft icon. You asked for it: "lets build the claude deck icon
+  design first".
+- **Agent can check:** this task's line in the chat, or a "22:" answer.
+
+**Steps**
 
 1. Open https://claude.ai/artifact/S5fEimN5sS6oqHgwJVRxPn in your browser.
-2. Click the page name at the top left (it shows "Shortcut Manager" or the last page you opened), then click "ClaudeDeck" in the list.
-3. Scroll to the end, to "12. The ClaudeDeck icon (pick one)". You see four ideas: **A. The list**, **B. Amber list**, **C. A deck of chats**, **D. A chat bubble**. Each shows 16, 24, 32, 48 and 256 px, a light and a dark taskbar, and the WinCraft icon next to it.
-4. Tell the chat which one you pick (for example "icon B"), or what to change.
+2. Click the page name at the top left (it shows "Shortcut Manager" or the
+   last page you opened), then click "ClaudeDeck" in the list.
+3. Scroll to the end, to "12. The ClaudeDeck icon (pick one)". Each idea
+   shows 16, 24, 32, 48 and 256 px, a light and a dark taskbar, and the
+   WinCraft icon next to it:
+   - **B. Amber list** (recommended): the list on an amber tile; it never
+     looks like the dark WinCraft icon in the taskbar.
+   - **A. The list**: WinCraft's dark tile and amber ring, three chat rows.
+   - **C. A deck of chats**: an amber card behind a dark one.
+   - **D. A chat bubble**: a dark speech bubble, not a square.
+4. In any session of this project, say "22: B" (or A, C, D), or what to
+   change.
 
-Recommended: **B. Amber list**. It keeps the WinCraft colours and the list idea, and the amber tile tells it apart from the dark WinCraft icon at a glance in the taskbar.
-Done when: the pick is recorded here and the ClaudeDeck coding session has the path of the chosen SVG.
+**Done when:** the pick is recorded here and the ClaudeDeck coding session
+has the path of the chosen SVG.
 
 ### 23. Install 0.20.107: fork a chat in a terminal, and the waits on the server line
 
