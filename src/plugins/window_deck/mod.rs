@@ -11,6 +11,7 @@ pub mod hover_preview;
 mod new_window;
 mod own_windows;
 mod popup_guard;
+mod sketches;
 mod win_digit;
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -20,7 +21,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer, WM_TIMER}
 use crate::core::config::PluginConfig;
 use crate::core::traits::{
     FieldKind, HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata, SettingField,
-    StripLook, TrayAction, TrayToggle, WinCraftPlugin, WindowGroups,
+    Sketch, StripLook, TrayAction, TrayToggle, WinCraftPlugin, WindowGroups,
 };
 use crate::core::ui_bridge::{ActionKind, ArrangeAction, ArrangeView};
 use crate::core::{host, instance, window_census};
@@ -470,6 +471,14 @@ impl WinCraftPlugin for WindowDeck {
         [CLAUDE_STYLE_KEY, CLAUDE_ANIMATE_KEY]
             .contains(&key)
             .then_some(CUSTOM_GROUP)
+    }
+
+    fn choice_sketches(&self, key: &str) -> &'static [Sketch] {
+        if key == GROUP_OPEN_KEY {
+            sketches::GROUP_OPEN
+        } else {
+            &[]
+        }
     }
 
     fn migrate_settings(&self, settings: &mut serde_json::Value) {

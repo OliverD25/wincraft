@@ -13,6 +13,7 @@ pub mod keycap;
 pub mod pending;
 pub mod row;
 pub mod search_box;
+pub mod sketch;
 pub mod slider;
 pub mod text;
 pub mod theme_tile;

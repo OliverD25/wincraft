@@ -157,6 +157,7 @@ The About page lists the kinds the build you are running can draw.
 | `migrate_settings(settings)` | At startup, right after missing keys were filled in, to rewrite values an older version stored. The host saves the file afterwards. |
 | `settings_fields` | When drawing your settings page. |
 | `dynamic_fields` | When drawing your settings page, after `settings_fields`. For settings that depend on what the plugin sees, such as one per connected monitor: the key is a JSON pointer into your settings (`/monitors/PHL 323E7/mode`, each step made with `config::pointer_token`), and you give the current value. The host writes the chosen value at that place. |
+| `choice_sketches` | When drawing your settings page. Small pictures for a `Choice` field, one per option in the options' order: window shapes in a 120 x 60 box (`SketchShape`, each with a look such as `Window` or `Selected`). The settings window draws them in the theme's colours under the row and marks the chosen option. WindowDeck's "Open a group as" is the example (`src/plugins/window_deck/sketches.rs`). |
 | `migrate_hotkeys(hotkeys, settings)` | At startup, right before `migrate_settings`, to move stored keys an older version wrote, such as an old default that another plugin now uses. Keep a note in `settings` if it must happen only once. |
 | `init` | When the plugin is switched on. Return `Err` and the host logs it, shows a tray notification and leaves the plugin off. |
 | `on_settings_changed` | After the user changes one of your settings. |

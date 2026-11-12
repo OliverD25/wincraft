@@ -104,7 +104,7 @@ Opened by: Settings → **Plugins** → click the plugin's tile.
 ### Fields of each plugin's Settings section
 - LayoutKeeper: **Programs**, **Never touch**, **Restore on start**, **Wait for windows (seconds)**, **Wait for apps to open (minutes)**, **Save every (seconds)**, **Restore which window is in front**, **Restore monitors**, **Show restore progress**, **Offer to put windows back after an app restarts**. Also **Open state file** (a file button).
 - ScreenDimmer: **Darkness**, **Darkness under the pointer**.
-- WindowDeck: **Preview window on hover**, **Show key hints**, **Show the toolbar on other monitors**, **Group related windows**, **Open a group as** (**A row centred on the stack** or **A fan**), **Show WindowDeck instead of Windows' taskbar preview**, **Hover delay (seconds)**, **Open WindowDeck with Win+1…9**. Under the heading **Custom WindowDeck**: **Claude card style** (**Classic** or **Off**) and **Animate the Claude cards**.
+- WindowDeck: **Preview window on hover**, **Show key hints**, **Show the toolbar on other monitors**, **Group related windows**, **Open a group as** (**A row centred on the stack** or **A fan**; under the row a picture of each option, with its name, and a click on a picture also picks it), **Show WindowDeck instead of Windows' taskbar preview**, **Hover delay (seconds)**, **Open WindowDeck with Win+1…9**. Under the heading **Custom WindowDeck**: **Claude card style** (**Classic** or **Off**) and **Animate the Claude cards**.
 - QuickJump: **Open Quick access in the middle of the screen**, **Point to a window on another monitor**.
 - WindowNamer: **Keep names after restart**, **Title shows**.
 - ShortcutManager: **Show free combinations**.

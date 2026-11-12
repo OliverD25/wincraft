@@ -848,6 +848,9 @@ pub struct FieldInfo {
     /// The heading this field sits under, from the plugin's
     /// `settings_group`; None for the plain "Settings" heading.
     pub group: Option<String>,
+    /// Pictures of a choice's options, from the plugin's
+    /// `choice_sketches`; empty for none.
+    pub sketches: &'static [crate::core::traits::Sketch],
 }
 
 #[derive(Clone, Debug, Default)]
