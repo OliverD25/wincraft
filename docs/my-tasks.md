@@ -44,7 +44,7 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ### 19. Install 0.20.104 and try the rename box and Rename in ClaudeDeck
 
-- **State:** Wait: 0.20.104 is not released yet.
+- **State:** Ready to test (0.20.104 released 2026-11-12; the release has wincraft.exe and its checksum).
 - **Kind:** test · **Added:** 2026-11-12 (PC)
 - **Why:** you asked for both on 0.20.103. The rename box was seen in a test copy on a Notepad window; ClaudeDeck's new menu item and `F2` need your real Claude windows.
 - **Known, do not report:** **Rename the window…** is greyed for a chat with no window; the name belongs to the window (WindowNamer keeps it), not to the chat in the Claude app.
