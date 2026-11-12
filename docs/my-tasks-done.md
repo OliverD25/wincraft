@@ -2,6 +2,7 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
+- **32. Install 0.20.116: Show in the Claude app from ClaudeDeck**: done 2026-11-13. The user said "done 32" after the test: the menu item and `Ctrl+Enter` move the main Claude window to the picked chat.
 - **31. Install 0.20.115: the News tab, and the hotkey on a minimized ClaudeDeck**: done 2026-11-12. The user said "31 done".
 - **30. Install 0.20.114: a fast open from ClaudeDeck, and Background for a woken agent**: done 2026-11-12. The user said "30 done".
 - **28. Install 0.20.113: open, archive and rename chats from ClaudeDeck, Minimize, the pinned icon**: done 2026-11-12. Results: open works but takes a few seconds (being made faster); rename both ways works; Minimize and the pinned icon work; Archive did not work and the creator decided to remove it (no UI workarounds).
