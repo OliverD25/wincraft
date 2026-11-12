@@ -7,7 +7,7 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ### 21. Install 0.20.106 and check the homelab servers in ClaudeDeck
 
-- **State:** Ready to test (0.20.106 released 2026-11-12; the release has wincraft.exe and its checksum).
+- **State:** Ready to test. Steps 1 and 2 are done (2026-11-12: you updated to 0.20.106; the session set the servers, because the empty setting kept the server groups off). Start at step 3.
 - **Kind:** test · **Added:** 2026-11-12 (PC)
 - **Why:** ClaudeDeck now shows the homelab servers and their Claude chats. A test copy showed all of it with the real servers, except two things only you can check: the terminal that a click opens, and a PC chat that waits on a server.
 
