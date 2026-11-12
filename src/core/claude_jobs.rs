@@ -3,7 +3,10 @@
 //! transcript does: `%USERPROFILE%\.claude\projects\<folder>\<cliSessionId>.jsonl`.
 //! A job starts with a tool result that holds `"backgroundTaskId":"<id>"`
 //! (a background command) or `"status":"async_launched"` with
-//! `"agentId":"<id>"` (a background subagent). It ends with a task notice
+//! `"agentId":"<id>"` (a background subagent). A subagent that finished and
+//! is sent a new message works again: its result holds
+//! `"resumedAgentId":"<id>"`, and the same id starts once more. A job ends
+//! with a task notice
 //! (`<task-id><id></task-id>` and a `<status>`), or when the chat stops it
 //! with the `TaskStop` tool.
 //!
@@ -78,7 +81,9 @@ impl Scan {
     }
 
     fn line(&mut self, line: &str, seen_ms: u64) {
-        let started = line.contains("backgroundTaskId") || line.contains("async_launched");
+        let started = line.contains("backgroundTaskId")
+            || line.contains("async_launched")
+            || line.contains("resumedAgentId");
         let ended = line.contains("<task-id>") || line.contains("TaskStop");
         if !started && !ended {
             return;
@@ -94,6 +99,9 @@ impl Scan {
                 for id in values_after(&text, "\"agentId\":\"") {
                     self.start(id, at);
                 }
+            }
+            for id in values_after(&text, "\"resumedAgentId\":\"") {
+                self.resume(id, at);
             }
         }
         if text.contains("\"name\":\"TaskStop\"") {
@@ -127,6 +135,12 @@ impl Scan {
         if !self.ended.contains(&id) {
             self.open.entry(id).or_insert(at);
         }
+    }
+
+    /// A finished subagent that was sent a new message runs again.
+    fn resume(&mut self, id: String, at: u64) {
+        self.ended.remove(&id);
+        self.open.insert(id, at);
     }
 
     fn end(&mut self, id: &str) {

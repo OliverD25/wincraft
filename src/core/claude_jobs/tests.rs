@@ -21,6 +21,14 @@ fn end(id: &str, status: &str) -> String {
     )
 }
 
+/// The result of `SendMessage` to a finished background subagent, as the
+/// transcript holds it: JSON inside an escaped string.
+fn agent_resume(id: &str, minute: u32) -> String {
+    format!(
+        "{{\"type\":\"user\",\"timestamp\":\"2026-11-11T08:{minute:02}:00.000Z\",\"message\":{{\"content\":[{{\"type\":\"tool_result\",\"content\":[{{\"type\":\"text\",\"text\":\"{{\\\"success\\\":true,\\\"message\\\":\\\"Resuming agent ab12\\\",\\\"resumedAgentId\\\":\\\"{id}\\\"}}\"}}]}}]}}}}\n"
+    )
+}
+
 fn stop(id: &str) -> String {
     format!("{{\"name\":\"TaskStop\",\"input\":{{\"task_id\":\"{id}\"}},\"caller\":{{}}}}\n")
 }
@@ -203,4 +211,20 @@ fn a_transcript_longer_than_one_chunk_is_read_whole() {
     read.unwrap();
     assert_eq!(entry.scan.offset(), text.len() as u64);
     assert_eq!(entry.scan.running(NOW).0, 1, "only the late job runs");
+}
+
+#[test]
+fn a_finished_subagent_that_is_resumed_runs_again_until_its_next_notice() {
+    let id = "ade60ab8280c7b1ef";
+    let first = format!("{}{}", agent_start(id), end(id, "completed"));
+    assert_eq!(scan(&first).running(NOW).0, 0, "the first run ended");
+    let resumed = format!("{first}{}", agent_resume(id, 3));
+    let (count, since) = scan(&resumed).running(NOW);
+    assert_eq!(count, 1, "the resumed subagent works in the background");
+    assert_eq!(
+        since,
+        timestamp_ms("\"timestamp\":\"2026-11-11T08:03:00.000Z\"")
+    );
+    let done = format!("{resumed}{}", end(id, "completed"));
+    assert_eq!(scan(&done).running(NOW).0, 0, "its next notice ends it");
 }
