@@ -1,3 +1,6 @@
 # Shell scripts must keep LF line endings, or sh fails on the carriage return.
 *.sh text eol=lf
 .githooks/* text eol=lf
+# Icon files are pictures: never change their bytes.
+*.ico binary
+*.rgba binary

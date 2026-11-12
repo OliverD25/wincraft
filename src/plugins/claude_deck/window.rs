@@ -228,9 +228,7 @@ impl PluginWindow for DeckWindow {
             } else {
                 egui::WindowLevel::Normal
             });
-        if let Some(icon) = taskbar::window_icon(frame) {
-            builder = builder.with_icon(icon);
-        }
+        builder = builder.with_icon(taskbar::window_icon());
         let shared = Arc::clone(&self.shared);
         let state = Arc::clone(&self.state);
         let palette = frame.palette_hwnd;

@@ -41,7 +41,8 @@ and which one is idle.
 - Drag the header to move the window, and its edges to resize it. It opens
   again at the same place and size.
 - ClaudeDeck has a taskbar button of its own, apart from WinCraft's other
-  windows such as Settings (its own AppUserModelID, `WinCraft.ClaudeDeck`).
+  windows such as Settings (its own AppUserModelID, `WinCraft.ClaudeDeck`),
+  with its own icon: an amber tile with three list rows.
   Mini mode's hover panel stays out of the taskbar. Dragged to a monitor with another
   scale, the window keeps its size to the eye, and back on the first monitor
   it has exactly its old size.
