@@ -13,8 +13,8 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 **Steps**
 
-1. Right-click the WinCraft icon in the tray and click **Settings…**.
-2. Click **About** in the left list, then **Check for updates**, then **Update now**. WinCraft restarts; About shows 0.20.96.
+1. Press `Alt+Space` (your palette hotkey), type `update`, pick **Update WinCraft** and press `Enter`. WinCraft checks, installs the newer version and restarts.
+2. Press `Alt+Space` again. The bottom right corner of the palette shows "WinCraft v0.20.96" or newer. Press `Esc`.
 3. Open WindowDeck on an app that has a group (for example the Notepad group from task 7).
 4. Move the mouse onto the stack. Its list of windows opens.
 5. Move the mouse down into the list and rest it on a row. After a short moment that window shows in front, as when you rest the mouse on a card.
@@ -51,8 +51,8 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 **Steps**
 
-1. Right-click the WinCraft icon in the tray and click **Settings…**.
-2. Click **About** in the left list, then **Check for updates**, then **Update now**. WinCraft restarts; About shows 0.20.104.
+1. Press `Alt+Space` (your palette hotkey), type `update`, pick **Update WinCraft** and press `Enter`. WinCraft checks, installs the newer version and restarts.
+2. Press `Alt+Space` again. The bottom right corner of the palette shows "WinCraft v0.20.104" or newer. Press `Esc`.
 3. Open WindowDeck on your Claude windows, right-click a window and click **Rename…**. The rename box opens with the window's current name typed and selected. Press `→`, change one letter, press `Enter`. The window has the new name.
 4. Press `Win+Alt+X`. In ClaudeDeck, right-click a chat that has a window and click **Rename the window…**. The same rename box opens. Type a name and press `Enter`. The chat's row in ClaudeDeck shows the new name within a few seconds.
 5. Pick a chat with the arrow keys in ClaudeDeck and press `F2`. The rename box opens for that chat's window. Press `Esc`: nothing changes.
