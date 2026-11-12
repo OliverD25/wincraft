@@ -157,7 +157,7 @@ fn value(byte: u8) -> Option<u32> {
 /// Standard base64 with padding; None when it is not.
 pub fn decode(text: &str) -> Option<Vec<u8>> {
     let bytes: Vec<u8> = text.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return None;
     }
     let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
