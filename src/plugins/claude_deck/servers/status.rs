@@ -163,11 +163,7 @@ pub fn ready_chats(
             .find(|(ready_dir, _)| ready_dir.ends_with(&tail))
             .map(|(_, mtime)| now.saturating_sub(server_now.saturating_sub(mtime * 1000)));
         let quiet = since.map_or(0, |at| now.saturating_sub(at));
-        let mark = if failed {
-            Mark::Failed
-        } else {
-            Mark::Idle(Age::of(quiet))
-        };
+        let mark = if failed { Mark::Failed } else { rc_idle(quiet) };
         rows.push(Chat {
             id: format!("{server}/{dir}"),
             title: name.clone(),
@@ -185,6 +181,19 @@ pub fn ready_chats(
         });
     }
     rows
+}
+
+fn is_cold_idle(mark: Mark) -> bool {
+    matches!(mark, Mark::Idle(age) if age.is_cold())
+}
+
+/// Idle for a running Remote Control service: its own age, but never cold
+/// (cold chats fold away, and a running service must stay in sight).
+fn rc_idle(quiet_ms: u64) -> Mark {
+    match Age::of(quiet_ms) {
+        age if age.is_cold() => Mark::Idle(Age::Cooling),
+        age => Mark::Idle(age),
+    }
 }
 
 /// The last part of a folder path.
@@ -224,6 +233,10 @@ pub fn chat(
     } else {
         Mark::Idle(Age::of(quiet_ms))
     };
+    // A running Remote Control service is never cold: past the cold limit
+    // it shows as ready, with the time of its last activity.
+    let ready = rc && is_cold_idle(mark);
+    let mark = if ready { rc_idle(quiet_ms) } else { mark };
     // The whole path: the hover panel shows it and "Copy the folder path"
     // copies it.
     let folder = parsed.cwd.clone();
@@ -246,6 +259,8 @@ pub fn chat(
         window: None,
         text: if rc_failed {
             Some(RC_STOPPED.to_string())
+        } else if ready {
+            Some(RC_READY.to_string())
         } else {
             line_text(mark, Some(turn))
         },

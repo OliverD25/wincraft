@@ -884,3 +884,40 @@ fn the_busiest_process_skips_the_probes_own() {
         "the old form took ps itself"
     );
 }
+
+#[test]
+fn a_running_remote_control_chat_is_never_cold() {
+    const DAYS_13: u64 = 13 * 24 * 3600;
+    let done = [user("Run"), said("All tests pass.")];
+    // RC running, last activity 13 days ago: ready, not cold.
+    let old = status_of(&done, &["verdict-ai"], &[], DAYS_13);
+    assert_eq!(old.mark, Mark::Idle(Age::Cooling));
+    assert_eq!(old.text.as_deref(), Some(status::RC_READY));
+    assert_eq!(
+        old.since,
+        Some(NOW + 5_000 - DAYS_13 * 1000),
+        "the last activity"
+    );
+    let views = vec![("s".to_string(), view_of(vec![old], true))];
+    let lines = shape_lines(&views, &BTreeSet::new());
+    assert!(lines
+        .iter()
+        .all(|line| !matches!(line, ServerLine::Quiet { .. })));
+    // A fresh RC transcript keeps its own status and text.
+    let fresh = status_of(&done, &["verdict-ai"], &[], 600);
+    assert_eq!(fresh.mark, Mark::Idle(Age::Fresh));
+    assert_eq!(fresh.text.as_deref(), Some("Last: All tests pass."));
+    // Not RC: the cold rule as before (a live process, 13 days quiet).
+    let plain = status_of(&done, &[], &["/home/rde/projects/verdict-ai"], DAYS_13);
+    assert!(matches!(plain.mark, Mark::Idle(age) if age.is_cold()));
+    // A ready row with an old bridge pointer is not cold either.
+    let rc = vec!["oriondb".to_string()];
+    let running = Running {
+        rc: &rc,
+        procs: &[],
+        rc_failed: &[],
+    };
+    let ready = vec![("-home-rde-projects-oriondb".to_string(), NOW_S - DAYS_13)];
+    let rows = status::ready_chats("s", Some("/home/rde"), &running, &ready, &[], NOW, NOW);
+    assert_eq!(rows[0].mark, Mark::Idle(Age::Cooling));
+}

@@ -224,6 +224,9 @@ this off: nothing is read and no server group shows.
   "Remote Control stopped". A Remote Control service that has not started
   a chat yet (it writes nothing until you do) still shows as a row:
   **Idle**, "Remote Control is ready", in `~/projects/<name>`.
+  A chat whose Remote Control service runs is never folded into the cold
+  line: after a day without activity it shows "Remote Control is ready",
+  with the time of its last activity.
 
 When two chats work on the same repo at the same time (told by the last
 part of the folder, a git worktree counting as its repo), on this PC or a
