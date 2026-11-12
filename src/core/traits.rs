@@ -119,6 +119,36 @@ pub struct SettingField {
     pub kind: FieldKind,
 }
 
+/// A small picture of one option of a `Choice` field, so the user sees what
+/// the option does. It is window shapes in a 120 x 60 box; the settings
+/// window draws them in the theme's colours, in order, so a later shape
+/// covers an earlier one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sketch {
+    pub shapes: &'static [SketchShape],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SketchShape {
+    /// Left, top, width and height inside the 120 x 60 box.
+    pub rect: [f32; 4],
+    pub look: SketchLook,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SketchLook {
+    /// A raised surface the other shapes sit on.
+    Panel,
+    /// Something in the background, drawn faintly.
+    Faint,
+    /// A window.
+    Window,
+    /// The window that has the selection, in the accent colour.
+    Selected,
+    /// A line of text.
+    Text,
+}
+
 /// A setting whose key and text are only known while the plugin runs, such
 /// as one per connected monitor. The key is a JSON pointer into the
 /// plugin's settings ("/monitors/PHL 323E7/mode", each step made with
@@ -313,6 +343,14 @@ pub trait WinCraftPlugin {
     /// each group. None keeps the field under "Settings".
     fn settings_group(&self, _key: &str) -> Option<&'static str> {
         None
+    }
+
+    /// Pictures for a `Choice` field of `settings_fields`, by its key: one
+    /// per option, in the options' order. The settings page shows them
+    /// under the row and marks the chosen one. Empty (the default), or a
+    /// count that does not match the options, shows no pictures.
+    fn choice_sketches(&self, _key: &str) -> &'static [Sketch] {
+        &[]
     }
 
     /// Settings drawn after `settings_fields`, built from what the plugin
