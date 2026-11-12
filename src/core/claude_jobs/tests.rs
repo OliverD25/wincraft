@@ -181,3 +181,26 @@ fn the_job_count_stays_while_a_read_runs() {
     assert_eq!(running("chat-keep", NOW).0, 1);
     *READ.lock().unwrap() = held;
 }
+
+#[test]
+fn a_transcript_longer_than_one_chunk_is_read_whole() {
+    let filler = format!(
+        "{{\"type\":\"progress\",\"text\":\"{}\"}}\n",
+        "x".repeat(4000)
+    );
+    let mut text = start("early");
+    while text.len() < READ_CHUNK * 2 + 777 {
+        text.push_str(&filler);
+    }
+    text.push_str(&start("late"));
+    text.push_str(&end("early", "completed"));
+    let path =
+        std::env::temp_dir().join(format!("wincraft-jobs-chunk-{}.jsonl", std::process::id()));
+    std::fs::write(&path, &text).unwrap();
+    let mut entry = Entry::default();
+    let read = read_new(&path, &mut entry, NOW);
+    let _ = std::fs::remove_file(&path);
+    read.unwrap();
+    assert_eq!(entry.scan.offset(), text.len() as u64);
+    assert_eq!(entry.scan.running(NOW).0, 1, "only the late job runs");
+}

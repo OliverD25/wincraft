@@ -25,6 +25,10 @@ use crate::core::claude_turns::{Tail, Turn};
 /// have been closed while it ran, and then no end notice is ever written.
 pub const MAX_JOB_AGE_MS: u64 = 3 * 60 * 60 * 1000;
 
+/// A transcript is read this much at a time. A first read of a 200 MB
+/// transcript must not hold all of it in memory at once (Principle 5).
+const READ_CHUNK: usize = 1024 * 1024;
+
 /// How far after a `<task-id>` its `<status>` may be, in bytes.
 const STATUS_REACH: usize = 400;
 
@@ -346,11 +350,18 @@ fn read_new(path: &Path, entry: &mut Entry, now: u64) -> std::io::Result<()> {
     }
     let from = entry.scan.offset();
     file.seek(SeekFrom::Start(from))?;
-    let mut bytes = Vec::new();
-    file.take(len - from).read_to_end(&mut bytes)?;
+    let mut rest = file.take(len - from);
+    let mut chunk = vec![0u8; READ_CHUNK];
     let tail = &mut entry.tail;
-    entry.scan.feed_with(&bytes, now, |line| tail.line(line));
-    Ok(())
+    loop {
+        let got = rest.read(&mut chunk)?;
+        if got == 0 {
+            return Ok(());
+        }
+        entry
+            .scan
+            .feed_with(&chunk[..got], now, |line| tail.line(line));
+    }
 }
 
 /// How the last turn of ClaudeDeck's chat with this `cliSessionId` ended,
