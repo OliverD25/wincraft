@@ -100,7 +100,8 @@ pub fn section(ui: &mut Ui, look: &Look, state: &mut DeckUi) {
                 }
                 let response = ui.interact(rect, id, Sense::hover());
                 let looks = (response.hovered(), selected);
-                server_line(&painter, rect, server, host, look, looks);
+                let waiting = view::waiting_on(server, &state.servers.waits);
+                server_line(&painter, rect, (server, waiting), host, look, looks);
                 let words = view::hover_text(server, host, &state.servers.waits, look.now);
                 response.on_hover_ui(|ui| server_hover(ui, host, &words));
             }
@@ -300,7 +301,7 @@ fn colours(online: bool, tokens: &theme::Tokens) -> (Color32, Color32) {
 fn server_line(
     painter: &Painter,
     rect: Rect,
-    server: &str,
+    (server, waiting): (&str, usize),
     host: &super::HostView,
     look: &Look,
     (hovered, selected): (bool, bool),
@@ -321,13 +322,16 @@ fn server_line(
     let left = rect.left() + PAD;
     let (icon, dot) = colours(host.online, tokens);
     server_icon(painter, pos2(left, middle - ICON / 2.0), icon);
-    let right_words = view::line_text(host, look.now);
-    let right_job = text::job(
-        &right_words,
-        theme::regular(SMALL),
-        tokens.text_secondary,
-        None,
-    );
+    let right_words = view::line_text(host, waiting, look.now);
+    let right_colour = if waiting > 0 && host.online {
+        crate::plugins::claude_deck::marks::colour(
+            crate::plugins::claude_deck::model::Mark::WaitsOnServer,
+            tokens,
+        )
+    } else {
+        tokens.text_secondary
+    };
+    let right_job = text::job(&right_words, theme::regular(SMALL), right_colour, None);
     let right_galley = painter.layout_job(right_job);
     let right = rect.right() - PAD - right_galley.size().x;
     painter.galley(
