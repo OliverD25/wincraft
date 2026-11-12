@@ -327,8 +327,16 @@ fn parts(painter: &Painter, row: Rect, left: f32, line: &ChatLine, look: &Look) 
     } else {
         tag_room
     };
-    let name_room = (room - fixed_width - tag_room).max(0.0);
+    let icon = if chat.terminal.is_some() {
+        TERMINAL_W + GAP
+    } else {
+        0.0
+    };
+    let name_room = (room - fixed_width - tag_room - icon).max(0.0);
     let mut x = left;
+    if chat.terminal.is_some() {
+        x += terminal_icon(painter, x, middle, tokens.text_secondary) + GAP;
+    }
     x += put(painter, x, middle, cut(painter, name_job, name_room)) + PART_GAP;
     for part in fixed {
         x += put(painter, x, middle, part) + PART_GAP;
@@ -344,6 +352,33 @@ fn parts(painter: &Painter, row: Rect, left: f32, line: &ChatLine, look: &Look) 
     if let Some(roll) = roll {
         put(painter, x, middle, roll);
     }
+}
+
+const TERMINAL_W: f32 = 14.0;
+const TERMINAL_H: f32 = 10.0;
+
+/// A small terminal: a rounded box with `>_`. Returns its width.
+fn terminal_icon(painter: &Painter, left: f32, middle: f32, colour: Color32) -> f32 {
+    let stroke = Stroke::new(1.0, colour);
+    let top = middle - TERMINAL_H / 2.0;
+    let frame = Rect::from_min_size(pos2(left, top), vec2(TERMINAL_W, TERMINAL_H));
+    painter.rect_stroke(frame, 2.0, stroke, StrokeKind::Inside);
+    painter.add(Shape::line(
+        vec![
+            pos2(left + 3.5, middle - 2.0),
+            pos2(left + 6.0, middle),
+            pos2(left + 3.5, middle + 2.0),
+        ],
+        stroke,
+    ));
+    painter.line_segment(
+        [
+            pos2(left + 7.5, middle + 2.0),
+            pos2(left + 10.5, middle + 2.0),
+        ],
+        stroke,
+    );
+    TERMINAL_W
 }
 
 /// The theme colour of a group colour.

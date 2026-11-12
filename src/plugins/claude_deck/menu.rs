@@ -88,6 +88,10 @@ pub enum Choice {
 /// and hidden lines. Pinning and moving belong to the chat at the top of a
 /// family; a fork stays under its chat.
 pub fn chat_items(line: &ChatLine, in_group: bool) -> Vec<Item> {
+    // A fork running in a terminal: only bring it forward or copy its name.
+    if line.chat.terminal.is_some() {
+        return vec![Item::Open, Item::Copy];
+    }
     let mut items = Vec::new();
     if !line.stand_in {
         items.push(Item::Open);

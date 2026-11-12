@@ -9,6 +9,7 @@ use windows_sys::Win32::System::Threading::CREATE_NEW_CONSOLE;
 
 use crate::core::instance;
 use crate::plugins::claude_deck::fork::{valid_id, Fork};
+use crate::plugins::claude_deck::forks::Launch;
 
 use super::probe::ssh_program;
 
@@ -34,10 +35,10 @@ pub(super) fn safe_path(path: &str) -> bool {
 /// The command that forks a chat on the server, with Remote Control on so
 /// the fork also shows in the Claude app. None when the session id or the
 /// path is not safe to put in a command.
-pub fn fork_command(cwd: &str, session: &str) -> Option<String> {
-    (safe_path(cwd) && valid_id(session)).then(|| {
+pub fn fork_command(cwd: &str, session: &str, new_id: &str) -> Option<String> {
+    (safe_path(cwd) && valid_id(session) && valid_id(new_id)).then(|| {
         format!(
-            "cd '{cwd}' && exec $SHELL -lc 'claude --resume {session} --fork-session --remote-control'"
+            "cd '{cwd}' && exec $SHELL -lc 'claude --resume {session} --fork-session --session-id {new_id} --remote-control'"
         )
     })
 }
@@ -57,36 +58,55 @@ fn ssh_args_for(host: &str, command: String) -> Vec<String> {
 }
 
 /// The arguments of ssh that fork a chat; None when it is not safe.
-pub fn fork_args(host: &str, fork: &Fork) -> Option<Vec<String>> {
-    fork_command(&fork.folder, &fork.session).map(|command| ssh_args_for(host, command))
+pub fn fork_args(host: &str, fork: &Fork, new_id: &str) -> Option<Vec<String>> {
+    fork_command(&fork.folder, &fork.session, new_id).map(|command| ssh_args_for(host, command))
 }
 
 /// Opens the terminal. A test copy of WinCraft opens nothing.
 pub fn open(host: &str, cwd: Option<&str>) {
-    launch(host, ssh_args(host, cwd));
+    launch(host, ssh_args(host, cwd), None);
 }
 
-/// Opens a terminal that forks a server chat.
-pub fn open_fork(host: &str, fork: &Fork) {
-    match fork_args(host, fork) {
-        Some(args) => launch(host, args),
+/// Opens a terminal that forks a server chat. `parent` is the chat as
+/// ClaudeDeck knows it; the terminal shows as its fork.
+pub fn open_fork(host: &str, fork: &Fork, parent: &str, parent_title: &str) {
+    let Some(launch) = Launch::new(parent_title) else {
+        return;
+    };
+    match fork_args(host, fork, &launch.id) {
+        Some(args) => {
+            if launch_in_wt(host, args, Some(&launch)) {
+                launch.remember(parent, &fork.folder, Some(host));
+            }
+        }
         None => log::warn!("ClaudeDeck: a chat on {host} cannot be forked safely"),
     }
 }
 
-fn launch(host: &str, args: Vec<String>) {
+fn launch(host: &str, args: Vec<String>, title: Option<&Launch>) {
+    launch_in_wt(host, args, title);
+}
+
+/// Starts the terminal. True when it opened in Windows Terminal, the only
+/// window ClaudeDeck can find again by its title.
+fn launch_in_wt(host: &str, args: Vec<String>, title: Option<&Launch>) -> bool {
     // Unit tests never start ssh.
     if cfg!(test) {
-        return;
+        return false;
     }
     if instance::is_test() {
         log::info!("read-only test instance: opening a terminal on {host} skipped");
-        return;
+        return false;
     }
     let ssh = ssh_program();
-    let terminal = Command::new("wt.exe").arg(&ssh).args(&args).spawn();
+    let prefix = title.map(Launch::wt_prefix).unwrap_or_default();
+    let terminal = Command::new("wt.exe")
+        .args(&prefix)
+        .arg(&ssh)
+        .args(&args)
+        .spawn();
     if terminal.is_ok() {
-        return;
+        return true;
     }
     let console = Command::new(&ssh)
         .args(&args)
@@ -95,4 +115,5 @@ fn launch(host: &str, args: Vec<String>) {
     if let Err(err) = console {
         log::warn!("ClaudeDeck: could not open a terminal on {host}: {err}");
     }
+    false
 }

@@ -556,7 +556,10 @@ fn apply(act: Act, state: &mut DeckUi, to_host: &HostChannel) {
             }
         }
         Choice::RenameWindow => rename_window(act.window, to_host),
-        Choice::Fork => act.fork.iter().for_each(super::fork::open),
+        Choice::Fork => act
+            .fork
+            .iter()
+            .for_each(|fork| super::fork::open(fork, &id, &act.title)),
         Choice::FoldForks => edit::fold_chat(saved, &id),
         Choice::MoveTo(group) => edit::place_chat(saved, &id, &edit::Spot::End(group)),
         Choice::NewWith => {

@@ -29,6 +29,7 @@ use super::arrange::{arrange, hidden_chats};
 use super::data;
 use super::edges;
 use super::fade::Fade;
+use super::forks;
 use super::header::{self, Click};
 use super::keys;
 use super::list;
@@ -460,6 +461,7 @@ fn refresh(state: &mut DeckUi, to_host: &HostChannel) {
     );
     state.chats = chats;
     state.servers.waits = waits;
+    forks::add_rows(&mut state.chats, now);
     servers::busy::warn_pc(&mut state.chats, &state.servers.views());
     state.archived = data::archived(&state.chats);
     if state.written.is_none() {

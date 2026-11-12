@@ -45,6 +45,9 @@ pub fn head_line(chat: &Chat, now: u64) -> String {
 
 /// The project and the branch, as far as they are known.
 pub fn place_line(chat: &Chat) -> String {
+    if let Some(place) = &chat.terminal {
+        return format!("Fork in a terminal \u{b7} {place}");
+    }
     let project = chat
         .folder
         .as_deref()
