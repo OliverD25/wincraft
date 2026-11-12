@@ -9,7 +9,7 @@
 use std::ffi::c_void;
 
 use windows_sys::core::{IUnknown_Vtbl, BOOL, BSTR, GUID, HRESULT};
-use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
+use windows_sys::Win32::Foundation::{SysAllocString, SysFreeString, HWND, POINT, RECT};
 use windows_sys::Win32::System::Com::CLSCTX_INPROC_SERVER;
 
 use crate::core::com::{self, ComPtr};
@@ -28,7 +28,7 @@ struct IUIAutomationVtbl {
     element_from_handle:
         unsafe extern "system" fn(*mut c_void, *mut c_void, *mut *mut c_void) -> HRESULT,
     element_from_point: unsafe extern "system" fn(*mut c_void, POINT, *mut *mut c_void) -> HRESULT,
-    _get_focused_element: unsafe extern "system" fn(),
+    get_focused_element: unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> HRESULT,
     _get_root_element_build_cache: unsafe extern "system" fn(),
     _element_from_handle_build_cache: unsafe extern "system" fn(),
     _element_from_point_build_cache: unsafe extern "system" fn(),
@@ -57,6 +57,27 @@ const UIA_INVOKE_PATTERN_ID: i32 = 10000;
 /// Control type ids of UIAutomationClient.h.
 pub const CONTROL_BUTTON: i32 = 50000;
 pub const CONTROL_GROUP: i32 = 50026;
+pub const CONTROL_EDIT: i32 = 50004;
+pub const CONTROL_MENU_ITEM: i32 = 50011;
+
+const IID_EXPAND_COLLAPSE: GUID = GUID::from_u128(0x619be086_1f4e_4ee4_bafa_210128738730);
+const IID_VALUE: GUID = GUID::from_u128(0xa94cd8b1_0844_4cd6_9d2d_640537ab39e9);
+const PATTERN_VALUE: i32 = 10002;
+const PATTERN_EXPAND_COLLAPSE: i32 = 10005;
+
+#[repr(C)]
+struct ExpandCollapseVtbl {
+    _base: IUnknown_Vtbl,
+    expand: unsafe extern "system" fn(*mut c_void) -> HRESULT,
+    collapse: unsafe extern "system" fn(*mut c_void) -> HRESULT,
+    state: unsafe extern "system" fn(*mut c_void, *mut i32) -> HRESULT,
+}
+
+#[repr(C)]
+struct ValueVtbl {
+    _base: IUnknown_Vtbl,
+    set_value: unsafe extern "system" fn(*mut c_void, *const u16) -> HRESULT,
+}
 
 #[repr(C)]
 struct IUIAutomationInvokePatternVtbl {
@@ -69,7 +90,7 @@ type BstrGetter = unsafe extern "system" fn(*mut c_void, *mut BSTR) -> HRESULT;
 #[repr(C)]
 struct IUIAutomationElementVtbl {
     _base: IUnknown_Vtbl,
-    _set_focus: unsafe extern "system" fn(),
+    set_focus: unsafe extern "system" fn(*mut c_void) -> HRESULT,
     _get_runtime_id: unsafe extern "system" fn(),
     _find_first: unsafe extern "system" fn(),
     _find_all: unsafe extern "system" fn(),
@@ -156,6 +177,13 @@ impl Automation {
         taken(hr, raw).ok_or_else(|| format!("ElementFromHandle failed ({})", com::hex(hr)))
     }
 
+    /// The element that has the keyboard focus now.
+    pub fn focused_element(&self) -> Option<ComPtr> {
+        let mut raw = std::ptr::null_mut();
+        let hr = unsafe { (self.vtable().get_focused_element)(self.automation.as_raw(), &mut raw) };
+        taken(hr, raw)
+    }
+
     pub fn parent(&self, element: &ComPtr) -> Option<ComPtr> {
         self.step(element, self.walker_vtable().get_parent_element)
     }
@@ -230,6 +258,58 @@ pub fn invoke(element: &ComPtr) -> Result<(), String> {
     let hr =
         unsafe { (pattern.vtable::<IUIAutomationInvokePatternVtbl>().invoke)(pattern.as_raw()) };
     com::check(hr).map_err(|hr| format!("Invoke failed ({})", com::hex(hr)))
+}
+
+fn pattern(element: &ComPtr, id: i32, iid: &GUID) -> Result<ComPtr, String> {
+    let mut raw = std::ptr::null_mut();
+    let hr =
+        unsafe { (element_vtable(element).get_current_pattern)(element.as_raw(), id, &mut raw) };
+    taken(hr, raw)
+        .and_then(|unknown| unknown.query(iid))
+        .ok_or_else(|| format!("the element lacks pattern {id} ({})", com::hex(hr)))
+}
+
+/// Gives the element the keyboard focus.
+pub fn set_focus(element: &ComPtr) -> Result<(), String> {
+    let hr = unsafe { (element_vtable(element).set_focus)(element.as_raw()) };
+    com::check(hr).map_err(|hr| format!("SetFocus failed ({})", com::hex(hr)))
+}
+
+/// Whether an element with the ExpandCollapse pattern is collapsed; None
+/// when it has no such pattern.
+pub fn is_collapsed(element: &ComPtr) -> Option<bool> {
+    let pattern = pattern(element, PATTERN_EXPAND_COLLAPSE, &IID_EXPAND_COLLAPSE).ok()?;
+    let mut state = 0;
+    let hr =
+        unsafe { (pattern.vtable::<ExpandCollapseVtbl>().state)(pattern.as_raw(), &mut state) };
+    com::ok(hr).then_some(state == 0)
+}
+
+pub fn expand(element: &ComPtr) -> Result<(), String> {
+    let pattern = pattern(element, PATTERN_EXPAND_COLLAPSE, &IID_EXPAND_COLLAPSE)?;
+    let hr = unsafe { (pattern.vtable::<ExpandCollapseVtbl>().expand)(pattern.as_raw()) };
+    com::check(hr).map_err(|hr| format!("Expand failed ({})", com::hex(hr)))
+}
+
+pub fn collapse(element: &ComPtr) -> Result<(), String> {
+    let pattern = pattern(element, PATTERN_EXPAND_COLLAPSE, &IID_EXPAND_COLLAPSE)?;
+    let hr = unsafe { (pattern.vtable::<ExpandCollapseVtbl>().collapse)(pattern.as_raw()) };
+    com::check(hr).map_err(|hr| format!("Collapse failed ({})", com::hex(hr)))
+}
+
+/// Sets the text of an edit field through its Value pattern.
+pub fn set_value(element: &ComPtr, text: &str) -> Result<(), String> {
+    let pattern = pattern(element, PATTERN_VALUE, &IID_VALUE)?;
+    let mut wide: Vec<u16> = text.encode_utf16().collect();
+    wide.push(0);
+    // SetValue takes a BSTR, which carries its length in front of the text.
+    let bstr = unsafe { SysAllocString(wide.as_ptr()) };
+    if bstr.is_null() {
+        return Err("no memory for the text".to_string());
+    }
+    let hr = unsafe { (pattern.vtable::<ValueVtbl>().set_value)(pattern.as_raw(), bstr) };
+    unsafe { SysFreeString(bstr) };
+    com::check(hr).map_err(|hr| format!("SetValue failed ({})", com::hex(hr)))
 }
 
 pub fn class_name(element: &ComPtr) -> Option<String> {
