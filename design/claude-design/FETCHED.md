@@ -241,3 +241,13 @@ shown for the user to pick: the shapes of the 9 status marks (A shapes, B
 signs in a box, C short words) and how a fork hangs under its chat (A tree
 lines, B indent and a branch mark, C a side rail). Picked by the user on
 2026-11-12: A shapes and A tree lines; the rest of the page approved as drawn.
+
+## 2026-11-12 (later): ClaudeDeck, status mark setting
+
+Version 25 of the artifact, copied byte for byte. The user's change: the
+status marks get a setting. Settings → ClaudeDeck → "Status mark" with the
+choices Shapes (default), Shapes and words, Off. "Shapes and words" puts a
+short coloured word after each shape: Approve, Asks, Done, Working, Bg,
+Idle, Stopped, Failed, Unknown. Section 1 adds a window in that style;
+section 2 shows both styles; the options "Signs in a box" and "Short words"
+alone are dropped. The rest is unchanged and approved.
