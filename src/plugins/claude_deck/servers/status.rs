@@ -1,5 +1,7 @@
 //! A server chat's row, from the end of its transcript and what runs on
 //! the server. The rules:
+//! - its Remote Control unit failed or keeps restarting: Failed, with
+//!   "Remote Control stopped";
 //! - not alive (no Remote Control unit and no `claude` process in its
 //!   folder): Stopped;
 //! - an open question card: Asks you;
@@ -17,6 +19,9 @@ use crate::plugins::claude_deck::model::{Chat, Mark};
 use crate::plugins::claude_deck::status::{full_text, line_text};
 
 use super::reply::RawChat;
+
+/// The line of a chat whose Remote Control service is broken.
+pub const RC_STOPPED: &str = "Remote Control stopped";
 
 /// A write this recent means the chat works, in seconds.
 const RECENT_WRITE: u64 = 60;
@@ -88,14 +93,25 @@ pub fn encode(path: &str) -> String {
 pub struct Running<'a> {
     pub rc: &'a [String],
     pub procs: &'a [String],
+    pub rc_failed: &'a [String],
+}
+
+/// Whether a transcript folder belongs to one of these unit folders.
+fn unit_of(folders: &[String], dir: &str) -> bool {
+    folders
+        .iter()
+        .any(|folder| dir.ends_with(&format!("-projects-{}", encode(folder))))
 }
 
 impl Running<'_> {
     /// The Remote Control unit of this transcript folder, if one runs.
     pub fn rc_of(&self, dir: &str) -> bool {
-        self.rc
-            .iter()
-            .any(|folder| dir.ends_with(&format!("-projects-{}", encode(folder))))
+        unit_of(self.rc, dir)
+    }
+
+    /// Its Remote Control unit failed or keeps restarting.
+    pub fn rc_failed_of(&self, dir: &str) -> bool {
+        unit_of(self.rc_failed, dir)
     }
 
     fn proc_in(&self, dir: &str, cwd: Option<&str>) -> bool {
@@ -130,7 +146,10 @@ pub fn chat(
     let written = now.saturating_sub(quiet_ms);
     let turn = &parsed.turn;
     let open_tool = turn.end == End::ToolCalled;
-    let mark = if !alive {
+    let rc_failed = running.rc_failed_of(&raw.dir);
+    let mark = if rc_failed {
+        Mark::Failed
+    } else if !alive {
         Mark::Stopped
     } else if turn.question.is_some() {
         Mark::AsksYou
@@ -159,7 +178,11 @@ pub fn chat(
         since: Some(written),
         jobs: 0,
         window: None,
-        text: line_text(mark, Some(turn)),
+        text: if rc_failed {
+            Some(RC_STOPPED.to_string())
+        } else {
+            line_text(mark, Some(turn))
+        },
         full: full_text(mark, Some(turn)),
     }
 }

@@ -211,7 +211,9 @@ this off: nothing is read and no server group shows.
   minute, **Idle** after that, **Stopped** when neither a Remote Control
   unit nor a `claude` process runs in its folder. **Needs approval** cannot
   be seen on a server (on the PC a hook says it, and nothing is installed
-  on the servers), so such a chat shows **Working**.
+  on the servers), so such a chat shows **Working**. A chat whose Remote
+  Control service failed or keeps restarting shows **Failed** (red) with
+  "Remote Control stopped".
 
 How it reads: while the ClaudeDeck window is open, and only then, one
 `ssh <name> sh -s` call per server every 30 s (the first at once), with

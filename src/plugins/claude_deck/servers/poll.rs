@@ -109,6 +109,7 @@ pub fn take_reply(
     let running = Running {
         rc: &reply.rc,
         procs: &reply.procs,
+        rc_failed: &reply.rc_failed,
     };
     let mut listed = HashSet::new();
     let mut chats = Vec::new();

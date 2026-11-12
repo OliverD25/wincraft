@@ -25,6 +25,8 @@ pub struct Reply {
     pub mem: Option<(u64, u64)>,
     /// The folders of the running Remote Control units.
     pub rc: Vec<String>,
+    /// The folders of Remote Control units that failed or keep restarting.
+    pub rc_failed: Vec<String>,
     /// The folders `claude` processes run in.
     pub procs: Vec<String>,
     pub chats: Vec<RawChat>,
@@ -79,6 +81,7 @@ pub fn parse(text: &str) -> Option<Reply> {
                 }
             }
             "RC" if !rest.trim().is_empty() => reply.rc.push(rest.trim().to_string()),
+            "RCFAIL" if !rest.trim().is_empty() => reply.rc_failed.push(rest.trim().to_string()),
             "PROC" if !rest.trim().is_empty() => reply.procs.push(rest.trim().to_string()),
             "CHAT" => open = raw_chat(rest).map(|chat| (chat, String::new())),
             "SAME" => reply.chats.extend(raw_chat(rest)),

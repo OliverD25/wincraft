@@ -199,6 +199,7 @@ fn status_of(lines: &[String], rc: &[&str], procs: &[&str], quiet_s: u64) -> Cha
     let running = Running {
         rc: &rc,
         procs: &procs,
+        rc_failed: &[],
     };
     status::chat(
         "rdehome2",
@@ -604,4 +605,41 @@ fn an_unchanged_transcript_is_not_sent_again_and_a_failed_call_keeps_the_chats()
     assert!(!host.online);
     assert_eq!(host.last_seen, Some(NOW));
     assert_eq!(host.chats.len(), 2);
+}
+
+// Extra 1: a broken Remote Control service shows red.
+
+#[test]
+fn a_failed_remote_control_unit_makes_its_chat_failed() {
+    let text =
+        format!("NOW {NOW_S}\nRC verdict-ai\nRCFAIL unicomos-dev\nRCFAIL\nSAME x y 1 2\nDONE\n");
+    let reply = reply::parse(&text).expect("a reply");
+    assert_eq!(reply.rc_failed, vec!["unicomos-dev"]);
+    let parsed = status::parse_tail(&tail(&[said("Done.")]), true);
+    let failed = vec!["unicomos-dev".to_string()];
+    let running = Running {
+        rc: &[],
+        procs: &[],
+        rc_failed: &failed,
+    };
+    let chat = status::chat(
+        "rdehome2",
+        &raw("-home-rde-projects-unicomos-dev", 600),
+        &parsed,
+        &running,
+        NOW,
+        NOW,
+    );
+    assert_eq!(chat.mark, Mark::Failed);
+    assert_eq!(chat.text.as_deref(), Some(status::RC_STOPPED));
+    let other = status::chat(
+        "rdehome2",
+        &raw("-home-rde-projects-verdict-ai", 600),
+        &parsed,
+        &running,
+        NOW,
+        NOW,
+    );
+    assert_eq!(other.mark, Mark::Stopped, "another unit is not touched");
+    assert!(probe::script(&[]).contains("RCFAIL"));
 }

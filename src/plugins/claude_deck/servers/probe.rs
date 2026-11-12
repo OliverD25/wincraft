@@ -25,7 +25,8 @@ pub const KILL_AFTER: Duration = Duration::from_secs(20);
 /// The newest transcript that is not empty is taken: the app often
 /// leaves an empty one newest (seen on a server, 2026-11-12). Unit names
 /// are used as they are; unescaping them turned `-` into `/`.
-/// Lines it prints: `NOW`, `CPU`, `MEM`, `RC`, `PROC`, then per transcript
+/// Lines it prints: `NOW`, `CPU`, `MEM`, `RC`, `RCFAIL` (a Remote Control
+/// unit that failed or keeps restarting), `PROC`, then per transcript
 /// `CHAT dir file mtime size` with the base64 of its end and `END`, or
 /// `SAME dir file mtime size` when it has not changed since the last call;
 /// `DONE` last.
@@ -45,6 +46,11 @@ rc=
 for u in $(systemctl --user list-units --state=active --no-legend --plain 'claude-rc@*' 2>/dev/null | cut -d' ' -f1); do
   f=${u#claude-rc@}; f=${f%.service}
   echo "RC $f"
+  rc="$rc $(printf '%s' "$f" | sed 's/[^A-Za-z0-9]/-/g')"
+done
+for u in $(systemctl --user list-units --all --no-legend --plain 'claude-rc@*' 2>/dev/null | awk '$3 == "failed" || ($3 == "activating" && $4 == "auto-restart") { print $1 }'); do
+  f=${u#claude-rc@}; f=${f%.service}
+  echo "RCFAIL $f"
   rc="$rc $(printf '%s' "$f" | sed 's/[^A-Za-z0-9]/-/g')"
 done
 for p in $(pgrep -x claude 2>/dev/null); do d=$(readlink "/proc/$p/cwd" 2>/dev/null) && echo "PROC $d"; done
