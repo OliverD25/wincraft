@@ -381,6 +381,11 @@ impl WindowNamer {
                 return;
             }
         };
+        // The rename box starts with the window's own title. Enter on it
+        // unchanged gives no name: the title would stop following the app.
+        if name == clean_name(&target.app_title) {
+            return;
+        }
         if let Err(err) = self.start(hwnd, target.pid, &name, &target.app_title) {
             log::warn!(
                 "could not name \"{}\" \"{name}\": {}",
@@ -442,7 +447,11 @@ impl WindowNamer {
             chip: "Rename".to_string(),
             placeholder: format!("Name for \u{201c}{app_title}\u{201d}"),
             empty_action: names.as_ref().map(|_| "Clear the name".to_string()),
-            text: names.map(|names| names.custom).unwrap_or_default(),
+            // The box starts with the name the window has now, so one letter
+            // can be changed without typing the rest again.
+            text: names
+                .map(|names| names.custom)
+                .unwrap_or_else(|| app_title.clone()),
             action: "Rename to".to_string(),
             subtitle: if program.is_empty() {
                 app_title
