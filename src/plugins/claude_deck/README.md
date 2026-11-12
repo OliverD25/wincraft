@@ -196,7 +196,9 @@ this off: nothing is read and no server group shows.
   without a leading `rde`, a green dot when it answers, and CPU, RAM and the
   number of chats. A server that does not answer shows "Offline · last seen
   3 h ago" and keeps its chats as last known, drawn see-through. Rest the
-  mouse on the server's line for details and the PC chats that wait on it.
+  mouse on the server's line for details, its health ("Up 12 days ·
+  Restart needed", "Disk 120 GB free of 512 GB", "Busiest: dockerd 85%")
+  and the PC chats that wait on it.
 - Its chats are the Remote Control chats (`claude-rc@<folder>` units) and
   every other chat whose transcript changed in the last 24 hours. Click one
   to open Windows Terminal with ssh in its folder; right-click for **Open a
@@ -218,8 +220,9 @@ this off: nothing is read and no server group shows.
 How it reads: while the ClaudeDeck window is open, and only then, one
 `ssh <name> sh -s` call per server every 30 s (the first at once), with
 Windows' own ssh, `BatchMode=yes` (never a password prompt), a 6 s connect
-time, and a stop after 20 s. The script it sends only reads: the clock, CPU
-and memory from `/proc`, the running Remote Control units, the folders of
+time, and a stop after 20 s. The script it sends only reads: the clock, CPU,
+memory and uptime from `/proc`, whether a restart is needed, the free disk
+of `/`, the busiest process, the running Remote Control units, the folders of
 running `claude` processes, and the last 64 KB of each recent transcript
 under `~/.claude/projects` (a transcript that did not change is not sent
 again). Nothing is installed, written or changed on a server.

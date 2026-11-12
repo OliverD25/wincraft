@@ -25,7 +25,9 @@ pub const KILL_AFTER: Duration = Duration::from_secs(20);
 /// The newest transcript that is not empty is taken: the app often
 /// leaves an empty one newest (seen on a server, 2026-11-12). Unit names
 /// are used as they are; unescaping them turned `-` into `/`.
-/// Lines it prints: `NOW`, `CPU`, `MEM`, `RC`, `RCFAIL` (a Remote Control
+/// Lines it prints: `NOW`, `CPU`, `MEM`, `UP` (seconds), `REBOOT` (a
+/// restart is needed), `DISK` (free and total kB of `/`), `TOP` (the
+/// busiest process: its CPU % and name), `RC`, `RCFAIL` (a Remote Control
 /// unit that failed or keeps restarting), `PROC`, then per transcript
 /// `CHAT dir file mtime size` with the base64 of its end and `END`, or
 /// `SAME dir file mtime size` when it has not changed since the last call;
@@ -42,6 +44,10 @@ dt=$((t2 - t1)); di=$((i2 - i1))
 mt=; ma=
 while read -r k v _; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esac; done < /proc/meminfo
 [ -n "$mt" ] && [ -n "$ma" ] && echo "MEM $mt $ma"
+read -r up _ < /proc/uptime && echo "UP ${up%.*}"
+[ -e /var/run/reboot-required ] && echo "REBOOT 1"
+df -Pk / 2>/dev/null | awk 'NR == 2 { print "DISK", $4, $2 }'
+ps -eo pcpu=,comm= --sort=-pcpu 2>/dev/null | awk 'NR == 1 { printf "TOP %d %s\n", $1, $2 }'
 rc=
 for u in $(systemctl --user list-units --state=active --no-legend --plain 'claude-rc@*' 2>/dev/null | cut -d' ' -f1); do
   f=${u#claude-rc@}; f=${f%.service}

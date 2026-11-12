@@ -169,6 +169,30 @@ fn chats_sentence(chats: &[Chat]) -> String {
     }
 }
 
+/// The server's health, for its hover panel: "Up 12 days · Restart
+/// needed", "Disk 120 GB free of 512 GB", "Busiest: dockerd 85%".
+pub fn health_lines(health: &super::reply::Health) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut first = Vec::new();
+    if let Some(up) = health.up {
+        first.push(format!("Up {}", duration_text(up * 1000)));
+    }
+    if health.reboot {
+        first.push("Restart needed".to_string());
+    }
+    if !first.is_empty() {
+        lines.push(first.join(" \u{b7} "));
+    }
+    if let Some((free, total)) = health.disk {
+        let gb = |kb: u64| (kb as f64 / 1024.0 / 1024.0).round() as u64;
+        lines.push(format!("Disk {} GB free of {} GB", gb(free), gb(total)));
+    }
+    if let Some((cpu, name)) = &health.top {
+        lines.push(format!("Busiest: {name} {cpu}%"));
+    }
+    lines
+}
+
 /// The hover panel of a server's line.
 pub fn hover_text(server: &str, view: &HostView, waits: &[Wait], now: u64) -> String {
     let name = group_name(server);
@@ -199,6 +223,9 @@ pub fn hover_text(server: &str, view: &HostView, waits: &[Wait], now: u64) -> St
                 ));
             }
         }
+    }
+    if view.online {
+        lines.extend(health_lines(&view.health));
     }
     let mine: Vec<&Wait> = waits.iter().filter(|wait| wait.server == server).collect();
     if !mine.is_empty() {

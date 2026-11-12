@@ -359,6 +359,7 @@ fn view_of(chats: Vec<Chat>, online: bool) -> HostView {
         ram: Some(61),
         mem: Some((16_000_000, 6_240_000)),
         chats,
+        health: reply::Health::default(),
     }
 }
 
@@ -642,4 +643,33 @@ fn a_failed_remote_control_unit_makes_its_chat_failed() {
     );
     assert_eq!(other.mark, Mark::Stopped, "another unit is not touched");
     assert!(probe::script(&[]).contains("RCFAIL"));
+}
+
+// Extra 4: the server's health in the hover panel.
+
+#[test]
+fn the_servers_health_is_read_and_shown() {
+    let text = format!(
+        "NOW {NOW_S}\nUP 1036800\nREBOOT 1\nDISK 125829120 536870912\nTOP 85 dockerd\nDONE\n"
+    );
+    let reply = reply::parse(&text).expect("a reply");
+    assert_eq!(reply.health.up, Some(1_036_800));
+    assert!(reply.health.reboot);
+    let lines = view::health_lines(&reply.health);
+    assert_eq!(
+        lines,
+        vec![
+            "Up 12 days \u{b7} Restart needed",
+            "Disk 120 GB free of 512 GB",
+            "Busiest: dockerd 85%",
+        ]
+    );
+    let broken = format!("NOW {NOW_S}\nUP x\nDISK 9 1\nTOP a b\nREBOOT 0\nDONE\n");
+    let reply = reply::parse(&broken).expect("a reply");
+    assert_eq!(reply.health, reply::Health::default());
+    assert!(view::health_lines(&reply.health).is_empty());
+    let mut host = view_of(Vec::new(), true);
+    host.health = reply::parse(&text).expect("a reply").health;
+    let words = view::hover_text("rdehome2", &host, &[], NOW);
+    assert!(words.contains("Busiest: dockerd 85%"), "{words}");
 }

@@ -30,6 +30,20 @@ pub struct Reply {
     /// The folders `claude` processes run in.
     pub procs: Vec<String>,
     pub chats: Vec<RawChat>,
+    pub health: Health,
+}
+
+/// How the server itself is, for the hover panel.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Health {
+    /// Seconds since it started.
+    pub up: Option<u64>,
+    /// `/var/run/reboot-required` exists.
+    pub reboot: bool,
+    /// Free and total kB of `/`.
+    pub disk: Option<(u64, u64)>,
+    /// The busiest process: its CPU % and command name.
+    pub top: Option<(u32, String)>,
 }
 
 impl Reply {
@@ -85,6 +99,23 @@ pub fn parse(text: &str) -> Option<Reply> {
             "PROC" if !rest.trim().is_empty() => reply.procs.push(rest.trim().to_string()),
             "CHAT" => open = raw_chat(rest).map(|chat| (chat, String::new())),
             "SAME" => reply.chats.extend(raw_chat(rest)),
+            "UP" => reply.health.up = rest.trim().parse().ok(),
+            "REBOOT" => reply.health.reboot = rest.trim() == "1",
+            "DISK" => {
+                let mut parts = rest.split_whitespace().map(str::parse::<u64>);
+                if let (Some(Ok(free)), Some(Ok(total))) = (parts.next(), parts.next()) {
+                    reply.health.disk = (free <= total).then_some((free, total));
+                }
+            }
+            "TOP" => {
+                let mut parts = rest.split_whitespace();
+                if let (Some(Ok(cpu)), Some(name)) =
+                    (parts.next().map(str::parse::<u32>), parts.next())
+                {
+                    let name: String = name.chars().filter(|c| !c.is_control()).take(40).collect();
+                    reply.health.top = Some((cpu, name));
+                }
+            }
             "DONE" => done = true,
             _ => {}
         }

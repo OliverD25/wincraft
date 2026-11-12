@@ -49,6 +49,7 @@ pub struct HostView {
     pub ram: Option<u8>,
     /// MemTotal and MemAvailable, in kB.
     pub mem: Option<(u64, u64)>,
+    pub health: super::reply::Health,
     /// Its chats, as last known; kept while it is offline.
     pub chats: Vec<Chat>,
 }
@@ -106,6 +107,7 @@ pub fn take_reply(
     view.cpu = reply.cpu;
     view.ram = reply.ram();
     view.mem = reply.mem;
+    view.health = reply.health.clone();
     let running = Running {
         rc: &reply.rc,
         procs: &reply.procs,
