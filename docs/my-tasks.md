@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 28. Install 0.20.112: open, archive and rename chats from ClaudeDeck, Minimize, the pinned icon
 
-- **State:** Partly ready: steps 4 to 7 ready to test. Steps 2 and 3 wait: on 2026-11-12 you found that the first click does nothing in the chat view (step 2) and that Rename the chat… renames nothing (step 3); the fixes are being built.
+- **State:** Partly ready: steps 4, 6 and 7 ready to test. Steps 2, 3 and 5 wait: on 2026-11-12 you found that the first click does nothing in the chat view (step 2), and that Rename the chat… and Archive the chat do nothing (steps 3 and 5); the fixes are being built.
 - **Kind:** test · **Added:** 2026-11-12 (PC)
 - **Why:** WinCraft now works the Claude app's own chat list and chat menu through Windows accessibility, which tests cannot reach. The 0.20.111 open did not work for you; this version fixes it.
 - **Known, do not report:** a chat in a folded section of the Claude list may still not be found; WinCraft then says so in a tray message.
