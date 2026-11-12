@@ -19,6 +19,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use crate::core::claude_turns::Turn;
+use crate::plugins::claude_deck::window::Pick;
 
 pub use aliases::{group_name, parse_servers, Aliases};
 pub use poll::{HostView, Poller, Runner};
@@ -93,6 +94,26 @@ pub fn wait_full(command: &str) -> String {
     )
 }
 
+/// What Enter and Ctrl+C act on for a server line or a server chat.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Target {
+    pub server: String,
+    /// The chat's folder; None for a server line (the home folder).
+    pub folder: Option<String>,
+    /// What Ctrl+C copies: the chat's name, or the server's.
+    pub title: String,
+}
+
+/// The pick of a server line, apart from the user's group ids.
+pub fn server_pick(server: &str) -> Pick {
+    Pick::Group(format!("server:{server}"))
+}
+
+/// Opens a terminal on a server, in a folder or in the home folder.
+pub fn open_terminal(server: &str, folder: Option<&str>) {
+    terminal::open(server, folder);
+}
+
 /// The servers part of the window's state: the poller while it runs, the
 /// names ssh knows the servers by, and the parts the user unfolded.
 #[derive(Default)]
@@ -108,6 +129,9 @@ pub struct Deck {
     pub hidden_open: BTreeSet<String>,
     /// The PC chats that wait on a server now.
     pub waits: Vec<Wait>,
+    /// The server lines and rows the arrow keys reach, top to bottom, as
+    /// drawn last.
+    pub keyed: Vec<(Pick, Target)>,
 }
 
 impl Deck {
@@ -139,6 +163,14 @@ impl Deck {
                 self.poller = Some(Poller::start(servers, runner, wake));
             }
         }
+    }
+
+    /// What a pick of a server line or row acts on.
+    pub fn target(&self, pick: &Pick) -> Option<&Target> {
+        self.keyed
+            .iter()
+            .find(|(keyed, _)| keyed == pick)
+            .map(|(_, target)| target)
     }
 
     pub fn aliases(&self) -> &Aliases {

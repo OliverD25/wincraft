@@ -42,6 +42,10 @@ pub fn ssh_args(host: &str, cwd: Option<&str>) -> Vec<String> {
 
 /// Opens the terminal. A test copy of WinCraft opens nothing.
 pub fn open(host: &str, cwd: Option<&str>) {
+    // Unit tests never start ssh.
+    if cfg!(test) {
+        return;
+    }
     if instance::is_test() {
         log::info!("read-only test instance: opening a terminal on {host} skipped");
         return;

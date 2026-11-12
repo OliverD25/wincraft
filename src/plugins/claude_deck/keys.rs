@@ -5,6 +5,8 @@
 //! F2 renames the picked group, Ctrl+C copies the picked chat's name, and
 //! the Menu key or Shift+F10 opens its menu. Ctrl+M switches mini mode, and
 //! Esc gives the keyboard back to the window that had it before the hotkey.
+//! The arrow keys also reach the server lines and rows after the PC chats;
+//! Enter on one opens a terminal there.
 
 use egui::{Key, Ui};
 use windows_sys::Win32::Foundation::HWND;
@@ -17,6 +19,7 @@ use super::edit;
 use super::list::start_rename;
 use super::model::{Fold, Line};
 use super::select::DIGITS;
+use super::servers;
 use super::window::{bring_forward, rename_window, DeckUi, Pick};
 
 /// The keys pressed this frame that the list acts on.
@@ -135,12 +138,20 @@ pub fn keys(
         give_back: pressed.esc,
         mini: pressed.mini,
     };
-    let picks = picks(lines);
+    let mut picks = picks(lines);
+    picks.extend(state.servers.keyed.iter().map(|(pick, _)| pick.clone()));
     if pressed.picks() {
         state.keyboard = true;
     }
     if pressed.alt && (pressed.up || pressed.down) {
-        move_picked(lines, state, pressed.up);
+        // Server lines and rows keep the server's order.
+        let on_server = state
+            .selected
+            .as_ref()
+            .is_some_and(|pick| state.servers.target(pick).is_some());
+        if !on_server {
+            move_picked(lines, state, pressed.up);
+        }
         return asked;
     }
     let next = if pressed.up || pressed.down {
@@ -168,6 +179,16 @@ pub fn keys(
     if pressed.menu {
         state.menu_for = Some(picked.clone());
         state.scroll_to_selected = true;
+    }
+    if let Some(target) = state.servers.target(&picked).cloned() {
+        // Enter opens a terminal there; Ctrl+C copies the name.
+        if pressed.enter {
+            servers::open_terminal(&target.server, target.folder.as_deref());
+        }
+        if pressed.copy {
+            let _ = clipboard::put_text(state.window as HWND, &target.title);
+        }
+        return asked;
     }
     match picked {
         Pick::Group(id) => {

@@ -16,7 +16,7 @@ use crate::plugins::claude_deck::hover;
 use crate::plugins::claude_deck::menu::{COPY, HIDE, PIN, SHOW, UNPIN};
 use crate::plugins::claude_deck::model::{ChatLine, ColdLine, Fold, HiddenLine, Line};
 use crate::plugins::claude_deck::rows::{self, Look, GROUP, GROUP_GAP, ROW, ROW_TWO};
-use crate::plugins::claude_deck::window::DeckUi;
+use crate::plugins::claude_deck::window::{DeckUi, Pick};
 use crate::ui::widgets::text;
 
 use super::view::{self, ServerLine, Shape};
@@ -59,6 +59,7 @@ pub fn lines_of(state: &DeckUi, look: &Look) -> (Vec<(String, super::HostView)>,
 
 /// Draws the server groups below what the list drew so far.
 pub fn section(ui: &mut Ui, look: &Look, state: &mut DeckUi) {
+    state.servers.keyed.clear();
     if !state.servers.is_on() {
         return;
     }
@@ -84,8 +85,22 @@ pub fn section(ui: &mut Ui, look: &Look, state: &mut DeckUi) {
         match line {
             ServerLine::Server(index) => {
                 let (server, host) = &views[*index];
+                let pick = super::server_pick(server);
+                let selected = state.selected.as_ref() == Some(&pick);
+                state.servers.keyed.push((
+                    pick,
+                    super::Target {
+                        server: server.clone(),
+                        folder: None,
+                        title: server.clone(),
+                    },
+                ));
+                if selected && std::mem::take(&mut state.scroll_to_selected) {
+                    ui.scroll_to_rect(rect, None);
+                }
                 let response = ui.interact(rect, id, Sense::hover());
-                server_line(&painter, rect, server, host, look, response.hovered());
+                let looks = (response.hovered(), selected);
+                server_line(&painter, rect, server, host, look, looks);
                 let words = view::hover_text(server, host, &state.servers.waits, look.now);
                 response.on_hover_ui(|ui| server_hover(ui, host, &words));
             }
@@ -111,15 +126,31 @@ pub fn section(ui: &mut Ui, look: &Look, state: &mut DeckUi) {
                 if *greyed {
                     row_painter.multiply_opacity(OFFLINE_OPACITY);
                 }
+                let pick = Pick::Chat(chat.id.clone());
+                let selected = state.selected.as_ref() == Some(&pick);
+                state.servers.keyed.push((
+                    pick.clone(),
+                    super::Target {
+                        server: server.clone(),
+                        folder: chat.folder.clone(),
+                        title: chat.title.clone(),
+                    },
+                ));
+                if selected && std::mem::take(&mut state.scroll_to_selected) {
+                    ui.scroll_to_rect(rect, None);
+                }
                 rows::chat(
                     &row_painter,
                     rect,
                     &row,
                     look,
                     response.hovered(),
-                    false,
+                    selected,
                     None,
                 );
+                if response.clicked() {
+                    state.selected = Some(pick);
+                }
                 if response.clicked() {
                     terminal::open(server, chat.folder.as_deref());
                 }
@@ -272,10 +303,18 @@ fn server_line(
     server: &str,
     host: &super::HostView,
     look: &Look,
-    hovered: bool,
+    (hovered, selected): (bool, bool),
 ) {
     let tokens = look.tokens;
-    if hovered {
+    if selected {
+        painter.rect_filled(rect, 0.0, tokens.selection_bg);
+        painter.rect_stroke(
+            rect,
+            0.0,
+            egui::Stroke::new(1.0, tokens.accent),
+            egui::StrokeKind::Inside,
+        );
+    } else if hovered {
         painter.rect_filled(rect, 0.0, tokens.hover_bg);
     }
     let middle = rect.center().y;

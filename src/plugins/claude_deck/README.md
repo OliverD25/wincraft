@@ -90,6 +90,12 @@ How WinCraft tells each status:
 - `Ctrl+M` switches mini mode. The hotkey command **ClaudeDeck mini mode**
   does the same from anywhere; it has no keys until you set some in
   Settings → Hotkeys.
+- The arrow keys go on from the PC chats to the server lines and server
+  chats. `Enter` on a server line opens a terminal in the server's home
+  folder; on a server chat, in its folder. `Ctrl+C` copies the name.
+- The palette command **ClaudeDeck: Open a terminal on a server** lists
+  your servers ("ClaudeDeck: Open a terminal on home2"); `Enter` opens a
+  terminal there, in the home folder.
 - `Alt+Up` and `Alt+Down` move the picked chat or group, `F2` renames the
   picked group, `Ctrl+C` copies the picked chat's name, `F2` on a picked chat opens the rename box for its window (WindowNamer keeps the name, and ClaudeDeck shows it), and the Menu key or
   `Shift+F10` opens its menu.

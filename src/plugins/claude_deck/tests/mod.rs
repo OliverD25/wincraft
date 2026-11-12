@@ -114,4 +114,5 @@ mod list;
 mod modes;
 mod plugin;
 mod screen;
+mod servers_keys;
 mod store;

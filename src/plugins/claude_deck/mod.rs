@@ -41,15 +41,18 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD
 use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
 use crate::core::traits::{
-    FieldKind, HostContext, Hotkey, HotkeyAction, PluginMetadata, PluginWindow, SettingField,
-    TrayAction, WinCraftPlugin,
+    FieldKind, HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata, PluginWindow,
+    SettingField, TrayAction, WinCraftPlugin,
 };
 use crate::core::ui_bridge::ArrangeAction;
+use crate::core::ui_bridge::{ActionKind, ListRow, SubList};
 use crate::core::{claude_windows, host, instance, window_actions};
 
 const ID: &str = "claude_deck";
 const ACTION_OPEN: u32 = 1;
 const ACTION_MINI: u32 = 2;
+/// The palette command that lists the servers to open a terminal on.
+const COMMAND_TERMINAL: u32 = 1;
 /// The `host::post_to_plugins` id the window sends when the tray count
 /// changed.
 pub(crate) const TRAY_POST_ID: usize = 0xC1A0_DEC0;
@@ -218,10 +221,40 @@ impl ClaudeDeck {
         }
     }
 
+    fn servers(&self) -> Vec<String> {
+        self.shared
+            .lock()
+            .map(|shared| shared.settings.servers.clone())
+            .unwrap_or_default()
+    }
+
     fn apply(&mut self, settings: &Value) {
         if let Ok(mut shared) = self.shared.lock() {
             shared.settings = Settings::read(settings);
         }
+    }
+}
+
+const TERMINAL_COMMAND: &str = "ClaudeDeck: Open a terminal on a server";
+
+/// The palette's rows for "Open a terminal on a server": one per listed
+/// server, "ClaudeDeck: Open a terminal on home2".
+fn terminal_list(servers: &[String]) -> SubList {
+    SubList {
+        title: "Open a terminal on".to_string(),
+        rows: servers
+            .iter()
+            .map(|server| ListRow {
+                id: server.clone(),
+                title: format!(
+                    "ClaudeDeck: Open a terminal on {}",
+                    servers::group_name(server)
+                ),
+                detail: format!("ssh {server}, in the home folder"),
+                ..ListRow::default()
+            })
+            .collect(),
+        empty: "No servers. List them in ClaudeDeck's settings, under Homelab.".to_string(),
     }
 }
 
@@ -433,6 +466,30 @@ impl WinCraftPlugin for ClaudeDeck {
     fn on_tray_action(&mut self, action_id: u32) {
         if action_id == ACTION_OPEN {
             self.open();
+        }
+    }
+
+    fn palette_commands(&self) -> Vec<PaletteCommand> {
+        vec![PaletteCommand {
+            id: COMMAND_TERMINAL,
+            label: TERMINAL_COMMAND,
+            hint: "",
+            words: "ssh server homelab shell",
+            confirm: "",
+            list: true,
+            toggle: None,
+        }]
+    }
+
+    fn command_list(&mut self, kind: ActionKind, action_id: u32) -> Option<SubList> {
+        (kind == ActionKind::Palette && action_id == COMMAND_TERMINAL)
+            .then(|| terminal_list(&self.servers()))
+    }
+
+    fn on_list_pick(&mut self, kind: ActionKind, action_id: u32, row: &str) {
+        let listed = self.servers().iter().any(|server| server == row);
+        if kind == ActionKind::Palette && action_id == COMMAND_TERMINAL && listed {
+            servers::open_terminal(row, None);
         }
     }
 
