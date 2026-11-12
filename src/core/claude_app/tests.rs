@@ -164,3 +164,56 @@ fn unit_tests_start_nothing() {
     });
     assert!(receiver.recv_timeout(Duration::from_millis(100)).is_err());
 }
+
+#[test]
+fn the_archive_and_rename_notices_name_claudedeck_and_the_chat() {
+    use super::menu::{archive_failed_notice, archived_notice, rename_failed_notice};
+    assert_eq!(
+        archived_notice("My chat"),
+        "ClaudeDeck archived \"My chat\". Find it under Archived in the Claude app."
+    );
+    assert_eq!(
+        archive_failed_notice("My chat"),
+        "ClaudeDeck could not archive \"My chat\". Archive it in the Claude app."
+    );
+    assert_eq!(
+        rename_failed_notice("My chat"),
+        "ClaudeDeck could not rename \"My chat\". Rename it in the Claude app."
+    );
+}
+
+#[test]
+fn only_archive_and_rename_have_a_fallback_letter_and_never_delete() {
+    use super::keys::{menu_letter, KEY_A, KEY_R};
+    assert_eq!(menu_letter("Archive"), Some(KEY_A));
+    assert_eq!(menu_letter("Rename"), Some(KEY_R));
+    assert_eq!(menu_letter("Delete"), None);
+    assert_eq!(menu_letter("Pin"), None);
+}
+
+#[test]
+fn a_chord_goes_down_in_order_and_up_in_reverse() {
+    use super::keys::{chord_inputs, F10, SHIFT};
+    let inputs = chord_inputs(&[SHIFT, F10]);
+    let keys: Vec<(u16, bool)> = inputs
+        .iter()
+        .map(|input| unsafe { (input.Anonymous.ki.wVk, input.Anonymous.ki.dwFlags != 0) })
+        .collect();
+    assert_eq!(
+        keys,
+        [(SHIFT, false), (F10, false), (F10, true), (SHIFT, true)]
+    );
+}
+
+#[test]
+fn archiving_and_renaming_start_nothing_in_unit_tests() {
+    let (sender, receiver) = std::sync::mpsc::channel::<String>();
+    let again = sender.clone();
+    archive_chat("Any chat", move |text| {
+        let _ = sender.send(text);
+    });
+    rename_chat("Any chat", "New", move |text| {
+        let _ = again.send(text);
+    });
+    assert!(receiver.recv_timeout(Duration::from_millis(100)).is_err());
+}

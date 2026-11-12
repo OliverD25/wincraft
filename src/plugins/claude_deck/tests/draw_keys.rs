@@ -311,19 +311,23 @@ fn mini_mode_paints_a_folded_group_as_one_mark() {
 }
 
 #[test]
-fn f2_on_a_chat_with_a_window_opens_the_rename_box_for_that_window() {
+fn f2_on_a_chat_asks_to_rename_the_chat_in_the_app() {
     let mut deck = deck();
     deck.settle();
     deck.state.selected = Some(Pick::Chat("b1".into()));
     deck.requests();
     deck.key(Key::F2);
     let sent = deck.requests();
-    assert!(sent.iter().any(|r| matches!(
+    assert!(!sent.iter().any(|r| matches!(
         r,
         HostRequest::Arrange {
-            action: ArrangeAction::AskName(1234),
+            action: ArrangeAction::AskName(_),
             ..
         }
     )));
+    let (title, window) = crate::plugins::claude_deck::open_app::pending_rename()
+        .expect("a rename waits for the host thread");
+    assert!(!title.is_empty());
+    assert_eq!(window, Some(1234));
     assert!(deck.state.renaming.is_none(), "no group rename starts");
 }

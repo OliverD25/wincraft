@@ -255,8 +255,6 @@ pub(crate) fn poll<R>(
 
 /// A chat's button in the home window.
 pub(crate) struct Chat {
-    pub window: HWND,
-    pub root: com::ComPtr,
     pub button: com::ComPtr,
     pub matches: usize,
     /// The "Show sidebar" button, when the list had to be opened for this.
@@ -284,8 +282,6 @@ pub(crate) fn find_chat(
             brought = true;
             if let Some(found) = find_button(&tree, &root, title) {
                 return Ok(Some(Chat {
-                    window,
-                    root,
                     button: found.node,
                     matches: found.matches,
                     opened: None,
@@ -303,8 +299,6 @@ pub(crate) fn find_chat(
                     find_button(&tree, &root, title)
                 });
                 return Ok(found.map(|found| Chat {
-                    window,
-                    root,
                     button: found.node,
                     matches: found.matches,
                     opened: Some(show.node),
@@ -329,7 +323,7 @@ pub(crate) fn find_chat(
 }
 
 /// Does the work on a COM thread. `dry`: a test copy only reads.
-fn run(title: &str, dry: bool) -> Result<(), String> {
+fn run(title: &str, dry: bool) -> Result<Option<String>, String> {
     let missing = || not_found_notice(title);
     let automation = Automation::new().map_err(|reason| {
         log::warn!("ClaudeDeck: opening \"{title}\" in the Claude app: {reason}");
@@ -349,33 +343,33 @@ fn run(title: &str, dry: bool) -> Result<(), String> {
     }
     if dry {
         log::info!("read-only test instance: pressing \"{title}\" in the Claude app skipped");
-        return Ok(());
+        return Ok(None);
     }
     // The list stays as the app leaves it after the click.
-    uia::invoke(&chat.button).map_err(|reason| {
+    uia::invoke(&chat.button).map(|()| None).map_err(|reason| {
         log::warn!("ClaudeDeck: could not press \"{title}\": {reason}");
         missing()
     })
 }
 
-/// Runs `work` on a thread of its own that started COM; `failed` gets a
-/// notice text when `work` gives one.
+/// Runs `work` on a thread of its own that started COM; `say` gets the
+/// notice text that `work` gives, as a result or as a failure.
 pub(crate) fn on_com_thread(
     title: String,
-    failed: impl FnOnce(String) + Send + 'static,
-    work: impl FnOnce(&str) -> Result<(), String> + Send + 'static,
+    say: impl FnOnce(String) + Send + 'static,
+    work: impl FnOnce(&str) -> Result<Option<String>, String> + Send + 'static,
 ) {
     std::thread::spawn(move || {
         let hr = unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32) };
         if hr < 0 {
             log::warn!("ClaudeDeck: COM did not start ({})", com::hex(hr));
-            failed(not_found_notice(&title));
+            say(not_found_notice(&title));
             return;
         }
         let outcome = work(&title);
         unsafe { CoUninitialize() };
-        if let Err(text) = outcome {
-            failed(text);
+        if let Some(text) = outcome.unwrap_or_else(Some) {
+            say(text);
         }
     });
 }
@@ -392,6 +386,10 @@ pub fn open_chat(title: &str, failed: impl FnOnce(String) + Send + 'static) {
         run(title, dry)
     });
 }
+
+mod keys;
+mod menu;
+pub use menu::{archive_chat, rename_chat};
 
 #[cfg(test)]
 mod tests;

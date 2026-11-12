@@ -135,22 +135,12 @@ fn the_chat_menu_offers_what_fits_the_row() {
     use Item::*;
     assert_eq!(
         chat_items(&line(0, Fold::Open), true),
-        [
-            Open,
-            Pin,
-            Hide,
-            Copy,
-            RenameWindow,
-            Separator,
-            FoldForks,
-            MoveTo,
-            NewWith
-        ]
+        [Open, Pin, Hide, Copy, RenameChat, Archive, Separator, FoldForks, MoveTo, NewWith]
     );
     // A fork stays under its chat: no pin, no move.
     assert_eq!(
         chat_items(&line(1, Fold::None), true),
-        [Open, Hide, Copy, RenameWindow]
+        [Open, Hide, Copy, RenameChat, Archive]
     );
     let pinned = ChatLine {
         pinned: true,
@@ -163,7 +153,8 @@ fn the_chat_menu_offers_what_fits_the_row() {
             Unpin,
             Hide,
             Copy,
-            RenameWindow,
+            RenameChat,
+            Archive,
             Separator,
             UnfoldForks,
             MoveTo,
@@ -174,7 +165,7 @@ fn the_chat_menu_offers_what_fits_the_row() {
         hidden: true,
         ..line(0, Fold::None)
     };
-    assert_eq!(chat_items(&hidden, false), [Open, Show, Copy, RenameWindow]);
+    assert_eq!(chat_items(&hidden, false), [Open, Show, Copy, RenameChat]);
     let stand_in = ChatLine {
         stand_in: true,
         ..line(0, Fold::Open)
@@ -186,7 +177,7 @@ fn the_chat_menu_offers_what_fits_the_row() {
     // Under the cold line: no pin and no move.
     assert_eq!(
         chat_items(&line(0, Fold::None), false),
-        [Open, Hide, Copy, RenameWindow]
+        [Open, Hide, Copy, RenameChat, Archive]
     );
 }
 
@@ -231,17 +222,7 @@ fn only_a_chat_that_can_be_forked_gets_the_fork_item() {
     forkable.chat.fork = Fork::new(id, Some(r"E:\code\WinCraft"));
     assert_eq!(
         chat_items(&forkable, true),
-        [
-            Open,
-            Pin,
-            Hide,
-            Copy,
-            RenameWindow,
-            Fork,
-            Separator,
-            MoveTo,
-            NewWith
-        ]
+        [Open, Pin, Hide, Copy, RenameChat, Fork, Archive, Separator, MoveTo, NewWith]
     );
     assert!(!chat_items(&line(0, Fold::None), true).contains(&Fork));
     let stand_in = ChatLine {
@@ -255,6 +236,6 @@ fn only_a_chat_that_can_be_forked_gets_the_fork_item() {
     };
     assert_eq!(
         chat_items(&hidden, false),
-        [Open, Show, Copy, RenameWindow, Fork]
+        [Open, Show, Copy, RenameChat, Fork]
     );
 }

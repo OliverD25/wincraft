@@ -277,13 +277,25 @@ Terminal is missing). On a server it uses ssh and adds `--remote-control`,
 so the fork also shows in the Claude app. A Remote Control service with no
 chat yet has nothing to fork.
 
+**Archive and rename in the Claude app.** **Archive the chat** (`Delete`)
+and **Rename the chat…** (`F2`) work through the chat's menu in the Claude
+app: ClaudeDeck focuses the chat's button, presses `Shift+F10`, and presses
+the menu item by its name. Rename first asks for the new name in WinCraft's
+rename box, then types it into the app's name field, so the app and
+ClaudeDeck share one name. ClaudeDeck never writes the app's own files,
+because the app does not notice that. If a step fails, `Esc` closes the
+menu and a notice says the action must be done in the app. A WindowNamer
+name on the chat's window is cleared after a rename, since the app sets the
+window title itself. A test copy only reads.
+
 **Opening a chat with no window of its own.** Such a chat lives only in the
 Claude app's main window, and the app has no link that opens a given chat.
 So ClaudeDeck finds the main window through UI Automation (the same
 Windows service screen readers use), brings it forward and presses the
-chat's button in the app's sidebar list, matched by its exact title. The
-limit: the chat must be visible in that sidebar list, so a folded sidebar
-group hides it. If the button is not found, a notice says so. A test copy
+chat's button in the app's chat list, matched by its exact title. When the
+window is narrow and the app hides the list, ClaudeDeck opens it with the
+app's **Show sidebar** button first. The limit: the chat must be in the
+list, so a folded group of the list hides it. If the button is not found, a notice says so. A test copy
 only reads and presses nothing.
 
 **Forks in a terminal show as rows.** WinCraft names the new chat itself

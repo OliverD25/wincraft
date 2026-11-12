@@ -36,6 +36,7 @@ use super::list;
 use super::mini;
 use super::model::{self, Archived, Chat, Line, Mark, View};
 use super::modes::{fade_step, give_back, keep_min_size, min_size, switch_mode, tell_tray};
+use super::open_app;
 use super::place::{self, Place};
 use super::quick;
 use super::rows::Look;
@@ -480,6 +481,7 @@ fn refresh(state: &mut DeckUi, to_host: &HostChannel) {
     state.chats = chats;
     state.servers.waits = waits;
     forks::add_rows(&mut state.chats, now);
+    open_app::send_pending_clears(to_host);
     servers::busy::warn_pc(&mut state.chats, &state.servers.views());
     state.archived = data::archived(&state.chats);
     if state.written.is_none() {
@@ -607,17 +609,6 @@ pub(super) fn empty(ui: &mut Ui, tokens: &Tokens, filtered: bool) {
 /// Brings a chat's window to the front through the plugin, which checks
 /// that it is a Claude window and that this is not a test copy. A chat
 /// with no window does nothing.
-/// Opens WinCraft's rename box for the chat's window, as **Rename…** does
-/// in WindowDeck. The name is the window's, kept by WindowNamer.
-pub(super) fn rename_window(window: Option<isize>, to_host: &HostChannel) {
-    if let Some(hwnd) = window {
-        to_host.send(HostRequest::Arrange {
-            plugin: ID.to_string(),
-            action: ArrangeAction::AskName(hwnd),
-        });
-    }
-}
-
 pub(super) fn bring_forward(window: Option<isize>, to_host: &HostChannel) {
     if let Some(hwnd) = window {
         to_host.send(HostRequest::Arrange {

@@ -8,7 +8,6 @@ use crate::core::claude_jobs;
 use crate::core::claude_sessions::{self, Session};
 use crate::core::claude_turns::Turn;
 use crate::core::claude_windows::{self, ChatWindow};
-use crate::core::window_names;
 
 use super::model::{self, Archived, Chat, Mark};
 use super::servers::{self, Aliases, Wait};
@@ -30,12 +29,7 @@ pub fn chats(
             let jobs = claude_jobs::running(&session.cli_session_id, now);
             let turn = claude_jobs::turn(&session.cli_session_id);
             let chat = model::chat(session, window, jobs, now);
-            let mut chat =
-                status::refine(chat, session, &seen.evidence(&session.id, turn.as_ref()));
-            // A window the user renamed shows under that name, as in WindowDeck.
-            if let Some(name) = chat.window.and_then(window_names::custom) {
-                chat.title = name;
-            }
+            let chat = status::refine(chat, session, &seen.evidence(&session.id, turn.as_ref()));
             waits_on_server(chat, turn.as_ref(), aliases, &mut waits)
         })
         .collect();

@@ -466,6 +466,9 @@ impl WinCraftPlugin for ClaudeDeck {
         if msg == host::PLUGIN_POST && wparam == open_app::NOTICE_POST_ID {
             open_app::show_pending();
         }
+        if msg == host::PLUGIN_POST && wparam == open_app::RENAME_POST_ID {
+            open_app::ask_pending_rename(ID);
+        }
     }
 
     fn tray_actions(&self) -> Vec<TrayAction> {
@@ -533,6 +536,12 @@ impl WinCraftPlugin for ClaudeDeck {
 
     fn windows(&self) -> Vec<Box<dyn PluginWindow>> {
         vec![Box::new(window::DeckWindow::new(self.shared.clone()))]
+    }
+
+    fn on_prompt_answer(&mut self, prompt_id: u32, target: isize, text: &str) {
+        if prompt_id == open_app::PROMPT_RENAME_CHAT {
+            open_app::rename_answered(target, text);
+        }
     }
 
     fn on_arrange_action(&mut self, action: &ArrangeAction) {
