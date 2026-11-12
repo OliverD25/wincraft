@@ -39,14 +39,52 @@ pub fn window_icon() -> Arc<egui::IconData> {
 /// own takes the window's big icon, which egui does not set.
 pub fn own_button(hwnd: isize) {
     ico::set_window_icons(hwnd, ICON_FILE);
-    if !appid::set_window_id(hwnd as HWND, Some(&app_id())) {
+    let icon = icon_on_disk();
+    let command = relaunch_command();
+    let relaunch = match (&icon, &command) {
+        (Some(icon), Some(command)) => Some(appid::Relaunch {
+            command,
+            name: PIN_NAME,
+            icon,
+        }),
+        _ => None,
+    };
+    let id = app_id();
+    if !appid::set_window_identity(hwnd as HWND, Some((&id, relaunch.as_ref()))) {
         log::warn!("ClaudeDeck: could not give its window a taskbar button of its own");
     }
 }
 
+/// The name of ClaudeDeck's button when it is pinned to the taskbar.
+const PIN_NAME: &str = "ClaudeDeck";
+
+/// A pinned button starts WinCraft and opens ClaudeDeck.
+fn relaunch_command() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    Some(pin_command(&exe.to_string_lossy()))
+}
+
+fn pin_command(exe: &str) -> String {
+    format!("\"{exe}\" --open-claude-deck")
+}
+
+/// A pinned button takes its picture from an icon file, not from the
+/// window, so ClaudeDeck keeps a copy of its icon in WinCraft's data folder.
+fn icon_on_disk() -> Option<String> {
+    let path = crate::core::config::data_dir().join("claudedeck.ico");
+    let same = std::fs::read(&path).is_ok_and(|bytes| bytes == ICON_FILE);
+    if !same {
+        if let Err(err) = std::fs::write(&path, ICON_FILE) {
+            log::warn!("ClaudeDeck: could not save its icon for a pinned button: {err}");
+            return None;
+        }
+    }
+    Some(format!("{},0", path.display()))
+}
+
 /// Takes the ID away before the window closes, as Windows asks.
 pub fn release(hwnd: isize) {
-    appid::set_window_id(hwnd as HWND, None);
+    appid::set_window_identity(hwnd as HWND, None);
 }
 
 #[cfg(test)]
@@ -75,5 +113,14 @@ mod tests {
             instance::with_suffix(APP_ID, "dpitest"),
             "WinCraft.ClaudeDeck.dpitest"
         );
+    }
+
+    #[test]
+    fn a_pinned_button_opens_claudedeck_with_its_own_name() {
+        assert_eq!(
+            pin_command(r"C:\Apps\WinCraft\wincraft.exe"),
+            r#""C:\Apps\WinCraft\wincraft.exe" --open-claude-deck"#
+        );
+        assert_eq!(PIN_NAME, "ClaudeDeck");
     }
 }

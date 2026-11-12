@@ -24,6 +24,25 @@ const PKEY_RELAUNCH_DISPLAY_NAME: PROPERTYKEY = PROPERTYKEY {
     fmtid: APP_USER_MODEL,
     pid: 4,
 };
+const PKEY_RELAUNCH_COMMAND: PROPERTYKEY = PROPERTYKEY {
+    fmtid: APP_USER_MODEL,
+    pid: 2,
+};
+const PKEY_RELAUNCH_ICON: PROPERTYKEY = PROPERTYKEY {
+    fmtid: APP_USER_MODEL,
+    pid: 3,
+};
+
+/// What a pinned taskbar button of a window shows and starts. Without it
+/// Windows pins the program itself, with the program's icon.
+pub struct Relaunch<'a> {
+    /// The command line the pinned button runs.
+    pub command: &'a str,
+    /// The pinned button's name.
+    pub name: &'a str,
+    /// An icon file and index, such as `C:\x\deck.ico,0`.
+    pub icon: &'a str,
+}
 
 #[repr(C)]
 struct IPropertyStoreVtbl {
@@ -76,9 +95,11 @@ pub fn read(hwnd: HWND) -> AppId {
 
 /// Gives one of WinCraft's own windows an explicit AppUserModelID, so
 /// Windows shows it as a taskbar button of its own instead of in WinCraft's
-/// group; None takes it away again, which Windows asks for before the
+/// group. With `Relaunch` it also sets what a pinned button shows and
+/// starts; Windows reads those only together with the ID, so they are set
+/// first. None takes all of it away, which Windows asks for before the
 /// window closes. True when it was set.
-pub fn set_window_id(hwnd: HWND, id: Option<&str>) -> bool {
+pub fn set_window_identity(hwnd: HWND, identity: Option<(&str, Option<&Relaunch>)>) -> bool {
     if hwnd.is_null() || !com::joined_apartment() {
         return false;
     }
@@ -87,22 +108,32 @@ pub fn set_window_id(hwnd: HWND, id: Option<&str>) -> bool {
     let Some(store) = (hr >= 0).then(|| ComPtr::from_raw(raw)).flatten() else {
         return false;
     };
-    // The store copies the text, so it may live on the stack.
-    let text = id.map(wide);
-    let mut value = PROPVARIANT::default();
-    unsafe {
-        let inner = &mut value.Anonymous.Anonymous;
-        match &text {
-            Some(text) => {
-                inner.vt = VT_LPWSTR;
-                inner.Anonymous.pwszVal = text.as_ptr() as *mut u16;
-            }
-            None => inner.vt = VT_EMPTY,
-        }
-    }
     let table = unsafe { store.vtable::<IPropertyStoreVtbl>() };
-    let set = unsafe { (table.set_value)(store.as_raw(), &PKEY_APP_USER_MODEL_ID, &value) };
-    set >= 0 && unsafe { (table.commit)(store.as_raw()) } >= 0
+    let put = |key: &PROPERTYKEY, text: Option<&str>| -> bool {
+        // The store copies the text, so it may live on the stack.
+        let text = text.map(wide);
+        let mut value = PROPVARIANT::default();
+        unsafe {
+            let inner = &mut value.Anonymous.Anonymous;
+            match &text {
+                Some(text) => {
+                    inner.vt = VT_LPWSTR;
+                    inner.Anonymous.pwszVal = text.as_ptr() as *mut u16;
+                }
+                None => inner.vt = VT_EMPTY,
+            }
+        }
+        unsafe { (table.set_value)(store.as_raw(), key, &value) >= 0 }
+    };
+    let relaunch = identity.and_then(|(_, relaunch)| relaunch);
+    let mut ok = true;
+    if relaunch.is_some() || identity.is_none() {
+        ok &= put(&PKEY_RELAUNCH_COMMAND, relaunch.map(|r| r.command));
+        ok &= put(&PKEY_RELAUNCH_DISPLAY_NAME, relaunch.map(|r| r.name));
+        ok &= put(&PKEY_RELAUNCH_ICON, relaunch.map(|r| r.icon));
+    }
+    ok &= put(&PKEY_APP_USER_MODEL_ID, identity.map(|(id, _)| id));
+    ok && unsafe { (table.commit)(store.as_raw()) } >= 0
 }
 
 pub fn string_value(store: &ComPtr, key: &PROPERTYKEY) -> Option<String> {
