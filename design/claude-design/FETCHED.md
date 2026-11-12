@@ -251,3 +251,22 @@ short coloured word after each shape: Approve, Asks, Done, Working, Bg,
 Idle, Stopped, Failed, Unknown. Section 1 adds a window in that style;
 section 2 shows both styles; the options "Signs in a box" and "Short words"
 alone are dropped. The rest is unchanged and approved.
+
+## 2026-11-12 (evening): ClaudeDeck, in line with the released code
+
+Version 29 of the artifact, copied byte for byte (145,504 bytes). Versions
+26 to 28 (the homelab servers section, from the ClaudeDeck build session)
+are inside it. The user said yes to bringing the page in line with the
+ClaudeDeck code of WinCraft 0.20.100 and later. What changed, by section:
+the line of text never shows a command ("Waits for your OK to run a
+command", "Running a command", "Last: ..."); 5 names the "Chat not found"
+stand-in; 6 adds "New group" and the "2 hidden chats" line; 8 gives mini
+mode a strip with the Full list button, the fade 3 s and 50 %, the chat
+menu "Rename the window…" (F2), the group menu "Fold all groups",
+"Unfold all groups", Alt+Up and Alt+Down, and a colour list (No colour,
+Blue, Green, Yellow, Red, Grey); 9 numbers the digits from 1 and lists
+Home, End, ← →, Ctrl+M; 10 adds the empty list "No chat has a window
+open." and drops the number badge on the tray icon (tooltip only); 11 puts
+"Also busy on ..." at the start of the line of text and adds an idle
+"Remote Control is ready" row. Rows of CODE-CHANGES.md that this covers
+are marked "in design", each with what is still not drawn.
