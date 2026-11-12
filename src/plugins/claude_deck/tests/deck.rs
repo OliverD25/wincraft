@@ -140,7 +140,13 @@ impl Deck {
             repeat: false,
             modifiers,
         };
-        self.frame(vec![event(true), event(false)])
+        let painted = self.frame(vec![
+            Event::ModifiersChanged(modifiers),
+            event(true),
+            event(false),
+        ]);
+        self.frame(vec![Event::ModifiersChanged(Modifiers::NONE)]);
+        painted
     }
 
     /// Lets the pointer rest where it is, frame after frame.
