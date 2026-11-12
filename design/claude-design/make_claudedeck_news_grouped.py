@@ -74,10 +74,12 @@ def group(chat, mode="all", sel=None, kf=False):
     unseen = sum(1 for r in reps if r[2])
     if mode == "all":
         shown, rest = reps, []
+    elif mode == "collapsed":
+        shown, rest = [], []
     else:
         shown = [r for r in reps if r[2]] or reps[:1]
         rest = [r for r in reps if r not in shown]
-    open_ = mode == "all" or not rest
+    open_ = mode != "collapsed"
     srv = f'<span class="nsrv">{SRV}{server}</span>' if server else ""
     pill = f'<span class="tabn" title="{unseen} not seen yet">{unseen}</span>' if unseen else ""
     more = (f'<span class="nmore">{len(rest)} earlier {"reply" if len(rest) == 1 else "replies"}</span>' if rest else "")
@@ -172,8 +174,17 @@ section = (
     f'<div>{cap("A chat unfolded")}{deck("dark", head("Last 24 hours", len(LAST)) + group(LAST[0], "all") + "".join(group(c, "fold") for c in LAST[1:]) + older_head(4), UNSEEN)}</div>'
     f'<div>{cap("Light")}{deck("light", body("fold"), UNSEEN)}</div>'
     '</div>'
+    '<h3 style="margin-top:22px">Collapse a chat (added 2026-11-13)</h3>'
+    '<p>The arrow on the block line folds any chat to its block line alone, read or unread. The amber count stays, so an unread chat '
+    'still shows that something waits in it. Collapsing marks nothing seen. A second click on the arrow shows the replies again. '
+    'A collapsed chat opens by itself when it gets a new reply, so a new reply is never hidden. The arrow points down while any reply '
+    'shows, and right when the chat is collapsed.</p>'
+    '<div class="side">'
+    f'<div>{cap("Two chats collapsed: WinCraft homelab (unread) and Playwise (read)")}{deck("dark", head("Last 24 hours", len(LAST)) + group(LAST[0], "collapsed") + group(LAST[1], "fold") + group(LAST[2], "fold") + group(LAST[3], "collapsed") + group(LAST[4], "fold") + older_head(4), UNSEEN)}</div>'
+    '</div>'
     '<h3 style="margin-top:22px">The keyboard</h3>'
-    '<p>↑ ↓ move over block lines and replies. On a block line, → unfolds the chat and ← folds it; Enter opens the chat. On a reply, '
+    '<p>↑ ↓ move over block lines and replies. On a block line, → shows the replies (and then the earlier ones too), ← collapses the chat, '
+    'Space does what the arrow does, and Enter opens the chat. On a reply, '
     'Space opens it in place and Enter opens the chat. Home and End, Ctrl+Tab and Esc work as in section 13.</p>'
     '<div class="side">'
     f'<div>{cap("The focus on a block line")}{deck("dark", body("fold", kf_chat=3, waiting=False), UNSEEN)}</div>'

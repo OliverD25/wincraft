@@ -328,3 +328,13 @@ Version 43 of the artifact, copied byte for byte. The creator picked option
 B: unseen replies listed under their chat, seen ones folded into "N earlier
 replies". Option B carries the "Chosen" chip, and the section title says
 "approved 2026-11-13".
+
+## 2026-11-13 (night): ClaudeDeck, collapse any News chat
+
+Version 45 of the artifact, copied byte for byte. Section 14 gets
+"Collapse a chat": the arrow on a block line folds any chat to its block
+line alone, read or unread, with the amber count kept; a new reply opens
+it again. The arrows of section 14 now point down while any reply shows,
+as the code does. The keyboard text says → shows the replies, ← collapses.
+This follows the user's request after 0.20.117 (CODE-CHANGES row of
+2026-11-13 is now "in design (artifact v45)").
