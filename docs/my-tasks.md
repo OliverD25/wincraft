@@ -25,7 +25,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 24. Install 0.20.108: a fork in a terminal shows in ClaudeDeck
 
-- **State:** Wait: the 0.20.108 release is still being built on GitHub.
+- **State:** Ready to test (0.20.108 released 2026-11-12; the release has wincraft.exe and its checksum).
 - **Kind:** test · **Added:** 2026-11-12 (PC)
 - **Why:** you asked to see the terminal fork in ClaudeDeck. Finding the terminal window by its title can only be checked on your screen.
 
