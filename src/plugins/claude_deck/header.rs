@@ -26,12 +26,14 @@ pub const ONLY_OPEN: &str = "Only open windows";
 const PIN_TIP: &str = "Stay on top";
 pub const MINI_TIP: &str = "Mini mode";
 const CLOSE_TIP: &str = "Close";
+pub const MINIMIZE_TIP: &str = "Minimize";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Click {
     OnlyOpen,
     Pin,
     Mini,
+    Minimize,
     Close,
 }
 
@@ -61,7 +63,8 @@ pub fn show(
     let button =
         |right: f32| Rect::from_min_size(pos2(right - BUTTON.x, middle - BUTTON.y / 2.0), BUTTON);
     let close = button(rect.right() - PAD_RIGHT);
-    let mini = button(close.left() - COUNT_GAP);
+    let minimize = button(close.left() - COUNT_GAP);
+    let mini = button(minimize.left() - COUNT_GAP);
     let pin = button(mini.left() - COUNT_GAP);
     let gear = button(pin.left() - COUNT_GAP);
     let label = painter.layout_job(text::job(
@@ -191,6 +194,25 @@ pub fn show(
     painter.line_segment([at(2.5, 6.0), at(4.5, 8.0)], stroke);
     if mini_response.clicked() {
         clicked = Some(Click::Mini);
+    }
+
+    let minimize_response = ui
+        .interact(
+            minimize,
+            ui.id().with("claude-deck-minimize"),
+            Sense::click(),
+        )
+        .on_hover_text(MINIMIZE_TIP);
+    if minimize_response.hovered() {
+        painter.rect_filled(minimize, 4.0, tokens.hover_bg);
+    }
+    let c = minimize.center();
+    painter.line_segment(
+        [c + vec2(-3.5, 0.5), c + vec2(3.5, 0.5)],
+        Stroke::new(1.2, tokens.text_secondary),
+    );
+    if minimize_response.clicked() {
+        clicked = Some(Click::Minimize);
     }
 
     let close_response = ui

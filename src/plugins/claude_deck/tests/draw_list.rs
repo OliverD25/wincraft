@@ -405,7 +405,8 @@ fn the_header_buttons_report_to_the_window() {
     let close = pos2(360.0 - 15.0, middle);
     deck.click(close);
     deck.click(pos2(close.x - 25.0, middle));
-    assert_eq!(deck.clicked, [Click::Close, Click::Mini]);
+    deck.click(pos2(close.x - 50.0, middle));
+    assert_eq!(deck.clicked, [Click::Close, Click::Minimize, Click::Mini]);
 }
 
 #[test]

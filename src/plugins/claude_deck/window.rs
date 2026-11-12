@@ -329,6 +329,10 @@ impl PluginWindow for DeckWindow {
                     save(&to_host, MINI_KEY, shared.settings.mini);
                     ui.ctx().request_repaint();
                 }
+                Some(Click::Minimize) => {
+                    ui.ctx()
+                        .send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                }
                 Some(Click::Close) => state.closed = true,
                 None => {}
             }

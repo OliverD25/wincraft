@@ -431,7 +431,7 @@ fn row_heights_and_the_drawn_body() {
 }
 
 #[test]
-fn the_header_counts_the_switch_and_the_five_buttons() {
+fn the_header_counts_the_switch_and_the_six_buttons() {
     let mut screen = Screen::new(ThemeChoice::Dark);
     let tokens = screen.tokens();
     let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(360.0, header::HEIGHT));
@@ -446,7 +446,7 @@ fn the_header_counts_the_switch_and_the_five_buttons() {
     let mut gear_clicks = 0;
     let mut draw = |ui: &mut egui::Ui| {
         let mut quick = crate::plugins::claude_deck::quick::Quick::default();
-        let clicked = header::show(ui, rect, &counts[..3], &state, &tokens, 0.0, &mut quick);
+        let clicked = header::show(ui, rect, &counts[..2], &state, &tokens, 0.0, &mut quick);
         if quick.toggle {
             gear_clicks += 1;
         }
@@ -456,14 +456,16 @@ fn the_header_counts_the_switch_and_the_five_buttons() {
     };
     let painted = screen.settle(&mut draw);
     assert!(painted.has(header::ONLY_OPEN));
-    assert!(painted.has("2") && painted.has("3"), "{:?}", painted.texts);
+    assert!(painted.has("2") && painted.has("1"), "{:?}", painted.texts);
     let middle = header::HEIGHT / 2.0;
     let close = pos2(360.0 - 4.0 - 11.0, middle);
-    let mini = pos2(close.x - 3.0 - 22.0, middle);
+    let minimize = pos2(close.x - 3.0 - 22.0, middle);
+    let mini = pos2(minimize.x - 3.0 - 22.0, middle);
     let pin = pos2(mini.x - 3.0 - 22.0, middle);
     let gear = pos2(pin.x - 3.0 - 22.0, middle);
     let label = pos2(gear.x - 11.0 - 8.0 - 8.0, middle);
     screen.click(close, &mut draw);
+    screen.click(minimize, &mut draw);
     screen.click(mini, &mut draw);
     screen.click(pin, &mut draw);
     screen.click(gear, &mut draw);
@@ -472,6 +474,7 @@ fn the_header_counts_the_switch_and_the_five_buttons() {
         got,
         [
             Some(Click::Close),
+            Some(Click::Minimize),
             Some(Click::Mini),
             Some(Click::Pin),
             Some(Click::OnlyOpen)
@@ -502,7 +505,7 @@ fn the_header_counts_the_switch_and_the_five_buttons() {
         "{:?}",
         painted.texts
     );
-    let switch = pos2(360.0 - 4.0 - 4.0 * 22.0 - 3.0 * 3.0 - 8.0 - 12.0, middle);
+    let switch = pos2(360.0 - 4.0 - 5.0 * 22.0 - 4.0 * 3.0 - 8.0 - 12.0, middle);
     screen.click(switch, &mut draw);
     assert_eq!(got, [Click::OnlyOpen]);
     let off_state = Settings {
