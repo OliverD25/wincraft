@@ -28,6 +28,7 @@ fn session(title: &str, previous: &[&str], activity: u64) -> Session {
         last_turn_edge: Some(10_000),
         latest_user: Some(1),
         archived: false,
+        ..Session::default()
     }
 }
 
@@ -42,6 +43,57 @@ fn a_session_file_gives_every_field_it_has() {
     assert_eq!(session.latest_user, Some(4500));
     assert!(!session.archived);
     assert_eq!(parse(FULL), Some(session));
+}
+
+const FORK: &str = r#"{
+    "sessionId": "local_2",
+    "title": "Fork",
+    "cwd": "E:\\repo\\.claude\\worktrees\\wt",
+    "originCwd": " E:\\repo ",
+    "worktreeName": "wt",
+    "branch": "claude/wt",
+    "model": "claude-opus-5-5",
+    "forkedFromSessionId": "local_1",
+    "spawnedFrom": {"sessionId": "local_0", "taskId": "t", "title": "x"},
+    "createdAt": 1794442881267,
+    "lastFocusedAt": 1794442881454,
+    "interruptedAwaitingPerson": null
+}"#;
+
+#[test]
+fn a_session_file_gives_where_the_chat_runs_and_where_it_came_from() {
+    let session = parse_fast(FORK).expect("parses");
+    let lineage = &session.lineage;
+    assert_eq!(
+        lineage.cwd.as_deref(),
+        Some(r"E:\repo\.claude\worktrees\wt")
+    );
+    assert_eq!(lineage.folder(), Some(r"E:\repo"));
+    assert_eq!(lineage.worktree_name.as_deref(), Some("wt"));
+    assert_eq!(lineage.branch.as_deref(), Some("claude/wt"));
+    assert_eq!(lineage.model.as_deref(), Some("claude-opus-5-5"));
+    assert_eq!(lineage.parent(), Some("local_1"));
+    assert_eq!(lineage.spawned_from.as_deref(), Some("local_0"));
+    assert_eq!(lineage.created, Some(1_794_442_881_267));
+    assert_eq!(lineage.last_focused, Some(1_794_442_881_454));
+    assert!(!lineage.interrupted);
+    assert_eq!(parse(FORK), Some(session));
+}
+
+#[test]
+fn odd_lineage_fields_fall_back_and_read_what_they_can() {
+    // A spawnedFrom that is text, not an object, fails the fast read.
+    let text = r#"{"title": "T", "spawnedFrom": "local_9", "cwd": "C:\\a",
+        "interruptedAwaitingPerson": {"at": 5}, "branch": "  "}"#;
+    let session = parse_fast(text).expect("parses");
+    assert_eq!(session.lineage.spawned_from, None);
+    assert_eq!(session.lineage.folder(), Some(r"C:\a"));
+    assert_eq!(session.lineage.branch, None);
+    assert!(session.lineage.interrupted);
+    let session = parse_fast(r#"{"interruptedAwaitingPerson": false}"#).expect("parses");
+    assert!(!session.lineage.interrupted);
+    let session = parse_fast(r#"{"spawnedFrom": {"sessionId": "local_3"}}"#).expect("parses");
+    assert_eq!(session.lineage.parent(), Some("local_3"));
 }
 
 #[test]

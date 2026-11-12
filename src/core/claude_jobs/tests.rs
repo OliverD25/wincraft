@@ -155,3 +155,14 @@ fn a_quoted_start_after_the_end_does_not_reopen_the_job() {
     let text = start("b1") + &end("b1", "completed") + &start("b1");
     assert_eq!(scan(&text).running(NOW), (0, None));
 }
+
+#[test]
+fn windowdeck_and_claudedeck_want_their_chats_side_by_side() {
+    want(vec!["a".into(), "b".into()]);
+    want_for_deck(vec!["b".into(), "c".into()]);
+    assert_eq!(wanted(), vec!["a", "b", "c"]);
+    want_for_deck(Vec::new());
+    assert_eq!(wanted(), vec!["a", "b"]);
+    want(Vec::new());
+    assert!(wanted().is_empty());
+}

@@ -289,6 +289,7 @@ impl Host {
                     self.send_arrange(false);
                 }
             }
+            HostRequest::ClaudeDeckRefresh => super::claude::publish_chat_windows(),
             HostRequest::Layout { plugin, action } => {
                 match self.plugins.index_of(&plugin) {
                     Some(index) if self.plugins.slots[index].enabled => {

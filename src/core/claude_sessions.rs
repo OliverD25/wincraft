@@ -19,6 +19,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 
+mod lineage;
+pub use lineage::Lineage;
+use lineage::SpawnedFrom;
+
 /// The files are read again at most this often.
 pub const READ_EVERY: Duration = Duration::from_secs(3);
 
@@ -41,6 +45,8 @@ pub struct Session {
     /// The last message the user sent.
     pub latest_user: Option<u64>,
     pub archived: bool,
+    /// Where the chat runs and where it came from, for ClaudeDeck.
+    pub lineage: Lineage,
 }
 
 /// The fields of a session file this module reads. Everything else is
@@ -64,6 +70,27 @@ struct SessionFile {
     latest_user_frame_at: Option<f64>,
     #[serde(default)]
     is_archived: Option<bool>,
+    #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
+    origin_cwd: Option<String>,
+    #[serde(default)]
+    worktree_name: Option<String>,
+    #[serde(default)]
+    branch: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    forked_from_session_id: Option<String>,
+    #[serde(default)]
+    spawned_from: Option<SpawnedFrom>,
+    #[serde(default)]
+    created_at: Option<f64>,
+    #[serde(default)]
+    last_focused_at: Option<f64>,
+    // Only null has been seen (2026-11-12), so any other value counts.
+    #[serde(default)]
+    interrupted_awaiting_person: Option<serde_json::Value>,
 }
 
 fn millis(value: Option<f64>) -> Option<u64> {
@@ -94,6 +121,16 @@ pub fn parse(text: &str) -> Option<Session> {
         last_turn_edge_at: number("lastTurnEdgeAt"),
         latest_user_frame_at: number("latestUserFrameAt"),
         is_archived: field("isArchived").as_bool(),
+        cwd: field("cwd").as_str().map(str::to_string),
+        origin_cwd: field("originCwd").as_str().map(str::to_string),
+        worktree_name: field("worktreeName").as_str().map(str::to_string),
+        branch: field("branch").as_str().map(str::to_string),
+        model: field("model").as_str().map(str::to_string),
+        forked_from_session_id: field("forkedFromSessionId").as_str().map(str::to_string),
+        spawned_from: lineage::spawned_from(&field("spawnedFrom")),
+        created_at: number("createdAt"),
+        last_focused_at: number("lastFocusedAt"),
+        interrupted_awaiting_person: value.get("interruptedAwaitingPerson").cloned(),
     };
     Some(from_file(file))
 }
@@ -109,6 +146,20 @@ fn parse_fast(text: &str) -> Option<Session> {
 }
 
 fn from_file(file: SessionFile) -> Session {
+    let lineage = Lineage {
+        cwd: lineage::text(file.cwd),
+        origin_cwd: lineage::text(file.origin_cwd),
+        worktree_name: lineage::text(file.worktree_name),
+        branch: lineage::text(file.branch),
+        model: lineage::text(file.model),
+        forked_from: lineage::text(file.forked_from_session_id),
+        spawned_from: lineage::text(file.spawned_from.and_then(|from| from.session_id)),
+        created: millis(file.created_at),
+        last_focused: millis(file.last_focused_at),
+        interrupted: file
+            .interrupted_awaiting_person
+            .is_some_and(|value| !value.is_null() && value != serde_json::Value::Bool(false)),
+    };
     Session {
         id: file.session_id.unwrap_or_default(),
         cli_session_id: file.cli_session_id.unwrap_or_default(),
@@ -125,6 +176,7 @@ fn from_file(file: SessionFile) -> Session {
         last_turn_edge: millis(file.last_turn_edge_at),
         latest_user: millis(file.latest_user_frame_at),
         archived: file.is_archived.unwrap_or(false),
+        lineage,
     }
 }
 
@@ -500,6 +552,24 @@ pub fn sessions() -> (Vec<Session>, Vec<Popout>) {
         .filter(|session| !session.archived)
         .collect();
     (sessions, cache.popouts.clone())
+}
+
+/// Every session read last, archived ones too: ClaudeDeck names the
+/// archived chat a fork came from.
+pub fn sessions_with_archived() -> Vec<Session> {
+    CACHE
+        .lock()
+        .ok()
+        .and_then(|cache| {
+            cache.as_ref().map(|cache| {
+                cache
+                    .files
+                    .values()
+                    .filter_map(|(_, session)| session.clone())
+                    .collect()
+            })
+        })
+        .unwrap_or_default()
 }
 
 /// Starts reading the files again on a thread of its own, unless a read

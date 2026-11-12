@@ -191,6 +191,7 @@ struct Entry {
 
 static CACHE: Mutex<Option<HashMap<String, Entry>>> = Mutex::new(None);
 static WANTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+static WANTED_BY_DECK: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 /// Names the chats whose windows are shown now (their `cliSessionId`s);
 /// only these are read at the next `refresh`.
@@ -198,6 +199,30 @@ pub fn want(ids: Vec<String>) {
     if let Ok(mut wanted) = WANTED.lock() {
         *wanted = ids;
     }
+}
+
+/// The same as `want`, for ClaudeDeck's list. The two lists are kept
+/// apart, so neither window drops the other's chats.
+pub fn want_for_deck(ids: Vec<String>) {
+    if let Ok(mut wanted) = WANTED_BY_DECK.lock() {
+        *wanted = ids;
+    }
+}
+
+/// Both lists, each id once.
+fn wanted() -> Vec<String> {
+    let mut ids = WANTED
+        .lock()
+        .map(|wanted| wanted.clone())
+        .unwrap_or_default();
+    if let Ok(deck) = WANTED_BY_DECK.lock() {
+        for id in deck.iter() {
+            if !ids.contains(id) {
+                ids.push(id.clone());
+            }
+        }
+    }
+    ids
 }
 
 fn projects_folder() -> Option<PathBuf> {
@@ -219,10 +244,7 @@ fn find_transcript(projects: &Path, cli_session_id: &str) -> Option<PathBuf> {
 /// forgets the chats not wanted. Runs on the session reader's thread. A
 /// missing transcript means no jobs.
 pub fn refresh(now: u64) {
-    let ids = WANTED
-        .lock()
-        .map(|wanted| wanted.clone())
-        .unwrap_or_default();
+    let ids = wanted();
     let Some(projects) = projects_folder() else {
         return;
     };

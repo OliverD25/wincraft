@@ -743,6 +743,9 @@ pub enum HostRequest {
     /// WindowDeck shows Claude cards: send it fresh data, so their status
     /// and age stay current while it is open.
     ClaudeRefresh,
+    /// ClaudeDeck's window is open: read the chats again and write which
+    /// have a window and which wait (`core::claude_windows`).
+    ClaudeDeckRefresh,
     Layout {
         plugin: String,
         action: LayoutAction,
