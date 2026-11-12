@@ -44,7 +44,7 @@ list; say "done 1" to close task 1. Secret values never go here, only names.
 
 ### 15. Check Rename, group renames, app updates and status chips in an open group
 
-- **State:** Wait: 0.20.99 is being checked and released.
+- **State:** Ready to test (0.20.99 released 2026-11-12).
 - **Kind:** test · **Added:** 2026-11-12 (PC)
 - **Why:** these need the real Claude app, a real group and the mouse; tests cannot see them.
 
