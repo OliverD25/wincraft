@@ -551,6 +551,7 @@ it is a separate instance:
   | `--open-palette=<query>` | The palette with the query typed in, prefix and all: `/`, `=2+2*3`, `<chrome`, `?`. Nothing runs. |
   | `--open-settings=<page>` | `general`, `plugins`, `hotkeys` (or `shortcuts`), `layout`, `store`, `about`, or a plugin's page: `plugin:layout_keeper`. |
   | `--open-hotkey-dialog=<id>[:<keys>]` | The Hotkeys page with the hotkey dialog open on that command (`wincraft.palette`, `screen_dimmer.toggle_monitor_1`), and the keys after the colon shown as pressed: `wincraft.palette:Win+L`. No keyboard hook runs and nothing is saved. |
+  | `--open-claude-deck` | ClaudeDeck's window, with the chats of this PC. Clicks on a chat bring nothing forward in a test instance. A flag without a value. |
   | `--open-arrange=<group>` | WindowDeck on a group, by its place (`0` is the first) or its key. |
   | `--peek-card=<n>` | The strip with the hover peek on card `n` (from 0), or `chip` for the first card of a window that is not on the primary monitor. |
   | `--attention=<hwnd>` | Marks that window as wanting attention at start, as if it had flashed its taskbar button, so its card in the strip is orange. The window itself is not touched. |
