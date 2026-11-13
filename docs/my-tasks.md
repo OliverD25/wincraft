@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 36. Install 0.20.120: the Servers tab in ClaudeDeck
 
-- **State:** Wait: the 0.20.120 release is still building on GitHub.
+- **State:** Ready to test. Release 0.20.120 is published with wincraft.exe and SHA256SUMS.txt (checked 2026-11-13).
 - **Kind:** test · **Added:** 2026-11-13 (PC, branch claude/wincraft-design-artifact-move-4b267d)
 - **Why:** you asked for a third ClaudeDeck tab with the servers, their
   chats and processes. It reads real servers, so only you can see it on
