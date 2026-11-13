@@ -2,6 +2,7 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
+- **36. Install 0.20.120: the Servers tab in ClaudeDeck**: done 2026-11-13. The user said "done 36" after the test.
 - **35. Install 0.20.119: move windows inside an open WindowDeck group**: done 2026-11-13. The user said "done 35" after the test: drag, Alt + arrows, the fan, and drag out of the group.
 - **34. Install 0.20.118: fold any News chat with its arrow**: done 2026-11-13. The user said "done 34".
 - **33. Install 0.20.117: the News tab grouped by chat**: done 2026-11-13. The user said "done 33" and asked next that a chat with unread replies can also be folded by its arrow.
