@@ -163,9 +163,8 @@ pub fn program_words(words: &[String]) -> Option<String> {
     loop {
         let word = words.get(at)?;
         let name = program(word);
-        if word.contains('=') && !word.starts_with('-') {
-            at += 1;
-        } else if KEYWORDS.contains(&word.as_str()) {
+        // A variable setting or a shell keyword: the program comes later.
+        if (word.contains('=') && !word.starts_with('-')) || KEYWORDS.contains(&word.as_str()) {
             at += 1;
         } else if WRAPPERS.contains(&name.as_str()) {
             let timeout = name == "timeout";
