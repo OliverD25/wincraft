@@ -343,3 +343,23 @@ fn the_chats_tab_has_one_short_line_per_server_and_its_chats_that_wait_for_you()
     let lines = group_view::short_lines(&[("s".to_string(), more)], &shape);
     assert_eq!(lines.len(), 2, "the hidden chat stays hidden");
 }
+
+#[test]
+fn a_stopped_systemd_service_is_left_out_but_a_stopped_container_stays() {
+    let mut view = host(true);
+    view.services = vec![
+        service(Kind::User, "verdict-backup.service", State::Stopped),
+        service(Kind::System, "old.service", State::Stopped),
+        service(Kind::Docker, "redis", State::Stopped),
+        service(Kind::User, "verdict-api.service", State::Running),
+    ];
+    let views = vec![("rdehome1".to_string(), view)];
+    let names: Vec<String> = lines_of(&views, &BTreeSet::new())
+        .into_iter()
+        .filter_map(|line| match line {
+            Line::Service { service, .. } => Some(service.name),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(names, ["verdict-api.service", "redis"]);
+}

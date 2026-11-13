@@ -5,7 +5,7 @@
 use crate::core::claude_sessions::duration_text;
 use crate::plugins::claude_deck::model::{Chat, Mark};
 
-use super::super::load::{Kind, Proc, Service};
+use super::super::load::{Kind, Proc, Service, State};
 use super::super::view::{self as group_view, ServerLine, Shape};
 use super::super::{group_name, HostView};
 use super::Pick;
@@ -128,9 +128,16 @@ pub fn lines(
                 owner: None,
             }));
         }
-        if !view.services.is_empty() {
+        // A stopped systemd unit is left out: most are timer jobs that ran
+        // and finished (26 of them on home1, checked 2026-11-13).
+        let mut services: Vec<Service> = view
+            .services
+            .iter()
+            .filter(|s| s.state != State::Stopped || s.kind == Kind::Docker)
+            .cloned()
+            .collect();
+        if !services.is_empty() {
             lines.push(Line::Section(SERVICES));
-            let mut services = view.services.clone();
             // Problems first, then system, user and Docker, by name.
             services.sort_by(|a, b| {
                 (!a.state.is_problem(), a.kind, &a.name).cmp(&(
