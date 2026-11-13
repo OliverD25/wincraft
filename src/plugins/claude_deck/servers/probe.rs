@@ -3,7 +3,9 @@
 //! reads: the clock, `/proc/stat`, `/proc/meminfo`, the running Remote
 //! Control units (`claude-rc@<folder>`), the folders of running `claude`
 //! processes, and the end of each recent transcript under
-//! `~/.claude/projects`. Nothing is installed or written on the server.
+//! `~/.claude/projects`; for the Servers tab also the `claude` processes,
+//! the five busiest processes, systemd's units and Docker's containers.
+//! Nothing is installed or written on the server.
 
 use std::io::{Read, Write};
 use std::os::windows::process::CommandExt;
@@ -28,7 +30,12 @@ pub const KILL_AFTER: Duration = Duration::from_secs(20);
 /// Lines it prints: `NOW`, `CPU`, `MEM`, `UP` (seconds), `REBOOT` (a
 /// restart is needed), `DISK` (free and total kB of `/`), `TOP` (the
 /// busiest process: its CPU % and name), `RC`, `RCFAIL` (a Remote Control
-/// unit that failed or keeps restarting), `PROC`, then per transcript
+/// unit that failed or keeps restarting), `PROC`, `CLP pid cpu rss secs
+/// folder<TAB>command` (a `claude` process), `BUSY pid cpu rss
+/// name<TAB>command` (the five busiest), `SVC system|user unit active sub`
+/// (failed units, the user's own units, and system units that run as the
+/// user), `DOCK name<TAB>state<TAB>status` (every container; nothing when
+/// Docker is missing or not allowed), then per transcript
 /// `CHAT dir file mtime size` with the base64 of its end and `END`, or
 /// `SAME dir file mtime size` when it has not changed since the last call,
 /// or `READY dir mtime` for a Remote Control folder with no transcript yet
@@ -64,7 +71,26 @@ for u in $(systemctl --user list-units --all --no-legend --plain 'claude-rc@*' 2
   echo "RCFAIL $f"
   rc="$rc $(printf '%s' "$f" | sed 's/[^A-Za-z0-9]/-/g')"
 done
-for p in $(pgrep -x claude 2>/dev/null); do d=$(readlink "/proc/$p/cwd" 2>/dev/null) && echo "PROC $d"; done
+args() { tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null | cut -c1-300; }
+for p in $(pgrep -x claude 2>/dev/null); do
+  d=$(readlink "/proc/$p/cwd" 2>/dev/null) || continue
+  echo "PROC $d"
+  s=$(ps -o pcpu=,rss=,etimes= -p "$p" 2>/dev/null) || continue
+  set -- $s
+  [ $# -eq 3 ] && printf 'CLP %s %s %s %s %s\t%s\n' "$p" "$1" "$2" "$3" "$d" "$(args "$p")"
+done
+ps -eo pid=,ppid=,pcpu=,rss=,comm= --sort=-pcpu 2>/dev/null | awk -v me=$$ '$1 != me && $2 != me { print $1, $3, $4, $5; if (++n == 5) exit }' | while read -r p c r n; do
+  printf 'BUSY %s %s %s %s\t%s\n' "$p" "$c" "$r" "$n" "$(args "$p")"
+done
+own=$(ls "$HOME/.config/systemd/user" 2>/dev/null | grep '\.service$' | tr '\n' ' ')
+systemctl --user list-units --all --type=service --no-legend --plain 2>/dev/null | while read -r u _ a s _; do
+  b=$(printf '%s' "$u" | sed 's/@[^.]*\.service$/@.service/')
+  case " $own " in *" $u "*|*" $b "*) echo "SVC user $u $a $s";; *) [ "$a" = failed ] && echo "SVC user $u $a $s";; esac
+done
+mine=$(grep -ls "^User=$(id -un)\$" /etc/systemd/system/*.service 2>/dev/null | sed 's|.*/||' | tr '\n' ' ')
+[ -n "$mine" ] && systemctl list-units --all --no-legend --plain $mine 2>/dev/null | awk '{ print "SVC system", $1, $3, $4 }'
+systemctl list-units --all --type=service --no-legend --plain 2>/dev/null | awk '$3 == "failed" || ($3 == "activating" && $4 == "auto-restart") { print "SVC system", $1, $3, $4 }'
+timeout 5 docker ps -a --format '{{.Names}}\t{{.State}}\t{{.Status}}' </dev/null 2>/dev/null | head -40 | sed 's/^/DOCK /'
 cd "$HOME/.claude/projects" 2>/dev/null || { echo DONE; exit 0; }
 for d in */; do
   d=${d%/}

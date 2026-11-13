@@ -364,6 +364,7 @@ fn view_of(chats: Vec<Chat>, online: bool) -> HostView {
         chats,
         health: reply::Health::default(),
         replies: Default::default(),
+        ..HostView::default()
     }
 }
 
@@ -478,7 +479,10 @@ fn the_probe_is_told_what_it_need_not_send_and_ssh_never_prompts() {
         ("bad name'; rm".to_string(), 1, 1),
     ]);
     assert!(script.starts_with("known='-home-a:5:6'\n"));
-    assert!(!script.contains("rm"), "a strange folder name is left out");
+    assert!(
+        !script.contains("bad name"),
+        "a strange folder name is left out"
+    );
     let args = probe::ssh_args("rdehome2");
     assert!(args.windows(2).any(|w| w == ["-o", "BatchMode=yes"]));
     assert!(args.windows(2).any(|w| w == ["--", "rdehome2"]));

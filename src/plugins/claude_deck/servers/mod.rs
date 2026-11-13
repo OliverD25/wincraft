@@ -8,6 +8,7 @@
 pub mod aliases;
 pub mod busy;
 pub mod draw;
+pub mod load;
 pub mod poll;
 pub mod probe;
 pub mod reply;
@@ -206,5 +207,7 @@ impl Deck {
     }
 }
 
+#[cfg(test)]
+mod load_tests;
 #[cfg(test)]
 mod tests;
