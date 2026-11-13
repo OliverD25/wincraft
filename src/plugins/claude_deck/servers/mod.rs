@@ -13,6 +13,7 @@ pub mod poll;
 pub mod probe;
 pub mod reply;
 pub mod status;
+pub mod tab;
 mod terminal;
 pub mod view;
 
@@ -133,6 +134,8 @@ pub struct Deck {
     /// The server lines and rows the arrow keys reach, top to bottom, as
     /// drawn last.
     pub keyed: Vec<(Pick, Target)>,
+    /// The Servers tab's own state.
+    pub tab: tab::TabUi,
 }
 
 impl Deck {

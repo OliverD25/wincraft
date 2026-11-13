@@ -33,7 +33,7 @@ const GAP: f32 = 6.0;
 const SMALL: f32 = 12.0;
 
 /// The height of a line, its gap above included.
-fn height(line: &ServerLine, two: bool) -> f32 {
+pub(super) fn height(line: &ServerLine, two: bool) -> f32 {
     match line {
         ServerLine::Chat { .. } if two => ROW_TWO,
         ServerLine::Chat { .. } => ROW,
@@ -105,29 +105,7 @@ pub fn section(ui: &mut Ui, look: &Look, state: &mut DeckUi) {
                 let words = view::hover_text(server, host, &state.servers.waits, look.now);
                 response.on_hover_ui(|ui| server_hover(ui, host, &words));
             }
-            ServerLine::Chat {
-                chat,
-                server,
-                greyed,
-                pinned,
-                hidden,
-            } => {
-                let response = ui.interact(rect, id, Sense::click());
-                let mut row = ChatLine {
-                    chat: (**chat).clone(),
-                    stand_in: false,
-                    depth: 0,
-                    rails: Vec::new(),
-                    last: false,
-                    fold: Fold::None,
-                    pinned: *pinned,
-                    hidden: false,
-                };
-                row.chat.news = state.news.unseen_chats.contains(&chat.id);
-                let mut row_painter = painter.clone();
-                if *greyed {
-                    row_painter.multiply_opacity(OFFLINE_OPACITY);
-                }
+            ServerLine::Chat { chat, server, .. } => {
                 let pick = Pick::Chat(chat.id.clone());
                 let selected = state.selected.as_ref() == Some(&pick);
                 state.servers.keyed.push((
@@ -141,60 +119,28 @@ pub fn section(ui: &mut Ui, look: &Look, state: &mut DeckUi) {
                 if selected && std::mem::take(&mut state.scroll_to_selected) {
                     ui.scroll_to_rect(rect, None);
                 }
-                rows::chat(
-                    &row_painter,
-                    rect,
-                    &row,
-                    look,
-                    response.hovered(),
-                    selected,
-                    None,
-                );
+                let response = row(ui, &painter, (rect, id), line, look, state, selected);
                 if response.clicked() {
                     state.selected = Some(pick);
                 }
-                if response.clicked() {
-                    terminal::open(server, chat.folder.as_deref());
-                }
-                chat_menu(&response, state, server, chat, *pinned, *hidden);
                 if response.hovered() {
                     resting = Some((rect, chat.clone()));
                 }
             }
-            ServerLine::Quiet {
-                server,
-                chats,
-                days,
-                open,
-            } => {
-                let response = ui.interact(rect, id, Sense::click());
-                let cold = ColdLine {
-                    chats: *chats,
-                    days: *days,
-                    open: *open,
-                };
-                rows::cold(&painter, rect, &cold, look, response.hovered());
-                if response.clicked() && !state.servers.quiet_open.remove(server) {
-                    state.servers.quiet_open.insert(server.clone());
-                }
-            }
-            ServerLine::Hidden {
-                server,
-                chats,
-                open,
-            } => {
-                let response = ui.interact(rect, id, Sense::click());
-                let hidden = HiddenLine {
-                    chats: *chats,
-                    open: *open,
-                };
-                rows::hidden(&painter, rect, &hidden, look, response.hovered());
-                if response.clicked() && !state.servers.hidden_open.remove(server) {
-                    state.servers.hidden_open.insert(server.clone());
-                }
+            ServerLine::Quiet { .. } | ServerLine::Hidden { .. } => {
+                row(ui, &painter, (rect, id), line, look, state, false);
             }
         }
     }
+    rest_hover(ui, look, resting);
+}
+
+/// The hover panel of the server chat the pointer rests on.
+pub(super) fn rest_hover(
+    ui: &Ui,
+    look: &Look,
+    resting: Option<(Rect, Box<crate::plugins::claude_deck::model::Chat>)>,
+) {
     let menu_open = egui::Popup::is_any_open(ui.ctx());
     if let Some((row, mut chat)) = resting.filter(|_| !menu_open) {
         let still = ui.ctx().input(|i| i.pointer.time_since_last_movement());
@@ -207,6 +153,99 @@ pub fn section(ui: &mut Ui, look: &Look, state: &mut DeckUi) {
             ui.ctx()
                 .request_repaint_after(Duration::from_secs_f32(hover::DELAY - still));
         }
+    }
+}
+
+/// Draws a server chat row, or a server's quiet or hidden chats' line, and
+/// does what a click on it asks: a chat opens a terminal in its folder and
+/// has the chat menu; the other lines fold and unfold. Used by the Chats
+/// tab and the Servers tab.
+pub(super) fn row(
+    ui: &mut Ui,
+    painter: &Painter,
+    (rect, id): (Rect, egui::Id),
+    line: &ServerLine,
+    look: &Look,
+    state: &mut DeckUi,
+    selected: bool,
+) -> Response {
+    let response = ui.interact(rect, id, Sense::click());
+    match line {
+        ServerLine::Chat {
+            chat,
+            server,
+            greyed,
+            pinned,
+            hidden,
+        } => {
+            let mut row = ChatLine {
+                chat: (**chat).clone(),
+                stand_in: false,
+                depth: 0,
+                rails: Vec::new(),
+                last: false,
+                fold: Fold::None,
+                pinned: *pinned,
+                hidden: false,
+            };
+            row.chat.news = state.news.unseen_chats.contains(&chat.id);
+            let mut row_painter = painter.clone();
+            if *greyed {
+                row_painter.multiply_opacity(OFFLINE_OPACITY);
+            }
+            rows::chat(
+                &row_painter,
+                rect,
+                &row,
+                look,
+                response.hovered(),
+                selected,
+                None,
+            );
+            if response.clicked() {
+                terminal::open(server, chat.folder.as_deref());
+            }
+            chat_menu(&response, state, server, chat, *pinned, *hidden);
+        }
+        ServerLine::Quiet {
+            server,
+            chats,
+            days,
+            open,
+        } => {
+            let cold = ColdLine {
+                chats: *chats,
+                days: *days,
+                open: *open,
+            };
+            rows::cold(painter, rect, &cold, look, response.hovered() || selected);
+            if response.clicked() {
+                toggle(&mut state.servers.quiet_open, server);
+            }
+        }
+        ServerLine::Hidden {
+            server,
+            chats,
+            open,
+        } => {
+            let hidden = HiddenLine {
+                chats: *chats,
+                open: *open,
+            };
+            rows::hidden(painter, rect, &hidden, look, response.hovered() || selected);
+            if response.clicked() {
+                toggle(&mut state.servers.hidden_open, server);
+            }
+        }
+        ServerLine::Server(_) => {}
+    }
+    response
+}
+
+/// Adds the server to the set, or takes it out when it is there.
+pub(super) fn toggle(set: &mut std::collections::BTreeSet<String>, server: &str) {
+    if !set.remove(server) {
+        set.insert(server.to_string());
     }
 }
 
@@ -271,7 +310,7 @@ fn chat_menu(
     });
 }
 
-fn copy(window: isize, words: &str) {
+pub(super) fn copy(window: isize, words: &str) {
     if !clipboard::put_text(window as HWND, words) {
         log::warn!("ClaudeDeck: could not open the clipboard");
     }
@@ -293,7 +332,7 @@ pub(crate) fn server_icon(painter: &Painter, at: egui::Pos2, colour: Color32) {
 }
 
 /// The icon's colour and the status dot's: online or not.
-fn colours(online: bool, tokens: &theme::Tokens) -> (Color32, Color32) {
+pub(super) fn colours(online: bool, tokens: &theme::Tokens) -> (Color32, Color32) {
     if online {
         (tokens.text_secondary, tokens.success)
     } else {
@@ -371,7 +410,7 @@ fn server_line(
 
 /// The hover panel of a server's line: the icon, the first line and the
 /// status dot, then the other lines.
-fn server_hover(ui: &mut Ui, host: &super::HostView, words: &str) {
+pub(super) fn server_hover(ui: &mut Ui, host: &super::HostView, words: &str) {
     let tokens = theme::Tokens::get(ui.ctx());
     let (icon, dot) = colours(host.online, &tokens);
     let mut lines = words.lines();

@@ -1,5 +1,6 @@
 //! The keyboard on the tabs (design sections 13 and 14). Ctrl+Tab and
-//! Ctrl+Shift+Tab switch between Chats and News on either tab. On News:
+//! Ctrl+Shift+Tab go round Chats, News and Servers (while a server is
+//! listed) on any tab; the Servers tab's own keys are in `servers::tab`. On News:
 //! Up and Down move over the group lines, the chats' block lines and the
 //! replies ("N earlier replies" is skipped), Home and End go to the first
 //! and the last, Esc gives the keyboard back. On a group line Right
@@ -49,11 +50,14 @@ pub(in crate::plugins::claude_deck) fn keys(
         || egui::Popup::is_any_open(ui.ctx())
         || state.renaming.is_some()
         || state.drag.is_some();
-    if !busy && switch_pressed(ui) {
-        state.news.tab = match state.news.tab {
-            Tab::Chats => Tab::News,
-            Tab::News => Tab::Chats,
-        };
+    if let Some(back) = switch_pressed(ui).filter(|_| !busy) {
+        let tabs = tabs(state.servers.is_on());
+        let at = tabs
+            .iter()
+            .position(|tab| *tab == state.news.tab)
+            .unwrap_or(0);
+        let next = if back { at + tabs.len() - 1 } else { at + 1 };
+        state.news.tab = tabs[next % tabs.len()];
         state.keyboard = true;
         return Asked::default();
     }
@@ -61,14 +65,30 @@ pub(in crate::plugins::claude_deck) fn keys(
         Tab::Chats => keys::keys(ui, lines, state, to_host, menu_was_open),
         Tab::News if busy => Asked::default(),
         Tab::News => news_keys(ui, state, to_host, now),
+        Tab::Servers => crate::plugins::claude_deck::servers::tab::keys::keys(ui, state, busy),
     }
 }
 
-/// Ctrl+Tab or Ctrl+Shift+Tab: with two tabs both go to the other one.
-fn switch_pressed(ui: &Ui) -> bool {
+/// The tabs in their order: Servers only while a server is listed.
+pub fn tabs(servers_on: bool) -> &'static [Tab] {
+    if servers_on {
+        &[Tab::Chats, Tab::News, Tab::Servers]
+    } else {
+        &[Tab::Chats, Tab::News]
+    }
+}
+
+/// Ctrl+Tab (Some(false)) or Ctrl+Shift+Tab (Some(true)).
+fn switch_pressed(ui: &Ui) -> Option<bool> {
     ui.ctx().input(|i| {
-        i.events.iter().any(|event| {
-            matches!(event, egui::Event::Key { key: Key::Tab, pressed: true, modifiers, .. } if modifiers.ctrl)
+        i.events.iter().find_map(|event| match event {
+            egui::Event::Key {
+                key: Key::Tab,
+                pressed: true,
+                modifiers,
+                ..
+            } if modifiers.ctrl => Some(modifiers.shift),
+            _ => None,
         })
     })
 }

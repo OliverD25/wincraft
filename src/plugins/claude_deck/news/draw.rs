@@ -57,8 +57,12 @@ pub(in crate::plugins::claude_deck) fn body(
     tabs(ui, strip, state, look.tokens);
     let below = Rect::from_min_max(pos2(rest.left(), strip.bottom()), rest.max);
     let mut list_ui = ui.new_child(egui::UiBuilder::new().max_rect(below));
+    if state.news.tab == Tab::Servers && !state.servers.is_on() {
+        state.news.tab = Tab::Chats;
+    }
     match state.news.tab {
         Tab::News => show(&mut list_ui, look, state, to_host),
+        Tab::Servers => servers::tab::draw::show(&mut list_ui, look, state),
         Tab::Chats if !servers::draw::has_lines(lines, state) => {
             empty(&mut list_ui, look.tokens, !state.chats.is_empty());
         }
@@ -95,7 +99,8 @@ pub(super) fn put(painter: &Painter, left: f32, middle: f32, galley: Arc<Galley>
     size.x
 }
 
-/// The strip: "Chats" and "News" with its count of unseen replies.
+/// The strip: "Chats", "News" with its amber count of unseen replies, and
+/// "Servers" with its red count of problems while a server is listed.
 fn tabs(ui: &mut Ui, strip: Rect, state: &mut DeckUi, tokens: &Tokens) {
     let painter = ui.painter_at(strip);
     painter.rect_filled(strip, 0.0, tokens.window_bg);
@@ -105,7 +110,17 @@ fn tabs(ui: &mut Ui, strip: Rect, state: &mut DeckUi, tokens: &Tokens) {
         Stroke::new(1.0, tokens.border),
     );
     let mut x = strip.left() + STRIP_PAD;
-    for (tab, name) in [(Tab::Chats, view::CHATS), (Tab::News, view::NEWS)] {
+    let problems = if state.servers.is_on() {
+        servers::tab::view::problems(&state.servers.views())
+    } else {
+        Vec::new()
+    };
+    for &tab in super::keys::tabs(state.servers.is_on()) {
+        let (name, number, badge_colour) = match tab {
+            Tab::Chats => (view::CHATS, 0, tokens.accent),
+            Tab::News => (view::NEWS, state.news.count, tokens.accent),
+            Tab::Servers => (servers::tab::view::TAB, problems.len(), tokens.danger),
+        };
         let on = state.news.tab == tab;
         let (font, colour) = if on {
             (theme::semibold(TAB_SIZE), tokens.text_primary)
@@ -113,10 +128,10 @@ fn tabs(ui: &mut Ui, strip: Rect, state: &mut DeckUi, tokens: &Tokens) {
             (theme::regular(TAB_SIZE), tokens.text_secondary)
         };
         let words = galley(&painter, name, font, colour);
-        let count = (tab == Tab::News && state.news.count > 0).then(|| {
+        let count = (number > 0).then(|| {
             galley(
                 &painter,
-                &state.news.count.to_string(),
+                &number.to_string(),
                 theme::semibold(SMALL),
                 tokens.window_bg,
             )
@@ -138,7 +153,7 @@ fn tabs(ui: &mut Ui, strip: Rect, state: &mut DeckUi, tokens: &Tokens) {
         if let Some(count) = count {
             let w = badge_w - PART_GAP;
             let badge = Rect::from_min_size(pos2(at, middle - BADGE_H / 2.0), vec2(w, BADGE_H));
-            painter.rect_filled(badge, BADGE_H / 2.0, tokens.accent);
+            painter.rect_filled(badge, BADGE_H / 2.0, badge_colour);
             let size = count.size();
             painter.galley(badge.center() - size / 2.0, count, Color32::PLACEHOLDER);
         }
@@ -148,6 +163,9 @@ fn tabs(ui: &mut Ui, strip: Rect, state: &mut DeckUi, tokens: &Tokens) {
         }
         if response.clicked() {
             state.news.tab = tab;
+        }
+        if tab == Tab::Servers && !problems.is_empty() {
+            response.on_hover_text(servers::tab::view::problems_text(&problems));
         }
         x += width + TAB_GAP;
     }
@@ -537,7 +555,12 @@ fn controls(
 }
 
 /// The fold arrow: pointing down when open, right when folded.
-pub(super) fn chevron(painter: &Painter, at: egui::Pos2, folded: bool, colour: Color32) {
+pub(in crate::plugins::claude_deck) fn chevron(
+    painter: &Painter,
+    at: egui::Pos2,
+    folded: bool,
+    colour: Color32,
+) {
     let points: [(f32, f32); 3] = if folded {
         [(3.5, 8.0), (6.5, 5.0), (3.5, 2.0)]
     } else {
