@@ -1,5 +1,6 @@
-//! ClaudeDeck's homelab servers: one group per server under the PC chats,
-//! with its Claude chats, and "Waits on <server>" for PC chats blocked on
+//! ClaudeDeck's homelab servers: one short line per server under the PC
+//! chats, with its chats that wait for the user; the Servers tab (`tab`)
+//! with a card per server; and "Waits on <server>" for PC chats blocked on
 //! a foreground ssh command. Off while the setting "Servers (ssh names)"
 //! is empty. Servers are read only while the window is open, by one
 //! read-only ssh call every 30 s (`poll`); nothing is installed or

@@ -296,3 +296,50 @@ fn the_words_of_the_header_and_the_rows() {
         "PID 10\n/home/rde/projects/wincraft/\nclaude --resume"
     );
 }
+
+#[test]
+fn the_chats_tab_has_one_short_line_per_server_and_its_chats_that_wait_for_you() {
+    use super::super::view as group_view;
+    let views = vec![
+        ("rdehome1".to_string(), host(false)),
+        ("rdehome2".to_string(), host(true)),
+    ];
+    let none = BTreeSet::new();
+    let hidden: BTreeSet<String> = ["s/hidden".to_string()].into();
+    let shape = Shape {
+        pinned: &none,
+        hidden: &hidden,
+        quiet_open: &none,
+        hidden_open: &none,
+        fold_cold: true,
+        now: NOW,
+    };
+    let lines = group_view::short_lines(&views, &shape);
+    let ids: Vec<String> = lines
+        .iter()
+        .map(|line| match line {
+            ServerLine::Server(at) => format!("server {at}"),
+            ServerLine::Chat { chat, greyed, .. } => format!("{} {greyed}", chat.id),
+            other => format!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        ids,
+        ["server 0", "s/b true", "server 1", "s/b false"],
+        "only the chat that asks; the working one is counted, not listed"
+    );
+    let mut more = host(true);
+    more.chats.push(chat("s/hidden", "/h", Mark::NeedsApproval));
+    more.chats.push(chat("s/c", "/c", Mark::Working));
+    assert_eq!(group_view::counts(&more), (2, 2));
+    assert_eq!(
+        group_view::line_text(&more, 0, NOW),
+        "2 wait for you \u{b7} 2 working"
+    );
+    assert_eq!(
+        group_view::line_text(&more, 1, NOW),
+        "1 PC chat waits \u{b7} 2 wait for you \u{b7} 2 working"
+    );
+    let lines = group_view::short_lines(&[("s".to_string(), more)], &shape);
+    assert_eq!(lines.len(), 2, "the hidden chat stays hidden");
+}

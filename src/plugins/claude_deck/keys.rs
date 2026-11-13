@@ -192,8 +192,11 @@ pub fn keys(
         state.scroll_to_selected = true;
     }
     if let Some(target) = state.servers.target(&picked).cloned() {
-        // Enter opens a terminal there; Ctrl+C copies the name.
-        if pressed.enter {
+        // Enter opens the server's card on the Servers tab, or a terminal
+        // in a chat's folder; Ctrl+C copies the name.
+        if pressed.enter && picked == servers::server_pick(&target.server) {
+            servers::draw::open_card(state, &target.server);
+        } else if pressed.enter {
             servers::open_terminal(&target.server, target.folder.as_deref());
         }
         if pressed.copy {

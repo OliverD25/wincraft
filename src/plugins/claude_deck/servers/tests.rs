@@ -402,7 +402,7 @@ fn a_server_group_shows_its_line_and_its_chats() {
     let host = view_of(chats, true);
     assert_eq!(
         view::line_text(&host, 0, NOW),
-        "CPU 34% \u{b7} RAM 61% \u{b7} 3"
+        "1 waits for you \u{b7} 1 working"
     );
     let views = vec![("rdehome2".to_string(), host)];
     let lines = shape_lines(&views, &BTreeSet::new());
@@ -933,8 +933,9 @@ fn a_running_remote_control_chat_is_never_cold() {
 #[test]
 fn a_server_line_says_when_pc_chats_wait_on_it() {
     let host = view_of(vec![server_chat("s/a", Mark::Idle(Age::Fresh))], true);
-    assert_eq!(view::line_text(&host, 1, NOW), "1 PC chat waits \u{b7} 1");
-    assert_eq!(view::line_text(&host, 2, NOW), "2 PC chats wait \u{b7} 1");
+    assert_eq!(view::line_text(&host, 1, NOW), "1 PC chat waits");
+    assert_eq!(view::line_text(&host, 2, NOW), "2 PC chats wait");
+    assert_eq!(view::line_text(&host, 0, NOW), view::NONE_WORKING);
     assert_eq!(
         view::line_text(&view_of(Vec::new(), true), 1, NOW),
         "1 PC chat waits"

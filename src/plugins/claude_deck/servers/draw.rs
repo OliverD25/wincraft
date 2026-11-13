@@ -1,8 +1,11 @@
-//! The server groups, drawn under the PC chats in the same scroll area:
-//! each server's line (online dot, name, CPU, RAM and chat count, or
-//! "Offline · last seen ..."), its chats as ordinary rows, and its lines
-//! of quiet and hidden chats. A click on a chat opens a terminal there;
-//! its menu has "Open a terminal there", pin, hide, and the copy items.
+//! The servers on the Chats tab, drawn under the PC chats in the same
+//! scroll area: one short line per server (icon, name, online dot, and its
+//! chats that wait for the user and that work, or "Offline · last seen
+//! ..."); a click or Enter on it opens the Servers tab at its card. Under
+//! it, its chats that wait for the user, as ordinary rows. A click on a
+//! chat opens a terminal there; its menu has "Open a terminal there",
+//! pin, hide, and the copy items. The row drawing here is shared with the
+//! Servers tab (`tab`).
 
 use std::time::Duration;
 
@@ -53,8 +56,15 @@ pub fn lines_of(state: &DeckUi, look: &Look) -> (Vec<(String, super::HostView)>,
         fold_cold: look.settings.fold_cold,
         now: look.now,
     };
-    let lines = view::lines(&views, &shape);
+    let lines = view::short_lines(&views, &shape);
     (views, lines)
+}
+
+/// Opens the Servers tab at a server's card.
+pub fn open_card(state: &mut DeckUi, server: &str) {
+    state.news.tab = crate::plugins::claude_deck::news::Tab::Servers;
+    state.servers.tab.focus(server);
+    state.keyboard = true;
 }
 
 /// Draws the server groups below what the list drew so far.
@@ -98,11 +108,17 @@ pub fn section(ui: &mut Ui, look: &Look, state: &mut DeckUi) {
                 if selected && std::mem::take(&mut state.scroll_to_selected) {
                     ui.scroll_to_rect(rect, None);
                 }
-                let response = ui.interact(rect, id, Sense::hover());
+                let response = ui
+                    .interact(rect, id, Sense::click())
+                    .on_hover_cursor(egui::CursorIcon::PointingHand);
                 let looks = (response.hovered(), selected);
                 let waiting = view::waiting_on(server, &state.servers.waits);
                 server_line(&painter, rect, (server, waiting), host, look, looks);
                 let words = view::hover_text(server, host, &state.servers.waits, look.now);
+                if response.clicked() {
+                    state.selected = Some(super::server_pick(server));
+                    open_card(state, server);
+                }
                 response.on_hover_ui(|ui| server_hover(ui, host, &words));
             }
             ServerLine::Chat { chat, server, .. } => {
@@ -340,10 +356,10 @@ pub(super) fn colours(online: bool, tokens: &theme::Tokens) -> (Color32, Color32
     }
 }
 
-/// A server's line: the server icon, the name, a round status dot, and at
-/// the right the CPU, RAM and chat count, or the offline words. Unlike the
-/// user's groups it has no colour mark and no menu: its name comes from
-/// the setting.
+/// A server's short line: the server icon, the name, a round status dot,
+/// and at the right the counts of its chats that wait for the user and
+/// that work, or the offline words. Unlike the user's groups it has no
+/// colour mark and no menu: its name comes from the setting.
 fn server_line(
     painter: &Painter,
     rect: Rect,
@@ -369,9 +385,15 @@ fn server_line(
     let (icon, dot) = colours(host.online, tokens);
     server_icon(painter, pos2(left, middle - ICON / 2.0), icon);
     let right_words = view::line_text(host, waiting, look.now);
+    let for_you = view::counts(host).0;
     let right_colour = if waiting > 0 && host.online {
         crate::plugins::claude_deck::marks::colour(
             crate::plugins::claude_deck::model::Mark::WaitsOnServer,
+            tokens,
+        )
+    } else if for_you > 0 && host.online {
+        crate::plugins::claude_deck::marks::colour(
+            crate::plugins::claude_deck::model::Mark::AsksYou,
             tokens,
         )
     } else {

@@ -161,3 +161,37 @@ fn a_click_on_a_header_folds_the_card() {
     deck.click(painted.at("tab3"));
     assert!(!deck.state.servers.tab.folded.contains("rdetab3"));
 }
+
+#[test]
+fn the_chats_tab_short_line_opens_the_servers_tab_at_the_card() {
+    let mut deck = with_server("rdetab4");
+    let painted = deck.settle();
+    assert!(painted.has("tab4"), "{:?}", painted.texts);
+    assert!(painted.has("No Claude chats"), "{:?}", painted.texts);
+    assert!(
+        !painted.has("nginx.service"),
+        "services are on the Servers tab only"
+    );
+    deck.state.servers.tab.folded.insert("rdetab4".to_string());
+    deck.click(painted.at("tab4"));
+    assert_eq!(deck.state.news.tab, Tab::Servers);
+    assert_eq!(
+        deck.state.servers.tab.selected,
+        Some(Pick::Card("rdetab4".to_string()))
+    );
+    assert!(
+        !deck.state.servers.tab.folded.contains("rdetab4"),
+        "unfolded"
+    );
+    deck.state.news.tab = Tab::Chats;
+    deck.state.servers.tab.selected = None;
+    deck.settle();
+    deck.key(Key::End);
+    assert_eq!(deck.state.selected, Some(servers::server_pick("rdetab4")));
+    deck.key(Key::Enter);
+    assert_eq!(deck.state.news.tab, Tab::Servers, "Enter does the same");
+    assert_eq!(
+        deck.state.servers.tab.selected,
+        Some(Pick::Card("rdetab4".to_string()))
+    );
+}
