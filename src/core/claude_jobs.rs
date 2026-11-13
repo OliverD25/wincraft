@@ -22,6 +22,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use crate::core::claude_launches::{Launch, Launches};
 use crate::core::claude_turns::{Replies, Reply, Tail, Turn};
 
 /// A job that started this long ago and never ended is ignored: the app may
@@ -223,6 +224,10 @@ struct Entry {
     replies: Replies,
     /// The finished replies, and the offset they were taken at.
     shown: Option<(u64, Arc<Vec<Reply>>)>,
+    /// The ssh calls (`claude_launches`), and those of the last week as
+    /// taken at an offset.
+    launches: Launches,
+    sent: Option<(u64, Arc<Vec<Launch>>)>,
 }
 
 /// What the reader thread has read so far. Only `refresh` touches it.
@@ -239,6 +244,8 @@ static TURNS: Mutex<Option<HashMap<String, Turn>>> = Mutex::new(None);
 /// The finished replies of ClaudeDeck's chats, for its News tab, written
 /// whole after each read like the turns.
 static REPLIES: Mutex<Option<HashMap<String, Arc<Vec<Reply>>>>> = Mutex::new(None);
+/// The ssh calls of ClaudeDeck's chats, written whole like the turns.
+static LAUNCHES: Mutex<Option<HashMap<String, Arc<Vec<Launch>>>>> = Mutex::new(None);
 
 /// Names the chats whose windows are shown now (their `cliSessionId`s);
 /// only these are read at the next `refresh`.
@@ -310,6 +317,8 @@ pub fn refresh(now: u64) {
             entry.turn = None;
             entry.replies.reset();
             entry.shown = None;
+            entry.launches.reset();
+            entry.sent = None;
         }
         let Some(path) = entry.path.clone() else {
             continue;
@@ -324,6 +333,7 @@ pub fn refresh(now: u64) {
         .unwrap_or_default();
     let mut turns = HashMap::new();
     let mut replies = HashMap::new();
+    let mut launches = HashMap::new();
     for id in &deck {
         let Some(entry) = entries.get_mut(id) else {
             continue;
@@ -341,6 +351,12 @@ pub fn refresh(now: u64) {
         if let Some((_, shown)) = &entry.shown {
             replies.insert(id.clone(), Arc::clone(shown));
         }
+        if entry.sent.as_ref().is_none_or(|(at, _)| *at != offset) {
+            entry.sent = Some((offset, Arc::new(entry.launches.recent(now))));
+        }
+        if let Some((_, sent)) = &entry.sent {
+            launches.insert(id.clone(), Arc::clone(sent));
+        }
     }
     publish_open(&entries);
     if let Ok(mut read) = READ.lock() {
@@ -351,6 +367,9 @@ pub fn refresh(now: u64) {
     }
     if let Ok(mut latest) = REPLIES.lock() {
         *latest = Some(replies);
+    }
+    if let Ok(mut latest) = LAUNCHES.lock() {
+        *latest = Some(launches);
     }
 }
 
@@ -377,6 +396,7 @@ fn read_new(path: &Path, entry: &mut Entry, now: u64) -> std::io::Result<()> {
         entry.scan.reset();
         entry.tail.reset();
         entry.replies.reset();
+        entry.launches.reset();
     }
     if len == entry.scan.offset() {
         return Ok(());
@@ -387,6 +407,7 @@ fn read_new(path: &Path, entry: &mut Entry, now: u64) -> std::io::Result<()> {
     let mut chunk = vec![0u8; READ_CHUNK];
     let tail = &mut entry.tail;
     let replies = &mut entry.replies;
+    let launches = &mut entry.launches;
     loop {
         let got = rest.read(&mut chunk)?;
         if got == 0 {
@@ -395,6 +416,7 @@ fn read_new(path: &Path, entry: &mut Entry, now: u64) -> std::io::Result<()> {
         entry.scan.feed_with(&chunk[..got], now, |line| {
             tail.line(line);
             replies.line(line);
+            launches.line(line, now);
         });
     }
 }
@@ -409,6 +431,12 @@ pub fn turn(cli_session_id: &str) -> Option<Turn> {
 /// oldest first, as read last. None before its transcript was read.
 pub fn replies(cli_session_id: &str) -> Option<Arc<Vec<Reply>>> {
     REPLIES.lock().ok()?.as_ref()?.get(cli_session_id).cloned()
+}
+
+/// The ssh calls of the last week of ClaudeDeck's chat with this
+/// `cliSessionId`, oldest first, as read last.
+pub fn launches(cli_session_id: &str) -> Option<Arc<Vec<Launch>>> {
+    LAUNCHES.lock().ok()?.as_ref()?.get(cli_session_id).cloned()
 }
 
 /// The running jobs of the chat with this `cliSessionId`, as read last:
