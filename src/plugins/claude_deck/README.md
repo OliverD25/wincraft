@@ -270,20 +270,36 @@ its first 120 characters, with the same hiding.
 
 List your servers' ssh names in **Servers (ssh names)** (under
 **Homelab**), for example `rdehome1, rdehome2`. Empty, the default, turns
-this off: nothing is read and no server group shows.
+this off: nothing is read, and no server line and no **Servers** tab show.
 
-- Each server is a group under the PC chats: a server icon, its name
-  without a leading `rde`, a green dot when it answers, and CPU, RAM and the
-  number of chats. A server that does not answer shows "Offline · last seen
-  3 h ago" and keeps its chats as last known, drawn see-through. Rest the
-  mouse on the server's line for details, its health ("Up 12 days ·
-  Restart needed", "Disk 120 GB free of 512 GB", "Busiest: dockerd 85%")
-  and the PC chats that wait on it.
-- Its chats are the Remote Control chats (`claude-rc@<folder>` units) and
-  every other chat whose transcript changed in the last 24 hours. Click one
-  to open Windows Terminal with ssh in its folder; right-click for **Open a
-  terminal there**, pin, hide, **Copy the name** and **Copy the folder
-  path**.
+- On the **Chats** tab each server has one short line under the PC chats:
+  a server icon, its name without a leading `rde`, a green dot when it
+  answers, and the counts of its chats that wait for you and that work
+  ("1 waits for you · 2 working"). A server that does not answer shows
+  "Offline · last seen 3 h ago". Rest the mouse on the line for details,
+  its health ("Up 12 days · Restart needed", "Disk 120 GB free of 512 GB",
+  "Busiest: dockerd 85%") and the PC chats that wait on it. Click the line
+  (or press `Enter` on it) to open the **Servers** tab at that server's
+  card. The server's chats that wait for you (approval or a question)
+  stay as rows under the line, so nothing that needs you is hidden.
+- The **Servers** tab has one folding card per server, in the setting's
+  order. The header shows CPU, RAM, free disk, uptime and **Restart
+  needed**, or "Offline · last seen ..." with the card's last data drawn
+  see-through. Under it, each section only when it has something:
+  **Chats** (all the server's chats), **Claude processes** (each running
+  `claude` with its chat, folder, CPU, RAM and run time; one with no chat
+  is marked **No chat (orphan)**), **Busiest** (the top five processes by
+  CPU) and **Services** (failed systemd services, your own services, and
+  every Docker container, each running, stopped, failed or restarting).
+  The tab shows a red count of problems: offline servers, failed or
+  restarting services and containers, and orphan `claude` processes; its
+  tooltip lists them. It only reads: a process can be copied (**Copy the
+  command line**, **Copy the PID**), nothing can be stopped from here.
+- A server's chats are the Remote Control chats (`claude-rc@<folder>`
+  units) and every other chat whose transcript changed in the last 24
+  hours. Click one to open Windows Terminal with ssh in its folder;
+  right-click for **Open a terminal there**, pin, hide, **Copy the name**
+  and **Copy the folder path**.
 - A PC chat whose running command is a foreground `ssh` to one of your
   servers (by any name on its `Host` line in `~\.ssh\config`) shows
   **Waits on a server**: "Waits on home2 · docker compose up", and the
@@ -314,8 +330,11 @@ How it reads: while the ClaudeDeck window is open, and only then, one
 Windows' own ssh, `BatchMode=yes` (never a password prompt), a 6 s connect
 time, and a stop after 20 s. The script it sends only reads: the clock, CPU,
 memory and uptime from `/proc`, whether a restart is needed, the free disk
-of `/`, the busiest process, the running Remote Control units, the folders of
-running `claude` processes, and the last 64 KB of each recent transcript
+of `/`, the five busiest processes, the running Remote Control units, the
+`claude` processes (folder, CPU, memory, run time, command line), the failed
+systemd units, your own units, the units that run as you, `docker ps -a`
+(skipped when Docker is missing or not allowed), and the last 64 KB of each
+recent transcript
 under `~/.claude/projects` (a transcript that did not change is not sent
 again). Nothing is installed, written or changed on a server.
 
