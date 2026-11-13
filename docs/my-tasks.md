@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 37. Install 0.20.121: see server jobs started by PC chats in ClaudeDeck
 
-- **State:** Wait: the 0.20.121 release is still building on GitHub.
+- **State:** Ready to test. Release 0.20.121 is published with wincraft.exe and SHA256SUMS.txt (checked 2026-11-13).
 - **Kind:** test · **Added:** 2026-11-13 (PC, branch claude/wincraft-design-artifact-move-4b267d)
 - **Why:** you asked to see when PC chats make the homelab servers work.
   Nothing was checked on screen yet; the server read itself ran on all
