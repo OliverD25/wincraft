@@ -40,7 +40,7 @@ pub fn ssh_hosts(command: &str) -> Vec<String> {
 /// The command split into simple commands, each a list of words. Quotes
 /// are dropped, so a command inside `bash -lc '...'` is read as words
 /// after the wrapper.
-fn commands(command: &str) -> Vec<Vec<String>> {
+pub(crate) fn commands(command: &str) -> Vec<Vec<String>> {
     let mut all = Vec::new();
     let mut words = Vec::new();
     let mut word = String::new();
@@ -70,7 +70,7 @@ fn commands(command: &str) -> Vec<Vec<String>> {
 }
 
 /// The last part of a path, without `.exe`, in lower case.
-fn program(word: &str) -> String {
+pub(crate) fn program(word: &str) -> String {
     let name = word.rsplit(['/', '\\']).next().unwrap_or(word);
     let name = name.to_ascii_lowercase();
     name.strip_suffix(".exe")
@@ -79,7 +79,7 @@ fn program(word: &str) -> String {
 }
 
 /// The host of one simple command, when it is ssh.
-fn host_of(words: &[String]) -> Option<String> {
+pub(crate) fn host_of(words: &[String]) -> Option<String> {
     let mut at = 0;
     // Wrappers and variable settings in front of the command.
     loop {

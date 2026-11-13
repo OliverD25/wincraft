@@ -40,6 +40,7 @@ fn parent() -> Chat {
         fork: None,
         terminal: None,
         news: false,
+        job_on: None,
     }
 }
 

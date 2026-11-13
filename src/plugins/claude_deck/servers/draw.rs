@@ -22,6 +22,7 @@ use crate::plugins::claude_deck::rows::{self, Look, GROUP, GROUP_GAP, ROW, ROW_T
 use crate::plugins::claude_deck::window::{DeckUi, Pick};
 use crate::ui::widgets::text;
 
+use super::jobs::text as job_text;
 use super::view::{self, ServerLine, Shape};
 use super::{group_name, terminal};
 
@@ -58,6 +59,24 @@ pub fn lines_of(state: &DeckUi, look: &Look) -> (Vec<(String, super::HostView)>,
     };
     let lines = view::short_lines(&views, &shape);
     (views, lines)
+}
+
+/// A server's hover words with its jobs from the PC after them.
+pub fn with_job_lines(words: String, jobs: &[&super::jobs::Job], now: u64) -> String {
+    let lines = job_text::server_hover(jobs, now);
+    if lines.is_empty() {
+        words
+    } else {
+        format!("{words}\n{lines}")
+    }
+}
+
+/// Goes to a PC chat on the Chats tab and picks it.
+pub fn show_chat(state: &mut DeckUi, id: &str) {
+    state.news.tab = crate::plugins::claude_deck::news::Tab::Chats;
+    state.selected = Some(Pick::Chat(id.to_string()));
+    state.scroll_to_selected = true;
+    state.keyboard = true;
 }
 
 /// Opens the Servers tab at a server's card.
@@ -113,8 +132,13 @@ pub fn section(ui: &mut Ui, look: &Look, state: &mut DeckUi) {
                     .on_hover_cursor(egui::CursorIcon::PointingHand);
                 let looks = (response.hovered(), selected);
                 let waiting = view::waiting_on(server, &state.servers.waits);
-                server_line(&painter, rect, (server, waiting), host, look, looks);
-                let words = view::hover_text(server, host, &state.servers.waits, look.now);
+                let jobs = job_text::on_server(server, &state.servers.jobs);
+                server_line(&painter, rect, (server, waiting, &jobs), host, look, looks);
+                let words = with_job_lines(
+                    view::hover_text(server, host, &state.servers.waits, look.now),
+                    &jobs,
+                    look.now,
+                );
                 if response.clicked() {
                     state.selected = Some(super::server_pick(server));
                     open_card(state, server);
@@ -363,7 +387,7 @@ pub(super) fn colours(online: bool, tokens: &theme::Tokens) -> (Color32, Color32
 fn server_line(
     painter: &Painter,
     rect: Rect,
-    (server, waiting): (&str, usize),
+    (server, waiting, jobs): (&str, usize, &[&super::jobs::Job]),
     host: &super::HostView,
     look: &Look,
     (hovered, selected): (bool, bool),
@@ -384,7 +408,8 @@ fn server_line(
     let left = rect.left() + PAD;
     let (icon, dot) = colours(host.online, tokens);
     server_icon(painter, pos2(left, middle - ICON / 2.0), icon);
-    let right_words = view::line_text(host, waiting, look.now);
+    let right_words =
+        job_text::with_jobs(view::line_text(host, waiting, look.now), host.online, jobs);
     let for_you = view::counts(host).0;
     let right_colour = if waiting > 0 && host.online {
         crate::plugins::claude_deck::marks::colour(

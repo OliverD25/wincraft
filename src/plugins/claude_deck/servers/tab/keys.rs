@@ -4,7 +4,8 @@
 //! unfolds it, Space does either, and Enter opens a terminal in the
 //! server's home folder. On a row Left goes to its card's header. On a
 //! chat Enter opens a terminal in its folder, as on the Chats tab; on the
-//! quiet or hidden chats' line Enter or Space folds and unfolds it.
+//! quiet or hidden chats' line Enter or Space folds and unfolds it. On a
+//! job from the PC Enter goes to its chat on the Chats tab.
 //! Ctrl+C copies the name: the server's, the chat's or the service's, or
 //! a process's command line.
 
@@ -102,6 +103,7 @@ pub fn keys(ui: &Ui, state: &mut DeckUi, busy: bool) -> Asked {
         Enter::Terminal(folder) if enter => terminal::open(&act.server, folder.as_deref()),
         Enter::FoldQuiet if enter || space => toggle(&mut state.servers.quiet_open, &act.server),
         Enter::FoldHidden if enter || space => toggle(&mut state.servers.hidden_open, &act.server),
+        Enter::ShowChat(id) if enter => super::super::draw::show_chat(state, &id),
         _ => {}
     }
     asked

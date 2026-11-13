@@ -14,6 +14,7 @@ use crate::core::claude_sessions;
 use crate::core::claude_turns::Reply;
 use crate::plugins::claude_deck::model::Chat;
 
+use super::jobs::load::{RawJob, UnitInfo};
 use super::load::{Proc, Service};
 use super::probe;
 use super::reply::{self, RawChat};
@@ -63,6 +64,12 @@ pub struct HostView {
     pub busiest: Vec<Proc>,
     /// Failed and the user's own services and containers, as last known.
     pub services: Vec<Service>,
+    /// The server's home folder.
+    pub home: Option<String>,
+    /// The jobs under the home folder, as last known.
+    pub jobs: Vec<RawJob>,
+    /// systemd's data of the units asked about, in the PC's clock.
+    pub units: Vec<UnitInfo>,
 }
 
 /// The transcripts already read from one server, by folder.
@@ -90,13 +97,18 @@ fn end_busy(host: &str) {
     }
 }
 
-/// The script for a server, told which transcripts it need not send.
-pub fn script_for(cache: &Cache) -> String {
+/// The user units to ask systemd about, by server: the units PC chats
+/// started, written by the window.
+pub type Asks = Arc<Mutex<HashMap<String, Vec<String>>>>;
+
+/// The script for a server, told which transcripts it need not send and
+/// which units to print systemd's data of.
+pub fn script_for(cache: &Cache, units: &[String]) -> String {
     let known: Vec<(String, u64, u64)> = cache
         .values()
         .map(|(raw, _)| (raw.dir.clone(), raw.mtime, raw.size))
         .collect();
-    probe::script(&known)
+    probe::script_with(&known, units)
 }
 
 /// Puts one call's result into the server's view. A failed call keeps
@@ -122,6 +134,19 @@ pub fn take_reply(
     view.claude = reply.claude.clone();
     view.busiest = reply.busiest.clone();
     view.services = reply.services.clone();
+    view.home = reply.home.clone();
+    view.jobs = reply.jobs.clone();
+    let offset = now as i64 - (reply.now as i64).saturating_mul(1000);
+    let shift = |at: Option<u64>| at.and_then(|at| u64::try_from(at as i64 + offset).ok());
+    view.units = reply
+        .units
+        .iter()
+        .map(|unit| UnitInfo {
+            started: shift(unit.started),
+            ended: shift(unit.ended),
+            ..unit.clone()
+        })
+        .collect();
     let running = Running {
         rc: &reply.rc,
         procs: &reply.procs,
@@ -190,6 +215,7 @@ fn in_pc_clock(replies: &[Reply], server_now: u64, now: u64) -> Vec<Reply> {
 pub struct Poller {
     stop: Arc<AtomicBool>,
     pub views: Views,
+    pub asks: Asks,
 }
 
 impl Poller {
@@ -201,17 +227,18 @@ impl Poller {
     ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let views: Views = Arc::default();
+        let asks: Asks = Arc::default();
         for name in servers {
             let (server, runner, wake) = (name.clone(), runner.clone(), wake.clone());
-            let (stop, views) = (stop.clone(), views.clone());
+            let (stop, views, asks) = (stop.clone(), views.clone(), asks.clone());
             let spawned = std::thread::Builder::new()
                 .name(format!("deck-server-{server}"))
-                .spawn(move || poll(&server, &*runner, &*wake, &stop, &views));
+                .spawn(move || poll(&server, &*runner, &*wake, &stop, (&views, &asks)));
             if let Err(err) = spawned {
                 log::warn!("ClaudeDeck: could not start reading {name}: {err}");
             }
         }
-        Poller { stop, views }
+        Poller { stop, views, asks }
     }
 }
 
@@ -221,7 +248,13 @@ impl Drop for Poller {
     }
 }
 
-fn poll(server: &str, runner: &dyn Runner, wake: &dyn Fn(), stop: &AtomicBool, views: &Views) {
+fn poll(
+    server: &str,
+    runner: &dyn Runner,
+    wake: &dyn Fn(),
+    stop: &AtomicBool,
+    (views, asks): (&Views, &Asks),
+) {
     let mut cache = Cache::new();
     while !stop.load(Ordering::SeqCst) {
         if !take_busy(server) {
@@ -229,7 +262,12 @@ fn poll(server: &str, runner: &dyn Runner, wake: &dyn Fn(), stop: &AtomicBool, v
             std::thread::sleep(STEP);
             continue;
         }
-        let result = runner.run(server, &script_for(&cache));
+        let units = asks
+            .lock()
+            .ok()
+            .and_then(|asks| asks.get(server).cloned())
+            .unwrap_or_default();
+        let result = runner.run(server, &script_for(&cache, &units));
         end_busy(server);
         if stop.load(Ordering::SeqCst) {
             return;

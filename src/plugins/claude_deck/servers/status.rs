@@ -188,6 +188,7 @@ pub fn ready_chats(
             fork: None,
             terminal: None,
             news: false,
+            job_on: None,
         });
     }
     rows
@@ -284,5 +285,6 @@ pub fn chat(
         ),
         terminal: None,
         news: false,
+        job_on: None,
     }
 }

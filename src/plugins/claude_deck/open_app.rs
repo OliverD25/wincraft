@@ -294,6 +294,7 @@ mod tests {
             fork: None,
             terminal: None,
             news: false,
+            job_on: None,
         }
     }
 

@@ -9,6 +9,7 @@
 pub mod aliases;
 pub mod busy;
 pub mod draw;
+pub mod jobs;
 pub mod load;
 pub mod poll;
 pub mod probe;
@@ -18,7 +19,7 @@ pub mod tab;
 mod terminal;
 pub mod view;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use crate::core::claude_turns::Turn;
@@ -137,6 +138,10 @@ pub struct Deck {
     pub keyed: Vec<(Pick, Target)>,
     /// The Servers tab's own state.
     pub tab: tab::TabUi,
+    /// The jobs PC chats started on the servers, as linked last.
+    pub jobs: Vec<jobs::Job>,
+    /// The jobs of the last 24 h that ended.
+    pub history: jobs::history::History,
 }
 
 impl Deck {
@@ -190,6 +195,15 @@ impl Deck {
     #[cfg(test)]
     pub fn is_reading(&self) -> bool {
         self.poller.is_some()
+    }
+
+    /// Tells the readers which user units to ask systemd about, by server.
+    pub fn ask_units(&self, units: HashMap<String, Vec<String>>) {
+        if let Some(poller) = &self.poller {
+            if let Ok(mut asks) = poller.asks.lock() {
+                *asks = units;
+            }
+        }
     }
 
     /// Each listed server with what is known of it, in the setting's order.

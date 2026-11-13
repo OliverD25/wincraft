@@ -30,7 +30,7 @@ const SECTION: f32 = 22.0;
 const ROW: f32 = 22.0;
 const PAD: f32 = 10.0;
 /// Rows sit under the server's name.
-const INDENT: f32 = PAD + 10.0 + 7.0;
+pub(super) const INDENT: f32 = PAD + 10.0 + 7.0;
 const ARROW: f32 = 10.0;
 const ICON: f32 = 14.0;
 const GAP: f32 = 7.0;
@@ -45,7 +45,7 @@ fn line_height(line: &Line, first: bool, two: bool) -> f32 {
         Line::Card { .. } => CARD_TOP + CARD,
         Line::Section(_) => SECTION,
         Line::Chat(chat) => chat_height(chat, two),
-        Line::Proc { .. } | Line::Service { .. } => ROW,
+        Line::Proc { .. } | Line::Service { .. } | Line::Work { .. } | Line::Ended { .. } => ROW,
     }
 }
 
@@ -74,6 +74,16 @@ fn act_of(line: &Line, server: &str) -> Act {
         Line::Chat(ServerLine::Hidden { .. }) => (Enter::FoldHidden, String::new()),
         Line::Proc { proc, .. } => (Enter::Nothing, proc.command.clone()),
         Line::Service { service, .. } => (Enter::Nothing, service.name.clone()),
+        Line::Work { job, .. } => (
+            job.chats
+                .first()
+                .map_or(Enter::Nothing, |(id, _)| Enter::ShowChat(id.clone())),
+            job.command.clone(),
+        ),
+        Line::Ended { end, .. } => (
+            end.chat.clone().map_or(Enter::Nothing, Enter::ShowChat),
+            end.command.clone(),
+        ),
         Line::Section(_) | Line::Chat(ServerLine::Server(_)) => (Enter::Nothing, String::new()),
     };
     Act {
@@ -96,7 +106,11 @@ pub fn show(ui: &mut Ui, look: &Look, state: &mut DeckUi) {
         now: look.now,
     };
     let folded = state.servers.tab.folded.clone();
-    let lines = view::lines(&views, &|server| folded.contains(server), &shape);
+    let work = view::Work {
+        jobs: &state.servers.jobs,
+        history: &state.servers.history,
+    };
+    let lines = view::lines(&views, &|server| folded.contains(server), &shape, &work);
     let owners = servers_of(&lines);
     state.servers.tab.picks = lines
         .iter()
@@ -179,8 +193,11 @@ pub fn show(ui: &mut Ui, look: &Look, state: &mut DeckUi) {
                             state.servers.tab.fold(server, !*folded);
                         }
                         card_menu(&response, state.window, server);
-                        let words =
-                            group_view::hover_text(server, host, &state.servers.waits, look.now);
+                        let words = super::super::draw::with_job_lines(
+                            group_view::hover_text(server, host, &state.servers.waits, look.now),
+                            &super::super::jobs::text::on_server(server, &state.servers.jobs),
+                            look.now,
+                        );
                         response.on_hover_ui(|ui| server_hover(ui, host, &words));
                     }
                     Line::Section(title) => section(&faded, whole, title, look.tokens),
@@ -212,6 +229,22 @@ pub fn show(ui: &mut Ui, look: &Look, state: &mut DeckUi) {
                         let words = view::proc_hover(proc);
                         response.on_hover_text(words);
                     }
+                    Line::Work { .. } | Line::Ended { .. } => {
+                        let response = ui.interact(rect, id, Sense::click());
+                        let looks = (response.hovered(), selected);
+                        if let Some(chat) = super::work::row(
+                            &faded,
+                            rect,
+                            line,
+                            look,
+                            looks,
+                            &response,
+                            state.window,
+                        ) {
+                            state.servers.tab.selected = pick.clone();
+                            super::super::draw::show_chat(state, &chat);
+                        }
+                    }
                     Line::Service { service, .. } => {
                         let response = ui.interact(rect, id, Sense::click());
                         service_row(
@@ -242,7 +275,12 @@ pub fn show(ui: &mut Ui, look: &Look, state: &mut DeckUi) {
 }
 
 /// The back of a selected or hovered line.
-fn back(painter: &Painter, rect: Rect, tokens: &Tokens, (hovered, selected): (bool, bool)) {
+pub(super) fn back(
+    painter: &Painter,
+    rect: Rect,
+    tokens: &Tokens,
+    (hovered, selected): (bool, bool),
+) {
     if selected {
         painter.rect_filled(rect, 4.0, tokens.selection_bg);
         painter.rect_stroke(
@@ -359,7 +397,7 @@ fn section(painter: &Painter, rect: Rect, title: &str, tokens: &Tokens) {
 }
 
 /// A row's left words, a small note after them, and the right words.
-fn row_words(
+pub(super) fn row_words(
     painter: &Painter,
     rect: Rect,
     left: f32,

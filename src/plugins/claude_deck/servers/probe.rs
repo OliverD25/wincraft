@@ -4,7 +4,8 @@
 //! Control units (`claude-rc@<folder>`), the folders of running `claude`
 //! processes, and the end of each recent transcript under
 //! `~/.claude/projects`; for the Servers tab also the `claude` processes,
-//! the five busiest processes, systemd's units and Docker's containers.
+//! the five busiest processes, systemd's units and Docker's containers;
+//! and the jobs that run under the home folder, for "Work from the PC".
 //! Nothing is installed or written on the server.
 
 use std::io::{Read, Write};
@@ -35,7 +36,13 @@ pub const KILL_AFTER: Duration = Duration::from_secs(20);
 /// name<TAB>command` (the five busiest), `SVC system|user unit active sub`
 /// (failed units, the user's own units, and system units that run as the
 /// user), `DOCK name<TAB>state<TAB>status` (every container; nothing when
-/// Docker is missing or not allowed), then per transcript
+/// Docker is missing or not allowed), `JOB unit|- t|e|- pid secs cpu
+/// rss<TAB>cwd<TAB>args` (a job: one line per user unit, or per process
+/// tree in a login session, whose folder is under the home folder; shells,
+/// ssh, systemd, `claude` and the probe's own tools are skipped; `t` is a
+/// unit a timer starts, `e` one that starts at boot; at most 40), `UNIT
+/// Key=value ...` (systemd's data of each unit named in `units`), then per
+/// transcript
 /// `CHAT dir file mtime size` with the base64 of its end and `END`, or
 /// `SAME dir file mtime size` when it has not changed since the last call,
 /// or `READY dir mtime` for a Remote Control folder with no transcript yet
@@ -91,6 +98,40 @@ mine=$(grep -ls "^User=$(id -un)\$" /etc/systemd/system/*.service 2>/dev/null | 
 [ -n "$mine" ] && systemctl list-units --all --no-legend --plain $mine 2>/dev/null | awk '{ print "SVC system", $1, $3, $4 }'
 systemctl list-units --all --type=service --no-legend --plain 2>/dev/null | awk '$3 == "failed" || ($3 == "activating" && $4 == "auto-restart") { print "SVC system", $1, $3, $4 }'
 timeout 5 docker ps -a --format '{{.Names}}\t{{.State}}\t{{.Status}}' </dev/null 2>/dev/null | head -40 | sed 's/^/DOCK /'
+tab=$(printf '\t')
+uid=$(id -u)
+mgr=$(pgrep -u "$uid" -x systemd 2>/dev/null | head -n 1)
+ps -u "$uid" -o pid=,ppid=,etimes=,pcpu=,rss=,comm= 2>/dev/null | while read -r p pp e c r n; do
+  [ "$p" = "$$" ] && continue
+  case $n in sshd|sshd-session|systemd|"(sd-pam)"|claude|ps|sleep|tmux*|screen|head|tail|cat|awk|sed|grep|cut|tr|sort|wc|base64|ls|stat|readlink|pgrep) continue;; esac
+  case $n in bash|sh|dash|zsh|fish) [ "$pp" = 1 ] || [ "$pp" = "$mgr" ] || continue;; esac
+  read -r g < "/proc/$p/cgroup" 2>/dev/null || continue
+  case $g in */user.slice/*) ;; *) continue;; esac
+  u=${g##*/}
+  case $u in user@*|claude-rc@*|init.scope) continue;; *.service) ;; *.scope) u=-;; *) continue;; esac
+  d=$(readlink "/proc/$p/cwd" 2>/dev/null) || continue
+  case $d in "$HOME"|"$HOME"/*) ;; *) continue;; esac
+  printf '%s %s %s %s %s %s\t%s\n' "$u" "$p" "$pp" "$e" "$c" "$r" "$d"
+done | awk 'BEGIN { FS = "\t" }
+{ split($1, a, " "); p = a[2]; u[p] = a[1]; par[p] = a[3]; et[p] = a[4] + 0; cpu[p] = a[5] + 0; rss[p] = a[6] + 0; cwd[p] = $2; o[++n] = p }
+END {
+  for (i = 1; i <= n; i++) {
+    p = o[i]; k = u[p]
+    if (k == "-") { q = p; while ((par[q] in u) && u[par[q]] == "-") q = par[q]; k = "-" q }
+    if (!(k in m)) { m[k] = p; ks[++c] = k } else if (et[p] > et[m[k]]) m[k] = p
+    cs[k] += cpu[p]; rs[k] += rss[p]
+  }
+  for (j = 1; j <= c && j <= 40; j++) { k = ks[j]; p = m[k]; printf "%s %s %d %.1f %d\t%s\n", (substr(k, 1, 1) == "-" ? "-" : k), p, et[p], cs[k], rs[k], cwd[p] }
+}' | while IFS="$tab" read -r h d; do
+  set -- $h
+  f=-
+  [ "$1" != - ] && f=$(systemctl --user show -p TriggeredBy -p UnitFileState "$1" 2>/dev/null | awk -F= '$1 == "TriggeredBy" && $2 != "" { t = 1 } $1 == "UnitFileState" && $2 == "enabled" { e = 1 } END { print t ? "t" : e ? "e" : "-" }')
+  printf 'JOB %s %s %s %s %s %s\t%s\t%s\n' "$1" "$f" "$2" "$3" "$4" "$5" "$d" "$(args "$2")"
+done
+for u in $units; do
+  s=$(systemctl --user show --timestamp=unix -p Id -p LoadState -p ActiveState -p Result -p ExecMainStatus -p ExecMainStartTimestamp -p ExecMainExitTimestamp "$u" 2>/dev/null | tr '\n' ' ')
+  [ -n "$s" ] && echo "UNIT $s"
+done
 cd "$HOME/.claude/projects" 2>/dev/null || { echo DONE; exit 0; }
 for d in */; do
   d=${d%/}
@@ -127,13 +168,29 @@ pub fn plain_dir(dir: &str) -> bool {
 
 /// The script, told which transcripts (folder, mtime, size) it need not
 /// send again.
+#[cfg(test)]
 pub fn script(known: &[(String, u64, u64)]) -> String {
+    script_with(known, &[])
+}
+
+/// The same, also told which user units to print systemd's data of.
+pub fn script_with(known: &[(String, u64, u64)], units: &[String]) -> String {
     let names: Vec<String> = known
         .iter()
         .filter(|(dir, _, _)| plain_dir(dir))
         .map(|(dir, mtime, size)| format!("{dir}:{mtime}:{size}"))
         .collect();
-    format!("known='{}'\n{BODY}", names.join(" "))
+    let units: Vec<&str> = units
+        .iter()
+        .map(String::as_str)
+        .filter(|unit| super::jobs::load::plain_unit(unit))
+        .take(40)
+        .collect();
+    format!(
+        "known='{}'\nunits='{}'\n{BODY}",
+        names.join(" "),
+        units.join(" ")
+    )
 }
 
 /// Windows' own ssh, which reads the user's `~/.ssh/config`; else the
