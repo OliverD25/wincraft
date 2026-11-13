@@ -92,14 +92,15 @@ pub(super) fn give_back(state: &mut DeckUi, to_host: &HostChannel) {
     to_host.send(HostRequest::FocusWindow(before));
 }
 
-/// Hands the tray tooltip to the plugin when it changed; the plugin sets
-/// it on the host thread.
-pub(super) fn tell_tray(shared: &mut Shared, state: &mut DeckUi, tip: Option<String>) {
-    if state.tip_sent.as_ref() == Some(&tip) {
+/// Hands the tray counts (the chats that wait, the unseen replies) to the
+/// plugin when they changed; the plugin shows them on the host thread.
+/// None: nothing reads any more.
+pub(super) fn tell_tray(shared: &mut Shared, state: &mut DeckUi, counts: Option<(usize, usize)>) {
+    if state.tip_sent == Some(counts) {
         return;
     }
-    shared.tray_tip = tip.clone();
-    state.tip_sent = Some(tip);
+    shared.home.counts = counts;
+    state.tip_sent = Some(counts);
     host::post_to_plugins(TRAY_POST_ID);
 }
 

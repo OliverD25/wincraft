@@ -4,9 +4,10 @@ A small window that lists your Claude Code chats from the Claude desktop
 app, so you see at a glance which chat asks you something, which one works,
 and which one is idle.
 
-- Open it with `Win+Alt+X`, from the tray menu (**ClaudeDeck**), or from the
-  palette (**Open ClaudeDeck**). Press the hotkey again while it is in front
-  to close it.
+- Open it with `Win+Alt+X`, from the tray menu (**ClaudeDeck**), from
+  ClaudeDeck's own tray icon, or from the palette (**Open ClaudeDeck**).
+  Press the hotkey again while it is in front to hide it to the tray (or to
+  close it, with **Live in the tray (no taskbar button)** off).
 - The first time, chats are grouped by project folder. A chat in a git
   worktree belongs to its repository's group. After that the groups are
   yours (see "Your own order" below). A new chat goes to the end of the
@@ -40,10 +41,21 @@ and which one is idle.
   opens ClaudeDeck with the menu open.
 - Drag the header to move the window, and its edges to resize it. It opens
   again at the same place and size.
-- ClaudeDeck has a taskbar button of its own, apart from WinCraft's other
-  windows such as Settings (its own AppUserModelID, `WinCraft.ClaudeDeck`),
-  with its own icon: an amber tile with three list rows.
-  Mini mode's hover panel stays out of the taskbar. Dragged to a monitor with another
+- **Live in the tray (no taskbar button)** (on by default): ClaudeDeck has
+  a tray icon of its own beside WinCraft's (an amber tile with three list
+  rows) and no taskbar button and no Alt+Tab entry, in mini mode too. A
+  left click on the icon shows ClaudeDeck at its last place and tab, or
+  hides it when it is shown and in front. Its right-click menu:
+  **Show ClaudeDeck** (or **Hide ClaudeDeck**), **Mini mode** (ticked while
+  on), a line, **Quick settings…** and **All settings…**. The window's
+  close and minimise buttons hide it to the tray; its place, tab and
+  selection stay. While it is hidden, ClaudeDeck keeps reading your chats
+  (every 3 s) and your servers (every 30 s), so the icon's count, the news
+  and the job history stay current; nothing is painted while hidden.
+- With that setting off, ClaudeDeck has a taskbar button of its own instead,
+  apart from WinCraft's other windows such as Settings (its own
+  AppUserModelID, `WinCraft.ClaudeDeck`), with the same icon, and the close
+  button closes it. Mini mode's hover panel stays out of the taskbar. Dragged to a monitor with another
   scale, the window keeps its size to the eye, and back on the first monitor
   it has exactly its old size.
 
@@ -254,9 +266,12 @@ a job's command line as the server reports it.
   back, when it has the keyboard, or when a chat starts to wait.
 - **Fold chats idle for over 1 day**: old idle chats go into one grey line
   at the end.
-- **Show a count on the tray icon**: while ClaudeDeck is open, the tray
-  icon's tooltip says how many chats wait for you, for example
-  "WinCraft — 2 chats wait for you". The icon itself does not change.
+- **Show a count on the tray icon**: ClaudeDeck's tray icon shows a red
+  badge with the number of chats that wait for you ("9+" above 9), and its
+  tooltip says it, for example "ClaudeDeck — 2 chats wait for you, 4 new
+  replies". With **Live in the tray (no taskbar button)** off, WinCraft's
+  tray icon says it in its tooltip instead ("WinCraft — 2 chats wait for
+  you"), and only while ClaudeDeck is open.
 - Under **On each row**: **Status mark**, **A line of text (the question,
   or what it does)**, **Time in the status**, **Project and branch**,
   **Job count**, **Model name**.
@@ -270,7 +285,8 @@ a job's command line as the server reports it.
   it before the hotkey.
 - It makes no sound. The list, the tray tooltip and the fade are its only
   signals.
-- Nothing runs while its window is closed.
+- Nothing runs while its window is closed. While it lives in the tray its
+  window is hidden, not closed, so it keeps reading (see above).
 
 ## Homelab servers
 
@@ -420,6 +436,6 @@ ClaudeDeck only reads the Claude app's own session files on this PC
 (`%APPDATA%\Claude\claude-code-sessions`) and the transcripts of the chats
 it lists (those with a window, or active in the last day), in steps: only
 what was added since the last read. Nothing leaves the PC, and nothing
-runs while the window is closed. With servers listed, it also reads your
+runs while the window is closed (hidden in the tray, it keeps reading). With servers listed, it also reads your
 servers over ssh as described under "Homelab servers"; what it reads stays
 on this PC.

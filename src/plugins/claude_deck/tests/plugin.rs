@@ -49,6 +49,7 @@ fn every_setting_of_the_design_page_is_there_and_mini_mode_is_not_one() {
             "Only open windows",
             "Fade when the mouse is away",
             "Fold chats idle for over 1 day",
+            "Live in the tray (no taskbar button)",
             "Show a count on the tray icon",
             "Status mark",
             "A line of text (the question, or what it does)",

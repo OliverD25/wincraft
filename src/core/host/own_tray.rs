@@ -29,6 +29,7 @@ struct Shown {
 thread_local! {
     static WANTED: RefCell<Vec<(String, Option<OwnTray>)>> = const { RefCell::new(Vec::new()) };
     static SHOWN: RefCell<Vec<Shown>> = const { RefCell::new(Vec::new()) };
+    static PAGE: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 /// Gives the plugin `plugin` a tray icon of its own, or changes it; None
@@ -39,6 +40,18 @@ thread_local! {
 pub fn set_own_tray(plugin: &str, tray: Option<OwnTray>) {
     WANTED.with(|queue| queue.borrow_mut().push((plugin.to_string(), tray)));
     plugin_changed();
+}
+
+/// Opens the plugin's own page in the settings window, for a tray menu
+/// entry such as "All settings...". Safe to call from any plugin callback.
+pub fn show_plugin_page(plugin: &str) {
+    PAGE.with(|cell| *cell.borrow_mut() = Some(plugin.to_string()));
+    plugin_changed();
+}
+
+/// The page a plugin asked for, taken once.
+pub(super) fn page_wanted() -> Option<String> {
+    PAGE.with(|cell| cell.borrow_mut().take())
 }
 
 /// What to do with one plugin's icon.

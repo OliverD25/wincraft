@@ -36,6 +36,14 @@ pub fn set_tray_tip(tip: Option<String>) {
     plugin_changed();
 }
 
+/// Reads which Claude chats have a window open and which of those wait,
+/// for ClaudeDeck while its window is hidden in the tray (the window asks
+/// with `HostRequest::ClaudeDeckRefresh` while it shows). Only reads.
+/// Host thread only.
+pub fn read_claude_chats() {
+    super::claude::publish_chat_windows();
+}
+
 /// Opens the palette as a one-line box that asks the user `prompt`; the
 /// answer comes back to the plugin it names, through `on_prompt_answer`.
 /// Safe to call from any plugin callback.

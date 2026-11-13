@@ -73,7 +73,7 @@ mod wndproc;
 
 pub use api::*;
 use arrange::*;
-pub use own_tray::set_own_tray;
+pub use own_tray::{set_own_tray, show_plugin_page};
 use plugins::*;
 use updates::*;
 #[cfg(test)]

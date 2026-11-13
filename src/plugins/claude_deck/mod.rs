@@ -14,6 +14,7 @@ mod edges;
 mod edit;
 mod emit;
 mod fade;
+mod fields;
 mod fork;
 mod forks;
 mod header;
@@ -30,12 +31,14 @@ mod news;
 mod open_app;
 mod place;
 mod quick;
+mod reading;
 mod rows;
 mod select;
 mod servers;
 mod status;
 mod store;
 mod taskbar;
+mod tray_home;
 mod tree;
 mod window;
 
@@ -47,9 +50,10 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD
 use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
 use crate::core::traits::{
-    FieldKind, HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata, PluginWindow,
-    SettingField, TrayAction, WinCraftPlugin,
+    HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata, PluginWindow, SettingField,
+    TrayAction, WinCraftPlugin,
 };
+use crate::core::tray::MenuItem;
 use crate::core::ui_bridge::ArrangeAction;
 use crate::core::ui_bridge::{ActionKind, ListRow, SubList};
 use crate::core::{claude_windows, host, instance, window_actions};
@@ -78,6 +82,7 @@ const MODEL_KEY: &str = "show_model";
 const TEXT_KEY: &str = "show_text";
 const FADE_KEY: &str = "fade_when_away";
 const TRAY_KEY: &str = "tray_count";
+const LIVE_KEY: &str = "live_in_tray";
 const SERVERS_KEY: &str = "servers";
 /// Not on the settings page: the window's mini mode, kept across restarts.
 pub(crate) const MINI_KEY: &str = "mini_mode";
@@ -116,6 +121,8 @@ pub struct Settings {
     pub text: bool,
     pub fade: bool,
     pub tray_count: bool,
+    /// Live in the tray: its own tray icon, no taskbar button.
+    pub tray_home: bool,
     /// The narrow column of marks instead of the list.
     pub mini: bool,
     /// The ssh names of the servers to read; empty is off.
@@ -136,6 +143,7 @@ impl Default for Settings {
             text: true,
             fade: true,
             tray_count: true,
+            tray_home: true,
             mini: false,
             servers: Vec::new(),
         }
@@ -168,6 +176,7 @@ impl Settings {
             text: flag(TEXT_KEY, defaults.text),
             fade: flag(FADE_KEY, defaults.fade),
             tray_count: flag(TRAY_KEY, defaults.tray_count),
+            tray_home: flag(LIVE_KEY, defaults.tray_home),
             mini: flag(MINI_KEY, defaults.mini),
             servers: servers::parse_servers(
                 settings
@@ -187,9 +196,8 @@ pub struct Shared {
     /// The hotkey opened the window: the window that was in front then,
     /// which Esc gives the keyboard back to.
     pub by_hotkey: Option<isize>,
-    /// What the tray tooltip should say; the plugin sets it on the host
-    /// thread.
-    pub tray_tip: Option<String>,
+    /// Living in the tray, and the counts the tray shows.
+    pub home: tray_home::Home,
     /// The next `open` only brings the window forward: the mini mode
     /// hotkey never closes it.
     pub keep_open: bool,
@@ -205,8 +213,7 @@ pub type Handle = Arc<Mutex<Shared>>;
 #[derive(Default)]
 pub struct ClaudeDeck {
     shared: Handle,
-    /// The tooltip this plugin set last, so it only takes back its own.
-    tip_set: Option<String>,
+    home: tray_home::PluginSide,
 }
 
 impl ClaudeDeck {
@@ -223,19 +230,6 @@ impl ClaudeDeck {
         host::show_window(ID, window::WINDOW_ID);
     }
 
-    /// Sets the tray tooltip to what the window asked for, when it changed.
-    fn show_tip(&mut self) {
-        let wanted = self
-            .shared
-            .lock()
-            .ok()
-            .and_then(|shared| shared.tray_tip.clone());
-        if wanted != self.tip_set {
-            self.tip_set = wanted.clone();
-            host::set_tray_tip(wanted);
-        }
-    }
-
     fn servers(&self) -> Vec<String> {
         self.shared
             .lock()
@@ -247,6 +241,7 @@ impl ClaudeDeck {
         if let Ok(mut shared) = self.shared.lock() {
             shared.settings = Settings::read(settings);
         }
+        self.tray_settings_changed();
     }
 }
 
@@ -307,95 +302,17 @@ impl WinCraftPlugin for ClaudeDeck {
             TEXT_KEY: true,
             FADE_KEY: true,
             TRAY_KEY: true,
+            LIVE_KEY: true,
             SERVERS_KEY: "",
         })
     }
 
     fn settings_fields(&self) -> Vec<SettingField> {
-        vec![
-            SettingField {
-                key: STAY_ON_TOP_KEY,
-                label: "Stay on top",
-                help: "Keep ClaudeDeck above other windows. The pin in its header does the same.",
-                kind: FieldKind::Toggle,
-            },
-            SettingField {
-                key: ONLY_OPEN_KEY,
-                label: "Only open windows",
-                help: "List only the chats that have a window open.",
-                kind: FieldKind::Toggle,
-            },
-            SettingField {
-                key: FADE_KEY,
-                label: "Fade when the mouse is away",
-                help: "ClaudeDeck turns half see-through a few seconds after the mouse leaves it. It is solid again when the mouse comes back, when it has the keyboard, or when a chat starts to wait for you.",
-                kind: FieldKind::Toggle,
-            },
-            SettingField {
-                key: FOLD_COLD_KEY,
-                label: "Fold chats idle for over 1 day",
-                help: "Old idle chats go into one grey line at the end.",
-                kind: FieldKind::Toggle,
-            },
-            SettingField {
-                key: TRAY_KEY,
-                label: "Show a count on the tray icon",
-                help: "While ClaudeDeck is open, the tray icon's tooltip says how many chats need approval or ask you, and how many replies you have not seen, for example \"WinCraft \u{2014} 2 chats wait for you, 4 new replies\". Closed, ClaudeDeck reads nothing, so the tooltip is plain again.",
-                kind: FieldKind::Toggle,
-            },
-            SettingField {
-                key: MARK_KEY,
-                label: "Status mark",
-                help: "A shape for each status, a shape and a short word, or no mark.",
-                kind: FieldKind::Choice(&[MARK_SHAPES, MARK_WORDS, MARK_OFF]),
-            },
-            SettingField {
-                key: TEXT_KEY,
-                label: "A line of text (the question, or what it does)",
-                help: "A second line under the name: the question when the chat waits, else what it does or what it said last. Resting the mouse on a chat shows all of it.",
-                kind: FieldKind::Toggle,
-            },
-            SettingField {
-                key: TIME_KEY,
-                label: "Time in the status",
-                help: "How long the chat has been in its status, at the right edge.",
-                kind: FieldKind::Toggle,
-            },
-            SettingField {
-                key: PROJECT_KEY,
-                label: "Project and branch",
-                help: "The chat's git branch after its name.",
-                kind: FieldKind::Toggle,
-            },
-            SettingField {
-                key: JOBS_KEY,
-                label: "Job count",
-                help: "How many background jobs a chat runs.",
-                kind: FieldKind::Toggle,
-            },
-            SettingField {
-                key: MODEL_KEY,
-                label: "Model name",
-                help: "The Claude model the chat uses.",
-                kind: FieldKind::Toggle,
-            },
-            SettingField {
-                key: SERVERS_KEY,
-                label: "Servers (ssh names)",
-                help: "For example rdehome1, rdehome2. Empty: no servers are read. WinCraft reads them only while the ClaudeDeck window is open, every 30 s, and never changes anything on them.",
-                kind: FieldKind::Text,
-            },
-        ]
+        fields::fields()
     }
 
     fn settings_group(&self, key: &str) -> Option<&'static str> {
-        match key {
-            MARK_KEY | TEXT_KEY | TIME_KEY | PROJECT_KEY | JOBS_KEY | MODEL_KEY => {
-                Some("On each row")
-            }
-            SERVERS_KEY => Some("Homelab"),
-            _ => None,
-        }
+        fields::group(key)
     }
 
     fn on_settings_changed(&mut self, settings: &Value) -> bool {
@@ -414,6 +331,7 @@ impl WinCraftPlugin for ClaudeDeck {
         if instance::is_test() && (scene(SCENE_FLAG) || scene(SCENE_MINI_FLAG)) {
             self.open();
         }
+        self.start_tray(ctx.hwnd);
         Ok(())
     }
 
@@ -467,8 +385,9 @@ impl WinCraftPlugin for ClaudeDeck {
 
     fn on_windows_message(&mut self, msg: u32, wparam: usize, _lparam: isize) {
         if msg == host::PLUGIN_POST && wparam == TRAY_POST_ID {
-            self.show_tip();
+            self.publish_tray();
         }
+        self.on_tray_timer(msg, wparam);
         if msg == host::PLUGIN_POST && wparam == open_app::NOTICE_POST_ID {
             open_app::show_pending();
         }
@@ -488,6 +407,15 @@ impl WinCraftPlugin for ClaudeDeck {
         if action_id == ACTION_OPEN {
             self.open();
         }
+        self.tray_pick(action_id);
+    }
+
+    fn own_tray_menu(&self) -> Vec<MenuItem> {
+        self.tray_menu()
+    }
+
+    fn on_own_tray_click(&mut self) {
+        self.tray_click();
     }
 
     fn palette_commands(&self) -> Vec<PaletteCommand> {
@@ -558,7 +486,11 @@ impl WinCraftPlugin for ClaudeDeck {
     }
 
     fn windows(&self) -> Vec<Box<dyn PluginWindow>> {
-        vec![Box::new(window::DeckWindow::new(self.shared.clone()))]
+        let state = self.home.state.clone();
+        vec![Box::new(window::DeckWindow::new(
+            self.shared.clone(),
+            state,
+        ))]
     }
 
     fn on_prompt_answer(&mut self, prompt_id: u32, target: isize, text: &str) {
@@ -583,9 +515,8 @@ impl WinCraftPlugin for ClaudeDeck {
     fn teardown(&mut self) {
         if let Ok(mut shared) = self.shared.lock() {
             shared.open = false;
-            shared.tray_tip = None;
         }
-        self.show_tip();
+        self.stop_tray();
     }
 }
 

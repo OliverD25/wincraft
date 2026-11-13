@@ -69,7 +69,7 @@ fn the_window_object_opens_and_closes_without_a_native_window() {
         keep_open: false,
         ..Default::default()
     }));
-    let mut window = DeckWindow::new(std::sync::Arc::clone(&shared));
+    let mut window = DeckWindow::new(std::sync::Arc::clone(&shared), Default::default());
     assert!(window.is_open());
     window.open();
     {
@@ -244,13 +244,16 @@ fn giving_the_keyboard_back_forgets_a_window_that_is_gone() {
 fn the_tray_tip_is_handed_over_once() {
     let mut shared = crate::plugins::claude_deck::Shared::default();
     let mut state = DeckUi::default();
-    modes::tell_tray(&mut shared, &mut state, Some("2 chats wait".into()));
-    assert_eq!(shared.tray_tip.as_deref(), Some("2 chats wait"));
-    shared.tray_tip = None;
-    modes::tell_tray(&mut shared, &mut state, Some("2 chats wait".into()));
-    assert!(shared.tray_tip.is_none(), "the same tip is not sent again");
+    modes::tell_tray(&mut shared, &mut state, Some((2, 0)));
+    assert_eq!(shared.home.counts, Some((2, 0)));
+    shared.home.counts = None;
+    modes::tell_tray(&mut shared, &mut state, Some((2, 0)));
+    assert!(
+        shared.home.counts.is_none(),
+        "the same counts are not sent again"
+    );
     modes::tell_tray(&mut shared, &mut state, None);
-    assert!(shared.tray_tip.is_none());
+    assert!(shared.home.counts.is_none());
     assert_eq!(state.tip_sent, Some(None));
 }
 

@@ -404,6 +404,9 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
                         .index_of(id)
                         .filter(|at| host.plugins.slots[*at].enabled)
                 });
+                if let Some(id) = own_tray::page_wanted() {
+                    host.to_ui.send(UiCommand::ShowPluginPage(id));
+                }
                 for (title, text) in &requests.notices {
                     host.balloon_click = BalloonClick::Nothing;
                     host.tray.balloon(title, text);

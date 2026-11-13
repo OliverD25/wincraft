@@ -22,16 +22,14 @@ use crate::core::claude_windows;
 use crate::core::theme::{self, Tokens};
 use crate::core::traits::{PluginWindow, WindowFrame};
 use crate::core::ui_bridge::{ArrangeAction, HostChannel, HostRequest};
-use crate::core::{animations, claude_jobs, dpi_follow, window_place};
+use crate::core::{claude_jobs, dpi_follow, window_place};
 use crate::ui::dwm_thumbs;
 use crate::ui::settings;
 use crate::ui::widgets::{focus, text};
 
-use super::arrange::{arrange, hidden_chats};
-use super::data;
+use super::arrange::hidden_chats;
 use super::edges;
 use super::fade::Fade;
-use super::forks;
 use super::header::{self, Click};
 use super::mini;
 use super::model::{self, Archived, Chat, Line, Mark, View};
@@ -40,12 +38,14 @@ use super::news;
 use super::open_app;
 use super::place::{self, Place};
 use super::quick;
+use super::reading;
 use super::rows::Look;
 use super::select;
-use super::servers::{self, Deck};
+use super::servers::Deck;
 use super::status::Seen;
 use super::store::{self, Saved};
 use super::taskbar;
+use super::tray_home::{self, rules::hides};
 use super::{Handle, ID, MINI_KEY, ONLY_OPEN_KEY, STAY_ON_TOP_KEY};
 
 pub const WINDOW_ID: &str = "deck";
@@ -102,17 +102,17 @@ pub(super) struct DeckUi {
     pub window: isize,
     placed: bool,
     focus_wanted: bool,
-    closed: bool,
-    asked: Option<Instant>,
+    pub(super) closed: bool,
+    pub(super) asked: Option<Instant>,
     pub(super) built: Option<Instant>,
     pub chats: Vec<Chat>,
-    archived: Archived,
+    pub(super) archived: Archived,
     pub(super) animate: bool,
     /// The user's arrangement, and the copy last written to its file
     /// (None until the file was read).
     pub saved: Saved,
-    written: Option<Saved>,
-    writable: bool,
+    pub(super) written: Option<Saved>,
+    pub(super) writable: bool,
     pub hidden_open: bool,
     pub selected: Option<Pick>,
     pub scroll_to_selected: bool,
@@ -135,7 +135,7 @@ pub(super) struct DeckUi {
     /// The hotkey opened the window: select the row it should.
     select_on_open: bool,
     /// The window in front when the list last looked, once chats are in.
-    front_seen: Option<isize>,
+    pub(super) front_seen: Option<isize>,
     /// The window in front when the hotkey was pressed.
     pub(super) before: Option<isize>,
     /// The mode the window has now; None before the first frame.
@@ -147,7 +147,7 @@ pub(super) struct DeckUi {
     pub(super) fade: Fade,
     pub(super) waiting_before: Vec<String>,
     pub(super) cache: Cache,
-    pub(super) tip_sent: Option<Option<String>>,
+    pub(super) tip_sent: Option<Option<(usize, usize)>>,
     /// The homelab servers; dropping it stops reading them.
     pub(super) servers: Deck,
     /// The News tab.
@@ -160,11 +160,8 @@ pub struct DeckWindow {
 }
 
 impl DeckWindow {
-    pub fn new(shared: Handle) -> Self {
-        Self {
-            shared,
-            state: Arc::new(Mutex::new(DeckUi::default())),
-        }
+    pub fn new(shared: Handle, state: Arc<Mutex<DeckUi>>) -> Self {
+        Self { shared, state }
     }
 }
 
@@ -187,11 +184,16 @@ impl PluginWindow for DeckWindow {
         let by_hotkey = shared.by_hotkey.take();
         let keep_open = std::mem::take(&mut shared.keep_open);
         if let Ok(mut state) = self.state.lock() {
-            let in_front =
-                state.window != 0 && unsafe { GetForegroundWindow() } as isize == state.window;
-            if in_front && !keep_open {
-                state.closed = true;
+            if tray_home::open_asked(&mut shared, &mut state) {
+                return;
+            }
+            let in_front = tray_home::in_front_now(&mut shared, &state);
+            if hides(true, in_front, keep_open) {
+                if !tray_home::hides_instead(&mut shared, &mut state) {
+                    state.closed = true;
+                }
             } else {
+                tray_home::unhide(&mut shared, &mut state);
                 // A minimised window does not draw, so it would never ask
                 // to come forward: restore it here, at its last place.
                 if state.window != 0 && unsafe { IsIconic(state.window as HWND) } != 0 {
@@ -250,11 +252,12 @@ impl PluginWindow for DeckWindow {
             };
             // egui can draw the window once more after it was closed. That
             // frame must not find the dying window and mark it as placed.
-            if !shared.open {
+            if !shared.open || shared.home.hidden {
                 return;
             }
             let tokens = Tokens::get(ui.ctx());
             find_and_place(&mut state, palette, &tokens, &to_host);
+            tray_home::keep_style(&mut shared, state.window);
             let repaint = ui.ctx().clone();
             let wake = Arc::new(move || repaint.request_repaint_of(viewport_id()));
             state.servers.tick(&shared.settings.servers, wake);
@@ -334,6 +337,7 @@ impl PluginWindow for DeckWindow {
                     save(&to_host, MINI_KEY, shared.settings.mini);
                     ui.ctx().request_repaint();
                 }
+                Some(Click::Minimize) if tray_home::hides_instead(&mut shared, &mut state) => {}
                 Some(Click::Minimize) => {
                     ui.ctx()
                         .send_viewport_cmd(egui::ViewportCommand::Minimized(true));
@@ -344,6 +348,9 @@ impl PluginWindow for DeckWindow {
             if ui.ctx().input(|i| i.viewport().close_requested()) {
                 state.closed = true;
             }
+            if state.closed && tray_home::hides_instead(&mut shared, &mut state) {
+                return;
+            }
             if state.closed {
                 shared.open = false;
                 tell_tray(&mut shared, &mut state, None);
@@ -351,8 +358,8 @@ impl PluginWindow for DeckWindow {
                 ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
                 return;
             }
-            let tip = select::tray_tip(settings.tray_count, state.cache.waiting, state.news.count);
-            tell_tray(&mut shared, &mut state, tip);
+            let counts = Some((state.cache.waiting, state.news.count));
+            tell_tray(&mut shared, &mut state, counts);
             let fade_next = fade_step(ui.ctx(), &mut state, settings.fade);
             let next = next_frame(&state, &lines, now);
             ui.ctx().request_repaint_after(
@@ -395,7 +402,7 @@ pub(super) fn build(state: &mut DeckUi, settings: &super::Settings, now: u64) {
 
 /// Keeps the place, and stops what only an open window needs: the jobs
 /// it wanted read and the list of open chat windows.
-fn forget(state: &mut DeckUi) {
+pub(super) fn forget(state: &mut DeckUi) {
     if state.window != 0 {
         keep_place(state);
         taskbar::release(state.window);
@@ -444,7 +451,6 @@ fn find_and_place(state: &mut DeckUi, palette: isize, tokens: &Tokens, to_host: 
         dwm_thumbs::round_corners(state.window as HWND, theme::colorref(tokens.border));
     }
     if !std::mem::replace(&mut state.placed, true) {
-        taskbar::own_button(state.window);
         if state.kept.is_none() {
             state.kept = place::load(&place::path());
         }
@@ -470,39 +476,8 @@ fn refresh(state: &mut DeckUi, to_host: &HostChannel) {
     if state.built.is_some_and(|at| at.elapsed() < BUILD_EVERY) {
         return;
     }
-    state.built = Some(Instant::now());
-    state.started.get_or_insert_with(Instant::now);
-    state.animate = animations::on();
-    let (sessions, _) = claude_sessions::sessions();
-    let windows = claude_windows::latest();
-    let now = claude_sessions::now_ms();
-    state.seen.note(&windows, claude_windows::foreground(), now);
-    let (chats, waits) = data::chats(
-        &sessions,
-        &windows,
-        &state.seen,
-        state.servers.aliases(),
-        now,
-    );
-    state.chats = chats;
-    state.servers.waits = waits;
-    servers::jobs::refresh(&mut state.servers, &mut state.chats, &sessions, now);
-    forks::add_rows(&mut state.chats, now);
+    reading::read(state);
     open_app::send_pending_clears(to_host);
-    servers::busy::warn_pc(&mut state.chats, &state.servers.views());
-    state.archived = data::archived(&state.chats);
-    news::refresh(state, &sessions, now);
-    if state.written.is_none() {
-        let (saved, writable) = store::load(&store::path()).start();
-        state.written = Some(saved.clone());
-        state.saved = saved;
-        state.writable = writable;
-    }
-    // Before the first read there are no chats yet; arranging then would
-    // count every saved chat as gone.
-    if !state.chats.is_empty() {
-        state.saved = arrange(&state.saved, &state.chats, now);
-    }
     keep_place(state);
 }
 
