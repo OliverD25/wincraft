@@ -5,6 +5,8 @@
 use crate::core::claude_sessions::duration_text;
 use crate::plugins::claude_deck::model::{Chat, Mark};
 
+use super::super::jobs::history::{Ended, History};
+use super::super::jobs::{text as job_text, Job};
 use super::super::load::{Kind, Proc, Service, State};
 use super::super::view::{self as group_view, ServerLine, Shape};
 use super::super::{group_name, HostView};
@@ -45,6 +47,27 @@ pub enum Line {
         server: String,
         service: Service,
     },
+    /// A running job a PC chat started.
+    Work {
+        server: String,
+        job: Box<Job>,
+    },
+    /// A job of the last 24 h that ended, greyed.
+    Ended {
+        server: String,
+        end: Box<Ended>,
+    },
+}
+
+/// The work from the PC that the cards show.
+pub struct Work<'a> {
+    pub jobs: &'a [Job],
+    pub history: &'a History,
+}
+
+/// The pick of an ended job: its key and when it ended.
+pub fn ended_key(end: &Ended) -> String {
+    format!("{}@{}", end.key, end.ended)
 }
 
 impl Line {
@@ -70,6 +93,14 @@ impl Line {
                 server: server.clone(),
                 name: format!("{:?}/{}", service.kind, service.name),
             }),
+            Line::Work { server, job } => Some(Pick::Work {
+                server: server.clone(),
+                key: job.key(),
+            }),
+            Line::Ended { server, end } => Some(Pick::Work {
+                server: server.clone(),
+                key: ended_key(end),
+            }),
         }
     }
 }
@@ -92,6 +123,7 @@ pub fn lines(
     views: &[(String, HostView)],
     folded: &dyn Fn(&str) -> bool,
     shape: &Shape,
+    work: &Work,
 ) -> Vec<Line> {
     let mut lines = Vec::new();
     for (at, (server, view)) in views.iter().enumerate() {
@@ -102,6 +134,19 @@ pub fn lines(
         });
         if is_folded {
             continue;
+        }
+        let running = job_text::on_server(server, work.jobs);
+        let ended = work.history.of_server(server, work.jobs);
+        if !running.is_empty() || !ended.is_empty() {
+            lines.push(Line::Section(job_text::SECTION));
+            lines.extend(running.into_iter().map(|job| Line::Work {
+                server: server.clone(),
+                job: Box::new(job.clone()),
+            }));
+            lines.extend(ended.into_iter().map(|end| Line::Ended {
+                server: server.clone(),
+                end: Box::new(end.clone()),
+            }));
         }
         let one = [(server.clone(), view.clone())];
         let chats: Vec<ServerLine> = group_view::lines(&one, shape)
@@ -277,7 +322,14 @@ pub fn problems(views: &[(String, HostView)]) -> Vec<String> {
             problems.push(format!("{name} is offline"));
             continue;
         }
-        for service in view.services.iter().filter(|s| s.state.is_problem()) {
+        // A unit a PC chat started is a job: its failure is no problem
+        // of the server.
+        let job = |s: &Service| s.kind == Kind::User && view.units.iter().any(|u| u.name == s.name);
+        for service in view
+            .services
+            .iter()
+            .filter(|s| s.state.is_problem() && !job(s))
+        {
             problems.push(format!(
                 "{name}: {} {}",
                 service.name,

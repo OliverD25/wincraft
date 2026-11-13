@@ -140,6 +140,8 @@ pub struct Deck {
     pub tab: tab::TabUi,
     /// The jobs PC chats started on the servers, as linked last.
     pub jobs: Vec<jobs::Job>,
+    /// The jobs of the last 24 h that ended.
+    pub history: jobs::history::History,
 }
 
 impl Deck {

@@ -106,7 +106,12 @@ fn lines_of(views: &[(String, HostView)], folded: &BTreeSet<String>) -> Vec<Line
         fold_cold: true,
         now: NOW,
     };
-    view::lines(views, &|server| folded.contains(server), &shape)
+    let history = crate::plugins::claude_deck::servers::jobs::history::History::default();
+    let work = view::Work {
+        jobs: &[],
+        history: &history,
+    };
+    view::lines(views, &|server| folded.contains(server), &shape, &work)
 }
 
 #[test]

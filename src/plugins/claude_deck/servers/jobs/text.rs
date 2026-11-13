@@ -4,6 +4,7 @@
 use crate::plugins::claude_deck::servers::group_name;
 use crate::plugins::claude_deck::servers::tab::view::{cpu_text, ram_text};
 
+use super::history::{Ended, How};
 use super::Job;
 
 /// The longest command shown in a hover panel, in characters.
@@ -100,4 +101,104 @@ pub fn chat_full(jobs: &[&Job], now: u64) -> String {
         .map(|job| job_lines(job, now))
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+/// The section's title on a server's card.
+pub const SECTION: &str = "Work from the PC";
+pub const SHOW_CHAT: &str = "Show the chat";
+
+/// The running jobs of one server.
+pub fn on_server<'a>(server: &str, jobs: &'a [Job]) -> Vec<&'a Job> {
+    jobs.iter().filter(|job| job.server == server).collect()
+}
+
+/// "2 jobs from 1 PC chat · CPU 5%".
+pub fn server_words(jobs: &[&Job]) -> String {
+    let mut owners: Vec<String> = Vec::new();
+    for job in jobs {
+        let owner = job.owner();
+        if !owners.contains(&owner) {
+            owners.push(owner);
+        }
+    }
+    let count = match jobs.len() {
+        1 => "1 job".to_string(),
+        n => format!("{n} jobs"),
+    };
+    let from = match owners.len() {
+        1 => "1 PC chat".to_string(),
+        n => format!("{n} PC chats"),
+    };
+    let mut words = format!("{count} from {from}");
+    let cpu: Vec<u32> = jobs.iter().filter_map(|job| job.cpu10).collect();
+    if !cpu.is_empty() {
+        let total: u32 = cpu.iter().sum();
+        words.push_str(&format!(" \u{b7} CPU {}%", (total + 5) / 10));
+    }
+    words
+}
+
+/// A server line's words with its jobs: the jobs' words in place of
+/// "No chat working" or "No Claude chats", else after its counts.
+pub fn with_jobs(line: String, online: bool, jobs: &[&Job]) -> String {
+    use crate::plugins::claude_deck::servers::view::{NONE_WORKING, NO_CHATS};
+    if !online || jobs.is_empty() {
+        return line;
+    }
+    let words = server_words(jobs);
+    if line == NONE_WORKING || line == NO_CHATS {
+        words
+    } else {
+        format!("{line} \u{b7} {words}")
+    }
+}
+
+/// The server hover panel's lines about jobs: "Work from the PC:" and one
+/// line per job, "WinCraft design · archive write · 1 h 48 m".
+pub fn server_hover(jobs: &[&Job], now: u64) -> String {
+    if jobs.is_empty() {
+        return String::new();
+    }
+    let mut lines = vec![format!("{SECTION}:")];
+    for job in jobs {
+        let mut parts = vec![job.owner(), job.name.clone()];
+        parts.extend(Some(ran(job, now)).filter(|time| !time.is_empty()));
+        lines.push(parts.join(" \u{b7} "));
+    }
+    lines.join("\n")
+}
+
+/// The right words of a running job's row: "1 h 48 m · 2.4% · 2.6 GB".
+pub fn job_right(job: &Job, now: u64) -> String {
+    let mut parts = Vec::new();
+    parts.extend(Some(ran(job, now)).filter(|time| !time.is_empty()));
+    parts.extend(job.cpu10.map(cpu_text));
+    parts.extend(job.rss_kb.map(ram_text));
+    parts.join(" \u{b7} ")
+}
+
+/// The right words of an ended job's row: "ran 2 h 10 m · ended well",
+/// "ran 5 min · failed (exit 1)".
+pub fn ended_right(end: &Ended) -> String {
+    let how = match (end.how, end.code) {
+        (How::Well, _) => "ended well".to_string(),
+        (How::Failed, Some(code)) => format!("failed (exit {code})"),
+        (How::Failed, None) => "failed".to_string(),
+        (How::Stopped, _) => "stopped".to_string(),
+        (How::Ended, _) => "ended".to_string(),
+    };
+    match end.started {
+        Some(start) if start <= end.ended => {
+            format!("ran {} \u{b7} {how}", run_time(end.ended - start))
+        }
+        _ => how,
+    }
+}
+
+/// The hover of a job's row: its command, its folder and its PID.
+pub fn row_hover(command: &str, folder: Option<&str>, pid: Option<u32>) -> String {
+    let mut lines = vec![short_command(command)];
+    lines.extend(folder.map(str::to_string));
+    lines.extend(pid.map(|pid| format!("PID {pid}")));
+    lines.join("\n")
 }

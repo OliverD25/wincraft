@@ -271,7 +271,9 @@ fn launch_of(block: &Value, at: Option<u64>) -> Option<Launch> {
 }
 
 mod keys;
-pub use keys::{keys_of, program_words, units_of};
+#[cfg(test)]
+use keys::units_of;
+pub use keys::{keys_of, program_words};
 
 #[cfg(test)]
 mod tests;

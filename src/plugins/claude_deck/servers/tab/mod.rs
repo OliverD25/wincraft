@@ -1,6 +1,6 @@
 //! ClaudeDeck's Servers tab: one folding card per listed server, in the
-//! setting's order, with its health on the header and the sections Chats,
-//! Claude processes, Busiest and Services. It only reads: the actions are
+//! setting's order, with its health on the header and the sections Work
+//! from the PC, Chats, Claude processes, Busiest and Services. It only reads: the actions are
 //! a terminal on the server, a fork of a chat, and the copy items. The tab
 //! shows a red count of problems (offline servers, failed or restarting
 //! services and containers, `claude` processes with no chat).
@@ -8,10 +8,12 @@
 //! - `view`: the lines, the words and the problems (pure).
 //! - `draw`: drawing the cards.
 //! - `keys`: the keyboard on the tab.
+//! - `work`: drawing the rows of Work from the PC.
 
 pub mod draw;
 pub mod keys;
 pub mod view;
+mod work;
 
 use std::collections::BTreeSet;
 
@@ -33,6 +35,11 @@ pub enum Pick {
         server: String,
         name: String,
     },
+    /// A job from the PC, running or ended, by its key.
+    Work {
+        server: String,
+        key: String,
+    },
 }
 
 /// What Enter does on a line.
@@ -42,6 +49,8 @@ pub enum Enter {
     Terminal(Option<String>),
     FoldQuiet,
     FoldHidden,
+    /// Goes to this PC chat on the Chats tab.
+    ShowChat(String),
     Nothing,
 }
 

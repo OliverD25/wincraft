@@ -6,7 +6,9 @@
 //! - `load`: the probe's `JOB` and `UNIT` lines.
 //! - `link`: which PC chat a job belongs to (pure).
 //! - `text`: the words about jobs (pure).
+//! - `history`: the jobs of the last 24 h that ended.
 
+pub mod history;
 pub mod link;
 pub mod load;
 pub mod text;
@@ -58,6 +60,10 @@ pub fn refresh(deck: &mut Deck, chats: &mut [Chat], sessions: &[Session], now: u
             .into_iter()
             .collect(),
     );
+    deck.history.load_once(&history::path());
+    if deck.history.note(&jobs, &views, &pc, &deck.aliases, now) {
+        history::save(&history::path(), &deck.history.ended);
+    }
     mark(chats, &jobs, now);
     deck.jobs = jobs;
 }
@@ -165,3 +171,5 @@ mod link_tests;
 mod status_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod view_tests;
