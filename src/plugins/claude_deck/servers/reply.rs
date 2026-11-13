@@ -2,6 +2,7 @@
 //! of an unknown or broken form is skipped, a transcript whose base64
 //! does not decode is left out, and nothing here can panic.
 
+use super::jobs::load::{self as job_load, RawJob, UnitInfo};
 use super::load::{self, Proc, Service};
 
 /// One transcript the server listed.
@@ -44,6 +45,10 @@ pub struct Reply {
     pub busiest: Vec<Proc>,
     /// Failed services, the user's own, and every Docker container.
     pub services: Vec<Service>,
+    /// The jobs under the home folder, at most 40.
+    pub jobs: Vec<RawJob>,
+    /// systemd's data of the units asked about, in the server's clock.
+    pub units: Vec<UnitInfo>,
 }
 
 /// How the server itself is, for the hover panel.
@@ -154,6 +159,8 @@ pub fn parse(text: &str) -> Option<Reply> {
                     load::add_service(&mut reply.services, service);
                 }
             }
+            "JOB" if reply.jobs.len() < 40 => reply.jobs.extend(job_load::job(rest)),
+            "UNIT" if reply.units.len() < 40 => reply.units.extend(job_load::unit(rest, 0)),
             "DONE" => done = true,
             _ => {}
         }

@@ -588,7 +588,7 @@ fn an_unchanged_transcript_is_not_sent_again_and_a_failed_call_keeps_the_chats()
     let mut host = HostView::default();
     poll::take_reply("s", Ok(two_chat_reply()), &mut cache, &mut host, NOW);
     assert_eq!(host.chats.len(), 2);
-    let script = poll::script_for(&cache);
+    let script = poll::script_for(&cache, &[]);
     assert!(
         script.contains("-home-rde-projects-verdict-ai:"),
         "{script}"
