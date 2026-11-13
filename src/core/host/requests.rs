@@ -448,6 +448,7 @@ impl Host {
         }
         unsafe { DeregisterShellHookWindow(self.hwnd) };
         self.tray.remove();
+        super::own_tray::remove_all();
         unsafe { PostQuitMessage(0) };
     }
 }

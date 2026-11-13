@@ -60,6 +60,7 @@ mod arrange;
 mod bindings;
 mod claude;
 mod detailed_log;
+mod own_tray;
 mod plugins;
 mod prepared;
 mod requests;
@@ -72,6 +73,7 @@ mod wndproc;
 
 pub use api::*;
 use arrange::*;
+pub use own_tray::set_own_tray;
 use plugins::*;
 use updates::*;
 #[cfg(test)]

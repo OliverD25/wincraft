@@ -330,6 +330,15 @@ pub trait WinCraftPlugin {
 
     /// Ticked entries for the tray menu, shown after the plugin's first
     /// tray action. For a setting people switch often.
+    /// The menu of the plugin's own tray icon (`host::set_own_tray`), built
+    /// when it is right-clicked. A pick comes back through `on_tray_action`.
+    fn own_tray_menu(&self) -> Vec<crate::core::tray::MenuItem> {
+        Vec::new()
+    }
+
+    /// The plugin's own tray icon was clicked with the left button.
+    fn on_own_tray_click(&mut self) {}
+
     fn tray_toggles(&self) -> Vec<TrayToggle> {
         Vec::new()
     }

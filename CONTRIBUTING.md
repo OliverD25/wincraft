@@ -210,6 +210,15 @@ hover strip uses them.
 the first 127 characters) and `host::set_tray_tip(None)` puts the plain name
 back. It is safe to call from any callback too.
 
+`host::set_own_tray(id, Some(OwnTray { icon, tip, badge }))` gives your
+plugin a tray icon of its own, beside WinCraft's: your square RGBA picture,
+scaled to the tray's size, a tooltip that names your plugin, and a red count
+badge when `badge` is above 0 ("9+" above 9). `None` removes it; the host
+also removes it when your plugin is switched off or WinCraft quits. A left
+click calls `on_own_tray_click`; a right click shows the menu that
+`own_tray_menu` returns at that moment, and a pick calls `on_tray_action`
+with the entry's id. ClaudeDeck uses it for "Live in the tray".
+
 `host::ask(prompt)` opens the palette as a one-line text box: a `Prompt`
 names your plugin, your own number for the question, what it is about (a
 `target`, such as a window handle), the chip before the box, the grey text in

@@ -202,7 +202,7 @@ pub fn show_menu(hwnd: HWND, items: &[MenuItem]) -> Option<u32> {
     }
 }
 
-fn copy_into(buffer: &mut [u16], text: &str) {
+pub(crate) fn copy_into(buffer: &mut [u16], text: &str) {
     let encoded = wide(text);
     let take = encoded.len().min(buffer.len());
     buffer[..take].copy_from_slice(&encoded[..take]);

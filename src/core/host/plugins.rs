@@ -396,6 +396,7 @@ impl PluginSet {
         );
         self.slots[index].enabled = false;
         let id = self.slots[index].plugin.metadata().id.to_string();
+        super::set_own_tray(&id, None);
         WINDOWS_WANTED.with(|queue| queue.borrow_mut().push((id, None, false)));
         plugin_changed();
         true

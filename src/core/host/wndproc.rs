@@ -279,6 +279,7 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
     if taskbar_created != 0 && msg == taskbar_created {
         with_host_or_later(hwnd, msg, wparam, lparam, |host| {
             host.tray.add();
+            own_tray::add_all();
             host.buttons_changed();
             for slot in host.plugins.slots.iter_mut().filter(|slot| slot.enabled) {
                 slot.plugin.on_taskbar_created();
@@ -363,6 +364,10 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
                 return 0;
             }
             let event = (lparam as u32) & 0xFFFF;
+            if let Some(plugin) = own_tray::owner(wparam as u32) {
+                own_tray::clicked(&plugin, event);
+                return 0;
+            }
             if event == NIN_BALLOONUSERCLICK {
                 match with_host(|host| host.balloon_click) {
                     Some(BalloonClick::Detector) => open_shortcut_detector(),
@@ -394,6 +399,11 @@ pub(super) fn dispatch(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> 
                 if let Some(tip) = &requests.tip {
                     host.tray.set_tip(tip.as_deref());
                 }
+                own_tray::apply(|id| {
+                    host.plugins
+                        .index_of(id)
+                        .filter(|at| host.plugins.slots[*at].enabled)
+                });
                 for (title, text) in &requests.notices {
                     host.balloon_click = BalloonClick::Nothing;
                     host.tray.balloon(title, text);
