@@ -192,7 +192,7 @@ pub fn needs_restart(view: &HostView) -> bool {
 
 /// "12.5%".
 pub fn cpu_text(cpu10: u32) -> String {
-    if cpu10 % 10 == 0 {
+    if cpu10.is_multiple_of(10) {
         format!("{}%", cpu10 / 10)
     } else {
         format!("{}.{}%", cpu10 / 10, cpu10 % 10)
