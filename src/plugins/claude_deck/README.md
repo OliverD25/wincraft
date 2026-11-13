@@ -58,6 +58,9 @@ too:
 - **Working** (turning ring): Claude is busy on its turn.
 - **Waits on a server** (two stacked boxes): the chat runs an ssh command
   to one of your servers and waits until it ends (see "Homelab servers").
+- **Server job** (the server as a thin outline): the turn is over, a job
+  the chat started still runs on one of your servers (see "Homelab
+  servers"). It pulses slowly while the job uses CPU.
 - **Background** (dashed ring): the turn is over, background jobs still run.
 - **Idle** (hollow circle): nothing happens. Grey when fresh, lighter after
   an hour, blue after a day, a snowflake after three days.
@@ -236,7 +239,10 @@ Code blocks are left out, and words that look like keys or tokens show as
 "[hidden]". A tool's input, a command, a file or a tool's result is never
 shown; a tool shows only as plain words for its name. The one exception is
 a foreground ssh command to one of your servers, for **Waits on a server**:
-its first 120 characters, with the same hiding.
+its first 120 characters, with the same hiding. For **Server job**,
+ClaudeDeck also keeps the ssh commands of the last 7 days (their first 120
+characters, and the names of the units and programs they start) and shows
+a job's command line as the server reports it.
 
 ## Settings
 
@@ -304,6 +310,23 @@ this off: nothing is read, and no server line and no **Servers** tab show.
   servers (by any name on its `Host` line in `~\.ssh\config`) shows
   **Waits on a server**: "Waits on home2 · docker compose up", and the
   command in the hover panel. A background ssh job stays **Background**.
+- Work started by PC chats: jobs a PC chat started on a server (a user
+  unit, `nohup`, `setsid`, `tmux`, `systemd-run`) and a chat's running
+  background ssh command. A job belongs to the chat whose ssh call of the
+  last 7 days named its unit (`systemctl --user start <unit>`,
+  `systemd-run --user --unit=<name>`) or what it runs (`nohup python -m
+  tools.archive write` gives "tools.archive write") before it started.
+  With no such call, the job's folder under `~/projects/<repo>` names the
+  PC chats of that repo ("verdict-ai chats"). A unit a timer or the boot
+  starts, with no such call, is left out: nobody started it from a chat.
+  An idle PC chat with a job of its own shows **Server job**: "Runs on
+  home2: tools.archive write · 1 h 48 m", and each job (CPU, RAM, the
+  command) in the hover panel. The server line says "1 job from 1 PC chat
+  · CPU 2%", and the server's card on the **Servers** tab gets a first
+  section **Work from the PC**: the running jobs, then the ones that
+  ended in the last 24 h, greyed ("ran 2 h 10 m · ended well", "failed
+  (exit 1)"). Click a job to go to its chat. Ended jobs are kept in
+  `claude_deck.server_jobs.json` next to the list's file (at most 200).
 - Server statuses come from the end of each transcript: **Asks you** for an
   open question, **Working** for an open tool call or a write in the last
   minute, **Idle** after that, **Stopped** when neither a Remote Control
@@ -333,7 +356,10 @@ memory and uptime from `/proc`, whether a restart is needed, the free disk
 of `/`, the five busiest processes, the running Remote Control units, the
 `claude` processes (folder, CPU, memory, run time, command line), the failed
 systemd units, your own units, the units that run as you, `docker ps -a`
-(skipped when Docker is missing or not allowed), and the last 64 KB of each
+(skipped when Docker is missing or not allowed), your processes in user
+units and login sessions whose folder is under your home folder (at most 40
+lines: unit, PID, run time, CPU, memory, folder, command line), systemd's
+result of the units your PC chats started, and the last 64 KB of each
 recent transcript
 under `~/.claude/projects` (a transcript that did not change is not sent
 again). Nothing is installed, written or changed on a server.
