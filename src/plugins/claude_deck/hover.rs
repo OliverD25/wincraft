@@ -35,10 +35,13 @@ const GAP: f32 = 6.0;
 
 /// The panel's first line: "WinCraft design · asks you · 4 min".
 pub fn head_line(chat: &Chat, now: u64) -> String {
+    let status = match (chat.mark, &chat.job_on) {
+        (super::model::Mark::ServerJob(_), Some(on)) => format!("job on {on}"),
+        _ => status_words(chat.mark).to_string(),
+    };
     format!(
-        "{} \u{b7} {} \u{b7} {}",
+        "{} \u{b7} {status} \u{b7} {}",
         chat.title,
-        status_words(chat.mark),
         time_label(chat.since, now)
     )
 }

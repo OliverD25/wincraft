@@ -268,6 +268,7 @@ fn working(id: &str) -> Chat {
         fork: None,
         terminal: None,
         news: false,
+        job_on: None,
     }
 }
 

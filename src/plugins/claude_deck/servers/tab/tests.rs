@@ -33,6 +33,7 @@ fn chat(id: &str, folder: &str, mark: Mark) -> Chat {
         fork: None,
         terminal: None,
         news: false,
+        job_on: None,
     }
 }
 

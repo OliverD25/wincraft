@@ -5,11 +5,92 @@
 //!
 //! - `load`: the probe's `JOB` and `UNIT` lines.
 //! - `link`: which PC chat a job belongs to (pure).
+//! - `text`: the words about jobs (pure).
 
 pub mod link;
 pub mod load;
+pub mod text;
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use crate::core::claude_jobs;
 use crate::core::claude_launches::Launch;
+use crate::core::claude_sessions::Session;
+use crate::plugins::claude_deck::model::{Chat, Mark};
+
+use super::Deck;
+
+/// Links the servers' jobs to the PC chats, asks the readers about the
+/// units the chats started, and marks the chats. Called each time the
+/// list is built.
+pub fn refresh(deck: &mut Deck, chats: &mut [Chat], sessions: &[Session], now: u64) {
+    if !deck.is_on() {
+        deck.jobs.clear();
+        return;
+    }
+    let cli: HashMap<&str, &str> = sessions
+        .iter()
+        .map(|session| (session.id.as_str(), session.cli_session_id.as_str()))
+        .collect();
+    let launches: Vec<Arc<Vec<Launch>>> = chats
+        .iter()
+        .map(|chat| {
+            cli.get(chat.id.as_str())
+                .and_then(|id| claude_jobs::launches(id))
+                .unwrap_or_default()
+        })
+        .collect();
+    let pc: Vec<PcChat> = chats
+        .iter()
+        .zip(&launches)
+        .map(|(chat, launches)| PcChat {
+            id: &chat.id,
+            title: &chat.title,
+            folder: chat.folder.as_deref(),
+            launches,
+        })
+        .collect();
+    let views = deck.views();
+    let jobs = link::link(&pc, &views, deck.aliases(), now);
+    deck.ask_units(
+        link::units_to_ask(&pc, &jobs, deck.aliases())
+            .into_iter()
+            .collect(),
+    );
+    mark(chats, &jobs, now);
+    deck.jobs = jobs;
+}
+
+/// Gives an idle PC chat with a job of its own on a server the Server
+/// job mark, its line and its hover panel. A job of a whole repo marks
+/// no chat: it shows on the server only.
+pub fn mark(chats: &mut [Chat], jobs: &[Job], now: u64) {
+    for chat in chats.iter_mut() {
+        if !matches!(chat.mark, Mark::Idle(_)) {
+            continue;
+        }
+        let mine: Vec<&Job> = jobs
+            .iter()
+            .filter(|job| job.chat().is_some_and(|(id, _)| *id == chat.id))
+            .collect();
+        if mine.is_empty() {
+            continue;
+        }
+        let busy = mine
+            .iter()
+            .any(|job| job.cpu10.is_some_and(|cpu| cpu > text::BUSY_CPU10));
+        chat.mark = Mark::ServerJob(busy);
+        chat.since = mine
+            .iter()
+            .filter_map(|job| job.started)
+            .min()
+            .or(chat.since);
+        chat.text = Some(text::chat_line(&mine, now));
+        chat.full = Some(text::chat_full(&mine, now));
+        chat.job_on = Some(text::servers_of(&mine).join(", "));
+    }
+}
 
 /// A PC chat with its ssh calls, for linking.
 #[derive(Clone, Copy, Debug)]
@@ -80,5 +161,7 @@ impl Job {
 
 #[cfg(test)]
 mod link_tests;
+#[cfg(test)]
+mod status_tests;
 #[cfg(test)]
 mod tests;

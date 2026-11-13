@@ -249,6 +249,7 @@ fn row(
             None => record.folder.clone(),
         }),
         news: false,
+        job_on: None,
     };
     match (&record.server, transcript) {
         (Some(server), _) => {

@@ -138,6 +138,8 @@ pub struct Deck {
     pub keyed: Vec<(Pick, Target)>,
     /// The Servers tab's own state.
     pub tab: tab::TabUi,
+    /// The jobs PC chats started on the servers, as linked last.
+    pub jobs: Vec<jobs::Job>,
 }
 
 impl Deck {

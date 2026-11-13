@@ -486,6 +486,7 @@ fn refresh(state: &mut DeckUi, to_host: &HostChannel) {
     );
     state.chats = chats;
     state.servers.waits = waits;
+    servers::jobs::refresh(&mut state.servers, &mut state.chats, &sessions, now);
     forks::add_rows(&mut state.chats, now);
     open_app::send_pending_clears(to_host);
     servers::busy::warn_pc(&mut state.chats, &state.servers.views());
@@ -597,7 +598,7 @@ pub(super) fn next_frame(state: &DeckUi, lines: &[Line], now: u64) -> Duration {
         ASK_EVERY
     };
     for chat in shown {
-        if state.animate && chat.mark == Mark::Working {
+        if state.animate && matches!(chat.mark, Mark::Working | Mark::ServerJob(true)) {
             return RING_STEP;
         }
         if chat.since.is_some_and(|at| now.saturating_sub(at) < 60_000) {

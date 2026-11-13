@@ -27,6 +27,9 @@ pub enum Mark {
     Working,
     /// A PC chat blocked on a foreground ssh command to a listed server.
     WaitsOnServer,
+    /// A PC chat whose turn is over while a job it started runs on a
+    /// server; true while the job uses CPU.
+    ServerJob(bool),
     Background,
     Idle(Age),
     Stopped,
@@ -37,12 +40,13 @@ pub enum Mark {
 impl Mark {
     /// Most urgent first, as on the design page. A folded chat or group
     /// shows the most urgent mark inside it.
-    pub const URGENCY: [Mark; 10] = [
+    pub const URGENCY: [Mark; 11] = [
         Mark::NeedsApproval,
         Mark::AsksYou,
         Mark::DoneNotSeen,
         Mark::Working,
         Mark::WaitsOnServer,
+        Mark::ServerJob(false),
         Mark::Background,
         Mark::Idle(Age::Fresh),
         Mark::Stopped,
@@ -67,6 +71,7 @@ impl Mark {
             Mark::DoneNotSeen => "Done",
             Mark::Working => "Working",
             Mark::WaitsOnServer => "Waits",
+            Mark::ServerJob(_) => "Job",
             Mark::Background => "Bg",
             Mark::Idle(_) => "Idle",
             Mark::Stopped => "Stopped",
@@ -119,6 +124,9 @@ pub struct Chat {
     /// The chat has a reply the user has not seen (the News tab): its row
     /// gets an amber dot after the name.
     pub news: bool,
+    /// For Server job: the servers its jobs run on, for the hover panel's
+    /// "job on home2".
+    pub job_on: Option<String>,
 }
 
 const QUIET_MEANS_IDLE_MS: u64 = 60 * 60 * 1000;
@@ -180,6 +188,7 @@ pub fn chat(
         ),
         terminal: None,
         news: false,
+        job_on: None,
     }
 }
 
@@ -459,6 +468,7 @@ pub fn stand_in(archived: &Archived, id: &str, folder: Option<String>, created: 
         fork: None,
         terminal: None,
         news: false,
+        job_on: None,
     }
 }
 
