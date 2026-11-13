@@ -119,4 +119,5 @@ mod news;
 mod plugin;
 mod screen;
 mod servers_keys;
+mod servers_tab;
 mod store;

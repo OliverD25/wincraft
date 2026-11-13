@@ -1,5 +1,8 @@
-//! What the server groups show, worked out without drawing: the lines of
-//! each group, the words on a server's line and in its hover panel.
+//! What the servers show, worked out without drawing. On the Chats tab
+//! each server has one short line, with its chats that wait for the user
+//! under it (`short_lines`); the Servers tab lists a server's chats in
+//! full (`lines`). Also the words on a server's line and in its hover
+//! panel.
 
 use std::collections::BTreeSet;
 
@@ -113,6 +116,37 @@ pub fn lines(views: &[(String, HostView)], shape: &Shape) -> Vec<ServerLine> {
     lines
 }
 
+/// A server chat that waits for the user: it needs approval or asks a
+/// question. It shows on the Chats tab under its server's short line.
+pub fn waits_for_user(mark: Mark) -> bool {
+    matches!(mark, Mark::NeedsApproval | Mark::AsksYou)
+}
+
+/// The Chats tab's lines: each server's short line, and under it the
+/// server's chats that wait for the user (pinned first; hidden ones stay
+/// hidden).
+pub fn short_lines(views: &[(String, HostView)], shape: &Shape) -> Vec<ServerLine> {
+    let mut lines = Vec::new();
+    for (at, (server, view)) in views.iter().enumerate() {
+        lines.push(ServerLine::Server(at));
+        let offline = view.checked.is_some() && !view.online;
+        let mut waiting: Vec<&Chat> = view
+            .chats
+            .iter()
+            .filter(|chat| waits_for_user(chat.mark) && !shape.hidden.contains(&chat.id))
+            .collect();
+        waiting.sort_by_key(|chat| !shape.pinned.contains(&chat.id));
+        lines.extend(waiting.into_iter().map(|chat| ServerLine::Chat {
+            chat: Box::new(chat.clone()),
+            server: server.clone(),
+            greyed: offline,
+            pinned: shape.pinned.contains(&chat.id),
+            hidden: false,
+        }));
+    }
+    lines
+}
+
 /// "3 h ago", "20 s ago".
 fn ago(at: u64, now: u64) -> String {
     format!("{} ago", duration_text(now.saturating_sub(at)))
@@ -123,8 +157,24 @@ pub fn waiting_on(server: &str, waits: &[Wait]) -> usize {
     waits.iter().filter(|wait| wait.server == server).count()
 }
 
-/// The words at the right of a server's line. While PC chats wait on an
-/// online server, "1 PC chat waits" takes the place of CPU and RAM.
+/// How many of a server's chats wait for the user, and how many work.
+pub fn counts(view: &HostView) -> (usize, usize) {
+    let waiting = view
+        .chats
+        .iter()
+        .filter(|chat| waits_for_user(chat.mark))
+        .count();
+    let working = view
+        .chats
+        .iter()
+        .filter(|chat| chat.mark == Mark::Working)
+        .count();
+    (waiting, working)
+}
+
+/// The words at the right of a server's short line: the PC chats that
+/// wait on it ("1 PC chat waits"), then its chats that wait for the user
+/// and that work: "1 waits for you \u{b7} 2 working".
 pub fn line_text(view: &HostView, waiting: usize, now: u64) -> String {
     match (view.checked, view.online) {
         (None, _) => "Checking\u{2026}".to_string(),
@@ -132,24 +182,34 @@ pub fn line_text(view: &HostView, waiting: usize, now: u64) -> String {
             Some(seen) => format!("Offline \u{b7} last seen {}", ago(seen, now)),
             None => "Offline".to_string(),
         },
-        (Some(_), true) if waiting > 0 => {
-            let label = waits_label(waiting);
-            if view.chats.is_empty() {
-                label
-            } else {
-                format!("{label} \u{b7} {}", view.chats.len())
-            }
-        }
-        (Some(_), true) if view.chats.is_empty() => "No Claude chats".to_string(),
         (Some(_), true) => {
+            let (for_you, working) = counts(view);
             let mut parts = Vec::new();
-            parts.extend(view.cpu.map(|cpu| format!("CPU {cpu}%")));
-            parts.extend(view.ram.map(|ram| format!("RAM {ram}%")));
-            parts.push(view.chats.len().to_string());
-            parts.join(" \u{b7} ")
+            if waiting > 0 {
+                parts.push(waits_label(waiting));
+            }
+            match for_you {
+                0 => {}
+                1 => parts.push(WAITS_FOR_YOU_ONE.to_string()),
+                n => parts.push(format!("{n} wait for you")),
+            }
+            if working > 0 {
+                parts.push(format!("{working} working"));
+            }
+            if !parts.is_empty() {
+                parts.join(" \u{b7} ")
+            } else if view.chats.is_empty() {
+                NO_CHATS.to_string()
+            } else {
+                NONE_WORKING.to_string()
+            }
         }
     }
 }
+
+pub const WAITS_FOR_YOU_ONE: &str = "1 waits for you";
+pub const NO_CHATS: &str = "No Claude chats";
+pub const NONE_WORKING: &str = "No chat working";
 
 /// "1 PC chat waits", "2 PC chats wait".
 pub fn waits_label(count: usize) -> String {

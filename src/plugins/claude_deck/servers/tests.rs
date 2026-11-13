@@ -364,6 +364,7 @@ fn view_of(chats: Vec<Chat>, online: bool) -> HostView {
         chats,
         health: reply::Health::default(),
         replies: Default::default(),
+        ..HostView::default()
     }
 }
 
@@ -401,7 +402,7 @@ fn a_server_group_shows_its_line_and_its_chats() {
     let host = view_of(chats, true);
     assert_eq!(
         view::line_text(&host, 0, NOW),
-        "CPU 34% \u{b7} RAM 61% \u{b7} 3"
+        "1 waits for you \u{b7} 1 working"
     );
     let views = vec![("rdehome2".to_string(), host)];
     let lines = shape_lines(&views, &BTreeSet::new());
@@ -478,7 +479,10 @@ fn the_probe_is_told_what_it_need_not_send_and_ssh_never_prompts() {
         ("bad name'; rm".to_string(), 1, 1),
     ]);
     assert!(script.starts_with("known='-home-a:5:6'\n"));
-    assert!(!script.contains("rm"), "a strange folder name is left out");
+    assert!(
+        !script.contains("bad name"),
+        "a strange folder name is left out"
+    );
     let args = probe::ssh_args("rdehome2");
     assert!(args.windows(2).any(|w| w == ["-o", "BatchMode=yes"]));
     assert!(args.windows(2).any(|w| w == ["--", "rdehome2"]));
@@ -929,8 +933,9 @@ fn a_running_remote_control_chat_is_never_cold() {
 #[test]
 fn a_server_line_says_when_pc_chats_wait_on_it() {
     let host = view_of(vec![server_chat("s/a", Mark::Idle(Age::Fresh))], true);
-    assert_eq!(view::line_text(&host, 1, NOW), "1 PC chat waits \u{b7} 1");
-    assert_eq!(view::line_text(&host, 2, NOW), "2 PC chats wait \u{b7} 1");
+    assert_eq!(view::line_text(&host, 1, NOW), "1 PC chat waits");
+    assert_eq!(view::line_text(&host, 2, NOW), "2 PC chats wait");
+    assert_eq!(view::line_text(&host, 0, NOW), view::NONE_WORKING);
     assert_eq!(
         view::line_text(&view_of(Vec::new(), true), 1, NOW),
         "1 PC chat waits"

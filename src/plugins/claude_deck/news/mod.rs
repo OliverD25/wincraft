@@ -47,12 +47,13 @@ pub const KEEP_MARKS_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 const FILE: &str = "claude_deck.news.json";
 const VERSION: u32 = 1;
 
-/// The window's two tabs.
+/// The window's tabs. Servers shows only while a server is listed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Tab {
     #[default]
     Chats,
     News,
+    Servers,
 }
 
 /// The items read here: each item's key and the time of its reply.

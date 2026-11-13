@@ -14,6 +14,7 @@ use crate::core::claude_sessions;
 use crate::core::claude_turns::Reply;
 use crate::plugins::claude_deck::model::Chat;
 
+use super::load::{Proc, Service};
 use super::probe;
 use super::reply::{self, RawChat};
 use super::status::{self, Parsed, Running};
@@ -56,6 +57,12 @@ pub struct HostView {
     /// The finished replies of each chat, by the chat's id, oldest first,
     /// with their times in the PC's clock.
     pub replies: HashMap<String, Vec<Reply>>,
+    /// The running `claude` processes, as last known.
+    pub claude: Vec<Proc>,
+    /// The five busiest processes, as last known.
+    pub busiest: Vec<Proc>,
+    /// Failed and the user's own services and containers, as last known.
+    pub services: Vec<Service>,
 }
 
 /// The transcripts already read from one server, by folder.
@@ -112,6 +119,9 @@ pub fn take_reply(
     view.ram = reply.ram();
     view.mem = reply.mem;
     view.health = reply.health.clone();
+    view.claude = reply.claude.clone();
+    view.busiest = reply.busiest.clone();
+    view.services = reply.services.clone();
     let running = Running {
         rc: &reply.rc,
         procs: &reply.procs,

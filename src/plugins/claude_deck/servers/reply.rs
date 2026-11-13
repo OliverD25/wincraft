@@ -2,6 +2,8 @@
 //! of an unknown or broken form is skipped, a transcript whose base64
 //! does not decode is left out, and nothing here can panic.
 
+use super::load::{self, Proc, Service};
+
 /// One transcript the server listed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RawChat {
@@ -36,6 +38,12 @@ pub struct Reply {
     /// Remote Control folders with no transcript yet, with the time of
     /// their `bridge-pointer.json` (server seconds).
     pub ready: Vec<(String, u64)>,
+    /// The running `claude` processes.
+    pub claude: Vec<Proc>,
+    /// The five busiest processes of any kind, busiest first.
+    pub busiest: Vec<Proc>,
+    /// Failed services, the user's own, and every Docker container.
+    pub services: Vec<Service>,
 }
 
 /// How the server itself is, for the hover panel.
@@ -132,6 +140,18 @@ pub fn parse(text: &str) -> Option<Reply> {
                     parts.next(),
                 ) {
                     reply.ready.push((dir.to_string(), mtime));
+                }
+            }
+            "CLP" => reply.claude.extend(load::claude_proc(rest)),
+            "BUSY" if reply.busiest.len() < 5 => reply.busiest.extend(load::busy_proc(rest)),
+            "SVC" => {
+                if let Some(service) = load::unit(rest) {
+                    load::add_service(&mut reply.services, service);
+                }
+            }
+            "DOCK" => {
+                if let Some(service) = load::container(rest) {
+                    load::add_service(&mut reply.services, service);
                 }
             }
             "DONE" => done = true,
