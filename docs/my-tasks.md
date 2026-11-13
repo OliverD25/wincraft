@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 35. Install 0.20.119: move windows inside an open WindowDeck group
 
-- **State:** Wait: the 0.20.119 release is still building on GitHub.
+- **State:** Ready to test. Release 0.20.119 is published with wincraft.exe and SHA256SUMS.txt (checked 2026-11-13).
 - **Kind:** test · **Added:** 2026-11-13 (PC, branch claude/wincraft-design-artifact-move-4b267d)
 - **Why:** you asked to change the order of the windows in a group. Only
   you can test it: a test copy of WinCraft must never move your real
