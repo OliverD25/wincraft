@@ -65,7 +65,15 @@ fn the_decision_table() {
     );
     let prompt = input(r#"{"hook_event_name":"UserPromptSubmit"}"#);
     let mark = saved("PreToolUse", Some("AskUserQuestion"), None);
-    assert_eq!(plan(&prompt, None, never), Plan::default());
+    // A message clears the chat's mark even when this hook kept no record
+    // of it: an older hook may have set it.
+    assert_eq!(
+        plan(&prompt, None, never),
+        Plan {
+            answer: true,
+            wait: None
+        }
+    );
     assert_eq!(
         plan(&prompt, Some(&mark), never),
         Plan {

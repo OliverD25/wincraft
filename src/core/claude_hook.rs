@@ -153,8 +153,10 @@ pub fn plan(input: &Input, saved: Option<&Saved>, stop_asks: impl FnOnce() -> bo
             wait: waits(input),
         };
     }
+    // The user's own message answers whatever the chat asked, also a mark
+    // this hook did not set (an older hook's, which nothing else clears).
     Plan {
-        answer: saved.is_some_and(|saved| clears(input, saved)),
+        answer: event == "UserPromptSubmit" || saved.is_some_and(|saved| clears(input, saved)),
         wait: (event == "Stop" && stop_asks()).then_some(Ask::Question),
     }
 }
