@@ -150,7 +150,7 @@ pub fn plan(input: &Input, saved: Option<&Saved>, stop_asks: impl FnOnce() -> bo
     if !answers(event) {
         return Plan {
             answer: false,
-            wait: waits(input),
+            wait: waits(input).map(|ask| question_card_stays(ask, input, saved)),
         };
     }
     // The user's own message answers whatever the chat asked, also a mark
@@ -158,6 +158,22 @@ pub fn plan(input: &Input, saved: Option<&Saved>, stop_asks: impl FnOnce() -> bo
     Plan {
         answer: event == "UserPromptSubmit" || saved.is_some_and(|saved| clears(input, saved)),
         wait: (event == "Stop" && stop_asks()).then_some(Ask::Question),
+    }
+}
+
+/// The desktop app asks permission to show a question card, so a card
+/// also brings a PermissionRequest and a permission Notification. They
+/// must not turn the card into an approval (2026-11-14: ClaudeDeck said
+/// Approve for a question). The Notification names no tool, so the mark
+/// before it tells.
+fn question_card_stays(ask: Ask, input: &Input, saved: Option<&Saved>) -> Ask {
+    let card = input.tool() == ASK_TOOL
+        || (input.tool().is_empty()
+            && saved.is_some_and(|saved| saved.tool_name.as_deref() == Some(ASK_TOOL)));
+    if card {
+        Ask::Question
+    } else {
+        ask
     }
 }
 

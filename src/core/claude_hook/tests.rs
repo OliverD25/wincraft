@@ -321,3 +321,26 @@ fn a_session_target_names_a_chat_by_its_id() {
     assert_eq!(claude_waits::session_target("Fix the build"), None);
     assert_eq!(claude_waits::session_target("hwnd:12"), None);
 }
+
+#[test]
+fn a_question_card_stays_a_question_through_its_permission_events() {
+    let never = || panic!("the transcript is read only at Stop");
+    let card = saved("PreToolUse", Some("AskUserQuestion"), Some("toolu_q"));
+    let request = input(
+        r#"{"hook_event_name":"PermissionRequest","tool_name":"AskUserQuestion","tool_use_id":"toolu_q"}"#,
+    );
+    assert_eq!(plan(&request, Some(&card), never).wait, Some(Ask::Question));
+    assert_eq!(plan(&request, None, never).wait, Some(Ask::Question));
+    let note =
+        input(r#"{"hook_event_name":"Notification","notification_type":"permission_prompt"}"#);
+    assert_eq!(plan(&note, Some(&card), never).wait, Some(Ask::Question));
+    // Any other tool's permission prompt is still an approval.
+    let bash = input(r#"{"hook_event_name":"PermissionRequest","tool_name":"Bash"}"#);
+    assert_eq!(plan(&bash, Some(&card), never).wait, Some(Ask::Approval));
+    let approval = saved("PermissionRequest", Some("Bash"), None);
+    assert_eq!(
+        plan(&note, Some(&approval), never).wait,
+        Some(Ask::Approval)
+    );
+    assert_eq!(plan(&note, None, never).wait, Some(Ask::Approval));
+}
