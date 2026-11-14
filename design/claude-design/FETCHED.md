@@ -338,3 +338,14 @@ it again. The arrows of section 14 now point down while any reply shows,
 as the code does. The keyboard text says → shows the replies, ← collapses.
 This follows the user's request after 0.20.117 (CODE-CHANGES row of
 2026-11-13 is now "in design (artifact v45)").
+
+## 2026-11-14: ClaudeDeck, context ring on each chat (for review)
+
+Version 47 of the artifact, copied byte for byte (365106 bytes). New
+section 15 "Context ring on each chat", asked by the WinCraft Rust chat:
+a 12 px ring per Chats row, 100% = the compaction point (777k on this PC),
+bands grey under 15%, green 15-45%, amber 45-75%, red over 75%, track
+only when the size is not known. Two placements, A (before the time,
+recommended) and B (after the model name), in dark and light, and the
+hover panel's new "Context 318k of 777k (41%) · compacted 2 times" line.
+Not built yet. Made by make_claudedeck_context_ring.py from version 45.
