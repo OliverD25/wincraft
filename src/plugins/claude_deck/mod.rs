@@ -8,6 +8,7 @@
 //! (`HostRequest::ClaudeDeckRefresh`); when it is closed nothing runs.
 
 mod arrange;
+mod context;
 mod data;
 mod drop;
 mod edges;

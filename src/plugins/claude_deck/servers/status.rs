@@ -189,6 +189,7 @@ pub fn ready_chats(
             terminal: None,
             news: false,
             job_on: None,
+            context: None,
         });
     }
     rows
@@ -286,5 +287,8 @@ pub fn chat(
         terminal: None,
         news: false,
         job_on: None,
+        // The server's own settings are not read: its compaction point
+        // follows the model alone.
+        context: crate::plugins::claude_deck::context::fill(&turn.context, None, None),
     }
 }

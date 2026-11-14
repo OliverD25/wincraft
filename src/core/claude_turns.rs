@@ -25,9 +25,11 @@ use std::collections::VecDeque;
 
 use serde_json::Value;
 
+pub(crate) mod context;
 mod replies;
 pub(crate) mod ssh;
 pub(crate) mod words;
+pub use context::Context;
 pub use replies::{Replies, Reply};
 pub use words::{first_sentence, last_question};
 
@@ -81,6 +83,8 @@ pub struct Turn {
     pub tool: Option<String>,
     /// That tool runs ssh in the foreground: where to, and since when.
     pub ssh: Option<SshCall>,
+    /// How full the chat's context is.
+    pub context: Context,
 }
 
 /// A shell command that runs ssh and that the chat waits on.
@@ -101,6 +105,7 @@ pub struct Tail {
     recent: VecDeque<String>,
     /// The newest assistant record that holds text.
     text_line: Option<String>,
+    context: Context,
 }
 
 impl Tail {
@@ -109,6 +114,10 @@ impl Tail {
         let Some(kind) = kind_of(line) else {
             return;
         };
+        match kind {
+            Kind::Assistant => self.context.assistant(line),
+            Kind::User => self.context.user(line),
+        }
         if kind == Kind::Assistant
             && line.len() <= MOST_TEXT_LINE
             && line.contains("\"type\":\"text\"")
@@ -132,7 +141,10 @@ impl Tail {
 
     /// The last turn, as far as the kept lines tell.
     pub fn turn(&self) -> Turn {
-        let mut turn = Turn::default();
+        let mut turn = Turn {
+            context: self.context,
+            ..Turn::default()
+        };
         let last = self
             .recent
             .iter()

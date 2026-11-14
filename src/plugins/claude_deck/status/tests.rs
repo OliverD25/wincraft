@@ -24,6 +24,7 @@ fn chat(mark: Mark) -> Chat {
         terminal: None,
         news: false,
         job_on: None,
+        context: None,
     }
 }
 
@@ -45,6 +46,7 @@ fn turn(end: End, text: Option<&str>) -> Turn {
         question: None,
         tool: None,
         ssh: None,
+        context: Default::default(),
     }
 }
 

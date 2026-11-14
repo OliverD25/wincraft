@@ -6,9 +6,10 @@ use std::collections::HashSet;
 
 use crate::core::claude_jobs;
 use crate::core::claude_sessions::{self, Session};
-use crate::core::claude_turns::Turn;
+use crate::core::claude_turns::{context::compact_setting, Turn};
 use crate::core::claude_windows::{self, ChatWindow};
 
+use super::context;
 use super::model::{self, Archived, Chat, Mark};
 use super::servers::{self, Aliases, Wait};
 use super::status::{self, Seen};
@@ -23,6 +24,7 @@ pub fn chats(
 ) -> (Vec<Chat>, Vec<Wait>) {
     let mut waits = Vec::new();
     let windowless = claude_windows::waits();
+    let setting = compact_setting();
     let chats = sessions
         .iter()
         .map(|session| {
@@ -32,6 +34,9 @@ pub fn chats(
             let wait = window.or_else(|| claude_windows::of(&windowless, &session.id));
             let mut chat = model::chat(session, wait, jobs, now);
             chat.window = window.map(|w| w.hwnd);
+            chat.context = turn.as_ref().and_then(|turn| {
+                context::fill(&turn.context, setting, session.lineage.model.as_deref())
+            });
             let chat = status::refine(chat, session, &seen.evidence(&session.id, turn.as_ref()));
             waits_on_server(chat, turn.as_ref(), aliases, &mut waits)
         })

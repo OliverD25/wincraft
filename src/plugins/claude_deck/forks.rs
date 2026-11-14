@@ -250,6 +250,7 @@ fn row(
         }),
         news: false,
         job_on: None,
+        context: None,
     };
     match (&record.server, transcript) {
         (Some(server), _) => {

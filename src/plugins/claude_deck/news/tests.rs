@@ -34,6 +34,7 @@ fn chat(id: &str) -> Chat {
         terminal: None,
         news: false,
         job_on: None,
+        context: None,
     }
 }
 

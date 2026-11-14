@@ -29,6 +29,7 @@ fn pc_chat(id: &str, mark: Mark) -> Chat {
         terminal: None,
         news: false,
         job_on: None,
+        context: None,
     }
 }
 

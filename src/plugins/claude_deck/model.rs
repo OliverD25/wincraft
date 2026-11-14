@@ -127,6 +127,8 @@ pub struct Chat {
     /// For Server job: the servers its jobs run on, for the hover panel's
     /// "job on home2".
     pub job_on: Option<String>,
+    /// How full its context is, for the context ring; None when not known.
+    pub context: Option<super::context::Fill>,
 }
 
 const QUIET_MEANS_IDLE_MS: u64 = 60 * 60 * 1000;
@@ -193,6 +195,7 @@ pub fn chat(
         terminal: None,
         news: false,
         job_on: None,
+        context: None,
     }
 }
 
@@ -473,6 +476,7 @@ pub fn stand_in(archived: &Archived, id: &str, folder: Option<String>, created: 
         terminal: None,
         news: false,
         job_on: None,
+        context: None,
     }
 }
 

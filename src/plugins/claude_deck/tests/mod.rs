@@ -33,6 +33,7 @@ fn chat(id: &str, folder: Option<&str>, created: u64) -> Chat {
         terminal: None,
         news: false,
         job_on: None,
+        context: None,
     }
 }
 
