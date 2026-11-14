@@ -27,12 +27,24 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 **Steps**
 
-1. Press `Alt+Space`, type `update`, pick **Update WinCraft**, press
-   `Enter`. WinCraft restarts as 0.20.123.
+1. First stop a stuck helper. A `wincraft.exe --waiting` call from the old
+   Python hook (PID 154012, started 2026-11-13 18:55) never ended. It holds
+   the file `wincraft.old.exe`, so the update to 0.20.123 failed with
+   "Access is denied" and WinCraft stayed on 0.20.122. In a WSL terminal:
+
+   ```bash
+   taskkill.exe /PID 154012 /F
+   ```
+
+   It should print `SUCCESS: The process with PID 154012 has been terminated.`
+   Then press `Alt+Space`, type `update`, pick **Update WinCraft**, press
+   `Enter`. WinCraft restarts. The left column of Settings should show
+   **v0.20.123** under **WinCraft**.
 2. Open ClaudeDeck's settings: right-click the amber ClaudeDeck tile in the
    tray, pick **All settings…**. Under the heading **Claude Code**, the row
    **Claude Code hook** should say "Another hook already marks chats
-   (claude-attention.py)". Click **Connect to Claude Code**. A balloon
+   (claude-attention.py)" (scroll down: it is the last heading). Click
+   **Connect to Claude Code**. A balloon
    says "WinCraft connected to Claude Code. New chats show when they ask
    you."
 3. Remove the old Python hook. In a WSL terminal, run this (it keeps a copy
