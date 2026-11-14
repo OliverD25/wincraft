@@ -1,5 +1,6 @@
 //! The hover panel (design section 8): resting the mouse on a chat shows
-//! its full name, status and time, its project and branch, the full
+//! its full name, status and time, its project and branch, how full its
+//! context is (design section 15), the full
 //! question or last result, and "No open window" when a click would do
 //! nothing. Painted on the tooltip layer, inside ClaudeDeck's window.
 
@@ -11,6 +12,7 @@ use egui::{pos2, vec2, Color32, Context, Galley, Id, LayerId, Order, Painter, Re
 use crate::core::theme::{self, Tokens};
 use crate::ui::widgets::text;
 
+use super::context;
 use super::labels::{status_words, time_label, NO_WINDOW};
 use super::marks;
 use super::model::{group_name, Chat, NEW_GROUP};
@@ -72,6 +74,7 @@ fn wrapped(painter: &Painter, words: &str, size: f32, colour: Color32, width: f3
 pub struct Panel {
     head: Arc<Galley>,
     place: Arc<Galley>,
+    context: Arc<Galley>,
     body: Option<Arc<Galley>>,
     no_window: Option<Arc<Galley>>,
     pub size: egui::Vec2,
@@ -95,6 +98,13 @@ pub fn layout(painter: &Painter, chat: &Chat, look: &Look, width: f32) -> Panel 
         tokens.text_secondary,
         inner,
     );
+    let context = wrapped(
+        painter,
+        &context::hover_text(chat.context),
+        HEAD_SIZE,
+        tokens.text_secondary,
+        inner - context::SIZE - GAP,
+    );
     let body = chat
         .full
         .as_deref()
@@ -104,12 +114,14 @@ pub fn layout(painter: &Painter, chat: &Chat, look: &Look, width: f32) -> Panel 
         .is_none()
         .then(|| wrapped(painter, NO_WINDOW, HEAD_SIZE, tokens.text_disabled, inner));
     let mut height = PAD_Y * 2.0 + head.size().y.max(marks::SIZE) + GAP + place.size().y;
+    height += GAP + context.size().y.max(context::SIZE);
     for part in body.iter().chain(no_window.iter()) {
         height += GAP + part.size().y;
     }
     Panel {
         head,
         place,
+        context,
         body,
         no_window,
         size: vec2(width, height),
@@ -151,6 +163,7 @@ pub fn paint(painter: &Painter, rect: Rect, radius: u8, panel: Panel, chat: &Cha
     let Panel {
         head,
         place,
+        context,
         body,
         no_window,
         ..
@@ -177,7 +190,19 @@ pub fn paint(painter: &Painter, rect: Rect, radius: u8, panel: Panel, chat: &Cha
     y += head_height + GAP;
     let place_height = place.size().y;
     painter.galley(pos2(x, y), place, Color32::PLACEHOLDER);
-    y += place_height;
+    y += place_height + GAP;
+    let context_height = context.size().y.max(context::SIZE);
+    let ring = Rect::from_min_size(
+        pos2(x, y + (context_height - context::SIZE) / 2.0),
+        vec2(context::SIZE, context::SIZE),
+    );
+    context::paint(painter, ring, chat.context, tokens);
+    painter.galley(
+        pos2(x + context::SIZE + GAP, y),
+        context,
+        Color32::PLACEHOLDER,
+    );
+    y += context_height;
     for part in body.into_iter().chain(no_window) {
         y += GAP;
         let part_height = part.size().y;

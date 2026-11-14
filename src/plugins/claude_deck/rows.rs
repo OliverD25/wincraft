@@ -11,6 +11,7 @@ use crate::core::claude_sessions::Age;
 use crate::core::theme::{self, Tokens};
 use crate::ui::widgets::text;
 
+use super::context;
 use super::labels::{
     chats_label, cold_label, days_label, forks_label, hidden_label, jobs_label, model_label,
     time_label,
@@ -272,6 +273,18 @@ fn parts(painter: &Painter, row: Rect, left: f32, line: &ChatLine, look: &Look) 
         right -= time.size().x;
         put(painter, right, middle, time);
         right -= PART_GAP;
+    }
+    if !line.stand_in {
+        let edge = row.right() - PAD_RIGHT;
+        right = context::in_row(
+            painter,
+            right,
+            edge,
+            settings.time,
+            middle,
+            chat.context,
+            tokens,
+        );
     }
     let room = (right - left).max(0.0);
     let mut fixed: Vec<Arc<Galley>> = Vec::new();
