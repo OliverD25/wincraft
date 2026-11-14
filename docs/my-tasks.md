@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 40. Install 0.20.123: connect WinCraft's own Claude Code hook, remove the old Python hook
 
-- **State:** Wait: the 0.20.123 release is still building on GitHub.
+- **State:** Ready to test (0.20.123 is released).
 - **Kind:** test · **Added:** 2026-11-14 (PC, branch claude/wincraft-design-artifact-move-4b267d)
 - **Why:** you chose to ship the "asks you" hook inside WinCraft, so other
   users get it with one click, and to replace your Python hook
