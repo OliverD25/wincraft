@@ -235,8 +235,7 @@ impl Outcome {
 /// Hands the title to the running WinCraft, saying what the session waits
 /// for.
 pub fn run_as(kind: Kind, ask: Ask, title: &str) -> Outcome {
-    let class = wide(&instance::name(host::CLASS_NAME));
-    let hwnd = unsafe { FindWindowW(class.as_ptr(), std::ptr::null()) };
+    let hwnd = host_window();
     if hwnd.is_null() {
         return Outcome::NotRunning;
     }
@@ -265,6 +264,18 @@ pub fn run_as(kind: Kind, ask: Ask, title: &str) -> Outcome {
         kind,
         matched: result - 1,
     }
+}
+
+/// The running WinCraft's host window of this instance; null when none
+/// runs.
+fn host_window() -> windows_sys::Win32::Foundation::HWND {
+    let class = wide(&instance::name(host::CLASS_NAME));
+    unsafe { FindWindowW(class.as_ptr(), std::ptr::null()) }
+}
+
+/// Whether a WinCraft of this instance runs now.
+pub fn running() -> bool {
+    !host_window().is_null()
 }
 
 #[cfg(test)]

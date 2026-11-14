@@ -85,6 +85,14 @@ fn main() {
         std::process::exit(outcome.exit_code());
     }
 
+    // WinCraft's own Claude Code hook: quiet, always exit code 0, and it
+    // never starts WinCraft, takes the single-instance lock or writes the
+    // log; it only talks to the running instance.
+    if has_flag(&args, core::claude_hook::FLAG) {
+        core::claude_hook::run();
+        return;
+    }
+
     // A Claude Code hook: a session waits for the user, or was answered.
     // Before the single-instance guard and logging::init for the same
     // reasons as --quit, and fast, because the hook waits for it.
