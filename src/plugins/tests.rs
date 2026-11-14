@@ -52,6 +52,7 @@ fn every_setting_field_has_a_default_of_the_right_kind() {
             match field.kind {
                 FieldKind::Toggle => assert!(value.is_boolean(), "{at}"),
                 FieldKind::Text | FieldKind::Path => assert!(value.is_string(), "{at}"),
+                FieldKind::Button(label) => assert!(!label.is_empty(), "{at}"),
                 FieldKind::Choice(options) => {
                     assert!(!options.is_empty(), "{at}");
                     let chosen = value.as_str().unwrap_or_default();

@@ -22,6 +22,8 @@ use serde::{Deserialize, Serialize};
 use crate::core::claude_waits::{self, Ask, Kind};
 use crate::core::config;
 
+mod json;
+pub mod settings;
 mod turn;
 
 #[cfg(test)]

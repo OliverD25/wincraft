@@ -473,6 +473,22 @@ impl PluginSet {
         }
     }
 
+    /// A `Button` field of a plugin that is on was clicked.
+    pub(super) fn press_button(&mut self, plugin_id: &str, key: &str) {
+        let Some(index) = self.index_of(plugin_id) else {
+            return;
+        };
+        if !self.slots[index].enabled {
+            return;
+        }
+        detailed_log::plugin_call(
+            self.slots[index].plugin.as_mut(),
+            || format!("button {key}"),
+            0.0,
+            |plugin| plugin.on_button(key),
+        );
+    }
+
     /// Deletes the plugin's settings file and starts it again from its
     /// defaults. False when the file could not be deleted.
     pub(super) fn reset(&mut self, plugin_id: &str) -> bool {

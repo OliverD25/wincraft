@@ -72,11 +72,22 @@ pub struct TrayToggle {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FieldKind {
     Toggle,
-    Slider { min: f64, max: f64, step: f64 },
-    Number { min: f64, max: f64 },
+    Slider {
+        min: f64,
+        max: f64,
+        step: f64,
+    },
+    Number {
+        min: f64,
+        max: f64,
+    },
     Text,
     Choice(&'static [&'static str]),
     Path,
+    /// A button with this text. Its row's help line can say the state the
+    /// button changes. A click calls `on_button` with the field's key; no
+    /// value is saved.
+    Button(&'static str),
 }
 
 impl FieldKind {
@@ -96,6 +107,7 @@ impl FieldKind {
         FieldKind::Text,
         FieldKind::Choice(&[]),
         FieldKind::Path,
+        FieldKind::Button(""),
     ];
 
     pub fn name(&self) -> &'static str {
@@ -106,6 +118,7 @@ impl FieldKind {
             FieldKind::Text => "Text",
             FieldKind::Choice(_) => "Choice",
             FieldKind::Path => "Path",
+            FieldKind::Button(_) => "Button",
         }
     }
 }
@@ -366,6 +379,12 @@ pub trait WinCraftPlugin {
     /// sees now. Asked each time the settings window gets fresh data.
     fn dynamic_fields(&self) -> Vec<DynamicField> {
         Vec::new()
+    }
+
+    /// The user clicked the `Button` field with this key on the settings
+    /// page. Call `host::plugin_changed()` when its row should change.
+    fn on_button(&mut self, key: &str) {
+        let _ = key;
     }
 
     /// Called with the whole settings object after the user changes one value.

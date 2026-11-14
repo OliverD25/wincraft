@@ -145,6 +145,7 @@ correct and merely slower.
 | `Text` | One-line text box |
 | `Choice(&["a", "b"])` | Segmented control for up to 4 options, a dropdown for 5 or more |
 | `Path` | One-line text box for a file path, with a Browse… button |
+| `Button("Text")` | A button; a click calls `on_button(key)` and saves nothing. Its help line can say the state it changes |
 
 The About page lists the kinds the build you are running can draw.
 

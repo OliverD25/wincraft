@@ -91,6 +91,7 @@ pub(super) fn group(key: &str) -> Option<&'static str> {
     match key {
         MARK_KEY | TEXT_KEY | TIME_KEY | PROJECT_KEY | JOBS_KEY | MODEL_KEY => Some("On each row"),
         SERVERS_KEY => Some("Homelab"),
+        hook_link::KEY => Some(hook_link::GROUP),
         _ => None,
     }
 }

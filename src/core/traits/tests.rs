@@ -29,4 +29,5 @@ fn a_field_kind_is_named_whatever_its_limits_are() {
         "Number"
     );
     assert_eq!(FieldKind::Choice(&["a", "b"]).name(), "Choice");
+    assert_eq!(FieldKind::Button("Connect").name(), "Button");
 }

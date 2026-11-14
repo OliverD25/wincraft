@@ -18,6 +18,7 @@ mod fields;
 mod fork;
 mod forks;
 mod header;
+mod hook_link;
 mod hover;
 mod keys;
 mod labels;
@@ -50,8 +51,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD
 use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
 use crate::core::traits::{
-    HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata, PluginWindow, SettingField,
-    TrayAction, WinCraftPlugin,
+    DynamicField, HostContext, Hotkey, HotkeyAction, PaletteCommand, PluginMetadata, PluginWindow,
+    SettingField, TrayAction, WinCraftPlugin,
 };
 use crate::core::tray::MenuItem;
 use crate::core::ui_bridge::ArrangeAction;
@@ -313,6 +314,16 @@ impl WinCraftPlugin for ClaudeDeck {
 
     fn settings_group(&self, key: &str) -> Option<&'static str> {
         fields::group(key)
+    }
+
+    fn dynamic_fields(&self) -> Vec<DynamicField> {
+        vec![hook_link::field()]
+    }
+
+    fn on_button(&mut self, key: &str) {
+        if key == hook_link::KEY {
+            hook_link::press();
+        }
     }
 
     fn on_settings_changed(&mut self, settings: &Value) -> bool {

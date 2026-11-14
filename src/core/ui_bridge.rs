@@ -788,6 +788,11 @@ pub enum HostRequest {
         key: String,
         value: Value,
     },
+    /// A `Button` field on a plugin's settings page was clicked.
+    PressButton {
+        plugin: String,
+        key: String,
+    },
     ResetPlugin(String),
     /// From the Hotkeys page, all at once: Replace changes two.
     SetShortcuts(Vec<ShortcutChange>),

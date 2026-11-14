@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::core::theme::Tokens;
+use crate::core::traits::FieldKind;
 use crate::core::ui_bridge::{HostChannel, HostRequest, HotkeyInfo, PluginInfo, UiSnapshot};
 use crate::ui::settings::catalog::{self, count_in_words, Activation, Card};
 use crate::ui::settings::{self as page, SettingsState};
@@ -141,10 +142,16 @@ fn detail(
                 ui.spacing_mut().item_spacing.y = 0.0;
             }
             if let Some(value) = field::show(ui, info) {
-                to_host.send(HostRequest::SetSetting {
-                    plugin: plugin.id.clone(),
-                    key: info.key.clone(),
-                    value,
+                to_host.send(match info.kind {
+                    FieldKind::Button(_) => HostRequest::PressButton {
+                        plugin: plugin.id.clone(),
+                        key: info.key.clone(),
+                    },
+                    _ => HostRequest::SetSetting {
+                        plugin: plugin.id.clone(),
+                        key: info.key.clone(),
+                        value,
+                    },
                 });
             }
         }

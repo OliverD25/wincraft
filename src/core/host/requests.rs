@@ -336,6 +336,10 @@ impl Host {
                 self.set_setting(&plugin, &key, value)
             }
             HostRequest::SetShortcuts(changes) => self.set_shortcuts(changes),
+            HostRequest::PressButton { plugin, key } => {
+                self.plugins.press_button(&plugin, &key);
+                self.publish();
+            }
             HostRequest::ResetPlugin(id) => self.reset_plugin(&id),
             HostRequest::SetHostSetting(setting) => self.set_host_setting(setting),
             HostRequest::SetPaletteSpot { monitor, spot } => {

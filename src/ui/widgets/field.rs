@@ -19,7 +19,7 @@ const PATH_WIDTH: f32 = 280.0;
 const PICTURES_BOTTOM: f32 = 12.0;
 
 /// Draws one declared setting as a settings row and returns its new value
-/// when the user changed it. This is the only code that knows what each field
+/// when the user changed it (for a button: `true` when it was clicked). This is the only code that knows what each field
 /// kind looks like; a plugin author only declares the field.
 pub fn show(ui: &mut egui::Ui, field: &FieldInfo) -> Option<Value> {
     let tokens = Tokens::get(ui.ctx());
@@ -92,6 +92,11 @@ pub fn show(ui: &mut egui::Ui, field: &FieldInfo) -> Option<Value> {
                     if let Some(path) = browse_for_file() {
                         changed = Some(Value::String(path));
                     }
+                }
+            }
+            FieldKind::Button(label) => {
+                if button::button(ui, label, Kind::Secondary).clicked() {
+                    changed = Some(Value::Bool(true));
                 }
             }
         },
