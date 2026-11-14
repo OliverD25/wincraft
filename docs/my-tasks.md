@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 38. Install 0.20.122: ClaudeDeck in the tray, and "Job" on the WindowDeck board
 
-- **State:** Wait: the 0.20.122 release is still building on GitHub.
+- **State:** Ready to test (0.20.122 is released).
 - **Kind:** test · **Added:** 2026-11-14 (PC, branch claude/wincraft-design-artifact-move-4b267d)
 - **Why:** you asked to hide ClaudeDeck from the taskbar and `Alt+Tab`, keep
   it in the tray, and show server jobs on the WindowDeck board. Only the
