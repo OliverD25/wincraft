@@ -1,9 +1,9 @@
 //! The 26 px header, as on the design page: the counts of the statuses
-//! that have chats, the "Only open windows" switch, the quick settings
-//! gear, the pin for stay on top, the mini mode button and the close
+//! that have chats, the quick settings gear (it holds "Only open
+//! windows"), the pin for stay on top, the mini mode button and the close
 //! button. The rest of it drags the window.
 
-use egui::{pos2, vec2, Color32, CursorIcon, Painter, Rect, Sense, Shape, Stroke, StrokeKind, Ui};
+use egui::{pos2, vec2, Color32, Painter, Rect, Sense, Shape, Stroke, StrokeKind, Ui};
 
 use crate::core::theme::{self, Tokens};
 use crate::ui::widgets::text;
@@ -19,10 +19,8 @@ const PAD_RIGHT: f32 = 4.0;
 const GAP: f32 = 8.0;
 const COUNT_GAP: f32 = 3.0;
 const BUTTON: egui::Vec2 = egui::Vec2::new(22.0, 20.0);
-const SWITCH: egui::Vec2 = egui::Vec2::new(24.0, 13.0);
 const SMALL: f32 = 12.0;
 
-pub const ONLY_OPEN: &str = "Only open windows";
 const PIN_TIP: &str = "Stay on top";
 pub const MINI_TIP: &str = "Mini mode";
 const CLOSE_TIP: &str = "Close";
@@ -67,12 +65,6 @@ pub fn show(
     let mini = button(minimize.left() - COUNT_GAP);
     let pin = button(mini.left() - COUNT_GAP);
     let gear = button(pin.left() - COUNT_GAP);
-    let label = painter.layout_job(text::job(
-        ONLY_OPEN,
-        theme::regular(SMALL),
-        tokens.text_secondary,
-        None,
-    ));
     let numbers: Vec<_> = counts
         .iter()
         .map(|(_, count)| {
@@ -85,34 +77,9 @@ pub fn show(
         })
         .collect();
     let width = marks::width(settings.mark).max(marks::SIZE);
-    let needed: f32 = numbers
-        .iter()
-        .map(|number| width + COUNT_GAP + number.size().x + GAP)
-        .sum();
-    // The counts come first: when they do not all fit, the switch's label
-    // goes and its tooltip names it.
-    let with_label = gear.left() - GAP - label.size().x - GAP - SWITCH.x;
-    let label_rect = (rect.left() + PAD_LEFT + needed <= with_label).then(|| {
-        Rect::from_min_size(
-            pos2(
-                gear.left() - GAP - label.size().x,
-                middle - label.size().y / 2.0,
-            ),
-            label.size(),
-        )
-    });
-    let switch_right = label_rect.map_or(gear.left(), |label| label.left());
-    let switch = Rect::from_min_size(
-        pos2(
-            (switch_right - GAP - SWITCH.x).round(),
-            (middle - SWITCH.y / 2.0).round(),
-        ),
-        SWITCH,
-    );
-
     let mut x = rect.left() + PAD_LEFT;
     for ((mark, _), number) in counts.iter().zip(numbers) {
-        if x + width + COUNT_GAP + number.size().x > switch.left() - GAP {
+        if x + width + COUNT_GAP + number.size().x > gear.left() - GAP {
             break;
         }
         let style = match settings.mark {
@@ -134,23 +101,6 @@ pub fn show(
     }
 
     let mut clicked = None;
-    let mut toggle = ui
-        .interact(
-            label_rect.map_or(switch, |label| switch.union(label)),
-            ui.id().with("claude-deck-only-open"),
-            Sense::click(),
-        )
-        .on_hover_cursor(CursorIcon::PointingHand);
-    if label_rect.is_none() {
-        toggle = toggle.on_hover_text(ONLY_OPEN);
-    }
-    if toggle.clicked() {
-        clicked = Some(Click::OnlyOpen);
-    }
-    paint_switch(&painter, switch, settings.only_open, tokens);
-    if let Some(at) = label_rect {
-        painter.galley(at.min, label, Color32::PLACEHOLDER);
-    }
 
     quick.gear = Some(gear);
     let gear_response = ui
@@ -318,7 +268,7 @@ mod tests {
 
     #[test]
     fn the_switch_knob_sits_on_the_middle_line_with_even_gaps() {
-        let track = Rect::from_min_size(pos2(10.0, 20.0), SWITCH);
+        let track = Rect::from_min_size(pos2(10.0, 20.0), vec2(24.0, 13.0));
         for on in [false, true] {
             let centre = knob_centre(track, on);
             assert_eq!(centre.y, track.center().y, "on: {on}");

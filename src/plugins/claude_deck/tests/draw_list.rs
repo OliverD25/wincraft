@@ -31,7 +31,6 @@ fn the_list_shows_groups_chats_forks_the_cold_line_and_the_header() {
         "Chat b1",
         "Which one?",
         "Reading the files",
-        "Only open windows",
     ] {
         assert!(painted.has(words), "{words}: {:?}", painted.texts);
     }

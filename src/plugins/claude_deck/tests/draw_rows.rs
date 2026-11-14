@@ -431,7 +431,7 @@ fn row_heights_and_the_drawn_body() {
 }
 
 #[test]
-fn the_header_counts_the_switch_and_the_six_buttons() {
+fn the_header_counts_and_the_five_buttons() {
     let mut screen = Screen::new(ThemeChoice::Dark);
     let tokens = screen.tokens();
     let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(360.0, header::HEIGHT));
@@ -455,7 +455,10 @@ fn the_header_counts_the_switch_and_the_six_buttons() {
         }
     };
     let painted = screen.settle(&mut draw);
-    assert!(painted.has(header::ONLY_OPEN));
+    assert!(
+        !painted.has("Only open windows"),
+        "the switch lives in the gear menu"
+    );
     assert!(painted.has("2") && painted.has("1"), "{:?}", painted.texts);
     let middle = header::HEIGHT / 2.0;
     let close = pos2(360.0 - 4.0 - 11.0, middle);
@@ -463,31 +466,27 @@ fn the_header_counts_the_switch_and_the_six_buttons() {
     let mini = pos2(minimize.x - 3.0 - 22.0, middle);
     let pin = pos2(mini.x - 3.0 - 22.0, middle);
     let gear = pos2(pin.x - 3.0 - 22.0, middle);
-    let label = pos2(gear.x - 11.0 - 8.0 - 8.0, middle);
     screen.click(close, &mut draw);
     screen.click(minimize, &mut draw);
     screen.click(mini, &mut draw);
     screen.click(pin, &mut draw);
     screen.click(gear, &mut draw);
-    screen.click(label, &mut draw);
     assert_eq!(
         got,
         [
             Some(Click::Close),
             Some(Click::Minimize),
             Some(Click::Mini),
-            Some(Click::Pin),
-            Some(Click::OnlyOpen)
+            Some(Click::Pin)
         ]
     );
     assert_eq!(gear_clicks, 1, "the gear asks for the quick settings");
 
-    // At the window's default width the four counts come first: the
-    // switch's label goes, and a click on the switch still works.
+    // At the window's default width all four counts fit, now that the
+    // switch is gone from the header.
     let narrow = Rect::from_min_size(pos2(0.0, 0.0), vec2(360.0, header::HEIGHT));
-    let mut got = Vec::new();
-    let mut draw = |ui: &mut egui::Ui| {
-        let clicked = header::show(
+    let painted = Screen::new(ThemeChoice::Dark).settle(&mut |ui: &mut egui::Ui| {
+        header::show(
             ui,
             narrow,
             &counts,
@@ -496,18 +495,8 @@ fn the_header_counts_the_switch_and_the_six_buttons() {
             0.0,
             &mut Default::default(),
         );
-        got.extend(clicked);
-    };
-    let mut screen = Screen::new(ThemeChoice::Dark);
-    let painted = screen.settle(&mut draw);
-    assert!(
-        painted.has("4") && !painted.has(header::ONLY_OPEN),
-        "{:?}",
-        painted.texts
-    );
-    let switch = pos2(360.0 - 4.0 - 5.0 * 22.0 - 4.0 * 3.0 - 8.0 - 12.0, middle);
-    screen.click(switch, &mut draw);
-    assert_eq!(got, [Click::OnlyOpen]);
+    });
+    assert!(painted.has("4"), "{:?}", painted.texts);
     let off_state = Settings {
         only_open: true,
         stay_on_top: false,
