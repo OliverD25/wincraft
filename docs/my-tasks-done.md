@@ -2,6 +2,7 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
+- **41. Pick where the ClaudeDeck context ring goes**: done 2026-11-14. The user chose placement A (the ring before the time) and approved the design in the WinCraft Rust chat.
 - **40. Connect WinCraft's own Claude Code hook (0.20.124), remove the Python hook**: done 2026-11-14. The user said "done 40"; the agent checked settings.json (6 WinCraft entries, 0 old) and the log (a question card was marked Asks and cleared by the answer).
 - **39. Fix the attention hook (false "asks you" in ClaudeDeck)**: done 2026-11-14. The user ran the fix; the agent tested the real hook with six replies.
 - **38. Install 0.20.122: ClaudeDeck in the tray, and Job on the WindowDeck board**: done 2026-11-14. The user said "done 38" after the test.
