@@ -35,6 +35,16 @@ pub const SUMS_ASSET: &str = "SHA256SUMS.txt";
 pub const NEW_EXE: &str = "wincraft.new.exe";
 pub const OLD_EXE: &str = "wincraft.old.exe";
 pub const FAILED_EXE: &str = "wincraft.failed.exe";
+/// Where a `wincraft.old.exe` goes when it cannot be deleted: a process
+/// that still runs from it (a stuck `--waiting` call of a hook, 2026-11-14)
+/// locks it against deleting, but Windows still lets it be renamed.
+pub const STALE_EXES: [&str; 5] = [
+    "wincraft.stale1.exe",
+    "wincraft.stale2.exe",
+    "wincraft.stale3.exe",
+    "wincraft.stale4.exe",
+    "wincraft.stale5.exe",
+];
 const DOWNLOADS: &str = "https://github.com/OliverD25/wincraft/releases/download/";
 /// Far above the real exe; a server that sends more is not sending WinCraft.
 const MAX_DOWNLOAD: u64 = 200 * 1024 * 1024;
@@ -392,7 +402,9 @@ pub fn swap_in(dir: &Path, files: &mut dyn Files) -> Result<(), String> {
     let new = dir.join(NEW_EXE);
     let old = dir.join(OLD_EXE);
     if files.exists(&old) {
-        files.remove(&old)?;
+        if let Err(err) = files.remove(&old) {
+            move_aside(dir, &old, files).map_err(|aside| format!("{err}; {aside}"))?;
+        }
     }
     files.rename(&exe, &old)?;
     if let Err(err) = files.rename(&new, &exe) {
@@ -404,6 +416,25 @@ pub fn swap_in(dir: &Path, files: &mut dyn Files) -> Result<(), String> {
         };
     }
     Ok(())
+}
+
+/// Renames a file that cannot be deleted to the first free stale name, so
+/// its own name is free again. `remove_leftovers` deletes it later.
+fn move_aside(dir: &Path, path: &Path, files: &mut dyn Files) -> Result<(), String> {
+    for name in STALE_EXES {
+        let stale = dir.join(name);
+        if files.exists(&stale) && files.remove(&stale).is_err() {
+            continue;
+        }
+        if files.rename(path, &stale).is_ok() {
+            log::info!(
+                "moved {} aside to {name}: it could not be deleted",
+                path.display()
+            );
+            return Ok(());
+        }
+    }
+    Err(format!("could not move {} aside either", path.display()))
 }
 
 /// The other way: the old exe back in place, the new one deleted.
@@ -432,7 +463,7 @@ fn swap_back(dir: &Path, files: &mut dyn Files) -> Result<(), String> {
 /// was rolled back. Returns the ones still there.
 pub fn remove_leftovers(dir: &Path, files: &mut dyn Files) -> Vec<String> {
     let mut left = Vec::new();
-    for name in [OLD_EXE, NEW_EXE, FAILED_EXE] {
+    for name in [OLD_EXE, NEW_EXE, FAILED_EXE].into_iter().chain(STALE_EXES) {
         let path = dir.join(name);
         if !files.exists(&path) {
             continue;
@@ -955,6 +986,8 @@ mod tests {
     struct FakeFiles {
         present: BTreeSet<String>,
         locked: BTreeSet<String>,
+        /// Like a running exe: it can be renamed but not deleted.
+        undeletable: BTreeSet<String>,
         moves: Vec<String>,
     }
 
@@ -985,6 +1018,9 @@ mod tests {
             if self.locked.contains(&from) || !self.present.remove(&from) {
                 return Err(format!("cannot move {from}"));
             }
+            if self.undeletable.remove(&from) {
+                self.undeletable.insert(to.clone());
+            }
             self.present.insert(to.clone());
             self.moves.push(format!("{from} -> {to}"));
             Ok(())
@@ -992,7 +1028,10 @@ mod tests {
 
         fn remove(&mut self, path: &Path) -> Result<(), String> {
             let name = name(path);
-            if self.locked.contains(&name) || !self.present.remove(&name) {
+            if self.locked.contains(&name)
+                || self.undeletable.contains(&name)
+                || !self.present.remove(&name)
+            {
                 return Err(format!("cannot delete {name}"));
             }
             self.moves.push(format!("delete {name}"));
@@ -1015,6 +1054,37 @@ mod tests {
                 "wincraft.new.exe -> wincraft.exe"
             ]
         );
+    }
+
+    #[test]
+    fn an_old_exe_that_cannot_be_deleted_is_moved_aside_and_the_swap_goes_on() {
+        let mut files = FakeFiles::with(&[EXE_NAME, NEW_EXE, OLD_EXE, STALE_EXES[0]]);
+        files.undeletable.insert(OLD_EXE.to_string());
+        files.undeletable.insert(STALE_EXES[0].to_string());
+        swap_in(Path::new(DIR), &mut files).unwrap();
+        assert_eq!(
+            files.names(),
+            [EXE_NAME, OLD_EXE, STALE_EXES[0], STALE_EXES[1]]
+        );
+        assert_eq!(
+            files.moves,
+            [
+                "wincraft.old.exe -> wincraft.stale2.exe",
+                "wincraft.exe -> wincraft.old.exe",
+                "wincraft.new.exe -> wincraft.exe"
+            ]
+        );
+    }
+
+    #[test]
+    fn the_stale_copies_are_deleted_as_leftovers() {
+        let mut files = FakeFiles::with(&[EXE_NAME, STALE_EXES[0], STALE_EXES[3]]);
+        files.undeletable.insert(STALE_EXES[3].to_string());
+        assert_eq!(
+            remove_leftovers(Path::new(DIR), &mut files),
+            [STALE_EXES[3]]
+        );
+        assert_eq!(files.names(), [EXE_NAME, STALE_EXES[3]]);
     }
 
     #[test]
