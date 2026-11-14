@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 42. Install 0.20.125: see the context ring on each ClaudeDeck chat
 
-- **State:** Wait: the 0.20.125 release is still building on GitHub.
+- **State:** Ready to test (0.20.125 is released).
 - **Kind:** test · **Added:** 2026-11-14 (PC, branch claude/wincraft-design-artifact-move-4b267d)
 - **Why:** you asked for a picture of each chat's context size, and you
   approved the design (artifact v47, placement A). The agent saw green and
