@@ -27,7 +27,21 @@ pub(super) fn copy_data(lparam: LPARAM) -> LRESULT {
     let Some((kind, ask, title)) = claude_waits::decode_ask(data.dwData, bytes) else {
         return 0;
     };
-    let matched = session_windows(&title);
+    let matched = match claude_waits::session_target(&title) {
+        Some(session) => {
+            ATTENTION.with(|attention| {
+                let mut attention = attention.borrow_mut();
+                match kind {
+                    Kind::Waiting => attention.session_wait(session, ask),
+                    Kind::Answered => {
+                        attention.session_answered(session);
+                    }
+                }
+            });
+            super::claude::windows_of_session(session)
+        }
+        None => session_windows(&title),
+    };
     let touched = match kind {
         Kind::Waiting => mark_waiting(&title, &matched, ask),
         Kind::Answered => clear_answered(&title, &matched),

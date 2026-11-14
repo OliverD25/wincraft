@@ -38,6 +38,11 @@ pub struct Attention {
     /// Waiting windows whose hook said a permission prompt blocks them.
     /// Counts only while the window also waits.
     approvals: HashSet<isize>,
+    /// Chats WinCraft's own hook said wait (`session:<id>`), by Claude Code
+    /// session id, with the time and the kind. Kept by chat, so a window
+    /// that shows the chat later, or ClaudeDeck's row of a chat with no
+    /// window of its own, still shows the wait.
+    sessions: HashMap<String, (Instant, Ask)>,
 }
 
 impl Attention {
@@ -128,6 +133,27 @@ impl Attention {
         cleared
     }
 
+    /// The chat with this Claude Code session id waits. A chat that
+    /// already waited keeps the time of its first mark; the kind is the
+    /// last one said.
+    pub fn session_wait(&mut self, session: &str, ask: Ask) {
+        let since = self
+            .sessions
+            .get(session)
+            .map_or_else(Instant::now, |(since, _)| *since);
+        self.sessions.insert(session.to_string(), (since, ask));
+    }
+
+    /// The chat was answered. Returns whether it waited.
+    pub fn session_answered(&mut self, session: &str) -> bool {
+        self.sessions.remove(session).is_some()
+    }
+
+    /// Since when the chat waits, and for what.
+    pub fn session_waiting(&self, session: &str) -> Option<(Instant, Ask)> {
+        self.sessions.get(session).copied()
+    }
+
     pub fn wants(&self, hwnd: isize) -> bool {
         self.windows.contains(&hwnd) || self.waiting.contains_key(&hwnd)
     }
@@ -149,6 +175,7 @@ impl Attention {
         windows.sort_unstable();
         windows.dedup();
         self.cleared_waiting = std::mem::take(&mut self.waiting);
+        self.sessions.clear();
         windows
     }
 
@@ -216,6 +243,9 @@ pub fn palette_subtitle(count: usize) -> Option<String> {
         n => Some(format!("{n} windows want attention")),
     }
 }
+
+#[cfg(test)]
+mod session_tests;
 
 #[cfg(test)]
 mod tests {

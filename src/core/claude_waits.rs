@@ -170,6 +170,14 @@ pub fn window_handle(name: &str) -> Option<isize> {
     parsed.filter(|hwnd| *hwnd != 0)
 }
 
+/// A chat named by its Claude Code session id, `session:<id>`, instead of
+/// a title. WinCraft's own hook (`--claude-hook`) names chats this way, and
+/// the running WinCraft finds the windows that show the chat itself.
+pub fn session_target(name: &str) -> Option<&str> {
+    let id = name.trim().strip_prefix("session:")?.trim();
+    (!id.is_empty()).then_some(id)
+}
+
 /// Whether a window with this program and app title shows the session
 /// `wanted`: a Claude window whose title is exactly that, after trimming.
 pub fn shows_session(exe_path: &str, window_title: &str, wanted: &str) -> bool {

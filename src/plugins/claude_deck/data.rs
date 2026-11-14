@@ -22,13 +22,16 @@ pub fn chats(
     now: u64,
 ) -> (Vec<Chat>, Vec<Wait>) {
     let mut waits = Vec::new();
+    let windowless = claude_windows::waits();
     let chats = sessions
         .iter()
         .map(|session| {
             let window = claude_windows::of(windows, &session.id);
             let jobs = claude_jobs::running(&session.cli_session_id, now);
             let turn = claude_jobs::turn(&session.cli_session_id);
-            let chat = model::chat(session, window, jobs, now);
+            let wait = window.or_else(|| claude_windows::of(&windowless, &session.id));
+            let mut chat = model::chat(session, wait, jobs, now);
+            chat.window = window.map(|w| w.hwnd);
             let chat = status::refine(chat, session, &seen.evidence(&session.id, turn.as_ref()));
             waits_on_server(chat, turn.as_ref(), aliases, &mut waits)
         })

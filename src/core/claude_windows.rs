@@ -19,6 +19,9 @@ pub struct ChatWindow {
 }
 
 static LATEST: Mutex<Vec<ChatWindow>> = Mutex::new(Vec::new());
+/// Chats that wait by WinCraft's own hook and have no window of their own;
+/// each has `hwnd` 0.
+static WAITS: Mutex<Vec<ChatWindow>> = Mutex::new(Vec::new());
 static WANTED: AtomicBool = AtomicBool::new(false);
 
 /// ClaudeDeck's window opens (true) or closes (false). A refresh the host
@@ -36,6 +39,17 @@ pub fn publish(windows: Vec<ChatWindow>) {
     if let Ok(mut latest) = LATEST.lock() {
         *latest = windows;
     }
+}
+
+pub fn publish_waits(waits: Vec<ChatWindow>) {
+    if let Ok(mut latest) = WAITS.lock() {
+        *latest = waits;
+    }
+}
+
+/// The windowless waits the host wrote last.
+pub fn waits() -> Vec<ChatWindow> {
+    WAITS.lock().map(|waits| waits.clone()).unwrap_or_default()
 }
 
 /// The list the host wrote last; empty before the first.
