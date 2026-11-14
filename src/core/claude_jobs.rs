@@ -82,6 +82,9 @@ impl Scan {
     }
 
     fn line(&mut self, line: &str, seen_ms: u64) {
+        if is_request_copy(line) {
+            return;
+        }
         let started = line.contains("backgroundTaskId")
             || line.contains("async_launched")
             || line.contains("resumedAgentId");
@@ -183,6 +186,23 @@ fn values_after(text: &str, key: &str) -> Vec<String> {
     }
     found
 }
+
+/// A copy of an earlier message that Claude Code keeps for its API
+/// requests: `{"type":"api-request-blob","sessionId":..,"hash":..,
+/// "message":..}`, seen from 2026-11 on. It has no time, and what it
+/// holds happened before, so no reader may take its tool calls or task
+/// ids as new. Only the line's head is looked at: the copied message
+/// comes after it.
+pub(crate) fn is_request_copy(line: &str) -> bool {
+    let mut end = line.len().min(COPY_HEAD);
+    while !line.is_char_boundary(end) {
+        end -= 1;
+    }
+    line[..end].contains("\"type\":\"api-request-blob\"")
+}
+
+/// How much of a line's start holds its top-level type.
+const COPY_HEAD: usize = 200;
 
 /// The line's `"timestamp":"2026-11-11T08:30:00.123Z"` as Unix ms.
 pub(crate) fn timestamp_ms(text: &str) -> Option<u64> {

@@ -84,6 +84,9 @@ pub struct Launches {
 impl Launches {
     /// Looks at one line of the transcript. `now` drops old calls.
     pub fn line(&mut self, line: &str, now: u64) {
+        if crate::core::claude_jobs::is_request_copy(line) {
+            return;
+        }
         if line.contains("<tool-use-id>") {
             self.notice(line);
         }
@@ -106,10 +109,14 @@ impl Launches {
         if record.get("isSidechain").and_then(Value::as_bool) == Some(true) {
             return;
         }
-        let at = timestamp(line);
-        if at.is_some_and(|at| now.saturating_sub(at) > KEEP_MS) {
+        // A call with no time cannot show that it came before a job.
+        let Some(at) = timestamp(line) else {
+            return;
+        };
+        if now.saturating_sub(at) > KEEP_MS {
             return;
         }
+        let at = Some(at);
         let Some(Value::Array(blocks)) = record.get("message").and_then(|m| m.get("content"))
         else {
             return;

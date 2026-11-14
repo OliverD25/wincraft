@@ -228,3 +228,22 @@ fn a_finished_subagent_that_is_resumed_runs_again_until_its_next_notice() {
     let done = format!("{resumed}{}", end(id, "completed"));
     assert_eq!(scan(&done).running(NOW).0, 0, "its next notice ends it");
 }
+
+#[test]
+fn a_request_copy_is_known_by_its_head_only() {
+    assert!(is_request_copy(
+        "{\"type\":\"api-request-blob\",\"sessionId\":\"s\",\"hash\":\"h\",\"message\":{}}"
+    ));
+    let quoted = format!(
+        "{{\"parentUuid\":\"p\",\"type\":\"user\",\"message\":{{\"content\":\"{}\\\"type\\\":\\\"api-request-blob\\\"\"}}}}",
+        "x".repeat(300)
+    );
+    assert!(!is_request_copy(&quoted));
+    assert!(!is_request_copy("\u{e9}\u{e9}"));
+}
+
+#[test]
+fn a_task_id_in_a_request_copy_starts_no_job() {
+    let copy = "{\"type\":\"api-request-blob\",\"hash\":\"h\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"content\":\"{\\\"backgroundTaskId\\\":\\\"b9\\\"}\"}]}}\n";
+    assert_eq!(scan(copy).running(NOW), (0, None));
+}

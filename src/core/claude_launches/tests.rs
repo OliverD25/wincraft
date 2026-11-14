@@ -184,3 +184,49 @@ fn calls_older_than_a_week_are_dropped() {
     )]);
     assert!(launches.is_empty());
 }
+
+/// Claude Code's copy of an earlier message, kept for its API requests:
+/// no time, and the old tool call inside it (the bug of 2026-11-15, where
+/// weeks-old ssh calls claimed boot services as a chat's server jobs).
+fn request_copy(id: &str, command: &str) -> String {
+    serde_json::json!({
+        "type": "api-request-blob",
+        "sessionId": "s",
+        "hash": "0f88",
+        "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": id, "name": "Bash", "input": {"command": command}}
+        ]},
+    })
+    .to_string()
+}
+
+#[test]
+fn a_copied_old_call_is_no_launch() {
+    let line = request_copy("toolu_old", "ssh rdehome1 'cloudflared tunnel run'");
+    assert!(read(&[line]).is_empty());
+}
+
+#[test]
+fn a_call_with_no_time_is_no_launch() {
+    let mut record: serde_json::Value = serde_json::from_str(&call(
+        "toolu_1",
+        "ssh rdehome1 'redis-server 127.0.0.1:6390'",
+        false,
+        "2026-11-13T08:00:00.000Z",
+    ))
+    .unwrap();
+    record.as_object_mut().unwrap().remove("timestamp");
+    assert!(read(&[record.to_string()]).is_empty());
+}
+
+#[test]
+fn a_copy_does_not_end_a_real_background_call() {
+    let lines = [
+        call("toolu_1", "ssh rdehome1 'nohup x.sh'", true, "2026-11-13T08:00:00.000Z"),
+        "{\"type\":\"api-request-blob\",\"hash\":\"h\",\"message\":{\"content\":\"<tool-use-id>toolu_1</tool-use-id><status>completed</status>\"}}"
+            .to_string(),
+    ];
+    let found = read(&lines);
+    assert_eq!(found.len(), 1);
+    assert!(found[0].is_open());
+}
