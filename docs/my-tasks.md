@@ -10,7 +10,8 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 40. Install 0.20.123: connect WinCraft's own Claude Code hook, remove the old Python hook
 
-- **State:** Ready to test (0.20.123 is released).
+- **State:** Partly ready: steps 1-4 done on 0.20.123. Steps 5-6 Wait: the 0.20.124
+  release is still building (a question card showed **Approve** on 0.20.123).
 - **Kind:** test · **Added:** 2026-11-14 (PC, branch claude/wincraft-design-artifact-move-4b267d)
 - **Why:** you chose to ship the "asks you" hook inside WinCraft, so other
   users get it with one click, and to replace your Python hook
@@ -74,7 +75,8 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
    It should print `removed 6 entries`.
 4. Back on ClaudeDeck's settings page, the row should now say "Connected to
    Claude Code".
-5. In any chat, ask Claude something that makes it ask you back with a
+5. Update to 0.20.124 first (`Alt+Space`, `update`, **Update WinCraft**,
+   `Enter`). Then in any chat, ask Claude something that makes it ask you back with a
    question card. Within a second, ClaudeDeck shows that chat as **Asks**,
    and the amber tray tile shows a red 1. Answer it: the mark goes.
 6. Let a chat finish a turn with a reply that only reports work (no
