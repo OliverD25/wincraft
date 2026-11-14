@@ -9,6 +9,7 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 use egui::{pos2, vec2, Color32, Painter, Pos2, Rect, Shape, Stroke};
 
 use crate::core::claude_sessions::Age;
+use crate::core::server_mark;
 use crate::core::theme::{self, Tokens};
 use crate::ui::widgets::text;
 
@@ -208,22 +209,7 @@ pub fn shape(painter: &Painter, rect: Rect, mark: Mark, tokens: &Tokens, turn: f
         Mark::ServerJob(busy) => {
             // The server of Waits on a server, as a thin outline with hollow
             // dots; it pulses slowly while the job uses CPU.
-            let pulse = if busy {
-                0.55 + 0.45 * (turn * std::f32::consts::PI).sin().powi(2)
-            } else {
-                1.0
-            };
-            let colour = theme::with_alpha(colour, pulse);
-            for top in [1.5, 7.5] {
-                let rect_box = Rect::from_min_max(at(rect, 1.5, top), at(rect, 12.5, top + 5.0));
-                painter.rect_stroke(
-                    rect_box,
-                    1.2,
-                    Stroke::new(1.1, colour),
-                    egui::StrokeKind::Inside,
-                );
-                painter.circle_stroke(at(rect, 4.3, top + 2.5), 1.0, Stroke::new(0.8, colour));
-            }
+            server_mark::paint(painter, rect, colour, busy, turn);
         }
         Mark::Background => {
             dashed_ring(painter, rect, 5.0, Stroke::new(1.6, colour), 2.2, 1.6);

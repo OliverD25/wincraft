@@ -4,6 +4,8 @@
 use crate::plugins::claude_deck::servers::group_name;
 use crate::plugins::claude_deck::servers::tab::view::{cpu_text, ram_text};
 
+pub use crate::core::server_jobs::run_time;
+
 use super::history::{Ended, How};
 use super::Job;
 
@@ -11,23 +13,6 @@ use super::Job;
 pub const COMMAND_SHOWN: usize = 120;
 /// A job over this CPU (in tenths of a percent) makes its mark pulse.
 pub const BUSY_CPU10: u32 = 50;
-
-/// "45 s", "12 min", "1 h 48 m", "2 d 3 h".
-pub fn run_time(ms: u64) -> String {
-    let secs = ms / 1000;
-    match secs {
-        s if s < 60 => format!("{s} s"),
-        s if s < 3600 => format!("{} min", s / 60),
-        s if s < 86_400 => match (s / 3600, s % 3600 / 60) {
-            (h, 0) => format!("{h} h"),
-            (h, m) => format!("{h} h {m} m"),
-        },
-        s => match (s / 86_400, s % 86_400 / 3600) {
-            (d, 0) => format!("{d} d"),
-            (d, h) => format!("{d} d {h} h"),
-        },
-    }
-}
 
 /// How long a job has run, as words; empty when its start is unknown.
 pub fn ran(job: &Job, now: u64) -> String {

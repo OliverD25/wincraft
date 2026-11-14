@@ -44,6 +44,8 @@ pub mod quit;
 pub mod raw_input;
 pub mod release_cache;
 pub mod release_notes;
+pub mod server_jobs;
+pub mod server_mark;
 pub mod session;
 pub mod sha256;
 pub mod shortcuts;

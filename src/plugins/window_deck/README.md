@@ -526,6 +526,14 @@ WinCraft never sorts or moves them by status.
     ended, but a background job of the chat still runs (a background
     command or a background subagent). The time is how long the oldest job
     has run. It is never orange, because nothing waits for you.
+  - "Job 1 h 48 m · home2" (blue, with ClaudeDeck's outlined server mark):
+    the turn ended, but a job the chat started runs on a homelab server
+    ("· 2 servers" when its jobs run on more than one). The time is how
+    long the oldest job has run. The mark pulses slowly while the job uses
+    the CPU, and stays still when Windows' animation effects are off. It
+    shows only while ClaudeDeck reads your servers (its window is open or
+    it lives in the tray, with **Servers (ssh names)** set); with no fresh
+    read in the last 2 minutes the chat is plain Idle again.
   - "Idle" (grey): the turn ended and nothing waits for you.
 - **The age**, at the end of the title line: the time since the chat's last
   activity. Under 1 hour the picture looks as always; from 1 hour it fades
@@ -534,13 +542,15 @@ WinCraft never sorts or moves them by status.
   is only shown: WinCraft never closes, archives or moves it.
 - **The counters** in the toolbar: Waiting, Working, Idle and Cold (idle for
   1 day or more). Click one, or press `S`, and its cards stay bright while
-  the others dim. Background chats count under Working and light with it.
+  the others dim. Background and Job chats count under Working and light
+  with it.
   `S` steps Waiting, Working, Idle, Cold, then none. While a
   status is lit the arrow keys move only between the lit cards. `Esc` clears
   the light first, then closes WindowDeck as before.
 - **The Board** (`B`, or the Board button): a panel over the deck that
   lists the same chats in four columns: Waiting for you (longest wait
-  first), Working (longest run first, then the Background chats), Idle (under 1 day, newest first) and
+  first), Working (longest run first, then the Background chats, then the
+  Job chats), Idle (under 1 day, newest first) and
   Cold (1 day or more, oldest first). Arrows move, `Enter` opens the chat,
   `Esc` goes back to the deck exactly as it was.
 

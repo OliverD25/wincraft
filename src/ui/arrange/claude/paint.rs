@@ -6,7 +6,7 @@ use super::*;
 pub(in crate::ui::arrange) fn status_colour(tokens: &Tokens, status: Status) -> Color32 {
     match status {
         Status::Waiting => tokens.warning,
-        Status::Working | Status::Background => tokens.info,
+        Status::Working | Status::Background | Status::ServerJob => tokens.info,
         Status::Idle => tokens.text_secondary,
     }
 }
@@ -62,6 +62,16 @@ pub(in crate::ui::arrange) fn paint_chip(
                 MARK_SIZE / 2.0 - 2.0,
                 egui::Stroke::new(2.0, colour),
             );
+        }
+        Status::ServerJob => {
+            // ClaudeDeck's "job on a server" mark; a busy job pulses once
+            // in 2 s while animations are on.
+            let turn = if mark.animate {
+                (ui.ctx().input(|i| i.time) / 2.0).fract() as f32
+            } else {
+                0.0
+            };
+            crate::core::server_mark::paint(painter, mark_rect, colour, mark.job_busy, turn);
         }
         Status::Waiting => {
             painter.circle_filled(mark_rect.center(), 4.0, colour);

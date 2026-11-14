@@ -33,10 +33,12 @@ pub(in crate::ui::arrange) fn columns(
             .since
             .map(|since| claude_sessions::duration_text(now.saturating_sub(since)))
             .unwrap_or_default();
-        if card.status == Some(Status::Background) {
-            format!("{time} \u{b7} {}", jobs_text(card.jobs))
-        } else {
-            time
+        match card.status {
+            Some(Status::Background) => format!("{time} \u{b7} {}", jobs_text(card.jobs)),
+            Some(Status::ServerJob) => {
+                format!("{} \u{b7} {}", job_time(card, now), job_place(card))
+            }
+            _ => time,
         }
     };
     let aged = |card: &Card| {
@@ -60,9 +62,9 @@ pub(in crate::ui::arrange) fn columns(
     let activity = |card: &Card| i128::from(card.last_activity.unwrap_or(0));
     let waiting = sorted(Filter::Waiting, &since);
     let mut working = sorted(Filter::Working, &since);
-    // Stable: Background rows follow the real Working rows, each kept in
-    // its own order.
-    working.sort_by_key(|(_, _, _, card)| card.status == Some(Status::Background));
+    // Stable: Background rows follow the real Working rows, and server
+    // jobs follow them, each kept in its own order.
+    working.sort_by_key(|(_, _, _, card)| working_rank(card.status));
     let idle = sorted(Filter::Idle, &|card| -activity(card));
     let cold = sorted(Filter::Cold, &activity);
     [
@@ -71,6 +73,15 @@ pub(in crate::ui::arrange) fn columns(
         idle.iter().map(|w| row(w, aged(w.3))).collect(),
         cold.iter().map(|w| row(w, aged(w.3))).collect(),
     ]
+}
+
+/// The order inside the Working column: Working, Background, Job.
+pub(in crate::ui::arrange) fn working_rank(status: Option<Status>) -> u8 {
+    match status {
+        Some(Status::Background) => 1,
+        Some(Status::ServerJob) => 2,
+        _ => 0,
+    }
 }
 
 /// The Board's column names and the order each one keeps.

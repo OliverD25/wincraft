@@ -9,6 +9,7 @@
 
 use super::*;
 use crate::core::claude_sessions::{self, Age, Card, Status};
+use crate::core::server_jobs;
 
 mod board;
 mod paint;
@@ -54,7 +55,10 @@ impl Filter {
     pub fn matches(self, card: &Card, now: u64) -> bool {
         match self {
             Filter::Waiting => card.status == Some(Status::Waiting),
-            Filter::Working => matches!(card.status, Some(Status::Working | Status::Background)),
+            Filter::Working => matches!(
+                card.status,
+                Some(Status::Working | Status::Background | Status::ServerJob)
+            ),
             Filter::Idle => card.status == Some(Status::Idle),
             Filter::Cold => {
                 card.status == Some(Status::Idle) && age(card, now).is_some_and(Age::is_cold)
@@ -91,12 +95,14 @@ pub fn jobs_text(jobs: usize) -> String {
 }
 
 /// The chip's words: "Waiting 4 min", "Working 40 s", "Background 3 min
-/// and 1 job", "Idle". None for a card without a status.
+/// and 1 job", "Job 1 h 48 m · home2", "Idle". None for a card without a
+/// status.
 pub fn chip_text(card: &Card, now: u64) -> Option<String> {
     let status = card.status?;
     let lasted = card
         .since
         .map(|since| claude_sessions::duration_text(now.saturating_sub(since)));
+    let place = job_place(card);
     Some(match (status, lasted) {
         (Status::Waiting, Some(time)) => format!("Waiting {time}"),
         (Status::Waiting, None) => "Waiting".to_string(),
@@ -106,8 +112,24 @@ pub fn chip_text(card: &Card, now: u64) -> Option<String> {
             format!("Background {time} \u{b7} {}", jobs_text(card.jobs))
         }
         (Status::Background, None) => format!("Background \u{b7} {}", jobs_text(card.jobs)),
+        (Status::ServerJob, Some(_)) => format!("Job {} \u{b7} {place}", job_time(card, now)),
+        (Status::ServerJob, None) => format!("Job \u{b7} {place}"),
         (Status::Idle, _) => "Idle".to_string(),
     })
+}
+
+/// How long a server job has run, as ClaudeDeck says it: "1 h 48 m".
+pub fn job_time(card: &Card, now: u64) -> String {
+    card.since
+        .map(|since| server_jobs::run_time(now.saturating_sub(since)))
+        .unwrap_or_default()
+}
+
+/// Where a chat's server job runs: "home2", "2 servers".
+pub fn job_place(card: &Card) -> &str {
+    card.server_job
+        .as_ref()
+        .map_or("a server", |job| job.place.as_str())
 }
 
 /// The arrow keys while a status is lit: the next (or previous) lit card in
@@ -174,6 +196,8 @@ pub(super) struct Mark {
     pub(super) dimmed: bool,
     /// The working ring turns.
     pub(super) animate: bool,
+    /// A server job uses the CPU: its mark pulses.
+    pub(super) job_busy: bool,
 }
 
 /// The opacity of a card that is not lit while a status is.
@@ -191,6 +215,7 @@ impl Mark {
                 .map(|at| claude_sessions::age_text(now.saturating_sub(at))),
             dimmed: highlight.is_some_and(|filter| !filter.matches(card, now)),
             animate,
+            job_busy: card.server_job.as_ref().is_some_and(|job| job.busy),
         }
     }
 
@@ -267,9 +292,9 @@ pub(super) fn tick(ctx: &egui::Context, shared: &mut Shared, group: &ArrangeGrou
     }
     let animate = shared.snapshot.as_ref().is_some_and(|s| s.claude_animate);
     let working = group.windows.iter().any(|w| {
-        w.claude
-            .as_ref()
-            .is_some_and(|c| c.status == Some(Status::Working))
+        w.claude.as_ref().is_some_and(|c| {
+            c.status == Some(Status::Working) || c.server_job.as_ref().is_some_and(|job| job.busy)
+        })
     });
     if animate && working && shared.claude.board.is_none() {
         ctx.request_repaint_after(Duration::from_millis(40));
@@ -389,5 +414,7 @@ pub(super) fn this_desktop<'a>(
         .collect()
 }
 
+#[cfg(test)]
+mod job_tests;
 #[cfg(test)]
 mod tests;

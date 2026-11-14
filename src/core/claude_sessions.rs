@@ -231,9 +231,10 @@ pub enum Status {
     Waiting,
     /// Claude works on the user's last message.
     Working,
-    /// The turn ended, but a background job (a command or a subagent)
-    /// still runs.
+    /// The turn ended, but a background job (a command or a subagent) still runs.
     Background,
+    /// Idle here, but a job it started runs on a server (`core::server_jobs`).
+    ServerJob,
     /// The turn ended and nothing waits.
     Idle,
 }
@@ -259,24 +260,22 @@ pub fn status(session: &Session) -> Option<Status> {
     })
 }
 
-/// What a Claude window's card shows: its status, since when (Unix ms),
-/// and the chat's last activity.
+/// What a Claude window's card shows: status, since when (Unix ms), activity.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Card {
     pub status: Option<Status>,
-    /// When the status began: the waiting mark's time, or the user's last
-    /// message for a working chat. None for idle.
+    /// When the status began (the wait, the user's message, a job); None for idle.
     pub since: Option<u64>,
     pub last_activity: Option<u64>,
-    /// Running background jobs; only a Background card has any.
+    /// Running jobs; only a Background or a ServerJob card has any.
     pub jobs: usize,
+    pub server_job: Option<crate::core::server_jobs::OnServer>,
 }
 
-/// The card for a window that shows `session` (None when no session
-/// matched), with `waiting_since` when the attention hook marked it as
-/// waiting. A waiting mark wins over the session's own status.
-/// `jobs` are the chat's running background jobs (how many, and the start
-/// of the oldest). Priority: Waiting, Working, Background, Idle.
+/// The card for a window that shows `session` (None when no match), with
+/// `waiting_since` when the attention hook marked it as waiting, and
+/// `jobs`, its running background jobs (how many, the oldest's start).
+/// Priority: Waiting, Working, Background, Idle.
 pub fn card(
     session: Option<&Session>,
     waiting_since: Option<u64>,
@@ -288,7 +287,7 @@ pub fn card(
             status: Some(Status::Waiting),
             since: Some(since),
             last_activity,
-            jobs: 0,
+            ..Card::default()
         };
     }
     let mut status = session.and_then(status);
@@ -307,6 +306,7 @@ pub fn card(
         since,
         last_activity,
         jobs: running,
+        server_job: None,
     }
 }
 

@@ -12,7 +12,7 @@ use crate::core::claude_jobs;
 use crate::core::claude_sessions::{self, Popout, Session, ShownWindow};
 use crate::core::claude_windows::{self, ChatWindow};
 use crate::core::ui_bridge::ArrangeWindow;
-use crate::core::{claude_waits, windows_list};
+use crate::core::{claude_waits, server_jobs, windows_list};
 use windows_sys::Win32::Foundation::RECT;
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowRect;
@@ -87,7 +87,8 @@ pub(super) fn fill_claude_cards(groups: &mut [ArrangeGroup]) {
                 }
                 claude_jobs::running(&s.cli_session_id, now)
             });
-            window.claude = Some(claude_sessions::card(session, waiting, jobs));
+            let card = claude_sessions::card(session, waiting, jobs);
+            window.claude = Some(server_jobs::with_job(card, session.map(|s| s.id.as_str())));
         }
     });
     claude_jobs::want(wanted);

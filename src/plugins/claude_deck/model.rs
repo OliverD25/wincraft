@@ -148,6 +148,10 @@ pub fn chat(
         Some(Status::Waiting) => (Mark::AsksYou, card.since),
         Some(Status::Working) => (Mark::Working, card.since),
         Some(Status::Background) => (Mark::Background, card.since),
+        Some(Status::ServerJob) => {
+            let busy = card.server_job.as_ref().is_some_and(|job| job.busy);
+            (Mark::ServerJob(busy), card.since)
+        }
         Some(Status::Idle) => {
             let age = session
                 .last_activity

@@ -11,6 +11,7 @@ fn card(status: Option<Status>, since: Option<u64>, idle_for: Option<u64>) -> Ca
         since,
         last_activity: idle_for.map(|ms| NOW - ms),
         jobs: 0,
+        server_job: None,
     }
 }
 

@@ -11,6 +11,7 @@
 pub mod history;
 pub mod link;
 pub mod load;
+pub mod publish;
 pub mod text;
 
 use std::collections::HashMap;
@@ -29,6 +30,7 @@ use super::Deck;
 pub fn refresh(deck: &mut Deck, chats: &mut [Chat], sessions: &[Session], now: u64) {
     if !deck.is_on() {
         deck.jobs.clear();
+        crate::core::server_jobs::clear();
         return;
     }
     let cli: HashMap<&str, &str> = sessions
@@ -65,6 +67,7 @@ pub fn refresh(deck: &mut Deck, chats: &mut [Chat], sessions: &[Session], now: u
         history::save(&history::path(), &deck.history.ended);
     }
     mark(chats, &jobs, now);
+    crate::core::server_jobs::publish(publish::entries(&jobs), now);
     deck.jobs = jobs;
 }
 
@@ -167,6 +170,8 @@ impl Job {
 
 #[cfg(test)]
 mod link_tests;
+#[cfg(test)]
+mod publish_tests;
 #[cfg(test)]
 mod status_tests;
 #[cfg(test)]
