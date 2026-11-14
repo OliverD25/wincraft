@@ -243,6 +243,26 @@ again from project folders; a file from a newer WinCraft is used but never
 written. A chat that is no longer listed keeps its place for 30 days, so it
 comes back where it was; after that it is forgotten.
 
+## The context ring
+
+Each chat row has a small ring just before its time. It fills clockwise as
+the chat's context grows; full is the point where Claude Code compacts the
+chat. That point is `autoCompactWindow` from Claude Code's `settings.json`
+(read at most once a minute, never written), or else 80% of the model's
+window: 1,000,000 tokens for a model id with `[1m]` or a chat that has used
+more than 200,000, else 200,000. The colour tells the band: grey under 15%,
+green to 45%, amber to 75%, red above. Even a fresh chat shows a short arc;
+a chat whose size is not known yet shows only the faint track. The hover
+panel says it in words: "Context 318k of 777k (41%) · compacted 2 times".
+
+The size is the last request's input, cache reads and cache writes, from
+the transcript ClaudeDeck already reads for the line of text, so it is
+known for chats with an open window or activity in the last 24 hours. A
+server chat's size comes from the end of its transcript that ClaudeDeck
+fetches, and its compaction count only from that end; the server's own
+`settings.json` is not read. There is no setting, and mini mode has no
+ring.
+
 ## The line of text and the hover panel
 
 With **A line of text (the question, or what it does)** on, each row has a
