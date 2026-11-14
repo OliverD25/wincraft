@@ -2,6 +2,7 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
+- **38. Install 0.20.122: ClaudeDeck in the tray, and Job on the WindowDeck board**: done 2026-11-14. The user said "done 38" after the test.
 - **37. Install 0.20.121: server jobs started by PC chats in ClaudeDeck**: done 2026-11-13. The user said "done 37" after the test.
 - **36. Install 0.20.120: the Servers tab in ClaudeDeck**: done 2026-11-13. The user said "done 36" after the test.
 - **35. Install 0.20.119: move windows inside an open WindowDeck group**: done 2026-11-13. The user said "done 35" after the test: drag, Alt + arrows, the fan, and drag out of the group.
