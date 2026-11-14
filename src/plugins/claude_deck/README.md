@@ -86,9 +86,14 @@ the marks.
 How WinCraft tells each status:
 
 - **Needs approval** and **Asks you**: a Claude Code hook said the chat
-  waits (`wincraft.exe --waiting`). The hook says `--kind approval` for a
-  permission prompt; without it every wait is "Asks you". The hook's change
-  is in `docs/claude-deck-hook-kind.md`.
+  waits. Click **Connect to Claude Code** under **Claude Code** on
+  ClaudeDeck's settings page, and WinCraft adds its own hook
+  (`wincraft.exe --claude-hook`) to your Claude Code settings. A permission
+  prompt shows **Needs approval**; a question card, or a reply whose last
+  paragraph ends with "?", shows **Asks you**. The row above the button says
+  "Connected to Claude Code" or "Not connected". An older hook of your own
+  can still call `wincraft.exe --waiting` (with `--kind approval` for a
+  permission prompt).
 - **Working**, **Background**, **Idle**: the same rules as WindowDeck.
   One addition: a chat that was active in the last hour and whose
   transcript ends in a message or a tool shows **Working**, because the

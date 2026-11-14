@@ -1,5 +1,10 @@
 # The attention hook: tell WinCraft when a chat waits for approval
 
+> **Replaced (2026-11-14).** WinCraft now ships its own hook,
+> `wincraft.exe --claude-hook`, which ClaudeDeck's **Connect to Claude Code**
+> button adds to Claude Code's settings. It sends the kind itself. This note
+> stays for hooks of your own that call `--waiting`.
+
 This note is for the session that edits the global Claude config
 (`C:\Users\Admin\.claude`). The WinCraft repo cannot change that folder.
 

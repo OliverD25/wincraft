@@ -433,6 +433,7 @@ WinCraft fills in every missing key on startup: start it once, then open the fil
 | `--open-settings` | Opens the settings window at startup. |
 | `--open-detector` | Opens the ShortcutManager window at startup. |
 | `--quit` | Asks the running WinCraft to shut down cleanly and waits up to 10 s (exit codes: `0` closed, `1` none running, `2` still running). |
+| `--claude-hook` | WinCraft's own Claude Code hook. Claude Code runs it and sends the event on stdin; it prints nothing, always exits `0`, and does nothing when WinCraft is not running. ClaudeDeck's **Connect to Claude Code** button sets it up. See [Claude windows that wait for you](#claude-windows-that-wait-for-you). |
 | `--waiting "<title>"` / `--answered "<title>"` | Marks the Claude windows whose title is exactly `<title>` as waiting for your answer, or clears that mark. See [Claude windows that wait for you](#claude-windows-that-wait-for-you) (exit codes: `0` taken, `1` none running or no answer, `2` no title). |
 | `--install` | Copies this exe to `%LOCALAPPDATA%\Programs\WinCraft`, adds the Start menu shortcut, points the logon task at it, and starts it (`0` done, `1` failed, `2` refused inside another app's package). |
 | `--uninstall` | Closes WinCraft and removes the shortcut and logon task while keeping the program and settings. |
@@ -444,7 +445,17 @@ WinCraft fills in every missing key on startup: start it once, then open the fil
 
 ### Claude windows that wait for you
 
-The Claude desktop app flashes its taskbar button only when the app is not in front. So when you work in one Claude window, a question in another Claude window gives no sign. A [Claude Code hook](https://docs.claude.com/en/docs/claude-code/hooks) can tell WinCraft instead:
+The Claude desktop app flashes its taskbar button only when the app is not in front. So when you work in one Claude window, a question in another Claude window gives no sign. A [Claude Code hook](https://docs.claude.com/en/docs/claude-code/hooks) can tell WinCraft instead.
+
+**The easy way:** open Settings → Plugins → ClaudeDeck and click **Connect to Claude Code** (under **Claude Code**). WinCraft adds its own hook, `wincraft.exe --claude-hook`, to your Claude Code settings file (`%USERPROFILE%\.claude\settings.json`). It keeps a copy of the file as it was before, `settings.json.wincraft-backup`, next to it. **Disconnect from Claude Code** takes the hook out again and leaves everything else in the file as it was. The hook marks a chat only when it really waits for you:
+
+* Claude asks a question with options (`AskUserQuestion`): **Asks you**.
+* Claude asks to use a tool (a permission prompt): **Needs approval**.
+* A turn ends and the last paragraph of Claude's reply ends with "?", or the Claude app's next-step box asks you something: **Asks you**.
+
+Your next message clears the mark, and so does the end of the next turn. When Claude finishes the tool it asked about, that clears the mark too. The hook names the chat, not a window: WinCraft finds the windows that show it, and ClaudeDeck shows the mark on the chat's row even when the chat has no window of its own.
+
+Your own hook can also call WinCraft directly:
 
 * `wincraft.exe --waiting "<title>"` marks every Claude window whose title is exactly `<title>` (after trimming spaces): its WindowDeck card turns orange, and its taskbar button flashes and stays orange. A window you renamed with WindowNamer still matches by the title Claude gave it.
 * `<title>` may also be `hwnd:<number>` (decimal or `0x` hex): it names one window by its handle, for a hook that found the window itself. Only a Claude window is ever marked this way.
