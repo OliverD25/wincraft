@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 43. Install 0.20.126: the homelab admin chat no longer shows "Job"
 
-- **State:** Wait: the 0.20.126 release is still building on GitHub.
+- **State:** Ready to test
 - **Kind:** test · **Added:** 2026-11-15 (PC, branch claude/wincraft-design-artifact-move-4b267d)
 - **Why:** the "Ubuntu 2 server homelab admin" chat showed "Job, runs 6
   jobs on home1, home2", but it ran no job. Old ssh calls, copied by
