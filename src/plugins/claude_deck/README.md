@@ -305,10 +305,15 @@ a job's command line as the server reports it.
 
 ## What ClaudeDeck never does
 
-- It never changes a chat: no archive, close, rename or message. A click
-  only brings the chat's own window to the front.
-- It never moves, closes or changes another window, and never moves the
-  mouse pointer. `Esc` only gives the keyboard back to the window that had
+- It never archives, closes or sends a message to a chat. A click only
+  brings the chat's own window to the front. Three actions you pick
+  change something: **Rename the chat…** renames it in the Claude app too
+  (see "Privacy" below), **Show in the Claude app** makes the app's main
+  window show that chat, and **Fork in a terminal** starts a new chat.
+  **Connect to Claude Code** adds WinCraft's hook to your Claude Code
+  `settings.json`.
+- It never moves or closes another window, and never moves the mouse
+  pointer. `Esc` only gives the keyboard back to the window that had
   it before the hotkey.
 - It makes no sound. The list, the tray tooltip and the fade are its only
   signals.
