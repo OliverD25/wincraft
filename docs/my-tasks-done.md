@@ -2,6 +2,7 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
+- **47. Install 0.20.131: ClaudeDeck opens without a white flash**: done 2026-11-15. The user said "done 47"; the log showed many hide-and-show rounds on 0.20.131 and no "shown before it had drawn itself" warning.
 - **46. Install 0.20.130: taskbar click opens WindowDeck, ClaudeDeck opens chats by link**: done 2026-11-15. The user said "done 46"; the log showed 5 taskbar clicks taken over by WindowDeck.
 - **45. Install 0.20.128, then reboot: WinCraft starts by itself and keeps windows on their desktops**: done 2026-11-15. The log showed the sign-in task start and all 24 Chrome windows on their desktops; the user said all feels fine.
 - **44. Install 0.20.127: "Show on all desktops" in WindowDeck's card menu**: done 2026-11-15. The user said "done 44" after the test.
@@ -48,4 +49,3 @@ Moved here from my-tasks.md when closed. Newest first. Agents read this file onl
 - **5. Install the attention hook fix: the task reminder line no longer marks a window**: done 2026-11-11. Installed in config commit 6104161, identical to the tested copy; the test of the reminder line passed.
 - **6. Review the WindowDeck groups design**: done 2026-11-11. The user accepted the page ("ok build it") and added a settings toggle to switch groups off.
 - **8. Review the design "Window Deck Claude Status"**: done 2026-11-11. The user approved all four styles: Classic, Quest board, Chat pets, Claude crabs (artifact version 19). (Numbered 6 on its own branch; renumbered 8 in the merge with the groups work, which also used 6.)
-- 47. Test that ClaudeDeck opens without a white flash: no flash; log has no late-reveal warning (added 2026-11-15, done 2026-11-15)
