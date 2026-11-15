@@ -48,3 +48,4 @@ Moved here from my-tasks.md when closed. Newest first. Agents read this file onl
 - **5. Install the attention hook fix: the task reminder line no longer marks a window**: done 2026-11-11. Installed in config commit 6104161, identical to the tested copy; the test of the reminder line passed.
 - **6. Review the WindowDeck groups design**: done 2026-11-11. The user accepted the page ("ok build it") and added a settings toggle to switch groups off.
 - **8. Review the design "Window Deck Claude Status"**: done 2026-11-11. The user approved all four styles: Classic, Quest board, Chat pets, Claude crabs (artifact version 19). (Numbered 6 on its own branch; renumbered 8 in the merge with the groups work, which also used 6.)
+- 47. Test that ClaudeDeck opens without a white flash: no flash; log has no late-reveal warning (added 2026-11-15, done 2026-11-15)
