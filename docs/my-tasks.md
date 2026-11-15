@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 48. Test that WinCraft no longer freezes while ClaudeDeck is in the tray
 
-- **State:** Wait: release 0.20.132 is being built.
+- **State:** Ready to test. Release 0.20.132 checked on GitHub 2026-11-15 (exe and checksums are there).
 - **Kind:** test · **Added:** 2026-11-15 (PC, branch claude/wincraft-design-artifact-move-4b267d)
 - **Why:** 0.20.131 froze WinCraft at 16:44 while ClaudeDeck was hidden in the tray
   (two of its threads waited for each other). 0.20.132 fixes it; only a real run
