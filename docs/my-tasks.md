@@ -36,7 +36,7 @@ do not want public.
 
 ### 52. Test dragging WindowDeck cards when an app has 2 windows
 
-- **State:** Wait: release 0.20.133 is being built.
+- **State:** Ready to test. Release 0.20.133 checked on GitHub 2026-11-15 (exe and checksums are there).
 - **Kind:** test · **Added:** 2026-11-15 (PC, branch claude/wincraft-design-artifact-move-4b267d)
 - **Why:** with 2 windows WindowDeck opens its small (compact) popup, whose cards took
   only clicks. 0.20.133 lets you drag them; only unit tests cover it so far.
