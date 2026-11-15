@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 47. Test that ClaudeDeck opens without a white flash
 
-- **State:** Wait: release 0.20.131 is being built.
+- **State:** Ready to test. Release 0.20.131 checked on GitHub 2026-11-15 (exe and checksums are there).
 - **Kind:** test · **Added:** 2026-11-15 (PC, branch claude/wincraft-design-artifact-move-4b267d)
 - **Why:** ClaudeDeck now stays covered until it has drawn itself (0.20.131). Only
   your eyes can see a flash; the agent can only check the log.
