@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 53. Test that QuickJump pins survive a closed window
 
-- **State:** Wait: release 0.20.134 is being built.
+- **State:** Ready to test. Release 0.20.134 checked on GitHub 2026-11-16 (exe and checksums are there).
 - **Kind:** test · **Added:** 2026-11-16 (PC, branch claude/wincraft-design-artifact-move-4b267d)
 - **Why:** 0.20.134 lets a pinned Claude chat reopen its chat by its link, makes pin
   titles follow their window, and adds `R` to re-pin. Only unit tests cover it so far.
@@ -37,7 +37,7 @@ re-pins.
 
 ### 54. Test that ClaudeDeck stays out of Win+Tab
 
-- **State:** Wait: release 0.20.134 is being built.
+- **State:** Ready to test. Release 0.20.134 checked on GitHub 2026-11-16 (exe and checksums are there).
 - **Kind:** test · **Added:** 2026-11-16 (PC, branch claude/wincraft-design-artifact-move-4b267d)
 - **Why:** pressing ClaudeDeck's pin dropped its tray window style, so it showed in
   Win+Tab. 0.20.134 puts the style back by itself.
