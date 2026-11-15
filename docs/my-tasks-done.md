@@ -2,6 +2,7 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
+- **43. Install 0.20.126: the homelab admin chat no longer shows "Job"**: done 2026-11-15. The user said "done 43" after the test.
 - **42. Install 0.20.125: see the context ring on each ClaudeDeck chat**: done 2026-11-14. The user said "done 42" after the test.
 - **41. Pick where the ClaudeDeck context ring goes**: done 2026-11-14. The user chose placement A (the ring before the time) and approved the design in the WinCraft Rust chat.
 - **40. Connect WinCraft's own Claude Code hook (0.20.124), remove the Python hook**: done 2026-11-14. The user said "done 40"; the agent checked settings.json (6 WinCraft entries, 0 old) and the log (a question card was marked Asks and cleared by the answer).
