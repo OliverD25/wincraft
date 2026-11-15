@@ -138,9 +138,12 @@ fn main() {
         std::process::exit(code);
     }
 
+    // A second copy, such as the one the logon task's test start makes
+    // while WinCraft runs, quits here and does nothing else.
     let Some(mutex) = claim_single_instance() else {
         return;
     };
+    autostart::note_instance_lock();
 
     // The manifest already asks for PerMonitorV2; this repeats it in case the
     // exe is ever launched in a way that ignores the embedded manifest.
@@ -176,13 +179,23 @@ fn main() {
     if has_flag(&args, autostart::RESTARTED_FLAG) {
         log::info!("started again by Windows after an update closed it");
     }
+    let from_task = has_flag(&args, autostart::FROM_TASK_FLAG);
+    if from_task {
+        log::info!("started by the sign-in task");
+    }
+    let start = core::session::note_start(
+        from_task,
+        has_flag(&args, autostart::RESTARTED_FLAG)
+            || updated_from.is_some()
+            || update_failed.is_some(),
+    );
     if !instance::is_test() {
         autostart::register_restart();
     }
 
     // Windows, not config.json, starts WinCraft at sign-in, so a task that
     // was removed by hand or points at a moved exe is repaired here.
-    autostart::sync_in_background(config.start_with_windows);
+    autostart::sync_in_background(config.start_with_windows, start);
 
     let (mut scene, theme, mut notes) = scene_flags(&args, instance::is_test());
     for flag in [

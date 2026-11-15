@@ -21,7 +21,13 @@ use windows_sys::Win32::System::Registry::{
 };
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
+use crate::core::session::StartKind;
 use crate::core::{decode_console, install, instance, wide};
+
+mod health;
+
+pub use health::note_instance_lock;
+use health::Queried;
 
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const VALUE_NAME: &str = "WinCraft";
@@ -30,6 +36,10 @@ const TASK_NAME: &str = "WinCraft";
 /// The command line Windows gives WinCraft when it starts it again after an
 /// update. The program's own name is not part of it.
 pub const RESTARTED_FLAG: &str = "--restarted";
+
+/// The argument the logon task (and the Run key) starts WinCraft with, so a
+/// start at sign-in can be told from a start by hand.
+pub const FROM_TASK_FLAG: &str = "--from-task";
 
 fn open(write: bool) -> Option<HKEY> {
     let access = if write {
@@ -57,7 +67,7 @@ fn open(write: bool) -> Option<HKEY> {
 
 fn write_run_value(exe: &Path) -> Result<(), String> {
     let key = open(true).ok_or_else(|| "cannot open the Run registry key".to_string())?;
-    let command = wide(&format!("\"{}\"", exe.display()));
+    let command = wide(&format!("\"{}\" {FROM_TASK_FLAG}", exe.display()));
     let status = unsafe {
         RegSetValueExW(
             key,
@@ -170,7 +180,7 @@ fn task_xml(user: &str, exe: &Path) -> String {
   <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>{user}</UserId><Delay>PT5S</Delay></LogonTrigger></Triggers>
   <Principals><Principal id="Author"><UserId>{user}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
   <Settings><Enabled>true</Enabled><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy></Settings>
-  <Actions Context="Author"><Exec><Command>{command}</Command>{folder}</Exec></Actions>
+  <Actions Context="Author"><Exec><Command>{command}</Command><Arguments>{FROM_TASK_FLAG}</Arguments>{folder}</Exec></Actions>
 </Task>
 "#
     )
@@ -229,12 +239,15 @@ fn task_exists(name: &str) -> bool {
 }
 
 /// `None` when the task is missing or its program cannot be read.
-fn queried_command(name: &str) -> Option<String> {
+fn queried_task(name: &str) -> Option<Queried> {
     let ran = run_schtasks(&["/Query", "/TN", name, "/XML"]).ok()?;
     if ran.code != 0 {
         return None;
     }
-    command_in_xml(&ran.text)
+    Some(Queried {
+        command: command_in_xml(&ran.text)?,
+        arguments: health::arguments_in_xml(&ran.text),
+    })
 }
 
 fn delete_task(name: &str) -> Result<(), String> {
@@ -255,17 +268,21 @@ enum Check {
     Ok,
     Missing,
     MovedFrom(String),
+    /// Made by a version before `--from-task`, so it is made again once.
+    NoFlag,
 }
 
 /// What the task found by a query says about the exe that is running now.
-fn check(queried: Option<&str>, exe: &Path) -> Check {
+fn check(queried: Option<&Queried>, exe: &Path) -> Check {
     let Some(found) = queried else {
         return Check::Missing;
     };
-    if found.to_lowercase() == exe.to_string_lossy().to_lowercase() {
-        Check::Ok
+    if found.command.to_lowercase() != exe.to_string_lossy().to_lowercase() {
+        Check::MovedFrom(found.command.clone())
+    } else if found.arguments != FROM_TASK_FLAG {
+        Check::NoFlag
     } else {
-        Check::MovedFrom(found.to_string())
+        Check::Ok
     }
 }
 
@@ -336,6 +353,29 @@ fn install() -> Result<Installed, String> {
     point_at(&exe)
 }
 
+/// `install`, then a test start of the new task (see `health`). A task
+/// Windows cannot start is replaced by the Run key.
+fn install_checked() -> Result<Installed, String> {
+    let installed = install()?;
+    if installed != Installed::Task {
+        return Ok(installed);
+    }
+    let exe = std::env::current_exe().map_err(|e| format!("cannot find own path: {e}"))?;
+    let name = task_name();
+    let tried = health::try_task(
+        health::may_run_task(health::holds_lock(), instance::is_test()),
+        run_task,
+        || delete_task(&name),
+        || write_run_value(&exe),
+    )?;
+    let line = health::tried_line(&tried);
+    match tried {
+        health::Tried::FellBack(_) => log::warn!("{line}"),
+        _ => log::info!("{line}"),
+    }
+    Ok(health::installed_after(&tried))
+}
+
 /// Makes Windows start `exe` at sign-in: the logon task, or the Run key when
 /// no task can be made. `--install` uses it for the copy it just made.
 pub fn point_at(exe: &Path) -> Result<Installed, String> {
@@ -388,7 +428,12 @@ fn remove() -> Result<(), String> {
 /// key when the task cannot be made; off, both are removed. Another copy than
 /// the installed one may do neither.
 pub fn set(enabled: bool) -> Result<(), String> {
-    set_unless_hands_off(hands_off_note(), enabled, || install().map(|_| ()), remove)
+    set_unless_hands_off(
+        hands_off_note(),
+        enabled,
+        || install_checked().map(|_| ()),
+        remove,
+    )
 }
 
 /// Removes the logon task and the Run value for `--uninstall`, which is an
@@ -416,17 +461,18 @@ fn set_unless_hands_off(
 /// Makes what Windows will do at sign-in match `start_with_windows`, on its
 /// own thread because starting schtasks takes a moment. With the switch on,
 /// this repairs a task that was deleted, whose exe was moved, or that a
-/// version without tasks never had.
-pub fn sync_in_background(wanted: bool) {
+/// version without tasks never had, and re-creates one that did not start
+/// WinCraft at this sign-in (`start`).
+pub fn sync_in_background(wanted: bool, start: StartKind) {
     let started = std::thread::Builder::new()
         .name("wincraft-autostart".to_string())
-        .spawn(move || sync(wanted));
+        .spawn(move || sync(wanted, start));
     if let Err(err) = started {
         log::warn!("could not start the autostart thread: {err}");
     }
 }
 
-fn sync(wanted: bool) {
+fn sync(wanted: bool, start: StartKind) {
     let name = task_name();
     if !wanted {
         // Only the switch removes the task. A config.json that reads "off"
@@ -451,7 +497,12 @@ fn sync(wanted: bool) {
             return;
         }
     };
-    let why = match check(queried_command(&name).as_deref(), &exe) {
+    let repair = health::repair_at_start(wanted, start);
+    let why = match check(queried_task(&name).as_ref(), &exe) {
+        Check::Ok if repair => {
+            log::info!("WinCraft did not start at sign-in; re-creating the start task");
+            "WinCraft did not start at sign-in".to_string()
+        }
         Check::Ok => {
             let old = remove_run_value().unwrap_or(false);
             log::info!(
@@ -466,8 +517,9 @@ fn sync(wanted: bool) {
         }
         Check::Missing => "it was missing".to_string(),
         Check::MovedFrom(path) => format!("it started {path}"),
+        Check::NoFlag => format!("it did not pass {FROM_TASK_FLAG}"),
     };
-    match install() {
+    match install_checked() {
         Ok(Installed::Task) => log::info!("logon task recreated ({why})"),
         Ok(Installed::RunKey) => log::info!("fell back to the Run key"),
         Err(err) => log::error!("could not set up start at sign-in: {err}"),
@@ -576,7 +628,10 @@ mod tests {
     #[test]
     fn the_task_starts_the_exe_for_the_user_five_seconds_after_sign_in() {
         let xml = task_xml(r"PC\Ann", Path::new(r"C:\Tools\wincraft.exe"));
-        assert!(xml.contains(r"<Command>C:\Tools\wincraft.exe</Command>"));
+        assert!(xml.contains(
+            r"<Command>C:\Tools\wincraft.exe</Command><Arguments>--from-task</Arguments>"
+        ));
+        assert_eq!(health::arguments_in_xml(&xml), FROM_TASK_FLAG);
         assert!(xml.contains(r"<WorkingDirectory>C:\Tools</WorkingDirectory>"));
         assert!(xml.contains(r"<Delay>PT5S</Delay>"));
         assert!(xml.contains(r"<LogonTrigger><Enabled>true</Enabled><UserId>PC\Ann</UserId>"));
@@ -633,13 +688,30 @@ mod tests {
     #[test]
     fn a_task_for_another_exe_or_no_task_needs_repair() {
         let exe = PathBuf::from(EXE);
-        assert_eq!(check(Some(EXE), &exe), Check::Ok);
-        assert_eq!(check(Some(&EXE.to_uppercase()), &exe), Check::Ok);
+        let task = |command: &str, arguments: &str| Queried {
+            command: command.to_string(),
+            arguments: arguments.to_string(),
+        };
+        assert_eq!(check(Some(&task(EXE, FROM_TASK_FLAG)), &exe), Check::Ok);
+        assert_eq!(
+            check(Some(&task(&EXE.to_uppercase(), FROM_TASK_FLAG)), &exe),
+            Check::Ok
+        );
         assert_eq!(check(None, &exe), Check::Missing);
         assert_eq!(
-            check(Some(r"D:\old\wincraft.exe"), &exe),
+            check(Some(&task(r"D:\old\wincraft.exe", FROM_TASK_FLAG)), &exe),
             Check::MovedFrom(r"D:\old\wincraft.exe".to_string())
         );
+    }
+
+    #[test]
+    fn a_task_made_before_the_from_task_argument_is_made_again() {
+        let exe = PathBuf::from(EXE);
+        let old = Queried {
+            command: EXE.to_string(),
+            arguments: String::new(),
+        };
+        assert_eq!(check(Some(&old), &exe), Check::NoFlag);
     }
 
     #[test]

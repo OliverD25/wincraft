@@ -9,6 +9,8 @@
 //! sign-in. Locking the PC or resuming it from sleep does not make a new
 //! session either, so they do not count as signing in.
 
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{CloseHandle, FILETIME};
@@ -98,6 +100,64 @@ fn logon_time() -> Option<i64> {
     Some(time)
 }
 
+/// How this WinCraft was started, read once in main.rs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StartKind {
+    /// Started with `--from-task`: by the logon task, or the Run key that
+    /// stands in for it.
+    pub from_task: bool,
+    /// Started by an update, a rollback, or Windows after an installer
+    /// closed it.
+    pub started_again: bool,
+    /// The first WinCraft start since the user signed in; None when the
+    /// sign-in time cannot be read.
+    pub first_in_session: Option<bool>,
+}
+
+static START: OnceLock<StartKind> = OnceLock::new();
+
+/// Reads and then updates the marker in the data folder that holds the
+/// sign-in this WinCraft last started in, and keeps what it found for
+/// `start_kind`. Call once, after the single-instance mutex is held, so a
+/// second copy that quits at once does not count as a start.
+pub fn note_start(from_task: bool, started_again: bool) -> StartKind {
+    let first_in_session = logon_time().map(|logon| {
+        let path = marker_path();
+        let first = is_first_start(std::fs::read_to_string(&path).ok().as_deref(), logon);
+        if let Err(err) = write_marker(&path, logon) {
+            log::warn!("cannot write {}: {err}", path.display());
+        }
+        first
+    });
+    let kind = StartKind {
+        from_task,
+        started_again,
+        first_in_session,
+    };
+    let _ = START.set(kind);
+    kind
+}
+
+fn marker_path() -> PathBuf {
+    crate::core::config::data_dir().join(format!(
+        "{}.txt",
+        crate::core::instance::name("last-sign-in")
+    ))
+}
+
+fn write_marker(path: &Path, logon: i64) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    crate::core::config::write_atomic(path, &logon.to_string())
+}
+
+/// A start is the first of the session when the marker is missing, cannot
+/// be read, or holds another sign-in time.
+fn is_first_start(marker: Option<&str>, logon: i64) -> bool {
+    marker.and_then(|text| text.trim().parse::<i64>().ok()) != Some(logon)
+}
+
 /// Whether a start `age` after sign-in restores the saved layout. A start
 /// that something else caused (an update, Windows restarting WinCraft after
 /// an installer closed it) is never the start after sign-in, however young
@@ -143,6 +203,31 @@ mod tests {
         // The update restarts WinCraft seconds into a session, or hours.
         assert!(!restores_at_start(minutes(1), true));
         assert!(!restores_at_start(minutes(300), true));
+    }
+
+    #[test]
+    fn only_a_marker_with_this_sign_in_time_makes_a_later_start() {
+        let logon = 134_073_450_000_000_000;
+        assert!(is_first_start(None, logon), "no marker yet");
+        assert!(is_first_start(Some(""), logon));
+        assert!(is_first_start(Some("not a time"), logon));
+        assert!(
+            is_first_start(Some("134073449000000000"), logon),
+            "an earlier sign-in"
+        );
+        assert!(!is_first_start(Some("134073450000000000"), logon));
+        assert!(!is_first_start(Some("134073450000000000\r\n"), logon));
+    }
+
+    #[test]
+    fn the_marker_is_written_and_read_back() {
+        let dir = std::env::temp_dir().join(format!("wincraft-marker-{}", std::process::id()));
+        let path = dir.join("last-sign-in.txt");
+        write_marker(&path, 42).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!is_first_start(Some(&text), 42));
+        assert!(is_first_start(Some(&text), 43));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

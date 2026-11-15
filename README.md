@@ -373,7 +373,7 @@ Splitting the files this way means resetting one plugin deletes one file, and a 
 
 | Key | Meaning |
 | --- | --- |
-| `start_with_windows` | Mirrors the "Start with Windows" switch. Creates a user-level logon task in Task Scheduler (5 s delay, no admin rights needed; falls back to `HKCU\...\Run` if Task Scheduler refuses). Remove it by hand anytime with `schtasks /Delete /TN WinCraft /F`. |
+| `start_with_windows` | Mirrors the "Start with Windows" switch. Creates a user-level logon task in Task Scheduler (5 s delay, no admin rights needed; falls back to `HKCU\...\Run` if Task Scheduler refuses). After it makes the task, WinCraft starts it once to see that Windows can run it (the copy it starts finds WinCraft running and quits); a task Windows cannot start is deleted and the Run key used instead. When WinCraft finds it was not started at sign-in, it makes the task again. Remove it by hand anytime with `schtasks /Delete /TN WinCraft /F`. |
 | `theme` | `classic`, `fluent`, `terminal`, `paper`, or `high-contrast`. |
 | `mode` | `system`, `light`, or `dark`. |
 | `palette_hotkey` | Shortcut that opens the command palette. |
@@ -437,6 +437,7 @@ WinCraft fills in every missing key on startup: start it once, then open the fil
 | `--waiting "<title>"` / `--answered "<title>"` | Marks the Claude windows whose title is exactly `<title>` as waiting for your answer, or clears that mark. See [Claude windows that wait for you](#claude-windows-that-wait-for-you) (exit codes: `0` taken, `1` none running or no answer, `2` no title). |
 | `--install` | Copies this exe to `%LOCALAPPDATA%\Programs\WinCraft`, adds the Start menu shortcut, points the logon task at it, and starts it (`0` done, `1` failed, `2` refused inside another app's package). |
 | `--uninstall` | Closes WinCraft and removes the shortcut and logon task while keeping the program and settings. |
+| `--from-task` | Given by the logon task (and the Run key), so WinCraft knows it was started at sign-in. |
 | `--restarted` / `--updated-from <v>` / `--update-failed <v>` | Used by Windows and WinCraft's self-updater across restarts and rollbacks. |
 | `--write-plugin-index` | Regenerates `plugins.json` (for contributors). |
 
