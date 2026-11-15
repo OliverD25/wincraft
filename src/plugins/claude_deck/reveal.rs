@@ -4,6 +4,7 @@
 //! and uncovered after one frame drawn there. Back from the tray and after
 //! a restore it is covered the same way, as Windows has no picture of it.
 
+use std::sync::Mutex;
 use std::time::Instant;
 
 use windows_sys::Win32::Foundation::HWND;
@@ -20,13 +21,22 @@ use super::place;
 use super::window::{viewport_id, DeckUi, TITLE};
 use super::Shared;
 
-/// The main frame's step: runs while the window may still be hidden.
-pub(super) fn on_main_frame(
+/// The main frame's step, only when neither lock is busy
+/// (`reveal::try_both`). Returns the pin and the mini mode for the window's
+/// builder, or None when the step was skipped this frame.
+pub(super) fn main_frame(
     ctx: &egui::Context,
-    shared: &Shared,
-    state: &mut DeckUi,
+    shared: &Mutex<Shared>,
+    state: &Mutex<DeckUi>,
     palette: isize,
-) {
+) -> Option<(bool, bool)> {
+    let (shared, mut state) = reveal::try_both(ctx, shared, state)?;
+    on_main_frame(ctx, &shared, &mut state, palette);
+    Some((shared.settings.stay_on_top, shared.settings.mini))
+}
+
+/// Runs while the window may still be hidden.
+fn on_main_frame(ctx: &egui::Context, shared: &Shared, state: &mut DeckUi, palette: isize) {
     if !shared.open || shared.home.hidden {
         return;
     }
@@ -119,3 +129,6 @@ pub(super) fn find_and_place(state: &mut DeckUi, palette: isize, tokens: &Tokens
         state.focus_wanted = true;
     }
 }
+
+#[cfg(test)]
+mod tests;

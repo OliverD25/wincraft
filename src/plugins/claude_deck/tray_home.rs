@@ -216,21 +216,42 @@ impl ClaudeDeck {
 /// not shown, read the chats and the servers as the window would, and
 /// count what waits. The window, when it shows, does this itself.
 fn read_while_hidden(shared: &Arc<Mutex<Shared>>, state: &Arc<Mutex<DeckUi>>) {
+    read_while_hidden_with(
+        shared,
+        state,
+        || {
+            claude_windows::set_wanted(true);
+            host::read_claude_chats();
+        },
+        |state, settings| {
+            state.servers.tick(&settings.servers, Arc::new(|| {}));
+            let now = claude_sessions::now_ms();
+            reading::read(state);
+            window::build(state, settings, now);
+            (state.cache.waiting, state.news.count)
+        },
+    );
+}
+
+/// `read_chats` lists windows, and a window of the UI thread answers only
+/// when that thread runs. So it runs with no ClaudeDeck lock held: the UI
+/// thread may wait for one (the hang of 0.20.131).
+fn read_while_hidden_with(
+    shared: &Mutex<Shared>,
+    state: &Mutex<DeckUi>,
+    read_chats: impl FnOnce(),
+    count: impl FnOnce(&mut DeckUi, &super::Settings) -> (usize, usize),
+) {
     let settings = match shared.lock() {
         Ok(shared) if shared.settings.tray_home && !shown(&shared) => shared.settings.clone(),
         _ => return,
     };
+    read_chats();
     let counts = {
         let Ok(mut state) = state.lock() else {
             return;
         };
-        claude_windows::set_wanted(true);
-        host::read_claude_chats();
-        state.servers.tick(&settings.servers, Arc::new(|| {}));
-        let now = claude_sessions::now_ms();
-        reading::read(&mut state);
-        window::build(&mut state, &settings, now);
-        (state.cache.waiting, state.news.count)
+        count(&mut state, &settings)
     };
     if let Ok(mut shared) = shared.lock() {
         shared.home.counts = Some(counts);

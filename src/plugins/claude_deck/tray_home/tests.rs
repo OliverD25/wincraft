@@ -143,3 +143,39 @@ fn the_setting_is_on_by_default() {
     assert!(super::super::Settings::read(&serde_json::json!({})).tray_home);
     assert!(!super::super::Settings::read(&serde_json::json!({ "live_in_tray": false })).tray_home);
 }
+
+#[test]
+fn the_timer_reads_the_chat_windows_with_no_claudedeck_lock_held() {
+    // Listing windows waits for the UI thread, which may wait for these
+    // locks: holding one here hung WinCraft in 0.20.131.
+    let mut hidden = Shared::default();
+    hidden.settings.tray_home = true;
+    let shared = Mutex::new(hidden);
+    let state = Mutex::new(DeckUi::default());
+    let mut read = false;
+    read_while_hidden_with(
+        &shared,
+        &state,
+        || {
+            assert!(shared.try_lock().is_ok(), "Shared is locked");
+            assert!(state.try_lock().is_ok(), "DeckUi is locked");
+            read = true;
+        },
+        |_, _| (2, 1),
+    );
+    assert!(read);
+    assert_eq!(shared.lock().unwrap().home.counts, Some((2, 1)));
+}
+
+#[test]
+fn the_timer_reads_nothing_while_the_window_shows() {
+    let mut showing = Shared {
+        open: true,
+        ..Default::default()
+    };
+    showing.settings.tray_home = true;
+    let shared = Mutex::new(showing);
+    let state = Mutex::new(DeckUi::default());
+    read_while_hidden_with(&shared, &state, || panic!("read"), |_, _| panic!("counted"));
+    assert_eq!(shared.lock().unwrap().home.counts, None);
+}

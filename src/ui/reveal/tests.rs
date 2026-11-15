@@ -1,7 +1,28 @@
+use std::sync::Mutex;
+
 use super::*;
 
 fn at(start: Instant, ms: u64) -> Instant {
     start + Duration::from_millis(ms)
+}
+
+/// A context that counts the repaints asked of it: a new context has one
+/// waiting already, so `has_requested_repaint` cannot tell.
+fn counting_ctx() -> (
+    egui::Context,
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+) {
+    let ctx = egui::Context::default();
+    let asked = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = std::sync::Arc::clone(&asked);
+    ctx.set_request_repaint_callback(move |_| {
+        count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    });
+    (ctx, asked)
+}
+
+fn asked(count: &std::sync::atomic::AtomicUsize) -> usize {
+    count.load(std::sync::atomic::Ordering::SeqCst)
 }
 
 #[test]
@@ -94,4 +115,52 @@ fn a_gap_in_the_parents_passes_means_a_new_immediate_window() {
     assert!(fresh_window(Some(5), 7));
     assert!(fresh_window(Some(7), 7));
     assert!(fresh_window(Some(9), 0));
+}
+
+#[test]
+fn try_both_takes_two_free_locks() {
+    let (ctx, repaints) = counting_ctx();
+    let (a, b) = (Mutex::new(1), Mutex::new("b"));
+    let (a_now, b_now) = try_both(&ctx, &a, &b).expect("both free");
+    assert_eq!((*a_now, *b_now), (1, "b"));
+    assert_eq!(asked(&repaints), 0);
+}
+
+#[test]
+fn try_both_skips_at_once_and_asks_again_when_another_thread_holds_one() {
+    let (ctx, repaints) = counting_ctx();
+    let (a, b) = (Mutex::new(()), Mutex::new(()));
+    let (held, wait_held) = std::sync::mpsc::channel();
+    let (done, wait_done) = std::sync::mpsc::channel::<()>();
+    let held_lock = &b;
+    std::thread::scope(|scope| {
+        scope.spawn(move || {
+            let _guard = held_lock.lock().unwrap();
+            held.send(()).unwrap();
+            let _ = wait_done.recv_timeout(Duration::from_secs(10));
+        });
+        wait_held.recv().unwrap();
+        let start = Instant::now();
+        assert!(try_both(&ctx, &a, &b).is_none());
+        assert!(start.elapsed() < Duration::from_secs(1));
+        done.send(()).unwrap();
+    });
+    assert!(asked(&repaints) > 0, "no repaint asked");
+    assert!(a.try_lock().is_ok(), "the free lock is given back");
+}
+
+#[test]
+fn try_both_skips_a_poisoned_lock_without_asking_again() {
+    let (ctx, repaints) = counting_ctx();
+    let (a, b) = (Mutex::new(()), Mutex::new(()));
+    let _ = std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                let _guard = a.lock().unwrap();
+                panic!("poisons the lock");
+            })
+            .join()
+    });
+    assert!(try_both(&ctx, &a, &b).is_none());
+    assert_eq!(asked(&repaints), 0);
 }

@@ -159,11 +159,18 @@ pub(super) struct DeckUi {
 pub struct DeckWindow {
     shared: Handle,
     state: Arc<Mutex<DeckUi>>,
+    /// The pin and the mini mode as read last, for a frame whose locks
+    /// were busy: a changed builder would move or resize the window.
+    look: (bool, bool),
 }
 
 impl DeckWindow {
     pub fn new(shared: Handle, state: Arc<Mutex<DeckUi>>) -> Self {
-        Self { shared, state }
+        Self {
+            shared,
+            state,
+            look: (true, false),
+        }
     }
 }
 
@@ -223,15 +230,11 @@ impl PluginWindow for DeckWindow {
     }
 
     fn show(&mut self, ctx: &egui::Context, frame: &WindowFrame) {
-        let on_top = self
-            .shared
-            .lock()
-            .map(|shared| shared.settings.stay_on_top)
-            .unwrap_or(true);
-        let mini = self.shared.lock().is_ok_and(|shared| shared.settings.mini);
-        if let (Ok(shared), Ok(mut state)) = (self.shared.lock(), self.state.lock()) {
-            reveal::on_main_frame(ctx, &shared, &mut state, frame.palette_hwnd);
+        // Never waits for a lock: the host thread may hold one (`reveal`).
+        if let Some(look) = reveal::main_frame(ctx, &self.shared, &self.state, frame.palette_hwnd) {
+            self.look = look;
         }
+        let (on_top, mini) = self.look;
         let mut builder = egui::ViewportBuilder::default()
             .with_title(TITLE)
             .with_decorations(false)

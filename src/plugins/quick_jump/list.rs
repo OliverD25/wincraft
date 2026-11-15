@@ -106,6 +106,8 @@ enum Outcome {
 pub struct PinList {
     shared: Handle,
     state: Arc<Mutex<ListUi>>,
+    /// The size worked out last, for a frame whose locks were busy.
+    size: egui::Vec2,
 }
 
 impl PinList {
@@ -113,6 +115,7 @@ impl PinList {
         Self {
             shared,
             state: Arc::new(Mutex::new(ListUi::default())),
+            size: window_size(1, false),
         }
     }
 }
@@ -158,15 +161,13 @@ impl PluginWindow for PinList {
     }
 
     fn show(&mut self, ctx: &egui::Context, frame: &WindowFrame) {
-        if let (Ok(shared), Ok(mut state)) = (self.shared.lock(), self.state.lock()) {
+        // Never waits for a lock: the host thread may hold one
+        // (`reveal::try_both`).
+        if let Some((shared, mut state)) = reveal::try_both(ctx, &self.shared, &self.state) {
             reveal_step(ctx, &shared, &mut state, frame.palette_hwnd);
+            self.size = window_size(shared.view.slots.len(), state.details.is_some());
         }
-        let size = match (self.shared.lock(), self.state.lock()) {
-            (Ok(shared), Ok(state)) => {
-                window_size(shared.view.slots.len(), state.details.is_some())
-            }
-            _ => window_size(1, false),
-        };
+        let size = self.size;
         let mut builder = egui::ViewportBuilder::default()
             .with_title(TITLE)
             .with_inner_size(size)

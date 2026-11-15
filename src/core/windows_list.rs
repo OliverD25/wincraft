@@ -13,7 +13,7 @@ use windows_sys::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, FindWindowExW, GetClassNameW, GetWindow, GetWindowLongW, GetWindowTextW,
+    EnumWindows, FindWindowExW, GetClassNameW, GetWindow, GetWindowLongW, InternalGetWindowText,
     IsWindowVisible, GWL_EXSTYLE, GW_OWNER, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
 };
 
@@ -150,7 +150,8 @@ pub fn window_text(hwnd: HWND) -> String {
 /// Exactly what the title bar shows now, whoever put it there.
 pub fn raw_window_text(hwnd: HWND) -> String {
     let mut buffer = [0u16; 512];
-    let len = unsafe { GetWindowTextW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
+    // Not GetWindowTextW: it sends WM_GETTEXT and waits for the window's thread (the hang of 0.20.131).
+    let len = unsafe { InternalGetWindowText(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
     String::from_utf16_lossy(&buffer[..len.max(0) as usize])
 }
 

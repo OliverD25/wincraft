@@ -7,8 +7,10 @@
 //!
 //! A hidden viewport does not draw, so the step that shows the window runs
 //! on a frame that does: the main (root) frame for a deferred viewport, the
-//! parent's frame for an immediate one.
+//! parent's frame for an immediate one. That frame runs while the window is
+//! hidden too, so it must never wait for a lock (`try_both`).
 
+use std::sync::{Mutex, MutexGuard, TryLockError};
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::HWND;
@@ -91,6 +93,42 @@ impl Reveal {
             *self = Reveal::Covered { since: now };
         }
     }
+}
+
+/// Both locks for a main-frame step, only if both are free now. The host
+/// thread can hold one while it waits for this (UI) thread, for example in
+/// `GetWindowTextW` on one of its windows; waiting here then hangs both
+/// threads, as in 0.20.131. A busy lock skips this frame's step and asks
+/// for another frame; a poisoned one skips it for good.
+pub fn try_both<'a, A, B>(
+    ctx: &egui::Context,
+    a: &'a Mutex<A>,
+    b: &'a Mutex<B>,
+) -> Option<(MutexGuard<'a, A>, MutexGuard<'a, B>)> {
+    let both = try_one(a).and_then(|a| try_one(b).map(|b| (a, b)));
+    match both {
+        Ok(guards) => Some(guards),
+        Err(Busy) => {
+            ctx.request_repaint();
+            None
+        }
+        Err(Broken) => None,
+    }
+}
+
+/// Why a lock was not taken.
+#[derive(Debug, PartialEq, Eq)]
+enum Free {
+    Busy,
+    Broken,
+}
+use Free::{Broken, Busy};
+
+fn try_one<T>(lock: &Mutex<T>) -> Result<MutexGuard<'_, T>, Free> {
+    lock.try_lock().map_err(|err| match err {
+        TryLockError::WouldBlock => Busy,
+        TryLockError::Poisoned(_) => Broken,
+    })
 }
 
 /// Covers the window, then shows it with `how` (for example `SW_SHOW`).
