@@ -84,6 +84,12 @@ does nothing.
 When the window is not open, QuickJump starts the app and switches to its
 first window once it opens. Each pin can turn this off in its details.
 
+A pin of a Claude chat is different: starting the Claude app opens only its
+main window, never the closed chat. So the jump opens the chat by its link
+(`claude://code/continue?session=local_...`), and the Claude app shows it in
+its main window. QuickJump presses nothing in the app. When the pin has no
+link the app takes, it starts the app as before and says why in the log.
+
 ### On another monitor
 
 When the window comes up on another monitor than the one you were using,
@@ -105,15 +111,34 @@ To turn it off:
 ## How a pin finds its window
 
 A pin remembers the app (its program, and for Store apps and web apps the
-app's id) and a part of the window's title. When the window closes and
-opens again, also after a restart, QuickJump looks for it in this order:
+app's id) and a part of the window's title. A pin of a Claude chat window
+also remembers the chat (its session id), so a renamed chat is still found.
+When the window closes and opens again, also after a restart, QuickJump
+looks for it in this order:
 
-1. the same window, while it is still open,
-2. a window of the same app whose title contains the pin's text (the first
+1. for a pin of a Claude chat, the window that shows that chat,
+2. the same window, while it is still open (for a chat pin, only while the
+   window does not show another chat),
+3. a window of the same app whose title contains the pin's text (the first
    one, if there are several),
-3. the app's only window.
+4. the app's only window.
 
-With no match the card says "not open". The pins are saved in
+A chat pin skips 3 and 4 once WinCraft knows which chat each Claude window
+shows, so another chat whose title holds the old name is never taken for
+it. With no match the card says "not open", and a chat pin's card says
+"opens the chat".
+
+The title follows the window. While a pinned window is open and QuickJump
+is sure it is that pin's window (the window was pinned, shows the pin's
+chat, or is the only window whose title holds the pin's text), the pin's
+title text becomes the window's current title. After a close it looks for
+the latest title, not the one from the day you pinned it. It never learns
+from rule 4, which can be another window. Empty titles, "Untitled" and
+"New Tab" are not kept. A title you type in the details ("Title contains")
+stays as you typed it. An older pin of a Claude chat learns its chat the
+same way, while its window still shows it.
+
+The pins are saved in
 `%LOCALAPPDATA%\WinCraft\plugins\quick_jump.state.json`.
 
 ## Quick access
@@ -141,6 +166,7 @@ A spot on a monitor that is gone or smaller is moved onto the nearest screen.
 | Ctrl+arrows, drag | Move the window to another place |
 | Del, middle click | Unpin the window; the ones after it move up |
 | F2, click the selected card | Open the details |
+| R, on a card that is not open | Re-pin: the window that was in front when Quick access opened takes this number, with the card's label |
 | Right click, Menu key, Shift+F10 | Open the card's menu |
 | Esc | Close the menu, or stop a drag; then the details, then Quick access |
 
@@ -152,11 +178,18 @@ after it close the gap. With the Windows setting "Animation effects" off,
 the cards change places at once.
 
 The card's menu has "Jump to it", "Put at number" (1 to 10, with the
-card's own number marked), "Edit details" (F2), "Unpin" (Del) and, only
-while the window is open, "Close the window". That one closes the real
+card's own number marked), "Re-pin the window I was in" (R, only while the
+window is not open), "Edit details" (F2), "Unpin" (Del) and, only while the
+window is open, "Close the window". That one closes the real
 window, as its own close button would, and only when you pick it. Every
 move and unpin shows the notice with Undo (Ctrl+Z), whichever way you made
 it.
+
+Re-pin mends a pin whose window is gone for good. Go to the window, open
+Quick access, pick the card that says "not open" and press R. The window
+takes that number and keeps the card's label. A window that was pinned at
+another number moves here, as with "Put at number". The header shows the
+hint "R Re-pin" only while the picked card is not open.
 
 The details give a pin a label, which the tip and Quick access show instead
 of the window's title, and set how QuickJump finds the window: the app, and

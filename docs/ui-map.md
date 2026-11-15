@@ -226,10 +226,12 @@ Opened by: `` Win+` `` twice, or Tray menu → **Open quick access**.
 - Title bar: **QuickJump · Quick access**.
 - Per window: **Unpin** (`Del`), and a details area **How QuickJump finds this window**: **App**, **Title contains**, **Label (optional)**.
 - **Done**: closes the details.
-- Card right-click menu (also the Menu key or `Shift+F10`): **Jump to it**, **Put at number** (submenu 1 to 10), **Edit details** (`F2`), **Unpin** (`Del`), **Close the window** (only while the window is open). A middle click on a card unpins it too.
+- Key hints at the top right: **Close** (`Esc`), **Unpin** (`Del`), **Details** (`F2`), **Switch** (`1–0`), and **Re-pin** (`R`) only while the picked card is not open.
+- A card's second line: the app and its place; **not open** when its window is closed; **opens the chat** for a pin of a Claude chat whose window is closed (a jump opens the chat by its link in the Claude app). The palette row says the same.
+- Card right-click menu (also the Menu key or `Shift+F10`): **Jump to it**, **Put at number** (submenu 1 to 10), **Re-pin the window I was in** (`R`; only while the window is not open: the window in front before Quick access opened takes this number), **Edit details** (`F2`), **Unpin** (`Del`), **Close the window** (only while the window is open). A middle click on a card unpins it too.
 - **Add a window to Quick access**: opens the picker **QuickJump · Add a window** with **Search open windows**; **No open window matches** when empty.
 - The chord tip after `` Win+` `` shows: **Add this window**, **Put this window at a number**, **Unpin this window**, **Open quick access**.
-- Notices: **Not in Quick access**, **There is no window to pin**.
+- Notices: **Not in Quick access**, **There is no window to pin**, **Re-pinned {name} as number {n}** (with Undo), **Opening {name} in the Claude app**.
 
 ## Shortcut manager
 Opened by: `Win+Alt+S`, Tray menu → **Shortcut manager**, or the palette command **Open shortcut manager**.
