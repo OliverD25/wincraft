@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 46. Install 0.20.130: taskbar click opens WindowDeck, ClaudeDeck opens chats by link
 
-- **State:** Wait: deploy 0.20.130, the release is still building on GitHub.
+- **State:** Ready to test
 - **Kind:** test · **Added:** 2026-11-15 (PC, branch claude/wincraft-design-artifact-move-4b267d)
 - **Why:** a click on the Chrome taskbar button sometimes showed Windows' own
   list; you chose that a click opens WindowDeck. ClaudeDeck's Open the chat
