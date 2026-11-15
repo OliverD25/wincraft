@@ -338,6 +338,17 @@ pub(super) fn summary(done: &Restored) -> Option<String> {
     Some(sentences.join("; "))
 }
 
+/// Whether the second half of a restore must run. A pass that only puts a
+/// group's taskbar order back again has no summary line, but re-adding its
+/// buttons pulled windows from other desktops here, so its moves (and the
+/// check after them) must still run.
+pub(super) fn needs_finish(done: &Restored) -> bool {
+    !done.parts.is_empty()
+        || !done.late_parts.is_empty()
+        || !done.moves.is_empty()
+        || !done.targets.is_empty()
+}
+
 /// The second half's work: the desktop moves that still change something,
 /// then the windows to raise in that order, so the front window ends on
 /// top and the window that was in front before the restore above them all.

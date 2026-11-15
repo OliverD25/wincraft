@@ -197,7 +197,7 @@ fn a_read_only_instance_does_not_finish_a_restore() {
         moves: vec![(NO_WINDOW, DesktopId(7), "w".to_string())],
         stack: vec![(0, NO_WINDOW)],
         foreground: NO_WINDOW,
-        summary: "Restored 1 of 1 test windows".to_string(),
+        summary: Some("Restored 1 of 1 test windows".to_string()),
         announce: true,
         targets: Vec::new(),
         orders: Vec::new(),
@@ -1222,7 +1222,27 @@ fn plan_for(
     can_move: bool,
     restore_monitors: bool,
 ) -> Plan {
-    let view = ExeView::new("chrome.exe", program, live, &|_| Some(D1), &by_left_edge);
+    plan_with_desktops(
+        program,
+        live,
+        due,
+        placed,
+        (can_move, restore_monitors),
+        &|_| Some(D1),
+    )
+}
+
+/// `plan_for` with the desktop each window is on before its button is
+/// re-added; the restore may move and restore monitors.
+fn plan_with_desktops(
+    program: &ProgramState,
+    live: &[windows::LiveWindow],
+    due: &[restore::Due],
+    placed: BTreeSet<Handle>,
+    (can_move, restore_monitors): (bool, bool),
+    desktop_of: &dyn Fn(HWND) -> Option<DesktopId>,
+) -> Plan {
+    let view = ExeView::new("chrome.exe", program, live, desktop_of, &by_left_edge);
     let monitors = two_monitors();
     let cx = RestoreContext {
         live,
@@ -1437,6 +1457,67 @@ fn the_second_order_after_a_sign_in_rebuilds_the_taskbar_and_moves_nothing() {
         done.parts.is_empty() && done.late_parts.is_empty(),
         "no summary line"
     );
+    assert!(
+        needs_finish(&done),
+        "its moves still undo the pull of the re-added buttons"
+    );
+}
+
+/// 2026-11-15: the second order after a sign-in re-added all Chrome
+/// buttons, which pulled 10 windows from their desktops, and they stayed
+/// here because a pass with no summary line never ran its second half.
+#[test]
+fn the_second_order_moves_a_window_pulled_from_another_desktop_back_there() {
+    let plan = plan_with_desktops(
+        &saved_chrome(),
+        &reopened(),
+        &due("Chrome", restore::Pass::Again),
+        BTreeSet::from([10, 11, 12]),
+        (true, true),
+        &|hwnd| Some(if hwnd as isize == 11 { D2 } else { D1 }),
+    );
+    let [group] = plan.plans.as_slice() else {
+        panic!("{:?}", plan.plans)
+    };
+    let docs: Vec<DesktopId> = group
+        .moves
+        .iter()
+        .filter(|(hwnd, _, _)| *hwnd as isize == 11)
+        .map(|(_, target, _)| *target)
+        .collect();
+    assert_eq!(docs, [D2], "Docs goes back to the desktop it was on");
+
+    let mut keeper = read_only();
+    let mut done = Restored::default();
+    keeper.carry_out(plan.plans, true, &[], &mut done);
+    assert_eq!(summary(&done), None);
+    assert!(needs_finish(&done));
+    assert!(
+        done.targets
+            .iter()
+            .any(|target| target.hwnd == 11 && target.desktop == Some(D2)),
+        "the check after it looks at Docs too"
+    );
+}
+
+#[test]
+fn only_a_pass_that_did_nothing_skips_the_second_half() {
+    let mut done = Restored::default();
+    assert!(!needs_finish(&done), "nothing at all");
+    done.moves.push((hwnd(10), D2, "Inbox".to_string()));
+    assert!(needs_finish(&done), "moves without a line");
+    let mut done = Restored::default();
+    done.targets.push(verify::Target {
+        hwnd: 10,
+        group: "Chrome".to_string(),
+        label: "Inbox".to_string(),
+        desktop: Some(D2),
+        monitor: None,
+    });
+    assert!(needs_finish(&done), "a check target without a line");
+    let mut done = Restored::default();
+    done.parts.push("1 of 1 Chrome windows".to_string());
+    assert!(needs_finish(&done));
 }
 
 #[test]
@@ -1537,7 +1618,7 @@ fn finish(stack: Vec<(usize, HWND)>, foreground: HWND) -> Finish {
         ],
         stack,
         foreground,
-        summary: String::new(),
+        summary: None,
         announce: false,
         targets: Vec::new(),
         orders: Vec::new(),

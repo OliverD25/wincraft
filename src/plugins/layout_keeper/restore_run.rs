@@ -104,10 +104,13 @@ impl LayoutKeeper {
             );
             self.carry_out(plans, can_move, &monitors, &mut done);
         }
-        let Some(summary) = summary(&done) else {
+        if !needs_finish(&done) {
             return;
-        };
-        self.last_placed = Some(self.ticks);
+        }
+        let summary = summary(&done);
+        if summary.is_some() {
+            self.last_placed = Some(self.ticks);
+        }
         let restored = !done.parts.is_empty();
         // With the notice on, its last line says it; the balloon would repeat it.
         let announce = restored && !self.announced && !self.show_progress;
@@ -208,15 +211,14 @@ impl LayoutKeeper {
                 moved_again: None,
             });
         }
-        log::info!("{}", finish.summary);
+        let Some(summary) = finish.summary else {
+            return;
+        };
+        log::info!("{summary}");
         if finish.announce {
-            host::notify("LayoutKeeper", &finish.summary);
+            host::notify("LayoutKeeper", &summary);
         }
-        self.last_restore = Some(format!(
-            "{} at {}",
-            finish.summary,
-            clock::now_hours_minutes()
-        ));
+        self.last_restore = Some(format!("{summary} at {}", clock::now_hours_minutes()));
     }
 
     /// Builds the desktop mover on first use; true when it is usable.

@@ -131,6 +131,12 @@ holds its group back up to 10 seconds more, because Explorer may not have
 made its taskbar button yet. After a sign-in, each group gets its taskbar
 order once more 8 seconds later: on 2026-10-24 three Chrome windows that had
 opened a second before the first rebuild kept the places Chrome gave them.
+Rebuilding the order again re-adds every button of the group, which pulls
+its windows from other desktops onto the current one, so this second pass
+moves each of them back to the desktop it was on and checks them 3 seconds
+later, like the first pass. On 2026-11-15 it did not: 10 Chrome windows
+stayed on the wrong desktop because the second pass has no summary line of
+its own, and the moves ran only for a pass with one.
 A taskbar call that Windows refuses is logged with the window's title. If the number
 keeps changing, the group gets its order 4 minutes after its first window
 with the windows that are open then. Settings that still had the old

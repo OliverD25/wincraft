@@ -98,7 +98,9 @@ struct Finish {
     moves: Vec<(HWND, DesktopId, String)>,
     stack: Vec<(usize, HWND)>,
     foreground: HWND,
-    summary: String,
+    /// None for a pass that only puts the order back again: it has no line
+    /// of its own, but its desktop moves and its check still run.
+    summary: Option<String>,
     /// Show the summary as a balloon too, not only in the log.
     announce: bool,
     /// Where each restored window should end up, for the check after it.
