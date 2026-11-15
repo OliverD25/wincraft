@@ -1,5 +1,5 @@
 {
-  "wincraft_version": "0.20.128",
+  "wincraft_version": "0.20.129",
   "plugins": [
     {
       "id": "screen_dimmer",
