@@ -414,7 +414,7 @@ pub fn open_item(state: &mut DeckUi, item: &Item, to_host: &HostChannel, now: u6
     state.news.read(&item.key, now);
     match &item.server {
         Some(server) => servers::open_terminal(server, item.folder.as_deref()),
-        None => open_chat(item.window, &item.title, to_host),
+        None => open_chat(item.window, &item.chat, &item.title, to_host),
     }
 }
 

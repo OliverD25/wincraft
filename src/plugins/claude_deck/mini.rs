@@ -182,7 +182,7 @@ pub(super) fn show(
                         }
                         if response.clicked() {
                             state.selected = Some(pick);
-                            open_chat(line.chat.window, &line.chat.title, to_host);
+                            open_chat(line.chat.window, &line.chat.id, &line.chat.title, to_host);
                         }
                         if response.hovered() {
                             resting = Some((cell, &line.chat));

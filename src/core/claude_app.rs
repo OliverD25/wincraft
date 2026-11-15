@@ -1,10 +1,9 @@
 //! Working with the Claude desktop app's main window. A chat that has no
-//! window of its own is only a button in the app's chat list. So WinCraft
-//! finds the home window through UI Automation, brings it forward and
-//! presses the chat's button, as a screen reader would. A link
-//! (`claude://code/continue?session=<id>`) also shows a chat, but only with
-//! the session file's `local_` id (see `link.rs`); any other id starts an
-//! empty chat. UI Automation stays for Open the chat and for renaming.
+//! window of its own is shown there with the app's link
+//! (`claude://code/continue?session=<id>`), which needs the session file's
+//! `local_` id (see `link.rs`); any other id starts an empty chat, so it
+//! gets no link. Opening a chat never presses buttons in the app. UI
+//! Automation stays only for renaming, which has no link or command.
 //!
 //! The tree walks are generic over a small [`Tree`], so tests run them on a
 //! made-up tree. The real tree is the one of `core/uia.rs`; every call into
@@ -20,7 +19,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::core::uia::{self, Automation};
-use crate::core::{com, instance, wide, window_actions, windows_list};
+use crate::core::{com, wide, window_actions, windows_list};
 
 /// The class of the app's windows (it is an Electron app).
 const WINDOW_CLASS: &str = "Chrome_WidgetWin_1";
@@ -166,12 +165,6 @@ fn is_home<T: Tree>(tree: &T, root: &T::Node) -> bool {
     find_named(tree, root, Kind::Group, SIDEBAR).is_some()
         || find_named(tree, root, Kind::Button, SHOW_SIDEBAR).is_some()
         || find_named(tree, root, Kind::Radio, CODE_VIEW).is_some()
-}
-
-/// The words of the notice when the chat cannot be opened. It names
-/// ClaudeDeck, so the user knows who is talking.
-pub fn not_found_notice(title: &str) -> String {
-    format!("ClaudeDeck could not find \"{title}\" in the Claude app's list. Open it there.")
 }
 
 pub(crate) struct Real<'a>(pub(crate) &'a Automation);
@@ -330,7 +323,6 @@ pub(crate) fn poll<R>(
 pub(crate) struct Chat {
     pub root: com::ComPtr,
     pub button: com::ComPtr,
-    pub matches: usize,
     /// The "Show sidebar" button, when the list had to be opened for this.
     pub opened: Option<com::ComPtr>,
 }
@@ -429,14 +421,12 @@ pub fn collapsed_sections<T: Tree>(tree: &T, root: &T::Node) -> Vec<T::Node> {
 /// when the list had to be opened for it.
 pub struct Located<N> {
     pub button: N,
-    pub matches: usize,
     pub opened: Option<N>,
 }
 
 fn located<N>(found: Found<N>, opened: Option<N>) -> Located<N> {
     Located {
         button: found.node,
-        matches: found.matches,
         opened,
     }
 }
@@ -529,7 +519,6 @@ pub(crate) fn find_chat(
                 return Ok(found.map(|found| Chat {
                     root,
                     button: found.button,
-                    matches: found.matches,
                     opened: found.opened,
                 }));
             }
@@ -548,43 +537,12 @@ pub(crate) fn find_chat(
     }
 }
 
-/// Does the work on a COM thread. `dry`: a test copy only reads.
-fn run(title: &str, dry: bool) -> Result<Option<String>, String> {
-    let missing = || not_found_notice(title);
-    let automation = Automation::new().map_err(|reason| {
-        log::warn!("ClaudeDeck: opening \"{title}\" in the Claude app: {reason}");
-        missing()
-    })?;
-    let chat = find_chat(&automation, title, true, dry)
-        .map_err(|reason| {
-            log::warn!("ClaudeDeck: the chat list of the Claude app: {reason}");
-            missing()
-        })?
-        .ok_or_else(|| {
-            log::warn!("ClaudeDeck: open \"{title}\": the chat is not in the Claude app's list");
-            missing()
-        })?;
-    if chat.matches > 1 {
-        log::info!(
-            "ClaudeDeck: {} chats in the Claude app are named \"{title}\"; the first is used",
-            chat.matches
-        );
-    }
-    if dry {
-        log::info!("read-only test instance: pressing \"{title}\" in the Claude app skipped");
-        return Ok(None);
-    }
-    // The list stays as the app leaves it after the click.
-    uia::invoke(&chat.button).map(|()| None).map_err(|reason| {
-        log::warn!("ClaudeDeck: could not press \"{title}\": {reason}");
-        missing()
-    })
-}
-
 /// Runs `work` on a thread of its own that started COM; `say` gets the
-/// notice text that `work` gives, as a result or as a failure.
+/// notice text that `work` gives, as a result or as a failure, and
+/// `failed` when COM does not start.
 pub(crate) fn on_com_thread(
     title: String,
+    failed: String,
     say: impl FnOnce(String) + Send + 'static,
     work: impl FnOnce(&str) -> Result<Option<String>, String> + Send + 'static,
 ) {
@@ -592,7 +550,7 @@ pub(crate) fn on_com_thread(
         let hr = unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32) };
         if hr < 0 {
             log::warn!("ClaudeDeck: COM did not start ({})", com::hex(hr));
-            say(not_found_notice(&title));
+            say(failed);
             return;
         }
         let outcome = work(&title);
@@ -628,38 +586,10 @@ pub fn find_report(title: &str) -> String {
     )
 }
 
-/// Opens the chat with this title in the app's main window, on a thread of
-/// its own. `failed` gets the notice text when the chat cannot be found.
-/// A test copy of WinCraft only reads; unit tests start nothing.
-pub fn open_chat(
-    title: &str,
-    failed: impl FnOnce(String) + Send + 'static,
-    finished: impl FnOnce() + Send + 'static,
-) {
-    if cfg!(test) {
-        return;
-    }
-    let dry = instance::is_test();
-    log::info!(
-        "ClaudeDeck: opening \"{}\" in the Claude app (read-only: {dry})",
-        title.trim()
-    );
-    on_com_thread(title.trim().to_string(), failed, move |title| {
-        let began = Instant::now();
-        let outcome = run(title, dry);
-        log::info!(
-            "ClaudeDeck: opening \"{title}\" took {} ms",
-            began.elapsed().as_millis()
-        );
-        finished();
-        outcome
-    });
-}
-
 mod keys;
 mod link;
 mod menu;
-pub use link::{chat_link, show_chat};
+pub use link::{chat_link, show_chat, show_chat_then};
 pub use menu::rename_chat;
 
 #[cfg(test)]

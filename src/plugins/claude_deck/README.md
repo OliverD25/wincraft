@@ -433,19 +433,20 @@ and pressing through its screens was judged too fragile. If a step fails,
 WindowNamer name on the chat's window is cleared after a rename. A test copy
 only reads. Every step is written to the log.
 
-**Opening a chat with no window of its own.** (The row reads "Opening in
-the Claude app…" while it runs, a repeat click within two seconds is
-ignored, the home window is found by its title, and the buttons are found
-by the app itself, not by walking its tree element by element. The log
-says how long each open took.) Such a chat lives only in the
-Claude app's main window, and the app has no link that opens a given chat.
-So ClaudeDeck finds the main window through UI Automation (the same
-Windows service screen readers use), brings it forward and presses the
-chat's button in the app's chat list, matched by its exact title. When the
-window is narrow and the app hides the list, ClaudeDeck opens it with the
-app's **Show sidebar** button first. The limit: the chat must be in the
-list, so a folded group of the list hides it. If the button is not found, a notice says so. A test copy
-only reads and presses nothing.
+**Opening a chat with no window of its own.** Such a chat lives only in the
+Claude app's main window. ClaudeDeck opens the app's own link for it,
+`claude://code/continue?session=<id>`, with the `local_` id of the chat's
+session file; the app finds the chat, shows it in the main window and leaves
+the Chat view for the Code view. ClaudeDeck then brings that window
+forward. It presses no button in the app to open a chat: pressing through
+the app's screens broke whenever the app changed (it once opened the
+account menu, the "+" menu and the model menu instead of the chat). The row
+reads "Opening in the Claude app…" until the window is in front, and a
+repeat click within two seconds is ignored. A chat the app has no link for
+(one that runs only in a terminal) is not opened: a notice says to open it
+where it runs. `claude://resume` is not used, because it imports a CLI
+session and can make a second copy of it. A test copy only reads and opens
+no link.
 
 **Forks in a terminal show as rows.** WinCraft names the new chat itself
 (`--session-id`) and opens the terminal as a new window with a fixed title.

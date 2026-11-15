@@ -306,7 +306,9 @@ pub fn rename_chat(
         return;
     }
     let dry = instance::is_test();
-    on_com_thread(title.trim().to_string(), say, move |title| {
+    let title = title.trim().to_string();
+    let failed = rename_failed_notice(&title);
+    on_com_thread(title, failed, say, move |title| {
         rename(title, &new_name, window, dry)
     });
 }

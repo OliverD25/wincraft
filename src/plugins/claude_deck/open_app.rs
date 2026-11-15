@@ -1,8 +1,8 @@
 //! What ClaudeDeck asks of the Claude app for a chat: open it,
 //! rename it. A chat with a window of its own is brought forward; the rest
-//! goes through the app's main window (see `core::claude_app`). When a step
-//! fails, WinCraft says so in a notice that names
-//! ClaudeDeck. Rename asks for the new name in WinCraft's rename box, then
+//! is shown in the app's main window through the app's link for the chat
+//! (see `core::claude_app`). When a step fails, WinCraft says so in a
+//! notice that names ClaudeDeck. Rename asks for the new name in WinCraft's rename box, then
 //! changes it in the app, so there is one name for the chat.
 
 use std::sync::Mutex;
@@ -27,13 +27,43 @@ static RENAMING: Mutex<Option<(String, Option<isize>)>> = Mutex::new(None);
 /// Windows whose WindowNamer name is to be cleared by the list.
 static CLEARS: Mutex<Vec<isize>> = Mutex::new(Vec::new());
 
-/// Opens the chat: its window when it has one, else its button in the app.
-pub(super) fn open_chat(window: Option<isize>, title: &str, to_host: &HostChannel) {
-    if window.is_some() {
-        bring_forward(window, to_host);
-    } else {
-        open_in_app(title);
+/// How a chat is opened: its own window, the app's link for it, or not at
+/// all. ClaudeDeck never presses buttons in the app to open a chat.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum OpenWay {
+    Window(isize),
+    Link,
+    NoLink,
+}
+
+/// Decides how a chat is opened. A chat with a window of its own is brought
+/// forward; else the app's link shows it; a chat the app has no link for
+/// (one that runs only in a terminal) is not opened.
+pub(crate) fn open_way(window: Option<isize>, id: &str) -> OpenWay {
+    match window {
+        Some(window) => OpenWay::Window(window),
+        None if claude_app::chat_link(id).is_some() => OpenWay::Link,
+        None => OpenWay::NoLink,
     }
+}
+
+/// Opens the chat: its window when it has one, else the chat in the app
+/// through its link.
+pub(super) fn open_chat(window: Option<isize>, id: &str, title: &str, to_host: &HostChannel) {
+    match open_way(window, id) {
+        OpenWay::Window(_) => bring_forward(window, to_host),
+        OpenWay::Link => open_in_app(id, title),
+        OpenWay::NoLink => {
+            log::info!("ClaudeDeck: \"{title}\" has no link in the Claude app; not opened");
+            say(no_link_notice(title.trim()));
+        }
+    }
+}
+
+/// The words of the notice when the app has no chat to open. It names
+/// ClaudeDeck, so the user knows who is talking.
+pub fn no_link_notice(title: &str) -> String {
+    format!("ClaudeDeck cannot open \"{title}\" in the Claude app: it has no chat there. Open it where it runs.")
 }
 
 /// The words of the notice when the app cannot show the chat. It names
@@ -98,7 +128,7 @@ static OPENING: Mutex<Opening> = Mutex::new(Opening {
     entries: Vec::new(),
 });
 
-fn open_in_app(title: &str) {
+fn open_in_app(id: &str, title: &str) {
     let allowed = OPENING
         .lock()
         .map(|mut opening| opening.begin(title, Instant::now()))
@@ -108,11 +138,14 @@ fn open_in_app(title: &str) {
         return;
     }
     let name = title.to_string();
-    claude_app::open_chat(title, say, move || {
+    let shown = claude_app::show_chat_then(id, move || {
         if let Ok(mut opening) = OPENING.lock() {
             opening.end(&name, Instant::now());
         }
     });
+    if !shown {
+        say(show_failed_notice(title.trim()));
+    }
 }
 
 /// Puts "Opening in the Claude app…" on the rows of the chats being
@@ -305,6 +338,39 @@ mod tests {
             show_failed_notice("Fix login"),
             "ClaudeDeck could not show \"Fix login\" in the Claude app."
         );
+    }
+
+    #[test]
+    fn a_chat_with_its_own_window_is_brought_forward_even_with_a_link() {
+        assert_eq!(open_way(Some(7), "local_abc"), OpenWay::Window(7));
+        assert_eq!(open_way(Some(7), "3f2a9c1e"), OpenWay::Window(7));
+    }
+
+    #[test]
+    fn a_chat_with_no_window_opens_by_its_link_only_when_the_app_has_one() {
+        assert_eq!(open_way(None, "local_abc-1"), OpenWay::Link);
+        assert_eq!(
+            open_way(None, "3f2a9c1e-7b64-4d0a-9e51-0c8d2b7a6f10"),
+            OpenWay::NoLink
+        );
+        assert_eq!(open_way(None, ""), OpenWay::NoLink);
+    }
+
+    #[test]
+    fn the_notice_for_a_chat_with_no_link_names_claudedeck_and_says_what_to_do() {
+        assert_eq!(
+            no_link_notice("Fix login"),
+            "ClaudeDeck cannot open \"Fix login\" in the Claude app: it has no chat there. Open it where it runs."
+        );
+    }
+
+    #[test]
+    fn opening_by_link_ends_the_opening_line() {
+        open_in_app("local_ends-line", "Ends its line");
+        assert!(!OPENING
+            .lock()
+            .unwrap()
+            .is_opening("Ends its line", Instant::now()));
     }
 
     #[test]

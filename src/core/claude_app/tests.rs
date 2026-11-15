@@ -210,27 +210,6 @@ fn the_home_window_has_the_sidebar_group_or_the_show_button() {
 }
 
 #[test]
-fn the_notice_names_claudedeck_and_the_chat() {
-    assert_eq!(
-        not_found_notice("My chat"),
-        "ClaudeDeck could not find \"My chat\" in the Claude app's list. Open it there."
-    );
-}
-
-#[test]
-fn unit_tests_start_nothing() {
-    let (sender, receiver) = std::sync::mpsc::channel::<String>();
-    open_chat(
-        "Any chat",
-        move |text| {
-            let _ = sender.send(text);
-        },
-        || {},
-    );
-    assert!(receiver.recv_timeout(Duration::from_millis(100)).is_err());
-}
-
-#[test]
 fn the_rename_notice_names_claudedeck_and_the_chat() {
     use super::menu::rename_failed_notice;
     assert_eq!(

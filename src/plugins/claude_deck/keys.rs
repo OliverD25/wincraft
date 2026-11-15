@@ -228,7 +228,7 @@ pub fn keys(
                 if line.stand_in {
                     edit::fold_chat(&mut state.saved, &id);
                 } else {
-                    open_chat(line.chat.window, &line.chat.title, to_host);
+                    open_chat(line.chat.window, &line.chat.id, &line.chat.title, to_host);
                 }
             }
             if pressed.show_in_app && menu::can_show_in_app(line) {

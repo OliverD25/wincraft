@@ -418,7 +418,7 @@ fn chat_line(
             edit::fold_chat(&mut state.saved, &line.chat.id);
         } else {
             state.selected = Some(pick.clone());
-            open_chat(line.chat.window, &line.chat.title, to_host);
+            open_chat(line.chat.window, &line.chat.id, &line.chat.title, to_host);
         }
     }
     let items = menu::chat_items(line, row.group.is_some());
@@ -548,7 +548,7 @@ fn apply(act: Act, state: &mut DeckUi, to_host: &HostChannel) {
         Pick::Chat(id) | Pick::Group(id) => id.clone(),
     };
     match act.choice {
-        Choice::Open => open_chat(act.window, &act.title, to_host),
+        Choice::Open => open_chat(act.window, &id, &act.title, to_host),
         Choice::ShowInApp => open_app::show_in_app(&id, &act.title),
         Choice::Pin(on) => edit::pin(saved, &id, on),
         Choice::Hide(on) => edit::hide(saved, &id, on),

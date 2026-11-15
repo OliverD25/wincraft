@@ -32,15 +32,24 @@ pub fn chat_link(id: &str) -> Option<String> {
 /// no link or Windows could not open it. A test copy of WinCraft only reads,
 /// so it opens nothing; unit tests start nothing.
 pub fn show_chat(id: &str) -> bool {
+    show_chat_then(id, || {})
+}
+
+/// `show_chat`, and `finished` runs once the home window was brought
+/// forward (or its wait is over), or at once when nothing was opened.
+pub fn show_chat_then(id: &str, finished: impl FnOnce() + Send + 'static) -> bool {
     let Some(link) = chat_link(id) else {
         log::warn!("ClaudeDeck: \"{id}\" is not an id the Claude app can open");
+        finished();
         return false;
     };
     if cfg!(test) {
+        finished();
         return true;
     }
     if instance::is_test() {
         log::info!("read-only test instance: opening {link} skipped");
+        finished();
         return true;
     }
     log::info!("ClaudeDeck: showing a chat in the Claude app with {link}");
@@ -61,9 +70,13 @@ pub fn show_chat(id: &str) -> bool {
             "ClaudeDeck: Windows could not open {link} (code {})",
             result as usize
         );
+        finished();
         return false;
     }
-    std::thread::spawn(bring_home_forward);
+    std::thread::spawn(move || {
+        bring_home_forward();
+        finished();
+    });
     true
 }
 
