@@ -10,6 +10,8 @@ use serde_json::Value;
 
 use crate::core::theme::Tokens;
 use crate::core::ui_bridge::{HostChannel, HostRequest};
+use crate::ui::reveal::Immediate;
+use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOW;
 
 use super::header::Click;
 use super::window::DeckUi;
@@ -125,6 +127,8 @@ pub struct Quick {
     mini_open: bool,
     mini_focused: bool,
     mini_size: Option<egui::Vec2>,
+    /// The menu's own window shows once it has drawn.
+    reveal: Immediate,
 }
 
 impl Quick {
@@ -220,6 +224,8 @@ pub fn beside_at(column: Rect, size: egui::Vec2, monitor_width: Option<f32>, gap
     pos2(left, column.top())
 }
 
+const BESIDE_TITLE: &str = "WinCraft \u{b7} ClaudeDeck quick settings";
+
 fn beside(
     ctx: &egui::Context,
     quick: &mut Quick,
@@ -233,8 +239,9 @@ fn beside(
     let monitor = ctx.input(|i| i.viewport().monitor_size).map(|m| m.x);
     let size = quick.mini_size.unwrap_or(vec2(320.0, 330.0));
     let builder = egui::ViewportBuilder::default()
-        .with_title("WinCraft \u{b7} ClaudeDeck quick settings")
+        .with_title(BESIDE_TITLE)
         .with_decorations(false)
+        .with_visible(false)
         .with_taskbar(false)
         .with_resizable(false)
         .with_window_level(egui::WindowLevel::AlwaysOnTop)
@@ -242,25 +249,23 @@ fn beside(
         .with_inner_size(size);
     let focus_first = std::mem::take(&mut quick.focus_first);
     let fill = tokens.panel_bg;
-    let (picked, close, focused, used) = ctx.show_viewport_immediate(
-        egui::ViewportId::from_hash_of("wincraft-claude-deck-quick"),
-        builder,
-        |ui, _class| {
-            let shown = egui::Frame::menu(ui.style()).fill(fill).show(ui, |ui| {
-                ui.set_width(300.0);
-                ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-                    egui::containers::menu::menu_style(ui.style_mut());
-                    rows(ui, settings, focus_first)
-                })
-                .inner
-            });
-            let (esc, focused) = ui
-                .ctx()
-                .input(|i| (i.key_pressed(egui::Key::Escape), i.focused));
-            let used = shown.response.rect.size();
-            (shown.inner, esc, focused, used)
-        },
-    );
+    let id = egui::ViewportId::from_hash_of("wincraft-claude-deck-quick");
+    let (picked, close, focused, used) = ctx.show_viewport_immediate(id, builder, |ui, _class| {
+        let shown = egui::Frame::menu(ui.style()).fill(fill).show(ui, |ui| {
+            ui.set_width(300.0);
+            ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                egui::containers::menu::menu_style(ui.style_mut());
+                rows(ui, settings, focus_first)
+            })
+            .inner
+        });
+        let (esc, focused) = ui
+            .ctx()
+            .input(|i| (i.key_pressed(egui::Key::Escape), i.focused));
+        let used = shown.response.rect.size();
+        (shown.inner, esc, focused, used)
+    });
+    quick.reveal.after_call(ctx, id, BESIDE_TITLE, SW_SHOW);
     quick.mini_size = Some(used.ceil());
     if focused {
         quick.mini_focused = true;

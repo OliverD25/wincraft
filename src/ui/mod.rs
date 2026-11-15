@@ -3,6 +3,7 @@ pub(crate) mod dwm_thumbs;
 pub mod fuzzy;
 mod palette;
 mod peek;
+pub(crate) mod reveal;
 pub(crate) mod settings;
 pub(crate) mod slide;
 mod spot;

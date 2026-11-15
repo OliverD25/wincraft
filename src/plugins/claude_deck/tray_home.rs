@@ -13,13 +13,14 @@ use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetWindowLongPtrW, IsWindowVisible, KillTimer, SetTimer, SetWindowLongPtrW, SetWindowPos,
     ShowWindow, GWL_EXSTYLE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SW_HIDE, SW_SHOW, SW_SHOWNA, WM_TIMER,
+    SWP_NOZORDER, SW_HIDE, SW_SHOWNA, WM_TIMER,
 };
 
 use crate::core::plugin_tray::OwnTray;
 use crate::core::traits::WinCraftPlugin;
 use crate::core::tray::MenuItem;
 use crate::core::{claude_jobs, claude_sessions, claude_windows, host, windows_list};
+use crate::ui::reveal::{self, Reveal};
 
 use super::reading;
 use super::servers::Deck;
@@ -291,9 +292,8 @@ pub(super) fn unhide(shared: &mut Shared, state: &mut DeckUi) -> bool {
     if !std::mem::take(&mut shared.home.hidden) {
         return false;
     }
-    if state.window != 0 {
-        unsafe { ShowWindow(state.window as HWND, SW_SHOW) };
-    }
+    // Shown covered by the main frame, as Windows dropped its picture.
+    state.reveal = Reveal::Hidden;
     true
 }
 
@@ -309,23 +309,25 @@ pub(super) fn hides_instead(shared: &mut Shared, state: &mut DeckUi) -> bool {
 /// Gives the window the style the setting asks for, once per window and
 /// setting: a tool window with no taskbar button while it lives in the
 /// tray, else its own taskbar button as before. A visible window is
-/// hidden and shown once so the taskbar sees the change.
-pub(super) fn keep_style(shared: &mut Shared, hwnd: isize) {
+/// hidden and shown once so the taskbar sees the change, covered so that
+/// it does not show white; true when it was.
+pub(super) fn keep_style(shared: &mut Shared, hwnd: isize) -> bool {
     let live = shared.settings.tray_home;
     if hwnd == 0 || shared.home.styled == Some((hwnd, live)) {
-        return;
+        return false;
     }
     let first = shared.home.styled.is_none_or(|(old, _)| old != hwnd);
     shared.home.styled = Some((hwnd, live));
     if first && !live {
         taskbar::own_button(hwnd);
-        return;
+        return false;
     }
     let handle = hwnd as HWND;
     let visible = unsafe { IsWindowVisible(handle) } != 0;
     let style = unsafe { GetWindowLongPtrW(handle, GWL_EXSTYLE) } as u32;
     unsafe {
         if visible {
+            reveal::cover(hwnd);
             ShowWindow(handle, SW_HIDE);
         }
         SetWindowLongPtrW(handle, GWL_EXSTYLE, ex_style(style, live) as isize);
@@ -347,6 +349,7 @@ pub(super) fn keep_style(shared: &mut Shared, hwnd: isize) {
     if visible {
         unsafe { ShowWindow(handle, SW_SHOWNA) };
     }
+    visible
 }
 
 #[cfg(test)]

@@ -11,6 +11,8 @@ use egui::{pos2, vec2, CursorIcon, Painter, Rect, Sense, Stroke, StrokeKind, Ui}
 
 use crate::core::theme::Tokens;
 use crate::core::ui_bridge::HostChannel;
+use crate::ui::reveal::Immediate;
+use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNA;
 
 use super::hover;
 use super::marks;
@@ -206,7 +208,7 @@ pub(super) fn show(
     if let Some((cell, chat)) = resting.filter(|_| ui.ctx().input(|i| i.pointer.has_pointer())) {
         let still = ui.ctx().input(|i| i.pointer.time_since_last_movement());
         if still >= hover::DELAY {
-            panel(ui.ctx(), cell, chat, look);
+            panel(ui.ctx(), cell, chat, look, &mut state.mini_hover);
         } else {
             ui.ctx()
                 .request_repaint_after(Duration::from_secs_f32(hover::DELAY - still));
@@ -263,10 +265,13 @@ fn paint_full_icon(painter: &Painter, rect: Rect, tokens: &Tokens) {
     painter.line_segment([at(9.5, 6.0), at(7.5, 8.0)], stroke);
 }
 
+const HOVER_TITLE: &str = "WinCraft \u{b7} ClaudeDeck chat";
+
 /// The hover panel beside the column, in a small window of its own: the
 /// column is too narrow to hold it. It never takes the mouse or the
-/// keyboard, and it goes when the mouse leaves the mark.
-fn panel(ctx: &egui::Context, cell: Rect, chat: &Chat, look: &Look) {
+/// keyboard, and it goes when the mouse leaves the mark. It is made hidden
+/// and shown once it has drawn (`reveal`), so it never shows white first.
+fn panel(ctx: &egui::Context, cell: Rect, chat: &Chat, look: &Look, reveal: &mut Immediate) {
     let Some(outer) = ctx.input(|i| i.viewport().outer_rect) else {
         return;
     };
@@ -280,8 +285,9 @@ fn panel(ctx: &egui::Context, cell: Rect, chat: &Chat, look: &Look) {
         outer.left() - GAP - size.x
     };
     let builder = egui::ViewportBuilder::default()
-        .with_title("WinCraft \u{b7} ClaudeDeck chat")
+        .with_title(HOVER_TITLE)
         .with_decorations(false)
+        .with_visible(false)
         .with_taskbar(false)
         .with_active(false)
         .with_resizable(false)
@@ -292,20 +298,18 @@ fn panel(ctx: &egui::Context, cell: Rect, chat: &Chat, look: &Look) {
     let tokens = *look.tokens;
     let settings = look.settings.clone();
     let (now, turn) = (look.now, look.turn);
-    ctx.show_viewport_immediate(
-        egui::ViewportId::from_hash_of("wincraft-claude-deck-mini-hover"),
-        builder,
-        |ui, _class| {
-            let look = Look {
-                tokens: &tokens,
-                settings: &settings,
-                now,
-                turn,
-            };
-            let rect = ui.ctx().content_rect();
-            let painter = ui.painter().clone();
-            let laid = hover::layout(&painter, chat, &look, hover::OWN_WIDTH);
-            hover::paint(&painter, rect, 0, laid, chat, &look);
-        },
-    );
+    let id = egui::ViewportId::from_hash_of("wincraft-claude-deck-mini-hover");
+    ctx.show_viewport_immediate(id, builder, |ui, _class| {
+        let look = Look {
+            tokens: &tokens,
+            settings: &settings,
+            now,
+            turn,
+        };
+        let rect = ui.ctx().content_rect();
+        let painter = ui.painter().clone();
+        let laid = hover::layout(&painter, chat, &look, hover::OWN_WIDTH);
+        hover::paint(&painter, rect, 0, laid, chat, &look);
+    });
+    reveal.after_call(ctx, id, HOVER_TITLE, SW_SHOWNA);
 }

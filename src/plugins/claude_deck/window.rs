@@ -13,18 +13,15 @@ use std::time::{Duration, Instant};
 use egui::{pos2, vec2, Color32, Rect, Ui};
 use serde_json::Value;
 use windows_sys::Win32::Foundation::HWND;
-use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, IsIconic, IsWindow, ShowWindow, SW_RESTORE,
-};
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, IsIconic};
 
+use crate::core::claude_jobs;
 use crate::core::claude_sessions;
 use crate::core::claude_windows;
 use crate::core::theme::{self, Tokens};
 use crate::core::traits::{PluginWindow, WindowFrame};
 use crate::core::ui_bridge::{ArrangeAction, HostChannel, HostRequest};
-use crate::core::{claude_jobs, dpi_follow, window_place};
-use crate::ui::dwm_thumbs;
-use crate::ui::settings;
+use crate::ui::reveal::Reveal;
 use crate::ui::widgets::{focus, text};
 
 use super::arrange::hidden_chats;
@@ -39,6 +36,7 @@ use super::open_app;
 use super::place::{self, Place};
 use super::quick;
 use super::reading;
+use super::reveal;
 use super::rows::Look;
 use super::select;
 use super::servers::Deck;
@@ -49,7 +47,7 @@ use super::tray_home::{self, rules::hides};
 use super::{Handle, ID, MINI_KEY, ONLY_OPEN_KEY, STAY_ON_TOP_KEY};
 
 pub const WINDOW_ID: &str = "deck";
-const TITLE: &str = "WinCraft \u{b7} ClaudeDeck";
+pub(super) const TITLE: &str = "WinCraft \u{b7} ClaudeDeck";
 pub(super) const SIZE: [f32; 2] = [360.0, 480.0];
 pub(super) const MIN_SIZE: [f32; 2] = [220.0, 90.0];
 /// How often the host is asked to read the chats again; the reader itself
@@ -100,8 +98,10 @@ pub(super) struct Cache {
 #[derive(Default)]
 pub(super) struct DeckUi {
     pub window: isize,
-    placed: bool,
-    focus_wanted: bool,
+    pub(super) placed: bool,
+    pub(super) focus_wanted: bool,
+    /// Hidden until it is in its place, then covered until it has drawn.
+    pub(super) reveal: Reveal,
     pub(super) closed: bool,
     pub(super) asked: Option<Instant>,
     pub(super) built: Option<Instant>,
@@ -124,7 +124,7 @@ pub(super) struct DeckUi {
     pub menu_for: Option<Pick>,
     pub menu_at: Option<egui::Pos2>,
     pub menu_key_down: bool,
-    border: Option<Color32>,
+    pub(super) border: Option<Color32>,
     pub(super) kept: Option<Place>,
     pub(super) started: Option<Instant>,
     pub(super) seen: Seen,
@@ -141,6 +141,8 @@ pub(super) struct DeckUi {
     /// The mode the window has now; None before the first frame.
     pub(super) mini_on: Option<bool>,
     pub(super) mini_size: Option<egui::Vec2>,
+    /// The mini mode's hover panel shows once it has drawn.
+    pub(super) mini_hover: crate::ui::reveal::Immediate,
     pub(super) quick: quick::Quick,
     /// The mode and scale the smallest size was last sent for.
     pub(super) min_for: Option<(bool, f32)>,
@@ -165,7 +167,7 @@ impl DeckWindow {
     }
 }
 
-fn viewport_id() -> egui::ViewportId {
+pub(super) fn viewport_id() -> egui::ViewportId {
     egui::ViewportId::from_hash_of("wincraft-claude-deck")
 }
 
@@ -194,10 +196,8 @@ impl PluginWindow for DeckWindow {
                 }
             } else {
                 tray_home::unhide(&mut shared, &mut state);
-                // A minimised window does not draw, so it would never ask
-                // to come forward: restore it here, at its last place.
                 if state.window != 0 && unsafe { IsIconic(state.window as HWND) } != 0 {
-                    unsafe { ShowWindow(state.window as HWND, SW_RESTORE) };
+                    reveal::restore(&mut state);
                 }
                 state.focus_wanted = true;
             }
@@ -229,12 +229,17 @@ impl PluginWindow for DeckWindow {
             .map(|shared| shared.settings.stay_on_top)
             .unwrap_or(true);
         let mini = self.shared.lock().is_ok_and(|shared| shared.settings.mini);
+        if let (Ok(shared), Ok(mut state)) = (self.shared.lock(), self.state.lock()) {
+            reveal::on_main_frame(ctx, &shared, &mut state, frame.palette_hwnd);
+        }
         let mut builder = egui::ViewportBuilder::default()
             .with_title(TITLE)
             .with_decorations(false)
             .with_resizable(true)
             .with_inner_size(SIZE)
             .with_min_inner_size(min_size(mini))
+            // Shown by `reveal` once it is in its place.
+            .with_visible(false)
             .with_window_level(if on_top {
                 egui::WindowLevel::AlwaysOnTop
             } else {
@@ -256,8 +261,11 @@ impl PluginWindow for DeckWindow {
                 return;
             }
             let tokens = Tokens::get(ui.ctx());
-            find_and_place(&mut state, palette, &tokens, &to_host);
-            tray_home::keep_style(&mut shared, state.window);
+            reveal::find_and_place(&mut state, palette, &tokens);
+            if tray_home::keep_style(&mut shared, state.window) {
+                reveal::covered_again(&mut state);
+            }
+            reveal::on_window_frame(ui.ctx(), &mut state, &to_host);
             let repaint = ui.ctx().clone();
             let wake = Arc::new(move || repaint.request_repaint_of(viewport_id()));
             state.servers.tick(&shared.settings.servers, wake);
@@ -429,40 +437,6 @@ fn save(to_host: &HostChannel, key: &str, on: bool) {
         key: key.to_string(),
         value: Value::Bool(on),
     });
-}
-
-/// Finds the window egui made, gives it rounded corners and a border, puts
-/// it where it was, and takes the keyboard when the hotkey asked.
-fn find_and_place(state: &mut DeckUi, palette: isize, tokens: &Tokens, to_host: &HostChannel) {
-    if state.window != 0 && unsafe { IsWindow(state.window as HWND) } == 0 {
-        // A window from before the last close: the new one is not placed yet.
-        state.window = 0;
-        state.placed = false;
-    }
-    if state.window == 0 {
-        state.window = settings::find_window(TITLE, palette);
-    }
-    if state.window == 0 {
-        return;
-    }
-    dpi_follow::follow(state.window);
-    if state.border != Some(tokens.border) {
-        state.border = Some(tokens.border);
-        dwm_thumbs::round_corners(state.window as HWND, theme::colorref(tokens.border));
-    }
-    if !std::mem::replace(&mut state.placed, true) {
-        if state.kept.is_none() {
-            state.kept = place::load(&place::path());
-        }
-        match state.kept {
-            Some(kept) => place::apply(state.window, kept),
-            None => window_place::centre_on_cursor_monitor(state.window as HWND),
-        }
-        state.focus_wanted = true;
-    }
-    if std::mem::take(&mut state.focus_wanted) {
-        to_host.send(HostRequest::FocusWindow(state.window));
-    }
 }
 
 /// Asks the host for fresh data, and builds the chats again from what was

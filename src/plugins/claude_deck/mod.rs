@@ -34,6 +34,7 @@ mod open_app;
 mod place;
 mod quick;
 mod reading;
+mod reveal;
 mod rows;
 mod select;
 mod servers;

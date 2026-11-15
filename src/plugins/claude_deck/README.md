@@ -41,6 +41,8 @@ and which one is idle.
   opens ClaudeDeck with the menu open.
 - Drag the header to move the window, and its edges to resize it. It opens
   again at the same place and size.
+- The window stays covered until it has drawn itself, so it never shows a
+  white flash when it opens, comes back from the tray or is restored.
 - **Live in the tray (no taskbar button)** (on by default): ClaudeDeck has
   a tray icon of its own beside WinCraft's (an amber tile with three list
   rows) and no taskbar button and no Alt+Tab entry, in mini mode too. A
