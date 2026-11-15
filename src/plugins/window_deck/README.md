@@ -458,8 +458,18 @@ With it on:
   another app's button moves the strip to that app.
 - **Click** a picture to switch to that window; the strip closes. Drag and
   right-click work as in the strip you open with `Win+Alt+A`.
-- **Esc**, a click anywhere outside the strip, or a click on the taskbar
-  button closes it. Clicking the button then does what it always does.
+- **A left click on the taskbar button opens the strip at once**, without
+  the hover delay, for an app the strip opens for on a hover (two or more
+  windows). Windows' own list of the app's windows, which a click would
+  bring up, never shows. A click while the strip is open keeps it open; a
+  click on another such app's button moves the strip there. A click on an
+  app with one window, or on a place that is not an app button (Start, the
+  tray), does what Windows does and closes the strip. Each click the strip
+  takes is written to the log ("hover_preview: a click on ... opens
+  WindowDeck").
+- **Esc**, a click anywhere outside the strip and the taskbar, or a right
+  or middle click on another button closes it. A right click on its own
+  button closes it too and opens the app's jump list as always.
 - **Keys follow the mouse.** The strip never takes the keyboard from the
   window you are working in. But while the mouse is inside the strip (not
   only on the taskbar button), the strip's keys go to it: a digit, Shift
@@ -479,8 +489,8 @@ With it on:
   on **Open WindowDeck with Win+1…9**). Windows' preview is
   never hidden while a Windows key or Alt is down, within 1.5 s of
   Win+number, within half a second of letting go of a Windows key or of
-  pressing an arrow key, Tab, Enter, Space or Esc, or while a mouse button is
-  down. Pressing a Windows key or Alt also closes the strip (with
+  pressing an arrow key, Tab, Enter, Space or Esc, or while the right or
+  middle mouse button is down. Pressing a Windows key or Alt also closes the strip (with
   **Open WindowDeck with Win+1…9** on, a Windows key closes it only when
   you let go of it without a number), with one exception: after you click inside the strip it has the keyboard, and Alt
   no longer closes it, so Alt+← and Alt+→ can change a window's number.
@@ -495,7 +505,7 @@ looks like a short flash. So while the mouse is on a taskbar, WinCraft also
 makes Windows' preview window fully transparent once it has hidden it. You
 see it again at once where it belongs to Windows: on an app with one
 window, away from app buttons, while a Windows key or Alt is down, or after
-a click. Its normal look comes back the moment the mouse leaves the
+a right or middle click. Its normal look comes back the moment the mouse leaves the
 taskbar, when you switch the feature off, and when WinCraft quits. If
 WinCraft ever crashes while the preview is transparent, it puts the preview
 back the next time it starts. If Windows' preview cannot be made

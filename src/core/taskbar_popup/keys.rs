@@ -95,6 +95,17 @@ pub struct KeyState {
     pub mouse_button_down: bool,
     /// The middle button, which opens a new window from a taskbar button.
     pub middle_down: bool,
+    /// The primary button (the left one, unless the buttons are swapped).
+    pub left_down: bool,
+    /// The secondary button, which opens a taskbar button's jump list.
+    pub right_down: bool,
+}
+
+impl KeyState {
+    /// Only the primary mouse button is down: a plain click.
+    pub fn left_click(&self) -> bool {
+        self.left_down && !self.right_down && !self.middle_down
+    }
 }
 
 impl KeyWatch {

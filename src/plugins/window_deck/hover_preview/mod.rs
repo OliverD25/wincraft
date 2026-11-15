@@ -209,6 +209,9 @@ impl HoverPreview {
                 Command::Close => out.push(command),
             }
         }
+        if let Some(note) = self.machine.take_click_note() {
+            log::info!("hover_preview: {note}");
+        }
         if let (Some(app), false) = (was_open, self.machine.is_open()) {
             log::info!(
                 "hover strip for {app} closed; Windows' preview was hidden {} times during the hover",

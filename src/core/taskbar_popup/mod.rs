@@ -22,9 +22,9 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     VK_RBUTTON, VK_RETURN, VK_RIGHT, VK_RWIN, VK_SPACE, VK_TAB, VK_UP,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    FindWindowExW, FindWindowW, GetWindowThreadProcessId, IsWindowVisible, ShowWindowAsync,
-    CHILDID_SELF, EVENT_OBJECT_SHOW, EVENT_OBJECT_UNCLOAKED, OBJID_WINDOW, SW_HIDE,
-    SW_SHOWNOACTIVATE, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
+    FindWindowExW, FindWindowW, GetSystemMetrics, GetWindowThreadProcessId, IsWindowVisible,
+    ShowWindowAsync, CHILDID_SELF, EVENT_OBJECT_SHOW, EVENT_OBJECT_UNCLOAKED, OBJID_WINDOW,
+    SM_SWAPBUTTON, SW_HIDE, SW_SHOWNOACTIVATE, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
 };
 
 pub mod keys;
@@ -116,6 +116,13 @@ pub fn digit_down() -> bool {
 /// The keys and mouse buttons as they are now.
 pub fn key_state() -> KeyState {
     let win_down = key_down(VK_LWIN) || key_down(VK_RWIN);
+    // GetAsyncKeyState reads the physical buttons, so a left-handed mouse
+    // has its primary button on VK_RBUTTON.
+    let (primary, secondary) = if unsafe { GetSystemMetrics(SM_SWAPBUTTON) } != 0 {
+        (VK_RBUTTON, VK_LBUTTON)
+    } else {
+        (VK_LBUTTON, VK_RBUTTON)
+    };
     KeyState {
         win_down,
         // Only asked while a Windows key is down: Win+digit is all it is for.
@@ -129,6 +136,8 @@ pub fn key_state() -> KeyState {
         escape: key_down(VK_ESCAPE),
         mouse_button_down: key_down(VK_LBUTTON) || key_down(VK_RBUTTON) || key_down(VK_MBUTTON),
         middle_down: key_down(VK_MBUTTON),
+        left_down: key_down(primary),
+        right_down: key_down(secondary),
     }
 }
 

@@ -169,7 +169,7 @@ Opened by: Settings window → **About** in the left list, or the palette comman
 - **Links**: **Repository**, **Report an issue**. **Fonts**. **For plugin authors**.
 
 ## WindowDeck strip
-Opened by: the hotkey `Win+Alt+A` and then a taskbar number, or Tray menu → **WindowDeck: Open**, or by hovering a taskbar button when **Show WindowDeck instead of Windows' taskbar preview** is on, or `Win+1…9` when **Open WindowDeck with Win+1…9** is on.
+Opened by: the hotkey `Win+Alt+A` and then a taskbar number, or Tray menu → **WindowDeck: Open**, or by hovering a taskbar button when **Show WindowDeck instead of Windows' taskbar preview** is on (an app with two or more windows), or with that setting on by a left click on such a button (at once, and Windows' own window list does not show; a click while the strip is open keeps it open, a click on another such app's button moves it there), or `Win+1…9` when **Open WindowDeck with Win+1…9** is on.
 - Toolbar: the app list, and the view switch **By monitor** and **Flat**.
 - **No windows to arrange**: shown when nothing is open.
 - **+ {n} other desktops**: link that shows windows of other desktops (`D`).

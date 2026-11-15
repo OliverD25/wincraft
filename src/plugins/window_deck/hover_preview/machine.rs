@@ -25,6 +25,9 @@ pub const DEFAULT_DELAY_MS: u64 = 150;
 pub const OLD_DEFAULT_DELAY_SECONDS: f64 = 0.4;
 pub const MIN_DELAY_MS: u64 = 50;
 pub const MAX_DELAY_MS: u64 = 1500;
+/// A strip that closes by itself this soon after a left click on its
+/// button opens again: it had the keyboard and lost it to the taskbar.
+pub const CLICK_REOPEN_MS: u64 = 1000;
 /// Apps with fewer windows keep Windows' own preview.
 pub const MIN_WINDOWS: usize = 2;
 
@@ -122,10 +125,11 @@ impl Gate {
             return false;
         }
         let inside = |rect: &Rect| contains(*rect, cursor);
-        let on = self.button.as_ref().is_some_and(inside)
+        let held = self.button.as_ref().is_some_and(inside) || self.eligible.iter().any(inside);
+        let on = held
             || self.strip.as_ref().is_some_and(inside)
-            || self.eligible.iter().any(inside)
             || (self.area.as_ref().is_some_and(inside) && !self.single.iter().any(inside));
+        let keys = if held { click_is_ours(keys) } else { keys };
         decide(&self.keys.inputs(keys, now, on)) == Decision::Hide
     }
 }
@@ -134,10 +138,21 @@ impl Gate {
 enum State {
     /// The mouse is not on a taskbar.
     Idle,
-    /// On a taskbar, not yet known to be on an app button.
-    Resting { at: Point, since: u64, asked: bool },
-    /// Resting on a known button; the strip opens once the delay is over.
-    OnButton { button: Button, since: u64 },
+    /// On a taskbar, not yet known to be on an app button. `clicked`: a
+    /// left click came here, so the strip opens without the delay.
+    Resting {
+        at: Point,
+        since: u64,
+        asked: bool,
+        clicked: bool,
+    },
+    /// Resting on a known button; the strip opens once the delay is over,
+    /// or at once after a left click.
+    OnButton {
+        button: Button,
+        since: u64,
+        clicked: bool,
+    },
     Open {
         button: Button,
         opened_at: u64,
@@ -151,6 +166,11 @@ enum State {
         /// The mouse resting on another taskbar button, for a move from
         /// one app to the next.
         other: Option<(Point, u64, bool)>,
+        /// When a left click on the strip's own button came last.
+        clicked_at: Option<u64>,
+        /// Where a left click on the taskbar outside that button came,
+        /// while its button is not known yet.
+        click_other: Option<Point>,
     },
     /// Done with this hover: nothing happens again until the mouse leaves
     /// this rectangle.
@@ -168,6 +188,9 @@ pub struct Machine {
     /// A Windows key went down while the strip was open with Win+1…9 on.
     win_held: bool,
     carry: Carry,
+    /// What the last left click on a taskbar button made WindowDeck do,
+    /// for the log.
+    click_note: Option<String>,
 }
 
 impl Default for Machine {
@@ -181,6 +204,7 @@ impl Default for Machine {
             escape_was_down: false,
             win_held: false,
             carry: Carry::default(),
+            click_note: None,
         }
     }
 }
@@ -285,6 +309,12 @@ impl Machine {
         self.carry.active()
     }
 
+    /// What the last left click on a taskbar button made WindowDeck do,
+    /// once.
+    pub fn take_click_note(&mut self) -> Option<String> {
+        self.click_note.take()
+    }
+
     /// See `Carry::take_undo`.
     pub fn take_undo(&mut self) -> bool {
         self.carry.take_undo()
@@ -335,6 +365,7 @@ impl Machine {
     pub fn step(&mut self, look: &Look) -> Vec<Command> {
         self.keys.see(look.keys, look.now);
         let pressed = look.keys.mouse_button_down && !self.mouse_was_down;
+        let click = pressed && look.keys.left_click();
         let escape = look.keys.escape && !self.escape_was_down;
         self.mouse_was_down = look.keys.mouse_button_down;
         self.escape_was_down = look.keys.escape;
@@ -350,15 +381,36 @@ impl Machine {
         }
         let state = std::mem::replace(&mut self.state, State::Idle);
         self.state = match state {
-            State::Idle => Self::rest_or_idle(look),
+            State::Idle => Self::rest_or_idle(look, click, &mut out),
             State::Done { rect } => match rect {
-                Some(rect) if look.on_taskbar && contains(rect, look.cursor) => {
+                // A left click starts over: it may be on a button the strip
+                // opens for.
+                Some(rect) if look.on_taskbar && contains(rect, look.cursor) && !click => {
                     State::Done { rect: Some(rect) }
                 }
-                _ => Self::rest_or_idle(look),
+                _ => Self::rest_or_idle(look, click, &mut out),
             },
-            State::Resting { at, since, asked } => self.resting(look, at, since, asked, &mut out),
-            State::OnButton { button, since } => self.on_button(look, button, since, &mut out),
+            State::Resting {
+                at,
+                since,
+                asked,
+                clicked,
+            } => Self::resting(
+                look,
+                Rest {
+                    at,
+                    since,
+                    asked,
+                    clicked,
+                },
+                click,
+                &mut out,
+            ),
+            State::OnButton {
+                button,
+                since,
+                clicked,
+            } => self.on_button(look, button, since, clicked, click, &mut out),
             State::Open {
                 button,
                 opened_at,
@@ -366,6 +418,8 @@ impl Machine {
                 left_since,
                 held_inside,
                 other,
+                clicked_at,
+                click_other,
             } => self.open(
                 look,
                 OpenState {
@@ -375,8 +429,10 @@ impl Machine {
                     left_since,
                     held_inside,
                     other,
+                    clicked_at,
+                    click_other,
                 },
-                pressed,
+                Press { pressed, click },
                 escape,
                 &mut out,
             ),
@@ -386,32 +442,43 @@ impl Machine {
         out
     }
 
-    fn rest_or_idle(look: &Look) -> State {
-        if look.on_taskbar {
-            State::Resting {
-                at: look.cursor,
-                since: look.now,
-                asked: false,
-            }
-        } else {
-            State::Idle
+    /// A new rest where the mouse is now; a left click asks for its
+    /// button at once.
+    fn rest_or_idle(look: &Look, click: bool, out: &mut Vec<Command>) -> State {
+        if !look.on_taskbar {
+            return State::Idle;
+        }
+        if click {
+            out.push(Command::Lookup(look.cursor));
+        }
+        State::Resting {
+            at: look.cursor,
+            since: look.now,
+            asked: click,
+            clicked: click,
         }
     }
 
-    fn resting(
-        &self,
-        look: &Look,
-        at: Point,
-        since: u64,
-        asked: bool,
-        out: &mut Vec<Command>,
-    ) -> State {
+    fn resting(look: &Look, rest: Rest, click: bool, out: &mut Vec<Command>) -> State {
+        let Rest {
+            at,
+            since,
+            asked,
+            clicked,
+        } = rest;
         if !look.on_taskbar {
             return State::Idle;
         }
         if moved(at, look.cursor) {
-            return Self::rest_or_idle(look);
+            return Self::rest_or_idle(look, click, out);
         }
+        let clicked = clicked || click;
+        let resting = |asked| State::Resting {
+            at,
+            since,
+            asked,
+            clicked,
+        };
         if asked {
             if let Some(answer) = &look.answer {
                 if answer.at == at {
@@ -419,47 +486,66 @@ impl Machine {
                         Some(button) if contains(button.rect, look.cursor) => State::OnButton {
                             button: button.clone(),
                             since,
+                            clicked,
                         },
-                        _ => State::Resting { at, since, asked },
+                        _ => resting(asked),
                     };
                 }
             }
-            return State::Resting { at, since, asked };
+            return resting(asked);
         }
-        if look.now.saturating_sub(since) >= LOOKUP_MS {
+        // A click asks at once: the mouse is still while it clicks.
+        if clicked || look.now.saturating_sub(since) >= LOOKUP_MS {
             out.push(Command::Lookup(at));
-            return State::Resting {
-                at,
-                since,
-                asked: true,
-            };
+            return resting(true);
         }
-        State::Resting { at, since, asked }
+        resting(asked)
     }
 
-    fn on_button(&self, look: &Look, button: Button, since: u64, out: &mut Vec<Command>) -> State {
+    fn on_button(
+        &mut self,
+        look: &Look,
+        button: Button,
+        since: u64,
+        clicked: bool,
+        click: bool,
+        out: &mut Vec<Command>,
+    ) -> State {
         if !look.on_taskbar || !contains(button.rect, look.cursor) {
-            return Self::rest_or_idle(look);
+            return Self::rest_or_idle(look, click, out);
         }
+        let clicked = clicked || click;
         if !button.eligible() {
-            return State::OnButton { button, since };
+            return State::OnButton {
+                button,
+                since,
+                clicked,
+            };
         }
-        // The keyboard or a click had a part in this: Windows' popup is
-        // theirs, and nothing happens until the mouse leaves the button.
-        let inputs = self.keys.inputs(look.keys, look.now, true);
+        // The keyboard, or a mouse button other than a plain left click,
+        // had a part in this: Windows' popup is theirs, and nothing happens
+        // until the mouse leaves the button.
+        let inputs = self.keys.inputs(click_is_ours(look.keys), look.now, true);
         if decide(&inputs) != Decision::Hide {
             return State::Done {
                 rect: Some(button.rect),
             };
         }
-        if look.now.saturating_sub(since) < self.delay_ms {
-            return State::OnButton { button, since };
+        if !clicked && look.now.saturating_sub(since) < self.delay_ms {
+            return State::OnButton {
+                button,
+                since,
+                clicked,
+            };
         }
         if look.strip.is_some() {
             // Win+Alt+A's strip is already open; this hover leaves it be.
             return State::Done {
                 rect: Some(button.rect),
             };
+        }
+        if clicked {
+            self.click_note = Some(format!("a click on {} opens WindowDeck", button.app));
         }
         out.push(Command::Open {
             app: button.app.clone(),
@@ -472,6 +558,8 @@ impl Machine {
             left_since: None,
             held_inside: false,
             other: None,
+            clicked_at: None,
+            click_other: None,
         }
     }
 
@@ -479,15 +567,40 @@ impl Machine {
         &mut self,
         look: &Look,
         mut open: OpenState,
-        pressed: bool,
+        press: Press,
         escape: bool,
         out: &mut Vec<Command>,
     ) -> State {
+        let Press { pressed, click } = press;
         let done = State::Done {
             rect: Some(open.button.rect),
         };
+        let in_strip = look.strip.is_some_and(|strip| contains(strip, look.cursor));
+        let on_button = look.on_taskbar && contains(open.button.rect, look.cursor);
+        let just_clicked = open
+            .clicked_at
+            .is_some_and(|at| look.now.saturating_sub(at) <= CLICK_REOPEN_MS);
         match look.strip {
             Some(_) => open.seen = true,
+            // Closed by itself right after a left click on its button: a
+            // strip that had the keyboard loses it to the taskbar on that
+            // click. The click asked for WindowDeck, so it opens again.
+            None if open.seen && on_button && just_clicked => {
+                out.push(Command::Open {
+                    app: open.button.app.clone(),
+                    button: open.button.rect,
+                });
+                return State::Open {
+                    button: open.button,
+                    opened_at: look.now,
+                    seen: false,
+                    left_since: None,
+                    held_inside: false,
+                    other: None,
+                    clicked_at: None,
+                    click_other: None,
+                };
+            }
             // Closed by itself: a card was clicked, or Esc or a click
             // elsewhere once it had the keyboard.
             None if open.seen => return done,
@@ -497,8 +610,6 @@ impl Machine {
             }
             None => {}
         }
-        let in_strip = look.strip.is_some_and(|strip| contains(strip, look.cursor));
-        let on_button = look.on_taskbar && contains(open.button.rect, look.cursor);
         // Alt closes a strip that does not have the keyboard, to leave
         // Alt+Tab alone. In a strip the user clicked into, Alt+arrows
         // change a window's number, and Alt+Tab still works: it moves the
@@ -522,10 +633,23 @@ impl Machine {
         // A middle-click on the strip's own button: Windows opens a new
         // window of the app, and the strip stays to show it arrive.
         let new_window = pressed && look.keys.middle_down && on_button;
+        // A left click on the taskbar: on the strip's own button it keeps
+        // the strip, on another button the strip follows it once that
+        // button is known.
+        let taskbar_click = click && look.on_taskbar && !in_strip;
         let escape = escape && !look.strip_keeps_escape;
-        if escape || keyboard || (pressed && !in_strip && !new_window) {
+        if escape || keyboard || (pressed && !in_strip && !new_window && !taskbar_click) {
             out.push(Command::Close);
             return done;
+        }
+        if taskbar_click && on_button {
+            open.clicked_at = Some(look.now);
+            self.click_note = Some(format!(
+                "a click on {} keeps WindowDeck open",
+                open.button.app
+            ));
+        } else if taskbar_click {
+            open.click_other = Some(look.cursor);
         }
         if pressed && in_strip {
             open.held_inside = true;
@@ -536,6 +660,7 @@ impl Machine {
         if on_button || in_strip || open.held_inside {
             open.left_since = None;
             open.other = None;
+            open.click_other = None;
             return open.into_state();
         }
         let left = *open.left_since.get_or_insert(look.now);
@@ -550,9 +675,10 @@ impl Machine {
     }
 
     /// The mouse went from the open strip's button to another one: the
-    /// strip follows it, the way Windows' popup does.
+    /// strip follows it, the way Windows' popup does. A left click there
+    /// moves it as well, even while the button is still held.
     fn next_button(
-        &self,
+        &mut self,
         look: &Look,
         open: &mut OpenState,
         out: &mut Vec<Command>,
@@ -565,8 +691,9 @@ impl Machine {
             Some((at, since, asked)) if !moved(at, look.cursor) => (at, since, asked),
             _ => (look.cursor, look.now, false),
         };
+        let clicked = open.click_other.is_some_and(|point| !moved(point, at));
         if !asked {
-            let ask = look.now.saturating_sub(since) >= LOOKUP_MS;
+            let ask = clicked || look.now.saturating_sub(since) >= LOOKUP_MS;
             if ask {
                 out.push(Command::Lookup(at));
             }
@@ -575,21 +702,44 @@ impl Machine {
         }
         open.other = Some((at, since, asked));
         let answer = look.answer.as_ref().filter(|answer| answer.at == at)?;
-        let button = answer
+        let Some(button) = answer
             .button
             .as_ref()
-            .filter(|button| contains(button.rect, look.cursor))?;
+            .filter(|button| contains(button.rect, look.cursor))
+        else {
+            if clicked {
+                // A click on the taskbar outside any app button (Start,
+                // the tray): it is not for WindowDeck.
+                out.push(Command::Close);
+                return Some(State::Resting {
+                    at,
+                    since,
+                    asked: true,
+                    clicked: false,
+                });
+            }
+            return None;
+        };
         if button.rect == open.button.rect {
             return None;
         }
-        let inputs = self.keys.inputs(look.keys, look.now, true);
+        let keys = if clicked {
+            click_is_ours(look.keys)
+        } else {
+            look.keys
+        };
+        let inputs = self.keys.inputs(keys, look.now, true);
         if !button.eligible() || decide(&inputs) != Decision::Hide {
             // Windows' own preview takes over for this one.
             out.push(Command::Close);
             return Some(State::OnButton {
                 button: button.clone(),
                 since,
+                clicked: false,
             });
+        }
+        if clicked {
+            self.click_note = Some(format!("a click on {} opens WindowDeck", button.app));
         }
         out.push(Command::Open {
             app: button.app.clone(),
@@ -603,8 +753,26 @@ impl Machine {
             left_since: None,
             held_inside: false,
             other: None,
+            clicked_at: None,
+            click_other: None,
         })
     }
+}
+
+/// A Resting state, taken apart.
+struct Rest {
+    at: Point,
+    since: u64,
+    asked: bool,
+    clicked: bool,
+}
+
+/// A mouse button went down in this step; `click`: it was a plain left
+/// click.
+#[derive(Clone, Copy)]
+struct Press {
+    pressed: bool,
+    click: bool,
 }
 
 struct OpenState {
@@ -614,6 +782,8 @@ struct OpenState {
     left_since: Option<u64>,
     held_inside: bool,
     other: Option<(Point, u64, bool)>,
+    clicked_at: Option<u64>,
+    click_other: Option<Point>,
 }
 
 impl OpenState {
@@ -625,7 +795,23 @@ impl OpenState {
             left_since: self.left_since,
             held_inside: self.held_inside,
             other: self.other,
+            clicked_at: self.clicked_at,
+            click_other: self.click_other,
         }
+    }
+}
+
+/// A left click alone on a button known to have two or more windows asks
+/// for WindowDeck, so it does not leave the popup to Windows the way the
+/// other mouse buttons do (the right one opens the jump list).
+fn click_is_ours(keys: KeyState) -> KeyState {
+    if keys.left_click() {
+        KeyState {
+            mouse_button_down: false,
+            ..keys
+        }
+    } else {
+        keys
     }
 }
 
@@ -1019,12 +1205,13 @@ mod tests {
     }
 
     #[test]
-    fn a_click_on_the_button_closes_and_leaves_it_to_windows() {
+    fn a_right_click_on_the_button_closes_and_leaves_it_to_windows() {
         let mut machine = on();
         let now = open_strip(&mut machine);
         let press = Look {
             keys: KeyState {
                 mouse_button_down: true,
+                right_down: true,
                 ..KeyState::default()
             },
             ..with_strip(now + 16, ON_BUTTON)
@@ -1034,6 +1221,249 @@ mod tests {
         for t in (now + 32..now + 2000).step_by(16) {
             assert!(machine.step(&look(t, ON_BUTTON)).is_empty());
         }
+    }
+
+    const ON_NEXT: Point = (1070, 2060);
+
+    fn left_down(now: u64, cursor: Point) -> Look {
+        Look {
+            keys: KeyState {
+                mouse_button_down: true,
+                left_down: true,
+                ..KeyState::default()
+            },
+            ..look(now, cursor)
+        }
+    }
+
+    fn next_button(windows: usize) -> Button {
+        Button {
+            app: "Code".to_string(),
+            rect: NEXT,
+            windows,
+        }
+    }
+
+    #[test]
+    fn a_left_click_on_a_held_button_opens_the_strip_at_once() {
+        let mut machine = on();
+        rest_on(&mut machine, 3);
+        // Well before the hover delay is over.
+        assert_eq!(
+            machine.step(&left_down(110, ON_BUTTON)),
+            [Command::Open {
+                app: "Chrome.UserData.Profile3".to_string(),
+                button: BUTTON
+            }]
+        );
+        assert_eq!(
+            machine.take_click_note().as_deref(),
+            Some("a click on Chrome.UserData.Profile3 opens WindowDeck")
+        );
+        assert_eq!(machine.take_click_note(), None, "logged once");
+        let gate = machine.gate(None).expect("open");
+        assert!(
+            gate.allows(ON_BUTTON, left_down(120, ON_BUTTON).keys, 120),
+            "the list the click brings is hidden while the button is down"
+        );
+        assert!(gate.allows(ON_BUTTON, KeyState::default(), 130));
+    }
+
+    #[test]
+    fn a_click_before_the_button_is_known_asks_at_once_and_opens() {
+        let mut machine = on();
+        assert!(machine.step(&look(0, ON_BUTTON)).is_empty());
+        assert_eq!(
+            machine.step(&left_down(16, ON_BUTTON)),
+            [Command::Lookup(ON_BUTTON)],
+            "no wait for the mouse to rest"
+        );
+        let answer = Look {
+            keys: left_down(0, ON_BUTTON).keys,
+            ..answered(40, ON_BUTTON, Some(button(2)))
+        };
+        assert!(machine.step(&answer).is_empty());
+        assert_eq!(
+            machine.step(&look(56, ON_BUTTON)),
+            [Command::Open {
+                app: "Chrome.UserData.Profile3".to_string(),
+                button: BUTTON
+            }]
+        );
+    }
+
+    #[test]
+    fn a_left_click_keeps_the_open_strip_and_hides_the_list_it_brings() {
+        let mut machine = on();
+        let now = open_strip(&mut machine);
+        let press = Look {
+            strip: Some(STRIP),
+            ..left_down(now + 16, ON_BUTTON)
+        };
+        assert!(machine.step(&press).is_empty());
+        assert!(machine.is_open());
+        assert_eq!(
+            machine.take_click_note().as_deref(),
+            Some("a click on Chrome.UserData.Profile3 keeps WindowDeck open")
+        );
+        let gate = machine.gate(Some(STRIP)).expect("open");
+        assert!(gate.allows(ON_BUTTON, press.keys, now + 20));
+        let right = KeyState {
+            mouse_button_down: true,
+            right_down: true,
+            ..KeyState::default()
+        };
+        assert!(
+            !gate.allows(ON_BUTTON, right, now + 20),
+            "the jump list stays"
+        );
+        assert!(
+            !gate.allows(DESKTOP, press.keys, now + 20),
+            "only on the button"
+        );
+        for t in (now + 32..now + 2000).step_by(16) {
+            assert!(machine.step(&with_strip(t, ON_BUTTON)).is_empty());
+        }
+        assert!(machine.is_open());
+    }
+
+    #[test]
+    fn a_left_click_on_another_apps_button_moves_the_strip() {
+        let mut machine = on();
+        let now = open_strip(&mut machine);
+        let press = Look {
+            strip: Some(STRIP),
+            ..left_down(now + 16, ON_NEXT)
+        };
+        assert_eq!(machine.step(&press), [Command::Lookup(ON_NEXT)]);
+        assert!(machine.is_open());
+        let answer = Look {
+            strip: Some(STRIP),
+            keys: press.keys,
+            ..answered(now + 40, ON_NEXT, Some(next_button(2)))
+        };
+        assert_eq!(
+            machine.step(&answer),
+            [Command::Open {
+                app: "Code".to_string(),
+                button: NEXT
+            }]
+        );
+        assert_eq!(machine.open_button(), Some(NEXT));
+        assert_eq!(
+            machine.take_click_note().as_deref(),
+            Some("a click on Code opens WindowDeck")
+        );
+    }
+
+    #[test]
+    fn a_left_click_on_a_one_window_app_or_no_app_closes_the_strip() {
+        for answer in [Some(next_button(1)), None] {
+            let mut machine = on();
+            let now = open_strip(&mut machine);
+            let press = Look {
+                strip: Some(STRIP),
+                ..left_down(now + 16, ON_NEXT)
+            };
+            assert_eq!(machine.step(&press), [Command::Lookup(ON_NEXT)]);
+            let answered = Look {
+                strip: Some(STRIP),
+                ..answered(now + 40, ON_NEXT, answer.clone())
+            };
+            assert_eq!(machine.step(&answered), [Command::Close], "{answer:?}");
+            assert_eq!(machine.take_click_note(), None);
+        }
+    }
+
+    #[test]
+    fn a_drag_from_the_strip_button_does_not_take_the_next_button() {
+        let mut machine = on();
+        let now = open_strip(&mut machine);
+        let held = |t, at| Look {
+            strip: Some(STRIP),
+            ..left_down(t, at)
+        };
+        assert!(machine.step(&held(now + 16, ON_BUTTON)).is_empty());
+        assert!(machine.step(&held(now + 32, ON_NEXT)).is_empty());
+        assert_eq!(
+            machine.step(&held(now + 32 + LOOKUP_MS, ON_NEXT)),
+            [Command::Lookup(ON_NEXT)]
+        );
+        let answer = Look {
+            strip: Some(STRIP),
+            keys: held(0, ON_NEXT).keys,
+            ..answered(now + 120, ON_NEXT, Some(next_button(2)))
+        };
+        assert_eq!(machine.step(&answer), [Command::Close]);
+    }
+
+    #[test]
+    fn a_left_click_on_a_one_window_app_does_nothing_special() {
+        let mut machine = on();
+        rest_on(&mut machine, 1);
+        assert!(machine.step(&left_down(110, ON_BUTTON)).is_empty());
+        assert_eq!(machine.gate(None), None);
+        for t in (126..2000).step_by(16) {
+            assert!(machine.step(&look(t, ON_BUTTON)).is_empty());
+        }
+        assert_eq!(machine.take_click_note(), None);
+    }
+
+    #[test]
+    fn a_strip_that_closes_right_after_a_click_on_its_button_opens_again() {
+        let mut machine = on();
+        let now = open_strip(&mut machine);
+        let press = Look {
+            strip: Some(STRIP),
+            strip_focused: true,
+            ..left_down(now + 16, ON_BUTTON)
+        };
+        assert!(machine.step(&press).is_empty());
+        assert!(machine.step(&with_strip(now + 100, ON_BUTTON)).is_empty());
+        // It had the keyboard and lost it to the taskbar.
+        assert_eq!(
+            machine.step(&look(now + 400, ON_BUTTON)),
+            [Command::Open {
+                app: "Chrome.UserData.Profile3".to_string(),
+                button: BUTTON
+            }]
+        );
+        assert!(machine.is_open());
+        // Closing by itself again, with no new click, stays closed.
+        assert!(machine.step(&with_strip(now + 500, ON_BUTTON)).is_empty());
+        assert!(machine.step(&look(now + 600, ON_BUTTON)).is_empty());
+        assert!(!machine.is_open());
+    }
+
+    #[test]
+    fn after_win_number_a_later_left_click_opens_the_strip() {
+        let mut machine = on();
+        rest_on(&mut machine, 3);
+        let combo = Look {
+            keys: KeyState {
+                win_down: true,
+                digit_down: true,
+                ..KeyState::default()
+            },
+            ..look(200, ON_BUTTON)
+        };
+        machine.step(&combo);
+        assert_eq!(machine.gate(None), None, "Windows' list");
+        assert!(machine.step(&look(300, ON_BUTTON)).is_empty(), "Win let go");
+        assert_eq!(
+            machine.step(&left_down(3016, ON_BUTTON)),
+            [Command::Lookup(ON_BUTTON)]
+        );
+        assert!(machine
+            .step(&answered(3040, ON_BUTTON, Some(button(3))))
+            .is_empty());
+        assert_eq!(
+            machine.step(&look(3056, ON_BUTTON)),
+            [Command::Open {
+                app: "Chrome.UserData.Profile3".to_string(),
+                button: BUTTON
+            }]
+        );
     }
 
     #[test]
