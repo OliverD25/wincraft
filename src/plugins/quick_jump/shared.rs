@@ -28,10 +28,15 @@ pub enum Request {
     /// The card menu's "Close the window": asks the pin's open window to
     /// close, as its own close button would.
     CloseWindow(usize),
-    /// The details panel's Done: the pin as edited.
+    /// Quick access's R on a card that is not open: the window in front
+    /// when Quick access opened takes this pin's place, with its label.
+    Repin(usize),
+    /// The details panel's Done: the pin as edited, and as it was when
+    /// the panel opened.
     Update {
         slot: usize,
-        pin: Pin,
+        pin: Box<Pin>,
+        before: Box<Pin>,
     },
     /// The empty Quick access asks for the picker.
     OpenPicker,

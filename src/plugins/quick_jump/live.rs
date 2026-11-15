@@ -6,7 +6,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowThreadProcessId, IsIc
 
 use crate::core::virtual_desktops::{self, Reader};
 use crate::core::window_info::{desktop_place, DesktopPlace};
-use crate::core::{appid, monitors, window_names, windows_list};
+use crate::core::{appid, claude_waits, claude_windows, monitors, window_names, windows_list};
 
 use super::matching::Live;
 
@@ -18,8 +18,23 @@ pub fn is_own(hwnd: HWND) -> bool {
 }
 
 /// Every app window Alt+Tab shows, top of the z-order first, without
-/// WinCraft's own.
+/// WinCraft's own; a window of the Claude app with the chat it shows.
 pub fn read() -> Vec<Live> {
+    let mut live = windows();
+    let claude: Vec<isize> = live
+        .iter()
+        .filter(|window| claude_waits::is_claude_app(&window.exe))
+        .map(|window| window.hwnd)
+        .collect();
+    for (hwnd, chat) in claude_windows::chats_of(&claude) {
+        if let Some(window) = live.iter_mut().find(|window| window.hwnd == hwnd) {
+            window.chat = Some(chat);
+        }
+    }
+    live
+}
+
+fn windows() -> Vec<Live> {
     let desktops = virtual_desktops::list();
     let reader = (desktops.len() > 1).then(|| Reader::new().ok()).flatten();
     let known = |hwnd: HWND| {
@@ -56,6 +71,7 @@ pub fn read() -> Vec<Live> {
                 monitor: monitors::screen_of(hwnd, &screens)
                     .and_then(|index| names.get(index).cloned().flatten()),
                 minimized: unsafe { IsIconic(hwnd) } != 0,
+                chat: None,
             }
         })
         .filter(|live| !live.exe.is_empty())

@@ -51,10 +51,20 @@ fn ctrl_arrows_reorder_and_the_other_keys_jump_unpin_or_close() {
 fn the_header_counts_of_ten_and_lists_the_keys_that_work() {
     assert_eq!(count_line(0), "0 of 10");
     assert_eq!(count_line(7), "7 of 10");
-    let keys: Vec<&str> = hints(3).iter().map(|(key, _)| *key).collect();
+    let keys: Vec<&str> = hints(3, false).iter().map(|(key, _)| *key).collect();
     assert_eq!(keys, ["Esc", "Del", "F2", "1\u{2013}0"], "right to left");
-    assert_eq!(hints(3)[3].1, "Switch");
-    assert_eq!(hints(0), [("Esc", "Close")], "an empty list has only Esc");
+    assert_eq!(hints(3, false)[3].1, "Switch");
+    assert_eq!(
+        hints(3, true)[4],
+        ("R", "Re-pin"),
+        "a card that is not open"
+    );
+    assert_eq!(
+        hints(0, true),
+        [("Esc", "Close")],
+        "an empty list has only Esc"
+    );
+    assert_eq!(step(ListKey::Repin, 2, 6, false), Step::Repin(2));
 }
 
 #[test]

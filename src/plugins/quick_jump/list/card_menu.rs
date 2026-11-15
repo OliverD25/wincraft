@@ -14,6 +14,7 @@ use super::super::shared::Request;
 pub enum Item {
     Jump,
     PutAt,
+    Repin,
     Edit,
     Unpin,
     Separator,
@@ -26,6 +27,7 @@ pub enum Choice {
     Jump,
     /// Move the card to this place (from 0).
     PutAt(usize),
+    Repin,
     Edit,
     Unpin,
     CloseWindow,
@@ -38,6 +40,7 @@ impl Choice {
         match self {
             Choice::Jump => Some(Request::Jump(slot)),
             Choice::PutAt(to) => Some(Request::Move { from: slot, to }),
+            Choice::Repin => Some(Request::Repin(slot)),
             Choice::Edit => None,
             Choice::Unpin => Some(Request::Remove(slot)),
             Choice::CloseWindow => Some(Request::CloseWindow(slot)),
@@ -47,17 +50,33 @@ impl Choice {
 
 pub const JUMP: &str = "Jump to it";
 pub const PUT_AT: &str = "Put at number";
+pub const REPIN: &str = "Re-pin the window I was in";
 pub const EDIT: &str = "Edit details";
 pub const UNPIN: &str = "Unpin";
 pub const CLOSE: &str = "Close the window";
 
 /// The lines of the menu for `card`, in order.
 pub fn items(card: &SlotView) -> Vec<Item> {
-    let mut items = vec![Item::Jump, Item::PutAt, Item::Edit, Item::Unpin];
+    let mut items = vec![Item::Jump, Item::PutAt];
+    if can_repin(card) {
+        items.push(Item::Repin);
+    }
+    items.extend([Item::Edit, Item::Unpin]);
     if is_open(card) {
         items.extend([Item::Separator, Item::CloseWindow]);
     }
     items
+}
+
+/// Only a card that is not open can take another window: R and the menu.
+pub fn can_repin(card: &SlotView) -> bool {
+    !is_open(card)
+}
+
+/// What R asks of the engine for the card at place `slot`; nothing on an
+/// open card.
+pub fn repin_request(card: &SlotView, slot: usize) -> Option<Request> {
+    can_repin(card).then_some(Request::Repin(slot))
 }
 
 /// Only a window that is open now can be closed.
@@ -97,6 +116,14 @@ pub fn show(ui: &mut Ui, card: &SlotView, slot: usize, count: usize) -> Option<C
                         }
                     }
                 });
+            }
+            Item::Repin => {
+                if ui
+                    .add(egui::Button::new(REPIN).shortcut_text("R"))
+                    .clicked()
+                {
+                    chosen = Some(Choice::Repin);
+                }
             }
             Item::Edit => {
                 if ui
@@ -156,6 +183,26 @@ mod tests {
             ]
         );
         assert_eq!(items(&card(State::InFront, Some(7))).len(), 6);
+    }
+
+    #[test]
+    fn re_pin_shows_and_works_only_on_a_card_that_is_not_open() {
+        let closed = card(State::NotOpen, None);
+        assert_eq!(
+            items(&closed),
+            vec![
+                Item::Jump,
+                Item::PutAt,
+                Item::Repin,
+                Item::Edit,
+                Item::Unpin
+            ]
+        );
+        assert_eq!(repin_request(&closed, 3), Some(Request::Repin(3)));
+        assert_eq!(Choice::Repin.request(3), Some(Request::Repin(3)));
+        let open = card(State::Open, Some(7));
+        assert!(!items(&open).contains(&Item::Repin));
+        assert_eq!(repin_request(&open, 3), None, "R does nothing here");
     }
 
     #[test]

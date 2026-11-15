@@ -24,6 +24,9 @@ pub struct Live {
     /// "Left", "Centre" or "Right"; None with one monitor.
     pub monitor: Option<String>,
     pub minimized: bool,
+    /// The Claude chat a window of the Claude app shows (its `local_`
+    /// sessionId), when the session files tell.
+    pub chat: Option<String>,
 }
 
 impl Live {
@@ -37,7 +40,8 @@ impl Live {
         place(self.desktop, self.monitor.as_deref())
     }
 
-    /// A pin for this window, which matches it by its title for now.
+    /// A pin for this window, which matches it by its chat and its title
+    /// for now.
     pub fn to_pin(&self) -> Pin {
         Pin {
             exe: self.exe.clone(),
@@ -46,7 +50,10 @@ impl Live {
             title: bare_title(&self.title).to_string(),
             label: None,
             start: true,
+            claude_session: self.chat.clone(),
+            title_auto: true,
             hwnd: Some(self.hwnd),
+            sure: true,
         }
     }
 }
@@ -82,26 +89,65 @@ pub fn candidates<'a>(pin: &Pin, live: &'a [Live]) -> Vec<&'a Live> {
         .collect()
 }
 
-/// The pin's window: the one it pinned while that lives, else the first of
-/// the app's windows whose title holds the pin's text, else the app's only
-/// window.
-pub fn find<'a>(pin: &Pin, live: &'a [Live]) -> Option<&'a Live> {
-    if let Some(hwnd) = pin.hwnd {
-        if let Some(window) = live
+/// How `find_how` found a pin's window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum How {
+    /// The window shows the pin's Claude chat.
+    Chat,
+    /// The window the pin had while it lives.
+    Handle,
+    /// Its title holds the pin's text.
+    Title,
+    /// The app's only window.
+    Only,
+}
+
+/// The pin's window: the one that shows its Claude chat, else the one it
+/// had while that lives, else the first of the app's windows whose title
+/// holds the pin's text, else the app's only window.
+///
+/// A pin of a chat never takes a window that shows another chat, and once
+/// the app's windows are known by their chats it skips the title rules,
+/// so a window whose title holds the old chat name is not taken for it.
+pub fn find_how<'a>(pin: &Pin, live: &'a [Live]) -> Option<(&'a Live, How)> {
+    let app: Vec<&Live> = live.iter().filter(|window| same_app(pin, window)).collect();
+    if let Some(chat) = pin.claude_session.as_deref() {
+        if let Some(window) = app
             .iter()
-            .find(|window| window.hwnd == hwnd && same_app(pin, window))
+            .find(|window| window.chat.as_deref() == Some(chat))
         {
-            return Some(window);
+            return Some((window, How::Chat));
         }
     }
-    if let Some(first) = candidates(pin, live).first() {
-        return Some(first);
+    if let Some(hwnd) = pin.hwnd {
+        if let Some(window) = app.iter().find(|window| window.hwnd == hwnd) {
+            let other_chat = pin.claude_session.is_some() && window.chat.is_some();
+            if !other_chat {
+                return Some((window, How::Handle));
+            }
+        }
     }
-    let mut app = live.iter().filter(|window| same_app(pin, window));
-    match (app.next(), app.next()) {
-        (Some(only), None) => Some(only),
+    if pin.claude_session.is_some() {
+        if app.iter().any(|window| window.chat.is_some()) {
+            return None;
+        }
+        // Not known yet (the files are still being read): the title, but
+        // never the app's only window, which is mostly its main window.
+        return candidates(pin, live)
+            .first()
+            .map(|window| (*window, How::Title));
+    }
+    if let Some(first) = candidates(pin, live).first() {
+        return Some((first, How::Title));
+    }
+    match app.as_slice() {
+        [only] => Some((only, How::Only)),
         _ => None,
     }
+}
+
+pub fn find<'a>(pin: &Pin, live: &'a [Live]) -> Option<&'a Live> {
+    find_how(pin, live).map(|(window, _)| window)
 }
 
 /// What the line under "Title contains" says.
@@ -150,9 +196,21 @@ pub struct SlotView {
     pub hwnd: Option<isize>,
     /// "D3" when the window is on another desktop.
     pub badge: Option<String>,
+    /// Not open, and a jump opens the pin's Claude chat by its link.
+    pub opens_chat: bool,
 }
 
 impl SlotView {
+    /// What a card that is not open says after the app's name, and the
+    /// palette row under it.
+    pub fn closed_note(&self) -> &'static str {
+        if self.opens_chat {
+            "opens the chat"
+        } else {
+            "not open"
+        }
+    }
+
     /// What the tip and Quick access call the pin: its label, else the
     /// window's title, else the app's name.
     pub fn title_line(&self) -> &str {
@@ -193,6 +251,7 @@ pub fn slot_views(slots: &Slots, live: &[Live], front: isize) -> Vec<SlotView> {
                     .filter(|window| window.other_desktop)
                     .and_then(|window| window.desktop)
                     .map(|number| format!("D{number}")),
+                opens_chat: found.is_none() && super::follow::chat_link(pin).is_some(),
             }
         })
         .collect()
@@ -224,6 +283,7 @@ pub mod tests {
             other_desktop: false,
             monitor: None,
             minimized: false,
+            chat: None,
         }
     }
 

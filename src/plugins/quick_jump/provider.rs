@@ -21,7 +21,7 @@ pub struct Slots {
 pub fn row(view: &SlotView, jump_keys: &str) -> ResultItem {
     let digit = view.digit;
     let subtitle = match view.state {
-        State::NotOpen => "not open".to_string(),
+        State::NotOpen => view.closed_note().to_string(),
         State::InFront => "in front".to_string(),
         _ if view.place.is_empty() => view.title.clone(),
         _ => view.place.clone(),

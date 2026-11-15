@@ -42,6 +42,10 @@ fn yes() -> bool {
     true
 }
 
+fn is_yes(value: &bool) -> bool {
+    *value
+}
+
 /// A pinned window: how to find it again, and what to call it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pin {
@@ -63,9 +67,22 @@ pub struct Pin {
     /// A jump to a pin with no open window starts the app.
     #[serde(default = "yes")]
     pub start: bool,
+    /// The Claude chat the window showed (its `local_` sessionId): it
+    /// finds the chat's window before the title does, and a jump with no
+    /// window open opens the chat by its link.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_session: Option<String>,
+    /// `title` follows the window's title while the window is open: it was
+    /// the window's own title, not text the user typed. Old pins follow.
+    #[serde(default = "yes", skip_serializing_if = "is_yes")]
+    pub title_auto: bool,
     /// The window while it lives; never saved, as Windows reuses handles.
     #[serde(skip)]
     pub hwnd: Option<isize>,
+    /// `hwnd` is surely this pin's window: it was pinned, found by its chat
+    /// or by its title alone, never by the "app's only window" rule.
+    #[serde(skip)]
+    pub sure: bool,
 }
 
 impl Pin {
@@ -227,6 +244,29 @@ impl Slots {
         Some(undo)
     }
 
+    /// Quick access's "Re-pin": `pin` (a window) takes the place of the pin
+    /// at `slot`, with that pin's label and start switch. A window that is
+    /// in the list already moves here from its old place, as with Put at
+    /// number. None when there is no pin at `slot` or the window is that
+    /// pin's already; else the window's place now.
+    pub fn repin(&mut self, slot: usize, mut pin: Pin) -> Option<(usize, Undo)> {
+        if slot >= self.pins.len() {
+            return None;
+        }
+        let from = pin.hwnd.and_then(|hwnd| self.slot_of_window(hwnd));
+        if from == Some(slot) {
+            return None;
+        }
+        let undo = self.record();
+        let old = self.pins.remove(slot);
+        let moving = from.map(|from| self.pins.remove(if from > slot { from - 1 } else { from }));
+        pin.label = old.label.or_else(|| moving.and_then(|moving| moving.label));
+        pin.start = old.start;
+        let at = slot.min(self.pins.len());
+        self.pins.insert(at, pin);
+        Some((at, undo))
+    }
+
     /// Changes a pin with `change`; the Undo puts the old one back.
     pub fn update(&mut self, slot: usize, change: impl FnOnce(&mut Pin)) -> Option<Undo> {
         let undo = self.record();
@@ -311,7 +351,10 @@ pub mod tests {
             title: String::new(),
             label: None,
             start: true,
+            claude_session: None,
+            title_auto: true,
             hwnd,
+            sure: false,
         }
     }
 
@@ -416,6 +459,29 @@ pub mod tests {
         let (done, undo) = slots.pin(3, pin("A", Some(1)));
         assert_eq!(done, Pinned::Same { at: 3 });
         assert_eq!(undo, Undo::default());
+    }
+
+    #[test]
+    fn re_pin_puts_the_window_at_the_cards_number_with_its_label() {
+        let mut slots = list(&["A", "B", "C"]);
+        slots.get_mut(1).expect("B").hwnd = None;
+        slots.get_mut(1).expect("B").label = Some("Mail".to_string());
+        let before = slots.clone();
+        let (at, undo) = slots.repin(1, pin("N", Some(40))).expect("re-pinned");
+        assert_eq!(at, 1);
+        assert_eq!(names(&slots), ["A", "Mail", "C"]);
+        assert_eq!(slots.get(1).map(|p| p.app_name.as_str()), Some("N"));
+        slots.undo(undo);
+        assert_eq!(slots, before);
+        // A window pinned elsewhere moves here, as with Put at number.
+        let (at, _) = slots.repin(1, pin("C", Some(3))).expect("moved");
+        assert_eq!((at, slots.count()), (1, 2));
+        assert_eq!(names(&slots), ["A", "Mail"]);
+        assert!(slots.repin(5, pin("N", Some(40))).is_none(), "no pin there");
+        assert!(
+            slots.repin(0, pin("A", Some(1))).is_none(),
+            "its own window"
+        );
     }
 
     #[test]

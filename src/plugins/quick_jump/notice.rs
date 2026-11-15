@@ -88,6 +88,19 @@ pub fn starting(name: &str, slot: usize) -> Message {
     )
 }
 
+/// A jump to a closed Claude chat opens it by its link.
+pub fn opening_chat(name: &str) -> Message {
+    message(Glyph::Info, format!("Opening {name} in the Claude app"))
+}
+
+pub fn repinned(name: &str, at: usize) -> Message {
+    message(
+        Glyph::Pin,
+        format!("Re-pinned {name} as number {}", number_of_slot(at)),
+    )
+    .with_undo_key("Ctrl+Z")
+}
+
 pub fn not_open(name: &str, slot: usize) -> Message {
     message(
         Glyph::Info,

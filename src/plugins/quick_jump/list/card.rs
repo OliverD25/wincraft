@@ -142,7 +142,7 @@ pub(super) fn draw_card(
         title_colour(card.state, &tokens),
     );
     let second = match card.state {
-        State::NotOpen => format!("{} \u{b7} not open", card.app_name),
+        State::NotOpen => format!("{} \u{b7} {}", card.app_name, card.closed_note()),
         _ if card.place.is_empty() => card.app_name.clone(),
         _ => format!("{} \u{b7} {}", card.app_name, card.place),
     };

@@ -6,6 +6,13 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
+use windows_sys::Win32::Foundation::{HWND, RECT};
+use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
+use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowRect;
+
+use super::claude_sessions::{self, Popout, Session, ShownWindow};
+use super::windows_list;
+
 /// One open window of the Claude desktop app and the chat it shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChatWindow {
@@ -71,6 +78,63 @@ pub fn of<'a>(windows: &'a [ChatWindow], session_id: &str) -> Option<&'a ChatWin
     windows
         .iter()
         .find(|window| window.session_id == session_id)
+}
+
+/// A Claude window as the matching sees it. A renamed window is matched by
+/// the title the app gave it.
+pub fn shown_window(hwnd: isize) -> ShownWindow {
+    let handle = hwnd as HWND;
+    let mut rect = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    unsafe { GetWindowRect(handle, &mut rect) };
+    ShownWindow {
+        hwnd,
+        title: windows_list::window_text(handle),
+        width: rect.right - rect.left,
+        height: rect.bottom - rect.top,
+        scale: f64::from(unsafe { GetDpiForWindow(handle) }) / 96.0,
+    }
+}
+
+/// The session a window shows: by its title, else by its size.
+pub fn session_for<'a>(
+    sessions: &'a [Session],
+    popouts: &[Popout],
+    by_size: &[(isize, String)],
+    seen: &ShownWindow,
+) -> Option<&'a Session> {
+    claude_sessions::find(sessions, popouts, &seen.title).or_else(|| {
+        let (_, id) = by_size.iter().find(|(hwnd, _)| *hwnd == seen.hwnd)?;
+        sessions.iter().find(|s| &s.id == id)
+    })
+}
+
+/// The chat (its `sessionId`) each of these Claude app windows shows,
+/// matched as ClaudeDeck matches them, from the session files read last.
+/// Starts a new read when the last one is old; never waits, only reads.
+/// QuickJump uses it to keep a pinned chat even when its window closes.
+pub fn chats_of(hwnds: &[isize]) -> Vec<(isize, String)> {
+    if hwnds.is_empty() {
+        return Vec::new();
+    }
+    claude_sessions::read_soon();
+    let (sessions, popouts) = claude_sessions::sessions();
+    if sessions.is_empty() {
+        return Vec::new();
+    }
+    let shown: Vec<ShownWindow> = hwnds.iter().map(|&hwnd| shown_window(hwnd)).collect();
+    let by_size = claude_sessions::match_by_size(&shown, &sessions, &popouts);
+    shown
+        .iter()
+        .filter_map(|seen| {
+            let session = session_for(&sessions, &popouts, &by_size, seen)?;
+            Some((seen.hwnd, session.id.clone()))
+        })
+        .collect()
 }
 
 #[cfg(test)]

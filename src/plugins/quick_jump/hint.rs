@@ -60,7 +60,10 @@ mod tests {
             title: String::new(),
             label: label.map(str::to_string),
             start: true,
+            claude_session: None,
+            title_auto: true,
             hwnd: None,
+            sure: false,
         }
     }
 

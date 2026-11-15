@@ -7,6 +7,7 @@
 //! the UI thread wakes it with requests. Everything else, the chord tip
 //! among it, it gets from the host.
 
+mod follow;
 mod hint;
 mod keys;
 mod list;
@@ -39,7 +40,9 @@ use crate::core::traits::{
     SettingField, TrayAction, WinCraftPlugin,
 };
 use crate::core::ui_bridge::ActionKind;
-use crate::core::{chord, chord_tip, config, host, instance, shortcuts, wide, window_hint};
+use crate::core::{
+    chord, chord_tip, claude_app, config, host, instance, shortcuts, wide, window_hint,
+};
 use crate::search::actions;
 use crate::search::{Action, SearchProvider};
 use serde_json::Value;
@@ -175,6 +178,8 @@ struct Engine {
     hint: bool,
     /// Where Quick access was when the jump being made came from it.
     quick_access: Option<crate::core::monitors::Rect>,
+    /// The window in front when Quick access opened, which its R re-pins.
+    before_list: Option<isize>,
 }
 
 thread_local! {
@@ -209,11 +214,17 @@ impl Engine {
 
     /// Reads the open windows, ties each pin to its window and hands the
     /// windows a fresh view.
+    /// A pin that learned its window's chat or new title is saved quietly.
     fn refresh(&mut self) {
         self.live = live::read();
         let live = &self.live;
+        let mut learned = false;
         for (_, pin) in self.slots.iter_mut() {
-            pin.hwnd = find(pin, live).map(|window| window.hwnd);
+            learned |= follow::follow(pin, live);
+        }
+        if learned {
+            log::debug!("QuickJump: a pin follows its window's chat or title now");
+            self.save();
         }
         self.publish();
     }
@@ -350,15 +361,31 @@ impl Engine {
                 }
                 Some(pin.name().to_string())
             }
-            None if pin.start => {
-                self.start(slot, &pin);
-                None
-            }
             None => {
-                self.notify(notice::not_open(pin.name(), slot), None);
+                match follow::when_closed(&pin) {
+                    follow::Closed::OpenChat(id) if self.open_chat(slot, &pin, &id) => {}
+                    follow::Closed::Start | follow::Closed::OpenChat(_) if pin.start => {
+                        self.start(slot, &pin)
+                    }
+                    _ => self.notify(notice::not_open(pin.name(), slot), None),
+                }
                 None
             }
         }
+    }
+
+    /// Opens the pin's Claude chat by its link in the Claude app, which
+    /// shows it in its main window; never starts the app or presses keys
+    /// in it. False, with the reason in the log, when that did not work.
+    fn open_chat(&mut self, slot: usize, pin: &Pin, id: &str) -> bool {
+        let number = pins::number_of_slot(slot);
+        if !claude_app::show_chat(id) {
+            log::warn!("QuickJump: the chat of number {number} did not open by its link");
+            return false;
+        }
+        log::info!("QuickJump: opening the chat of number {number} by its link");
+        self.notify(notice::opening_chat(pin.name()), None);
+        true
     }
 
     fn start(&mut self, slot: usize, pin: &Pin) {
@@ -451,6 +478,8 @@ impl Engine {
 
     fn open_list(&mut self, select: Option<usize>) {
         self.refresh();
+        let foreground = unsafe { GetForegroundWindow() };
+        self.before_list = self.target_of(foreground).map(|window| window.hwnd);
         if let Ok(mut shared) = self.shared.lock() {
             shared.list_open = true;
             shared.select = select;
@@ -519,15 +548,22 @@ impl Engine {
                     None => log::info!("QuickJump: the window to close is gone"),
                 }
             }
-            Request::Update { slot, pin } => {
-                let changed = self.slots.get(slot).is_some_and(|old| *old != pin);
-                if !changed {
+            Request::Repin(slot) => self.repin(slot),
+            Request::Update { slot, pin, before } => {
+                let Some(old) = self.slots.get(slot) else {
+                    return;
+                };
+                let new = follow::edited(old, &before, *pin);
+                let same = Pin {
+                    hwnd: None,
+                    sure: false,
+                    ..old.clone()
+                } == new;
+                if same {
                     return;
                 }
-                let name = pin.name().to_string();
-                let undo = self.slots.update(slot, |old| {
-                    *old = Pin { hwnd: None, ..pin };
-                });
+                let name = new.name().to_string();
+                let undo = self.slots.update(slot, |old| *old = new);
                 if let Some(undo) = undo {
                     self.save();
                     self.refresh();
@@ -681,6 +717,7 @@ impl WinCraftPlugin for QuickJump {
             epoch: Instant::now(),
             hint: hint::on(ctx.settings),
             quick_access: None,
+            before_list: None,
         };
         ENGINE.with(|cell| *cell.borrow_mut() = Some(engine));
         Ok(())

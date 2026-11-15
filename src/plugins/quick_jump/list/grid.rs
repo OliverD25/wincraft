@@ -81,6 +81,8 @@ pub enum ListKey {
     Digit(u8),
     Delete,
     F2,
+    /// R: re-pin the window that was in front, on a card that is not open.
+    Repin,
     Escape,
 }
 
@@ -92,6 +94,7 @@ pub enum Step {
     Jump(usize),
     Remove(usize),
     Details(usize),
+    Repin(usize),
     CloseDetails,
     Close,
     Nothing,
@@ -145,6 +148,7 @@ pub fn step(key: ListKey, selected: usize, count: usize, details: bool) -> Step 
         },
         ListKey::Delete => Step::Remove(selected),
         ListKey::F2 => Step::Details(selected),
+        ListKey::Repin => Step::Repin(selected),
         ListKey::Escape => Step::Nothing,
     }
 }
@@ -174,6 +178,9 @@ fn pressed_keys(ui: &Ui, typing: bool, details: bool) -> Vec<ListKey> {
         }
         if i.key_pressed(Key::Enter) && !details {
             keys.push(ListKey::Enter);
+        }
+        if i.key_pressed(Key::R) && !ctrl && !i.modifiers.alt {
+            keys.push(ListKey::Repin);
         }
         let digits = [
             Key::Num0,
@@ -244,6 +251,15 @@ pub(super) fn contents(ui: &mut Ui, view: &View, state: &mut ListUi, out: &mut V
             Step::Jump(slot) => jump(slot, out),
             Step::Remove(slot) => unpin(view, state, &keys, slot, out),
             Step::Details(slot) => state.details = draft(view, slot),
+            Step::Repin(slot) => {
+                if let Some(request) = view
+                    .slots
+                    .get(slot)
+                    .and_then(|card| card_menu::repin_request(card, slot))
+                {
+                    out.push(Outcome::Send(request));
+                }
+            }
             Step::CloseDetails => state.details = None,
             Step::Close => out.push(Outcome::Close),
             Step::Nothing => {}
@@ -256,7 +272,17 @@ pub(super) fn contents(ui: &mut Ui, view: &View, state: &mut ListUi, out: &mut V
     let painter = ui.painter().clone();
     let left = area.left() + PAD_X;
     let right = area.right() - PAD_X;
-    header(ui, &painter, (left, right), area.top() + PAD_TOP, count);
+    let repin = view
+        .slots
+        .get(state.selected)
+        .is_some_and(card_menu::can_repin);
+    header(
+        ui,
+        &painter,
+        (left, right),
+        area.top() + PAD_TOP,
+        (count, repin),
+    );
     let origin = pos2(left, area.top() + PAD_TOP + HEADER + HEADER_GAP);
     if count == 0 {
         super::empty::draw(ui, &painter, origin, &view.jump_keys, out);
@@ -503,8 +529,9 @@ pub(super) fn count_line(count: usize) -> String {
 }
 
 /// The key hints at the header's right end, from the right: nothing but
-/// Esc while the list is empty.
-pub(super) fn hints(count: usize) -> Vec<(&'static str, &'static str)> {
+/// Esc while the list is empty, and R only while the picked card is not
+/// open.
+pub(super) fn hints(count: usize, repin: bool) -> Vec<(&'static str, &'static str)> {
     let mut hints = vec![("Esc", "Close")];
     if count > 0 {
         hints.extend([
@@ -512,12 +539,21 @@ pub(super) fn hints(count: usize) -> Vec<(&'static str, &'static str)> {
             ("F2", "Details"),
             ("1\u{2013}0", "Switch"),
         ]);
+        if repin {
+            hints.push(("R", "Re-pin"));
+        }
     }
     hints
 }
 
 /// The pin icon, "Quick access", how many are pinned, and the key hints.
-fn header(ui: &Ui, painter: &Painter, (left, right): (f32, f32), top: f32, count: usize) {
+fn header(
+    ui: &Ui,
+    painter: &Painter,
+    (left, right): (f32, f32),
+    top: f32,
+    (count, repin): (usize, bool),
+) {
     let tokens = Tokens::get(ui.ctx());
     let middle = top + HEADER / 2.0;
     icons::paint(
@@ -541,7 +577,7 @@ fn header(ui: &Ui, painter: &Painter, (left, right): (f32, f32), top: f32, count
         tokens.text_disabled,
     );
     let mut x = right;
-    for (key, label) in hints(count) {
+    for (key, label) in hints(count, repin) {
         let words = painter.text(
             pos2(x, middle),
             Align2::RIGHT_CENTER,

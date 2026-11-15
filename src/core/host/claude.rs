@@ -11,50 +11,14 @@ use super::*;
 use crate::core::claude_jobs;
 use crate::core::claude_sessions::{self, Popout, Session, ShownWindow};
 use crate::core::claude_waits::Ask;
-use crate::core::claude_windows::{self, ChatWindow};
+use crate::core::claude_windows::{self, session_for, shown_window, ChatWindow};
 use crate::core::ui_bridge::ArrangeWindow;
 use crate::core::{claude_waits, server_jobs, windows_list};
 use std::time::Instant;
-use windows_sys::Win32::Foundation::RECT;
-use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
-use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowRect;
 
 /// ClaudeDeck reads the background jobs only of chats active this recently,
 /// so a long list of old chats never has its transcripts read.
 const JOBS_WITHIN_MS: u64 = 24 * 60 * 60 * 1000;
-
-/// A Claude window as the matching sees it. A renamed window is matched by
-/// the title the app gave it.
-fn shown_window(hwnd: isize) -> ShownWindow {
-    let handle = hwnd as HWND;
-    let mut rect = RECT {
-        left: 0,
-        top: 0,
-        right: 0,
-        bottom: 0,
-    };
-    unsafe { GetWindowRect(handle, &mut rect) };
-    ShownWindow {
-        hwnd,
-        title: windows_list::window_text(handle),
-        width: rect.right - rect.left,
-        height: rect.bottom - rect.top,
-        scale: f64::from(unsafe { GetDpiForWindow(handle) }) / 96.0,
-    }
-}
-
-/// The session a window shows: by its title, else by its size.
-fn session_for<'a>(
-    sessions: &'a [Session],
-    popouts: &[Popout],
-    by_size: &[(isize, String)],
-    seen: &ShownWindow,
-) -> Option<&'a Session> {
-    claude_sessions::find(sessions, popouts, &seen.title).or_else(|| {
-        let (_, id) = by_size.iter().find(|(hwnd, _)| *hwnd == seen.hwnd)?;
-        sessions.iter().find(|s| &s.id == id)
-    })
-}
 
 /// Fills `claude` on each window of a Claude group. Other groups are left
 /// alone, and nothing is read when no Claude group is open.

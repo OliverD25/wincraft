@@ -55,6 +55,8 @@ const REFRESH: Duration = Duration::from_secs(1);
 struct Draft {
     slot: usize,
     pin: Pin,
+    /// The pin when the panel opened, to tell what the user changed.
+    before: Pin,
 }
 
 #[derive(Default)]
@@ -322,7 +324,11 @@ fn remember_spot(shared: &mut Shared, window: isize) {
 
 fn draft(view: &View, slot: usize) -> Option<Draft> {
     let pin = view.pins.get(slot).cloned()?;
-    Some(Draft { slot, pin })
+    Some(Draft {
+        slot,
+        before: pin.clone(),
+        pin,
+    })
 }
 
 fn app_icon(
@@ -562,7 +568,8 @@ fn details_panel(ui: &mut Ui, view: &View, area: Rect, state: &mut ListUi, out: 
     if done || enter {
         out.push(Outcome::Send(Request::Update {
             slot,
-            pin: draft.pin.clone(),
+            pin: Box::new(draft.pin.clone()),
+            before: Box::new(draft.before.clone()),
         }));
         state.details = None;
     } else if remove {

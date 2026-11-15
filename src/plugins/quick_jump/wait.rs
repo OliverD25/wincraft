@@ -163,7 +163,10 @@ impl Engine {
 
     /// The window the keys act on: the one in front, or from WinCraft's own
     /// window (the palette) the one under it.
-    fn target_of(&self, foreground: windows_sys::Win32::Foundation::HWND) -> Option<Live> {
+    pub(super) fn target_of(
+        &self,
+        foreground: windows_sys::Win32::Foundation::HWND,
+    ) -> Option<Live> {
         let front = foreground as isize;
         let own = live::is_own(foreground);
         self.live
@@ -348,6 +351,38 @@ impl Engine {
         if !done.changed() {
             self.notify(notice::pinned(&window.app_name(), &done), None);
         }
+    }
+
+    /// Quick access's R (or "Re-pin the window I was in") on the card at
+    /// `slot`: the window in front when Quick access opened takes the
+    /// card's place with its label. A card whose window is open keeps it.
+    pub(super) fn repin(&mut self, slot: usize) {
+        self.refresh();
+        let Some(pin) = self.slots.get(slot) else {
+            return;
+        };
+        if super::find(pin, &self.live).is_some() {
+            log::info!("QuickJump: number {} is open; nothing to re-pin", slot + 1);
+            return;
+        }
+        let before = self.before_list;
+        let Some(window) = self.live.iter().find(|w| Some(w.hwnd) == before).cloned() else {
+            self.notify(notice::no_window(), None);
+            return;
+        };
+        let Some((at, undo)) = self.slots.repin(slot, window.to_pin()) else {
+            return;
+        };
+        let name = self
+            .slots
+            .get(at)
+            .map_or_else(|| window.app_name(), |pin| pin.name().to_string());
+        let message = notice::repinned(&name, at);
+        log::info!("QuickJump: {}", message.text);
+        self.save();
+        self.refresh();
+        let text = message.text.clone();
+        self.notify(message, Some((undo, text)));
     }
 
     /// Takes the pin at `slot` out; the gap closes.
