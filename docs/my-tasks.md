@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 44. Install 0.20.127: "Show on all desktops" in WindowDeck's card menu
 
-- **State:** Wait: the 0.20.127 release is still building on GitHub.
+- **State:** Ready to test
 - **Kind:** test · **Added:** 2026-11-15 (PC, branch claude/wincraft-design-artifact-move-4b267d)
 - **Why:** you asked for a "show on all displays" item in the card's
   right-click menu; you chose the WindowDeck card menu and one window, like
