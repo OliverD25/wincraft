@@ -1,19 +1,27 @@
-//! Rename through the chat's menu in the Claude app. The menu
-//! opens with Shift+F10 on the focused chat button; its items are
-//! `MenuItem` elements, pressed by their exact name. The app's own files
-//! are never written: the app does not notice that.
+//! Rename in the Claude app. The app has no link or command for it, so
+//! WinCraft presses the app's own controls, but only after each check in
+//! `guards.rs` passed. A chat with its own window is renamed through the
+//! rename button of that window's header. Any other chat is first shown in
+//! the main window with its link; then its button in the list must be the
+//! only one with its exact name (or the selected one) and take the focus,
+//! the menu must have the exact Rename item, and the edit box with the
+//! focus must hold the chat's name. Any failed check stops the rename with
+//! a notice. The app's own files are never written: the app does not
+//! notice that.
 
 use std::time::Duration;
 
-use crate::core::uia::{self, Automation};
-use crate::core::{com, instance};
+use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
+use crate::core::uia::{self, Automation};
+use crate::core::{com, instance, window_actions};
+
+use super::guards::{self, Stop};
 use super::keys;
-use super::{
-    app_windows, find_chat, find_edit, find_named, on_com_thread, poll, Chat, Kind, Real, Tree,
-};
+use super::{app_windows, find_named, home_window, on_com_thread, poll, Kind, Real, Tree};
 
 const RENAME: &str = "Rename";
+const LIST_WAIT: Duration = Duration::from_secs(2);
 const MENU_WAIT: Duration = Duration::from_secs(1);
 const HEADER_WAIT: Duration = Duration::from_millis(1500);
 const FIELD_WAIT: Duration = Duration::from_secs(1);
@@ -22,7 +30,7 @@ const STEP: Duration = Duration::from_millis(100);
 const SETTLE: Duration = Duration::from_millis(200);
 
 pub fn rename_failed_notice(title: &str) -> String {
-    format!("ClaudeDeck could not rename \"{title}\". Rename it in the Claude app.")
+    format!("ClaudeDeck could not rename \"{title}\" in the Claude app. Rename it there.")
 }
 
 /// The name of the button that opens a chat's menu.
@@ -65,65 +73,16 @@ pub fn press_rename_header<T: Tree>(
     }
 }
 
-/// The menu item in any window of the app: the menu may be a window of
-/// its own, or part of the home window.
-fn wait_for_item(automation: &Automation, name: &str) -> Option<com::ComPtr> {
+/// The Rename item, waited for in every window of the app.
+fn wait_for_item(automation: &Automation) -> Option<com::ComPtr> {
     let tree = Real(automation);
     poll(MENU_WAIT, STEP, || {
-        let mut roots = vec![];
-        for window in app_windows() {
-            if let Ok(root) = automation.element_from_handle(window) {
-                roots.push(root);
-            }
-        }
-        roots
-            .iter()
-            .find_map(|root| find_named(&tree, root, Kind::MenuItem, name))
-            .map(|found| found.node)
+        let roots: Vec<com::ComPtr> = app_windows()
+            .into_iter()
+            .filter_map(|window| automation.element_from_handle(window).ok())
+            .collect();
+        guards::menu_item(&tree, &roots, RENAME)
     })
-}
-
-/// How a rename was started.
-#[derive(Debug, PartialEq, Eq)]
-pub enum RenameStart {
-    /// The rename button of the chat's own window header was pressed: the
-    /// name field is up.
-    Header,
-    /// The chat's "More options" menu was opened in the list.
-    Menu,
-    /// Neither button was found.
-    Missing,
-}
-
-/// Starts a rename without ever opening the chat. A chat with a window of
-/// its own (`own`) is renamed in that window, through its header, so the
-/// app does not move the chat out of it. Otherwise (or when that window
-/// has no such button) the chat's "More options" menu in the home window's
-/// list is opened. `list` finds the list when it is needed.
-pub fn start_rename<T: Tree>(
-    tree: &T,
-    own: Option<&T::Node>,
-    list: &mut dyn FnMut() -> Result<Option<T::Node>, String>,
-    title: &str,
-    wait: Duration,
-    every: Duration,
-) -> Result<RenameStart, String> {
-    if let Some(own) = own {
-        if press_rename_header(tree, own, title, wait, every)? {
-            log::info!("ClaudeDeck: rename \"{title}\": the header of its own window pressed");
-            return Ok(RenameStart::Header);
-        }
-        log::info!("ClaudeDeck: rename \"{title}\": its own window has no rename button");
-    }
-    let Some(root) = list()? else {
-        return Ok(RenameStart::Missing);
-    };
-    if open_with_more_options(tree, &root, title)? {
-        log::info!("ClaudeDeck: rename \"{title}\": its More options menu opened in the list");
-        Ok(RenameStart::Menu)
-    } else {
-        Ok(RenameStart::Missing)
-    }
 }
 
 /// Presses a menu item. When Invoke is not supported, the letter the app
@@ -141,157 +100,168 @@ fn press(item: &com::ComPtr, name: &str) -> Result<(), String> {
     }
 }
 
-/// Closes the menu with Esc and puts the chat list back as it was.
-fn give_up(chat: &Option<Chat>) {
-    keys::chord(&[keys::ESCAPE]);
-    close_list(chat);
-}
-
-fn close_list(chat: &Option<Chat>) {
-    if let Some(show) = chat.as_ref().and_then(|chat| chat.opened.as_ref()) {
-        std::thread::sleep(SETTLE);
-        if let Err(reason) = uia::collapse(show) {
-            log::info!("ClaudeDeck: the chat list was left open: {reason}");
-        }
-    }
-}
-
-/// The chat's own window, when it has one: brought forward, with its root.
-fn own_root(automation: &Automation, window: Option<isize>, dry: bool) -> Option<com::ComPtr> {
-    let hwnd = window? as windows_sys::Win32::Foundation::HWND;
-    let root = automation.element_from_handle(hwnd).ok()?;
-    if !dry {
-        crate::core::window_actions::activate(hwnd);
-    }
-    Some(root)
-}
-
-/// The Shift+F10 fallback: the chat's button gets the focus (it is not
-/// pressed, so the chat does not open) and the app's menu key is sent.
-fn menu_key(chat: &Chat) -> Result<(), String> {
-    uia::set_focus(&chat.button)?;
-    std::thread::sleep(SETTLE);
-    if keys::chord(&[keys::SHIFT, keys::F10]) {
-        Ok(())
-    } else {
-        Err("Windows did not take the keys".to_string())
-    }
-}
-
-/// The edit field the app shows for the new name: the one with the
-/// keyboard focus, else one in the chat's row.
-fn name_field(automation: &Automation, chat: Option<&Chat>) -> Option<com::ComPtr> {
+/// The rename box, waited for: the focused edit box that holds the name.
+fn wait_for_name_box(automation: &Automation, title: &str) -> Result<com::ComPtr, Stop> {
+    let tree = Real(automation);
     poll(FIELD_WAIT, STEP, || {
-        if let Some(focused) = automation
-            .focused_element()
-            .filter(|element| uia::control_type(element) == Some(uia::CONTROL_EDIT))
-        {
-            return Some(focused);
-        }
-        let row = automation
-            .parent(&chat?.button)
-            .and_then(|parent| automation.parent(&parent))?;
-        find_edit(&Real(automation), &row).map(|found| found.node)
+        guards::name_box(&tree, automation.focused_element(), title).ok()
     })
+    .ok_or(Stop::NoNameBox)
 }
 
-fn type_name(automation: &Automation, chat: Option<&Chat>, new_name: &str) -> Result<(), String> {
-    let field = name_field(automation, chat).ok_or("the app showed no name field")?;
-    if let Err(reason) = uia::set_value(&field, new_name) {
+/// Puts the new name into the rename box, which has the focus, and saves
+/// it with Enter.
+fn type_name(field: &com::ComPtr, new_name: &str) -> Result<(), Stop> {
+    if let Err(reason) = uia::set_value(field, new_name) {
         log::info!("ClaudeDeck: typing the name, as SetValue failed: {reason}");
-        uia::set_focus(&field)?;
-        keys::chord(&[keys::CONTROL, keys::KEY_A]);
-        if !keys::type_text(new_name) {
-            return Err("Windows did not take the text".to_string());
+        if !keys::chord(&[keys::CONTROL, keys::KEY_A]) || !keys::type_text(new_name) {
+            return Err(Stop::KeysRefused);
         }
     }
     if keys::chord(&[keys::RETURN]) {
         Ok(())
     } else {
-        Err("Windows did not take Enter".to_string())
+        Err(Stop::KeysRefused)
     }
 }
 
+/// The rename box is up: a failure from here on closes what opened with
+/// one Esc.
+fn finish(automation: &Automation, title: &str, new_name: &str) -> Result<(), Stop> {
+    let field = wait_for_name_box(automation, title);
+    let typed = field.and_then(|field| type_name(&field, new_name));
+    if typed.is_err() {
+        keys::chord(&[keys::ESCAPE]);
+    }
+    typed
+}
+
+/// A chat with a window of its own: the rename button of its header.
+fn rename_in_own_window(
+    automation: &Automation,
+    hwnd: isize,
+    title: &str,
+    new_name: &str,
+    dry: bool,
+) -> Result<(), Stop> {
+    let hwnd = hwnd as windows_sys::Win32::Foundation::HWND;
+    let tree = Real(automation);
+    let root = automation
+        .element_from_handle(hwnd)
+        .map_err(|_| Stop::NoHeaderButton)?;
+    if dry {
+        let found = find_named(&tree, &root, Kind::Button, &rename_header_name(title));
+        log::info!(
+            "read-only test instance: renaming \"{title}\" in its own window skipped (rename button found: {})",
+            found.is_some()
+        );
+        return Ok(());
+    }
+    window_actions::activate(hwnd);
+    match press_rename_header(&tree, &root, title, HEADER_WAIT, STEP) {
+        Ok(true) => {}
+        Ok(false) => return Err(Stop::NoHeaderButton),
+        Err(reason) => {
+            log::info!("ClaudeDeck: rename \"{title}\": the header button: {reason}");
+            return Err(Stop::NoHeaderButton);
+        }
+    }
+    finish(automation, title, new_name)
+}
+
+/// A chat with no window of its own: shown with its link, then renamed
+/// through its menu in the list.
+fn rename_in_list(
+    automation: &Automation,
+    id: &str,
+    title: &str,
+    new_name: &str,
+    dry: bool,
+) -> Result<(), Stop> {
+    if super::chat_link(id).is_none() {
+        return Err(Stop::NoLink);
+    }
+    let tree = Real(automation);
+    if dry {
+        let found = super::locate(automation)
+            .map(|(_, root)| guards::chat_button(&tree, &root, title).map(|_| ()));
+        log::info!(
+            "read-only test instance: renaming \"{title}\" skipped (its button in the list: {found:?})"
+        );
+        return Ok(());
+    }
+    if !super::show_chat(id) {
+        return Err(Stop::LinkFailed);
+    }
+    let (home, root) = home_window(automation).ok_or(Stop::NoHomeWindow)?;
+    window_actions::activate(home);
+    let button = poll(LIST_WAIT, STEP, || {
+        guards::chat_button(&tree, &root, title).ok()
+    })
+    .map_or_else(|| guards::chat_button(&tree, &root, title), Ok)?;
+    if let Err(reason) = uia::set_focus(&button) {
+        log::info!("ClaudeDeck: rename \"{title}\": SetFocus on its button: {reason}");
+    }
+    std::thread::sleep(SETTLE);
+    let in_front = unsafe { GetForegroundWindow() } == home;
+    guards::ready_for_keys(tree.focused(&button), in_front)?;
+    let by_more_options = open_with_more_options(&tree, &root, title).unwrap_or_else(|reason| {
+        log::info!("ClaudeDeck: rename \"{title}\": More options: {reason}");
+        false
+    });
+    if !by_more_options && !keys::chord(&[keys::SHIFT, keys::F10]) {
+        return Err(Stop::KeysRefused);
+    }
+    let Some(item) = wait_for_item(automation) else {
+        keys::chord(&[keys::ESCAPE]);
+        return Err(Stop::NoRenameItem);
+    };
+    if let Err(reason) = press(&item, RENAME) {
+        log::info!("ClaudeDeck: rename \"{title}\": pressing Rename: {reason}");
+        keys::chord(&[keys::ESCAPE]);
+        return Err(Stop::NoRenameItem);
+    }
+    finish(automation, title, new_name)
+}
+
 fn rename(
+    id: &str,
     title: &str,
     new_name: &str,
     window: Option<isize>,
     dry: bool,
 ) -> Result<Option<String>, String> {
-    let failed = || rename_failed_notice(title);
     log::info!(
         "ClaudeDeck: renaming \"{title}\" to \"{new_name}\" in the Claude app (own window: {}, read-only: {dry})",
         window.is_some()
     );
     let automation = Automation::new().map_err(|reason| {
         log::warn!("ClaudeDeck: rename \"{title}\": UI Automation failed: {reason}");
-        failed()
+        rename_failed_notice(title)
     })?;
-    if dry {
-        let own = own_root(&automation, window, dry);
-        let found = find_chat(&automation, title, false, dry).ok().flatten();
-        log::info!(
-            "read-only test instance: renaming \"{title}\" skipped (own window found: {}, in the list: {})",
-            own.is_some(),
-            found.is_some()
-        );
-        return Ok(None);
-    }
-    let tree = Real(&automation);
-    let own = own_root(&automation, window, dry);
-    let mut chat: Option<Chat> = None;
-    let mut list = || -> Result<Option<com::ComPtr>, String> {
-        chat = find_chat(&automation, title, false, dry)?;
-        Ok(chat.as_ref().map(|chat| chat.root.clone()))
+    let done = match window {
+        Some(hwnd) => rename_in_own_window(&automation, hwnd, title, new_name, dry),
+        None => rename_in_list(&automation, id, title, new_name, dry),
     };
-    let started = start_rename(&tree, own.as_ref(), &mut list, title, HEADER_WAIT, STEP).map_err(
-        |reason| {
-            log::warn!("ClaudeDeck: rename \"{title}\": could not start: {reason}");
-            failed()
-        },
-    )?;
-    let steps = (|| -> Result<(), String> {
-        match started {
-            RenameStart::Header => {}
-            RenameStart::Menu | RenameStart::Missing => {
-                let mut item = if started == RenameStart::Menu {
-                    wait_for_item(&automation, RENAME)
-                } else {
-                    None
-                };
-                if item.is_none() {
-                    let chat = chat
-                        .as_ref()
-                        .ok_or("the chat is not in the Claude app's list")?;
-                    keys::chord(&[keys::ESCAPE]);
-                    log::info!(
-                        "ClaudeDeck: rename \"{title}\": trying the menu key on its list entry"
-                    );
-                    menu_key(chat)?;
-                    item = wait_for_item(&automation, RENAME);
-                }
-                let item = item.ok_or("the menu has no Rename item")?;
-                press(&item, RENAME)?;
-            }
-        }
-        type_name(&automation, chat.as_ref(), new_name)
-    })();
-    match steps {
+    match done {
         Ok(()) => {
             log::info!("ClaudeDeck: rename \"{title}\": done");
-            close_list(&chat);
             Ok(None)
         }
-        Err(reason) => {
-            log::warn!("ClaudeDeck: could not rename \"{title}\": {reason}");
-            give_up(&chat);
-            Err(failed())
+        Err(stop) => {
+            log::warn!(
+                "ClaudeDeck: rename \"{title}\" stopped: {} ({stop:?})",
+                stop.reason()
+            );
+            Err(rename_failed_notice(title))
         }
     }
 }
 
-/// Renames the chat in the Claude app. `say` gets a notice only on failure.
+/// Renames the chat in the Claude app. `say` gets a notice only when a
+/// check stopped the rename.
 pub fn rename_chat(
+    id: &str,
     title: &str,
     new_name: &str,
     window: Option<isize>,
@@ -306,9 +276,10 @@ pub fn rename_chat(
         return;
     }
     let dry = instance::is_test();
+    let id = id.to_string();
     let title = title.trim().to_string();
     let failed = rename_failed_notice(&title);
     on_com_thread(title, failed, say, move |title| {
-        rename(title, &new_name, window, dry)
+        rename(&id, title, &new_name, window, dry)
     });
 }

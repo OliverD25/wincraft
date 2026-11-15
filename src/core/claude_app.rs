@@ -13,13 +13,10 @@ use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED};
-use windows_sys::Win32::UI::Shell::ShellExecuteW;
-use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetWindowThreadProcessId, IsWindowVisible, SW_SHOWNORMAL,
-};
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowThreadProcessId, IsWindowVisible};
 
 use crate::core::uia::{self, Automation};
-use crate::core::{com, wide, window_actions, windows_list};
+use crate::core::{com, windows_list};
 
 /// The class of the app's windows (it is an Electron app).
 const WINDOW_CLASS: &str = "Chrome_WidgetWin_1";
@@ -36,12 +33,10 @@ const DEPTH: usize = 40;
 const ITEMS: usize = 8000;
 /// The most children read from one element.
 const MOST_CHILDREN: usize = 500;
-/// How long a freshly started app gets to show its main window.
-const START_WAIT: Duration = Duration::from_secs(5);
-const START_STEP: Duration = Duration::from_millis(250);
-/// How long the chat list gets to open after `Expand`.
-const EXPAND_WAIT: Duration = Duration::from_millis(1500);
-const EXPAND_STEP: Duration = Duration::from_millis(100);
+/// How long the app gets to show its main window after a link (the link
+/// also starts the app when it is not running).
+const HOME_WAIT: Duration = Duration::from_secs(5);
+const HOME_STEP: Duration = Duration::from_millis(250);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -59,11 +54,12 @@ pub trait Tree {
     fn children(&self, node: &Self::Node) -> Vec<Self::Node>;
     fn name(&self, node: &Self::Node) -> Option<String>;
     fn kind(&self, node: &Self::Node) -> Kind;
-    /// Whether a radio button is selected; None when it cannot say.
+    /// Whether the element is selected; None when it cannot say.
     fn selected(&self, node: &Self::Node) -> Option<bool>;
-    /// Whether an element with the ExpandCollapse pattern is collapsed.
-    fn collapsed(&self, node: &Self::Node) -> Option<bool>;
-    fn select(&self, node: &Self::Node) -> Result<(), String>;
+    /// Whether the element has the keyboard focus; None when it cannot say.
+    fn focused(&self, node: &Self::Node) -> Option<bool>;
+    /// The text of an edit box.
+    fn value(&self, node: &Self::Node) -> Option<String>;
     fn expand(&self, node: &Self::Node) -> Result<(), String>;
     fn invoke(&self, node: &Self::Node) -> Result<(), String>;
     /// The first descendant of this kind and exact name. The default walks
@@ -76,6 +72,38 @@ pub trait Tree {
             named(tree, node, kind, name)
         })
         .map(|found| found.node)
+    }
+    /// Every descendant of this kind and exact name, in reading order.
+    fn find_all(&self, root: &Self::Node, kind: Kind, name: &str) -> Vec<Self::Node>
+    where
+        Self: Sized,
+    {
+        let mut all = Vec::new();
+        let mut stack: Vec<(Self::Node, usize)> = self
+            .children(root)
+            .into_iter()
+            .rev()
+            .map(|node| (node, 1))
+            .collect();
+        let mut seen = 0;
+        while let Some((node, level)) = stack.pop() {
+            seen += 1;
+            if seen > ITEMS {
+                break;
+            }
+            if level < DEPTH {
+                stack.extend(
+                    self.children(&node)
+                        .into_iter()
+                        .rev()
+                        .map(|child| (child, level + 1)),
+                );
+            }
+            if named(self, &node, kind, name) {
+                all.push(node);
+            }
+        }
+        all
     }
 }
 
@@ -135,12 +163,6 @@ fn named<T: Tree>(tree: &T, node: &T::Node, kind: Kind, name: &str) -> bool {
     tree.kind(node) == kind && tree.name(node).is_some_and(|text| text.trim() == name)
 }
 
-/// The button whose name is `title` (trimmed, exact), first in reading
-/// order.
-pub fn find_button<T: Tree>(tree: &T, root: &T::Node, title: &str) -> Option<Found<T::Node>> {
-    find_named(tree, root, Kind::Button, title.trim())
-}
-
 /// The first element of this kind and exact name.
 pub fn find_named<T: Tree>(
     tree: &T,
@@ -150,13 +172,6 @@ pub fn find_named<T: Tree>(
 ) -> Option<Found<T::Node>> {
     tree.find_first(root, kind, name)
         .map(|node| Found { node, matches: 1 })
-}
-
-/// The first edit field below `root`.
-pub fn find_edit<T: Tree>(tree: &T, root: &T::Node) -> Option<Found<T::Node>> {
-    search(tree, root, DEPTH, ITEMS, false, &|tree, node| {
-        tree.kind(node) == Kind::Edit
-    })
 }
 
 /// Whether this window is the app's home window: it has the chat list or
@@ -204,12 +219,12 @@ impl Tree for Real<'_> {
         uia::is_selected(node)
     }
 
-    fn collapsed(&self, node: &Self::Node) -> Option<bool> {
-        uia::is_collapsed(node)
+    fn focused(&self, node: &Self::Node) -> Option<bool> {
+        uia::has_focus(node)
     }
 
-    fn select(&self, node: &Self::Node) -> Result<(), String> {
-        uia::select(node).or_else(|_| uia::invoke(node))
+    fn value(&self, node: &Self::Node) -> Option<String> {
+        uia::value(node)
     }
 
     fn expand(&self, node: &Self::Node) -> Result<(), String> {
@@ -221,15 +236,23 @@ impl Tree for Real<'_> {
     }
 
     fn find_first(&self, root: &Self::Node, kind: Kind, name: &str) -> Option<Self::Node> {
-        let control_type = match kind {
-            Kind::Button => Some(uia::CONTROL_BUTTON),
-            Kind::Group => Some(uia::CONTROL_GROUP),
-            Kind::MenuItem => Some(uia::CONTROL_MENU_ITEM),
-            Kind::Edit => Some(uia::CONTROL_EDIT),
-            Kind::Radio => Some(uia::CONTROL_RADIO),
-            Kind::Other => None,
-        };
-        self.0.find_first(root, name, control_type)
+        self.0.find_first(root, name, control_type_of(kind))
+    }
+
+    fn find_all(&self, root: &Self::Node, kind: Kind, name: &str) -> Vec<Self::Node> {
+        self.0.find_all(root, name, control_type_of(kind))
+    }
+}
+
+/// The UI Automation control type of a kind; None for any type.
+fn control_type_of(kind: Kind) -> Option<i32> {
+    match kind {
+        Kind::Button => Some(uia::CONTROL_BUTTON),
+        Kind::Group => Some(uia::CONTROL_GROUP),
+        Kind::MenuItem => Some(uia::CONTROL_MENU_ITEM),
+        Kind::Edit => Some(uia::CONTROL_EDIT),
+        Kind::Radio => Some(uia::CONTROL_RADIO),
+        Kind::Other => None,
     }
 }
 
@@ -286,21 +309,6 @@ fn locate(automation: &Automation) -> Option<(HWND, com::ComPtr)> {
     })
 }
 
-fn start_app() {
-    let verb = wide("open");
-    let link = wide("claude://");
-    unsafe {
-        ShellExecuteW(
-            std::ptr::null_mut(),
-            verb.as_ptr(),
-            link.as_ptr(),
-            std::ptr::null(),
-            std::ptr::null(),
-            SW_SHOWNORMAL,
-        )
-    };
-}
-
 /// Calls `step` until it gives something or `wait` is over.
 pub(crate) fn poll<R>(
     wait: Duration,
@@ -319,222 +327,9 @@ pub(crate) fn poll<R>(
     }
 }
 
-/// A chat's button in the home window.
-pub(crate) struct Chat {
-    pub root: com::ComPtr,
-    pub button: com::ComPtr,
-    /// The "Show sidebar" button, when the list had to be opened for this.
-    pub opened: Option<com::ComPtr>,
-}
-
-/// How long each step gets before the next one is tried.
-pub struct Waits {
-    /// After the Code view was selected.
-    pub switch: Duration,
-    /// After the list or a section was opened.
-    pub expand: Duration,
-    pub step: Duration,
-}
-
-const WAITS: Waits = Waits {
-    switch: EXPAND_WAIT,
-    expand: EXPAND_WAIT,
-    step: EXPAND_STEP,
-};
-
-/// Names of buttons that look collapsible but are not a list section.
-const NOT_SECTIONS: [&str; 19] = [
-    "Minimize",
-    "Restore",
-    "Close",
-    "Menu",
-    "Hide sidebar",
-    "Show sidebar",
-    "Back",
-    "Forward",
-    "Session rail",
-    "Terminal",
-    "Changes",
-    "Browser",
-    "Files",
-    "New",
-    "Search",
-    "Projects Beta",
-    "Artifacts",
-    "Scheduled",
-    "Plugins",
-];
-const NOT_SECTION_STARTS: [&str; 5] = [
-    "More options for",
-    "View options",
-    "Create project",
-    "New from a template",
-    "More navigation items",
-];
-
-/// Whether a collapsed button is a folded section of the chat list (such as
-/// "Pinned"), or a folded group of nested chats.
-fn is_section(name: &str) -> bool {
-    let name = name.trim();
-    !name.is_empty()
-        && !NOT_SECTIONS.contains(&name)
-        && !NOT_SECTION_STARTS
-            .iter()
-            .any(|start| name.starts_with(start))
-}
-
-/// The folded sections of the chat list below `root`, in reading order.
-pub fn collapsed_sections<T: Tree>(tree: &T, root: &T::Node) -> Vec<T::Node> {
-    let mut found = Vec::new();
-    let mut stack: Vec<(T::Node, usize)> = tree
-        .children(root)
-        .into_iter()
-        .rev()
-        .map(|node| (node, 1))
-        .collect();
-    let mut seen = 0;
-    while let Some((node, level)) = stack.pop() {
-        seen += 1;
-        if seen > ITEMS {
-            break;
-        }
-        if tree.kind(&node) == Kind::Button {
-            let folded = tree.collapsed(&node) == Some(true);
-            if folded && tree.name(&node).is_some_and(|name| is_section(&name)) {
-                found.push(node);
-            }
-            continue;
-        }
-        if level < DEPTH {
-            stack.extend(
-                tree.children(&node)
-                    .into_iter()
-                    .rev()
-                    .map(|child| (child, level + 1)),
-            );
-        }
-    }
-    found
-}
-
-/// The chat's button found in a home window, and the "Show sidebar" button
-/// when the list had to be opened for it.
-pub struct Located<N> {
-    pub button: N,
-    pub opened: Option<N>,
-}
-
-fn located<N>(found: Found<N>, opened: Option<N>) -> Located<N> {
-    Located {
-        button: found.node,
-        opened,
-    }
-}
-
-/// Finds the chat's button in the home window, step by step. First the
-/// Code view is selected when it is not (the Claude view does not list
-/// code chats), then the hidden list is opened, then each folded section
-/// once. Nothing is closed again. `act` is false for a read-only look.
-pub fn locate_chat<T: Tree>(
-    tree: &T,
-    root: &T::Node,
-    title: &str,
-    waits: &Waits,
-    act: bool,
-) -> Result<Option<Located<T::Node>>, String> {
-    let find = || find_button(tree, root, title);
-    let radio = find_named(tree, root, Kind::Radio, CODE_VIEW)
-        .filter(|radio| tree.selected(&radio.node) == Some(false));
-    if let Some(radio) = radio {
-        if !act {
-            log::info!("read-only test instance: switching to the Code view skipped");
-            return Ok(find().map(|found| located(found, None)));
-        }
-        log::info!("ClaudeDeck: switching the Claude app to the Code view");
-        tree.select(&radio.node)?;
-        if let Some(found) = poll(waits.switch, waits.step, find) {
-            return Ok(Some(located(found, None)));
-        }
-    } else if let Some(found) = find() {
-        return Ok(Some(located(found, None)));
-    }
-    let mut opened = None;
-    let hidden = find_named(tree, root, Kind::Button, SHOW_SIDEBAR)
-        .filter(|show| tree.collapsed(&show.node) == Some(true));
-    if let Some(show) = hidden {
-        if !act {
-            log::info!("read-only test instance: opening the chat list skipped");
-            return Ok(None);
-        }
-        log::info!("ClaudeDeck: opening the Claude app's hidden chat list");
-        tree.expand(&show.node)?;
-        if let Some(found) = poll(waits.expand, waits.step, find) {
-            return Ok(Some(located(found, Some(show.node))));
-        }
-        opened = Some(show.node);
-    }
-    let sections = collapsed_sections(tree, root);
-    if !sections.is_empty() && act {
-        log::info!(
-            "ClaudeDeck: opening {} folded sections of the chat list",
-            sections.len()
-        );
-        for section in &sections {
-            if let Err(reason) = tree.expand(section) {
-                log::info!("ClaudeDeck: a folded section stayed folded: {reason}");
-            }
-        }
-        if let Some(found) = poll(waits.expand, waits.step, find) {
-            return Ok(Some(located(found, opened)));
-        }
-    }
-    Ok(None)
-}
-
-/// Finds the chat's button. The home window is brought forward and the
-/// chat list is made to show the chat (see `locate_chat`). `start` starts
-/// the app when it is not running. `dry`: nothing is moved, opened or
-/// started.
-pub(crate) fn find_chat(
-    automation: &Automation,
-    title: &str,
-    start: bool,
-    dry: bool,
-) -> Result<Option<Chat>, String> {
-    let tree = Real(automation);
-    let mut deadline: Option<Instant> = None;
-    let mut brought = false;
-    loop {
-        if let Some((window, root)) = locate(automation) {
-            if !brought && !dry {
-                window_actions::activate(window);
-            }
-            brought = true;
-            log::info!("ClaudeDeck: the Claude app's home window is open; looking for \"{title}\"");
-            let found = locate_chat(&tree, &root, title, &WAITS, !dry)?;
-            if found.is_none() {
-                log::info!("ClaudeDeck: \"{title}\" is not in the home window's chat list");
-            }
-            if found.is_some() || deadline.is_none() {
-                return Ok(found.map(|found| Chat {
-                    root,
-                    button: found.button,
-                    opened: found.opened,
-                }));
-            }
-        } else if deadline.is_none() {
-            if dry || !start {
-                log::info!("the Claude app's home window is not open; not starting it");
-                return Ok(None);
-            }
-            start_app();
-            deadline = Some(Instant::now() + START_WAIT);
-        }
-        if deadline.is_none_or(|end| Instant::now() >= end) {
-            return Ok(None);
-        }
-        std::thread::sleep(START_STEP);
-    }
+/// The home window, waited for: a link may have just started the app.
+pub(crate) fn home_window(automation: &Automation) -> Option<(HWND, com::ComPtr)> {
+    poll(HOME_WAIT, HOME_STEP, || locate(automation))
 }
 
 /// Runs `work` on a thread of its own that started COM; `say` gets the
@@ -561,9 +356,10 @@ pub(crate) fn on_com_thread(
     });
 }
 
-/// `--claude-app-find=<title>`: the same search an open makes, read-only
-/// (nothing is switched, unfolded or pressed), for checking it against the
-/// live Claude app. Returns one line to print.
+/// `--claude-app-find=<title>`: the check a rename makes for the chat's
+/// button in the open home window, read-only (no link is opened, nothing
+/// is focused or pressed), for checking it against the live Claude app.
+/// Returns one line to print.
 pub fn find_report(title: &str) -> String {
     let hr = unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32) };
     if hr < 0 {
@@ -572,10 +368,12 @@ pub fn find_report(title: &str) -> String {
     let began = Instant::now();
     let line = match Automation::new() {
         Err(reason) => format!("UI Automation did not start: {reason}"),
-        Ok(automation) => match find_chat(&automation, title.trim(), true, true) {
-            Ok(Some(_)) => "found".to_string(),
-            Ok(None) => "not found".to_string(),
-            Err(reason) => format!("not found: {reason}"),
+        Ok(automation) => match locate(&automation) {
+            None => "not found: the Claude app's main window is not open".to_string(),
+            Some((_, root)) => match guards::chat_button(&Real(&automation), &root, title) {
+                Ok(_) => "found".to_string(),
+                Err(stop) => format!("not found: {}", stop.reason()),
+            },
         },
     };
     unsafe { CoUninitialize() };
@@ -586,6 +384,7 @@ pub fn find_report(title: &str) -> String {
     )
 }
 
+pub mod guards;
 mod keys;
 mod link;
 mod menu;

@@ -421,17 +421,28 @@ chat yet has nothing to fork.
 
 **Rename in the Claude app.** **Rename the chat…** (`F2`) asks for the new
 name in WinCraft's rename box, then changes it in the Claude app, so the app
-and ClaudeDeck share one name. A chat with a window of its own is renamed
-through the rename button of that window's header. Other chats are renamed
-through their **More options** menu in the app's list (with `Shift+F10` on
-its list entry as a fallback). A chat is never opened for this, because the
-app moves a chat out of its own window when it is opened elsewhere.
-ClaudeDeck never writes the app's own files, because the app does not
-notice that. There is no archive: the app offers no direct command for it,
-and pressing through its screens was judged too fragile. If a step fails,
-`Esc` closes the menu and a notice says to rename it in the app. A
-WindowNamer name on the chat's window is cleared after a rename. A test copy
-only reads. Every step is written to the log.
+and ClaudeDeck share one name. The app has no link or command for a rename,
+so this is the one place where ClaudeDeck presses the app's controls, and it
+checks before every step (`core/claude_app/guards.rs`):
+
+1. A chat with a window of its own is renamed through the rename button of
+   that window's header. Any other chat is first shown in the main window
+   with its link, as **Open the chat** does; no link, no rename.
+2. Its button in the app's list must be the only one with its exact name,
+   or the selected one of several, and must take the keyboard focus while
+   the Claude window is in front. Otherwise nothing is pressed.
+3. The menu opens (its **More options** button, else `Shift+F10`), and it
+   must have an item named exactly Rename. Otherwise `Esc` closes it.
+4. The name is put in only when the edit box with the focus holds the
+   chat's name now, so it never goes into the message box. Otherwise `Esc`.
+
+Every stop shows one notice ("ClaudeDeck could not rename … in the Claude
+app. Rename it there.") and the log names the check that stopped it. The
+name inside WinCraft is set either way. ClaudeDeck never writes the app's
+own files, because the app does not notice that. There is no archive: the
+app offers no direct command for it, and pressing through its screens was
+judged too fragile. A WindowNamer name on the chat's window is cleared
+after a rename. A test copy only reads.
 
 **Opening a chat with no window of its own.** Such a chat lives only in the
 Claude app's main window. ClaudeDeck opens the app's own link for it,

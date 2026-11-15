@@ -325,10 +325,11 @@ fn f2_on_a_chat_asks_to_rename_the_chat_in_the_app() {
             ..
         }
     )));
-    let (title, window) = crate::plugins::claude_deck::open_app::pending_rename()
+    let waiting = crate::plugins::claude_deck::open_app::pending_rename()
         .expect("a rename waits for the host thread");
-    assert!(!title.is_empty());
-    assert_eq!(window, Some(1234));
+    assert!(!waiting.title.is_empty());
+    assert_eq!(waiting.id, "b1");
+    assert_eq!(waiting.window, Some(1234));
     assert!(deck.state.renaming.is_none(), "no group rename starts");
 }
 

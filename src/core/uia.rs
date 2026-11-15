@@ -98,7 +98,7 @@ const PATTERN_SELECTION_ITEM: i32 = 10010;
 #[repr(C)]
 struct SelectionItemVtbl {
     _base: IUnknown_Vtbl,
-    select: unsafe extern "system" fn(*mut c_void) -> HRESULT,
+    _select: unsafe extern "system" fn(),
     _add_to_selection: unsafe extern "system" fn(),
     _remove_from_selection: unsafe extern "system" fn(),
     is_selected: unsafe extern "system" fn(*mut c_void, *mut BOOL) -> HRESULT,
@@ -113,14 +113,20 @@ const PATTERN_EXPAND_COLLAPSE: i32 = 10005;
 struct ExpandCollapseVtbl {
     _base: IUnknown_Vtbl,
     expand: unsafe extern "system" fn(*mut c_void) -> HRESULT,
-    collapse: unsafe extern "system" fn(*mut c_void) -> HRESULT,
-    state: unsafe extern "system" fn(*mut c_void, *mut i32) -> HRESULT,
 }
 
 #[repr(C)]
 struct ValueVtbl {
     _base: IUnknown_Vtbl,
     set_value: unsafe extern "system" fn(*mut c_void, *const u16) -> HRESULT,
+    get_current_value: BstrGetter,
+}
+
+#[repr(C)]
+struct ElementArrayVtbl {
+    _base: IUnknown_Vtbl,
+    get_length: unsafe extern "system" fn(*mut c_void, *mut i32) -> HRESULT,
+    get_element: unsafe extern "system" fn(*mut c_void, i32, *mut *mut c_void) -> HRESULT,
 }
 
 #[repr(C)]
@@ -138,7 +144,7 @@ struct IUIAutomationElementVtbl {
     _get_runtime_id: unsafe extern "system" fn(),
     find_first:
         unsafe extern "system" fn(*mut c_void, i32, *mut c_void, *mut *mut c_void) -> HRESULT,
-    _find_all: unsafe extern "system" fn(),
+    find_all: unsafe extern "system" fn(*mut c_void, i32, *mut c_void, *mut *mut c_void) -> HRESULT,
     _find_first_build_cache: unsafe extern "system" fn(),
     _find_all_build_cache: unsafe extern "system" fn(),
     _build_updated_cache: unsafe extern "system" fn(),
@@ -158,7 +164,7 @@ struct IUIAutomationElementVtbl {
     get_current_name: BstrGetter,
     _get_current_accelerator_key: unsafe extern "system" fn(),
     _get_current_access_key: unsafe extern "system" fn(),
-    _get_current_has_keyboard_focus: unsafe extern "system" fn(),
+    get_current_has_keyboard_focus: unsafe extern "system" fn(*mut c_void, *mut BOOL) -> HRESULT,
     _get_current_is_keyboard_focusable: unsafe extern "system" fn(),
     _get_current_is_enabled: unsafe extern "system" fn(),
     get_current_automation_id: BstrGetter,
@@ -227,15 +233,8 @@ impl Automation {
         taken(hr, raw)
     }
 
-    /// The first descendant of `root` with exactly this name (and, when
-    /// given, this control type), found by the app that draws the elements,
-    /// so the walk does not cross processes once per element.
-    pub fn find_first(
-        &self,
-        root: &ComPtr,
-        name: &str,
-        control_type: Option<i32>,
-    ) -> Option<ComPtr> {
+    /// The condition "exactly this name", and this control type when given.
+    fn name_condition(&self, name: &str, control_type: Option<i32>) -> Option<ComPtr> {
         let mut wide: Vec<u16> = name.encode_utf16().collect();
         wide.push(0);
         let bstr = unsafe { SysAllocString(wide.as_ptr()) };
@@ -252,29 +251,39 @@ impl Automation {
         );
         unsafe { SysFreeString(bstr) };
         let by_name = by_name?;
-        let condition = match control_type {
-            Some(kind) => {
-                let by_type = self.property_condition(
-                    PROPERTY_CONTROL_TYPE,
-                    Variant {
-                        vt: VT_I4,
-                        _reserved: [0; 3],
-                        value: [u64::from(kind as u32), 0],
-                    },
-                )?;
-                let mut raw = std::ptr::null_mut();
-                let hr = unsafe {
-                    (self.vtable().create_and_condition)(
-                        self.automation.as_raw(),
-                        by_name.as_raw(),
-                        by_type.as_raw(),
-                        &mut raw,
-                    )
-                };
-                taken(hr, raw)?
-            }
-            None => by_name,
+        let Some(kind) = control_type else {
+            return Some(by_name);
         };
+        let by_type = self.property_condition(
+            PROPERTY_CONTROL_TYPE,
+            Variant {
+                vt: VT_I4,
+                _reserved: [0; 3],
+                value: [u64::from(kind as u32), 0],
+            },
+        )?;
+        let mut raw = std::ptr::null_mut();
+        let hr = unsafe {
+            (self.vtable().create_and_condition)(
+                self.automation.as_raw(),
+                by_name.as_raw(),
+                by_type.as_raw(),
+                &mut raw,
+            )
+        };
+        taken(hr, raw)
+    }
+
+    /// The first descendant of `root` with exactly this name (and, when
+    /// given, this control type), found by the app that draws the elements,
+    /// so the walk does not cross processes once per element.
+    pub fn find_first(
+        &self,
+        root: &ComPtr,
+        name: &str,
+        control_type: Option<i32>,
+    ) -> Option<ComPtr> {
+        let condition = self.name_condition(name, control_type)?;
         let mut found = std::ptr::null_mut();
         let hr = unsafe {
             (element_vtable(root).find_first)(
@@ -285,6 +294,38 @@ impl Automation {
             )
         };
         taken(hr, found)
+    }
+
+    /// Every descendant of `root` with exactly this name (and type), found
+    /// by the app that draws them, in reading order.
+    pub fn find_all(&self, root: &ComPtr, name: &str, control_type: Option<i32>) -> Vec<ComPtr> {
+        let Some(condition) = self.name_condition(name, control_type) else {
+            return Vec::new();
+        };
+        let mut raw = std::ptr::null_mut();
+        let hr = unsafe {
+            (element_vtable(root).find_all)(
+                root.as_raw(),
+                SCOPE_DESCENDANTS,
+                condition.as_raw(),
+                &mut raw,
+            )
+        };
+        let Some(array) = taken(hr, raw) else {
+            return Vec::new();
+        };
+        let table = unsafe { array.vtable::<ElementArrayVtbl>() };
+        let mut length = 0;
+        if !com::ok(unsafe { (table.get_length)(array.as_raw(), &mut length) }) {
+            return Vec::new();
+        }
+        (0..length)
+            .filter_map(|at| {
+                let mut element = std::ptr::null_mut();
+                let hr = unsafe { (table.get_element)(array.as_raw(), at, &mut element) };
+                taken(hr, element)
+            })
+            .collect()
     }
 
     pub fn element_from_handle(&self, hwnd: HWND) -> Result<ComPtr, String> {
@@ -398,27 +439,10 @@ pub fn is_selected(element: &ComPtr) -> Option<bool> {
     com::ok(hr).then_some(value != 0)
 }
 
-/// Selects the element, as a click on a radio button does.
-pub fn select(element: &ComPtr) -> Result<(), String> {
-    let pattern = pattern(element, PATTERN_SELECTION_ITEM, &IID_SELECTION_ITEM)?;
-    let hr = unsafe { (pattern.vtable::<SelectionItemVtbl>().select)(pattern.as_raw()) };
-    com::check(hr).map_err(|hr| format!("Select failed ({})", com::hex(hr)))
-}
-
 /// Gives the element the keyboard focus.
 pub fn set_focus(element: &ComPtr) -> Result<(), String> {
     let hr = unsafe { (element_vtable(element).set_focus)(element.as_raw()) };
     com::check(hr).map_err(|hr| format!("SetFocus failed ({})", com::hex(hr)))
-}
-
-/// Whether an element with the ExpandCollapse pattern is collapsed; None
-/// when it has no such pattern.
-pub fn is_collapsed(element: &ComPtr) -> Option<bool> {
-    let pattern = pattern(element, PATTERN_EXPAND_COLLAPSE, &IID_EXPAND_COLLAPSE).ok()?;
-    let mut state = 0;
-    let hr =
-        unsafe { (pattern.vtable::<ExpandCollapseVtbl>().state)(pattern.as_raw(), &mut state) };
-    com::ok(hr).then_some(state == 0)
 }
 
 pub fn expand(element: &ComPtr) -> Result<(), String> {
@@ -427,10 +451,22 @@ pub fn expand(element: &ComPtr) -> Result<(), String> {
     com::check(hr).map_err(|hr| format!("Expand failed ({})", com::hex(hr)))
 }
 
-pub fn collapse(element: &ComPtr) -> Result<(), String> {
-    let pattern = pattern(element, PATTERN_EXPAND_COLLAPSE, &IID_EXPAND_COLLAPSE)?;
-    let hr = unsafe { (pattern.vtable::<ExpandCollapseVtbl>().collapse)(pattern.as_raw()) };
-    com::check(hr).map_err(|hr| format!("Collapse failed ({})", com::hex(hr)))
+/// Whether the element has the keyboard focus; None when it cannot say.
+pub fn has_focus(element: &ComPtr) -> Option<bool> {
+    let mut value: BOOL = 0;
+    let hr = unsafe {
+        (element_vtable(element).get_current_has_keyboard_focus)(element.as_raw(), &mut value)
+    };
+    com::ok(hr).then_some(value != 0)
+}
+
+/// The text of an edit field, through its Value pattern.
+pub fn value(element: &ComPtr) -> Option<String> {
+    let pattern = pattern(element, PATTERN_VALUE, &IID_VALUE).ok()?;
+    bstr_property(
+        &pattern,
+        unsafe { pattern.vtable::<ValueVtbl>() }.get_current_value,
+    )
 }
 
 /// Sets the text of an edit field through its Value pattern.

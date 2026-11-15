@@ -557,7 +557,7 @@ fn apply(act: Act, state: &mut DeckUi, to_host: &HostChannel) {
                 log::warn!("ClaudeDeck: could not open the clipboard");
             }
         }
-        Choice::RenameChat => open_app::ask_rename(&act.title, act.window),
+        Choice::RenameChat => open_app::ask_rename(&id, &act.title, act.window),
         Choice::Fork => act
             .fork
             .iter()
