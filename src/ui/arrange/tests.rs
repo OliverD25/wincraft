@@ -1581,3 +1581,52 @@ fn shift_and_a_digit_is_read_by_the_keys_place() {
     assert_eq!(run(vec![key_event(Key::Num1, Key::Num1, ctrl_shift)]), None);
     assert_eq!(run(vec![key_event(Key::A, Key::A, Modifiers::SHIFT)]), None);
 }
+
+/// The order a drop sends, or None when it sends none.
+fn reorder_sent(actions: &[ArrangeAction]) -> Option<Vec<isize>> {
+    actions.iter().find_map(|action| match action {
+        ArrangeAction::Reorder { order, .. } => Some(order.clone()),
+        _ => None,
+    })
+}
+
+#[test]
+fn two_windows_open_the_compact_popup_and_a_drag_there_swaps_them() {
+    // Reported 2026-11-15: Chrome with two windows, and dragging a card did
+    // nothing, because the compact popup had no drag at all.
+    let desktops = [desktop("work", "Work", true)];
+    let group = self::group(&["work", "work"]);
+    assert!(compact::applies(&group, &desktops, &[true, true]));
+    let rows = rows(&group, &desktops);
+    let (left, step) = (10.0, 188.0);
+
+    // The second card dropped on the first card's place.
+    let at = compact_drag::landing(left + 20.0, left, step, 2);
+    assert_eq!(at, 0);
+    assert_eq!(compact_drag::order(&rows[0].members, Some((1, at))), [1, 0]);
+    let actions = drop_actions(&group, &rows, 1, (0, at));
+    assert_eq!(reorder_sent(&actions), Some(vec![1, 0]));
+
+    // The first card dropped on the second card's place.
+    let at = compact_drag::landing(left + step + 50.0, left, step, 2);
+    assert_eq!(at, 1);
+    assert_eq!(compact_drag::order(&rows[0].members, Some((0, at))), [1, 0]);
+    let actions = drop_actions(&group, &rows, 0, (0, at));
+    assert_eq!(reorder_sent(&actions), Some(vec![1, 0]));
+}
+
+#[test]
+fn a_compact_card_dropped_on_its_own_place_changes_nothing() {
+    let desktops = [desktop("work", "Work", true)];
+    let group = self::group(&["work", "work"]);
+    let rows = rows(&group, &desktops);
+    let (left, step) = (10.0, 188.0);
+    // Past either end the card lands at that end.
+    assert_eq!(compact_drag::landing(left - 40.0, left, step, 2), 0);
+    assert_eq!(compact_drag::landing(left + 5.0 * step, left, step, 2), 1);
+    assert_eq!(compact_drag::landing(left + 5.0 * step, left, step, 1), 0);
+    assert_eq!(compact_drag::order(&rows[0].members, Some((0, 0))), [0, 1]);
+    assert!(drop_actions(&group, &rows, 0, (0, 0)).is_empty());
+    assert!(drop_actions(&group, &rows, 1, (0, 1)).is_empty());
+    assert_eq!(compact_drag::order(&rows[0].members, None), [0, 1]);
+}

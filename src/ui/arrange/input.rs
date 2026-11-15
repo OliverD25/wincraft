@@ -118,6 +118,21 @@ pub(super) fn drop_actions(
     actions
 }
 
+/// One log line for a drop that changes the order, so a report about a
+/// drag can be traced.
+pub(super) fn log_drop(group: &ArrangeGroup, actions: &[ArrangeAction]) {
+    if actions
+        .iter()
+        .any(|action| matches!(action, ArrangeAction::Reorder { .. }))
+    {
+        log::info!(
+            "WindowDeck: {} order changed by a drag: {} windows",
+            group.label,
+            group.windows.len()
+        );
+    }
+}
+
 /// ←/→ move the cursor, Ctrl+←/→ move its window within its row, Alt+←/→
 /// give it the next lower or higher number, Enter switches to it. Esc is
 /// handled with the other ways to close.

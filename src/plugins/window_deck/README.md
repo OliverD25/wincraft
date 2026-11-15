@@ -84,7 +84,9 @@ another app), those windows in their monitor's shape, and a button such as
 "+2 on Desktop 5" when the app has windows on other desktops. → from the
 last window, or the button, opens those to the right, faded until picked,
 under their desktop's name and monitor; ← from the first of them goes
-back. Enter switches to the picked window, on its own desktop.
+back. Enter switches to the picked window, on its own desktop. Drag one of
+this desktop's two windows onto the other one's place to swap their order;
+the taskbar follows, as in the full strip.
 
 The switch next to the app list picks one of two views, and the strip keeps
 the one you picked last (`arrange_view` in the settings file). Until you

@@ -33,6 +33,7 @@ mod cards;
 mod claude;
 mod closing;
 mod compact;
+mod compact_drag;
 mod escape;
 mod flat;
 mod focus_loss;

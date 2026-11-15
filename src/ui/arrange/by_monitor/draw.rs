@@ -143,7 +143,7 @@ pub fn body(
                 group.windows[member].hwnd,
             ) {
             } else if let Some(spot) = target {
-                frame.actions.extend(drop_item_actions(
+                let dropped = drop_item_actions(
                     group,
                     &snapshot.desktops,
                     &model.bands,
@@ -151,7 +151,9 @@ pub fn body(
                     &snapshot.monitors,
                     moved,
                     spot,
-                ));
+                );
+                super::super::log_drop(group, &dropped);
+                frame.actions.extend(dropped);
             }
             // This frame still shows the gap and the card above it; the next
             // one shows the move, and the card slides into its place.

@@ -7,12 +7,12 @@
 use egui::text::TextWrapping;
 use egui::{pos2, vec2, Rect, Response, Sense, StrokeKind, Ui, Vec2};
 
-use super::stacks;
 use super::tile::{self, THUMB_MIN};
 use super::{
     by_monitor, card_menu, grown, only_visible, rows, taskbar_numbers, thumbnail, visible_flags,
     Frame, Pending, Row, Shared,
 };
+use super::{compact_drag, stacks};
 use crate::core::theme::{self, Tokens};
 use crate::core::ui_bridge::{
     ArrangeAction, ArrangeDesktop, ArrangeGroup, ArrangeMonitor, ArrangeSnapshot,
@@ -393,6 +393,10 @@ pub fn body(
     let numbers = taskbar_numbers(group, &snapshot.desktops);
     let card_height = layout.card_height();
     let mut x = content.left();
+    let rows = shown(group, &snapshot.desktops, &visible);
+    let drag = compact_drag::follow(&ctx, shared, &mut frame, group, &rows, x, CARD_WIDTH + GAP);
+    let here = compact_drag::order(&layout.here, drag);
+    let draggable = layout.here.len() > 1;
     let mut cards_area = Rect::NOTHING;
     let mut hits: Vec<(isize, Rect)> = Vec::new();
     if open {
@@ -423,11 +427,12 @@ pub fn body(
                     picked,
                     faded: other && !picked,
                     menu_open,
+                    draggable: draggable && !other,
                 },
             );
         }
     };
-    draw_cards(ui, shared, &mut frame, &layout.here, &mut x, false);
+    draw_cards(ui, shared, &mut frame, &here, &mut x, false);
     if open {
         for (name, members) in &layout.others {
             let rule_x = x;
@@ -558,6 +563,8 @@ struct CardLook {
     /// Another desktop's window that is not picked.
     faded: bool,
     menu_open: bool,
+    /// A card of this desktop that can be dragged to change the order.
+    draggable: bool,
 }
 
 fn card(
@@ -577,6 +584,8 @@ fn card(
     let rect = grown(shared.slid((window.hwnd, false), rect), scale);
     let sense = if leaving {
         Sense::hover()
+    } else if look.draggable {
+        Sense::click_and_drag()
     } else {
         Sense::click()
     };
@@ -640,6 +649,9 @@ fn card(
     }
     if leaving {
         return;
+    }
+    if look.draggable {
+        compact_drag::start(shared, window.hwnd, &response);
     }
     interact(shared, frame, group, snapshot, member, &response);
 }

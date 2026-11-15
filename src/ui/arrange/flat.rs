@@ -157,9 +157,9 @@ pub(super) fn flat(
                     .actions
                     .extend(ctrl_card.and_then(|card| ctrl_drop(group, desktops, member, card)));
             } else if let Some(target) = target {
-                frame
-                    .actions
-                    .extend(drop_actions(group, &rows, member, target));
+                let dropped = drop_actions(group, &rows, member, target);
+                log_drop(group, &dropped);
+                frame.actions.extend(dropped);
             }
             shared.drag = None;
         }
