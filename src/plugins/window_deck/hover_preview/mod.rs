@@ -210,7 +210,7 @@ impl HoverPreview {
             }
         }
         if let Some(note) = self.machine.take_click_note() {
-            log::info!("hover_preview: {note}");
+            log::info!("{note}");
         }
         if let (Some(app), false) = (was_open, self.machine.is_open()) {
             log::info!(
