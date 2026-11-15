@@ -2,7 +2,7 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
-- **50. Show WindowDeck staying closed while only the desktop shows**: done 2026-11-15. Not reproduced. The detailed log showed WindowDeck opening for Claude and Windows Terminal, and staying closed only for apps with fewer than 2 windows (Chrome 1, Telegram 0, Explorer 0), as designed.
+- **51. Show WindowDeck staying closed while only the desktop shows**: done 2026-11-15. Not reproduced. The detailed log showed WindowDeck opening for Claude and Windows Terminal, and staying closed only for apps with fewer than 2 windows (Chrome 1, Telegram 0, Explorer 0), as designed. (Called task 50 in chat; renumbered, because 50 was the dropped Reddit task.)
 - **50. Post the ClaudeDeck Reddit post on r/ClaudeAI**: dropped 2026-11-15. The user said "do not need to post on reddit yet". The post stays ready in marketing/posts/2026-11-15-reddit-claudedeck.md.
 - **47. Install 0.20.131: ClaudeDeck opens without a white flash**: done 2026-11-15. The user said "done 47"; the log showed many hide-and-show rounds on 0.20.131 and no "shown before it had drawn itself" warning.
 - **46. Install 0.20.130: taskbar click opens WindowDeck, ClaudeDeck opens chats by link**: done 2026-11-15. The user said "done 46"; the log showed 5 taskbar clicks taken over by WindowDeck.
