@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 45. Install 0.20.128, then reboot: WinCraft starts by itself and keeps windows on their desktops
 
-- **State:** Wait: the 0.20.128 release is still building on GitHub.
+- **State:** Ready to test
 - **Kind:** test · **Added:** 2026-11-15 (PC, branch claude/wincraft-design-artifact-move-4b267d)
 - **Why:** after the 2026-11-15 reboot WinCraft did not start (its sign-in
   task in Task Scheduler was damaged and had never run). When you started it
