@@ -59,3 +59,30 @@ shows no "host was busy" lines.
 
 **Done when:** both files are in `marketing/media/` and show no private names you
 do not want public.
+
+### 50. Show WindowDeck staying closed while only the desktop shows, with the detailed log on
+
+- **State:** Ready to test. Nothing waits for a release.
+- **Kind:** test · **Added:** 2026-11-15 (PC, branch claude/wincraft-design-artifact-move-4b267d)
+- **Why:** with all windows minimized, resting the mouse on a taskbar button did not
+  open WindowDeck; it worked again once a window was in front. The normal log has no
+  line for a hover that did not open, so the reason is not known. The detailed log
+  records each hover's decision (for example "not eligible: <app>, N windows counted").
+- **Agent can check:** the newest file in `%LOCALAPPDATA%\WinCraft\detailed\` has
+  hover lines around the moment you marked.
+
+**Steps**
+
+1. Click the WinCraft icon in the tray (the `^` arrow in the taskbar if it is hidden)
+   and click **Detailed log**, so it has a check mark.
+2. Show only the desktop the way you did before (for example `Win+D`, or minimize
+   every window).
+3. Rest the mouse for 2 seconds on the taskbar button of an app with 2 or more
+   windows (Claude or Windows Terminal), where WindowDeck should open but does not.
+4. Do the same on a second app.
+5. Bring one window to the front, and rest the mouse on the same button again, where
+   WindowDeck opens.
+6. Click the tray icon again and click **Detailed log** to switch it off.
+7. Tell this chat "done 50" and how you showed the desktop in step 2.
+
+**Done when:** the detailed log holds the hovers of steps 3-5.
