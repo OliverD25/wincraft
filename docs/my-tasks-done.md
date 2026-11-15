@@ -2,6 +2,8 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
+- **54. Install 0.20.134: ClaudeDeck stays out of Win+Tab**: done 2026-11-16. The user said "done"; the log at 01:00:45 shows "ClaudeDeck: Windows lost the tray window style; put back", the new self-repair.
+- **53. Install 0.20.134: QuickJump pins survive a closed window**: done 2026-11-16. The user said "done"; the log shows four R re-pins at 01:02, and the saved pins hold their chat ids.
 - **52. Test dragging WindowDeck cards when an app has 2 windows**: done 2026-11-15. The user said the swapped order stayed when WindowDeck opened again. The log of 23:26 has no "order changed by a drag" line, so the drop itself is not confirmed by the log.
 - **49. Take two ClaudeDeck pictures for the marketing page**: done 2026-11-15. The user said it is done, made another way; the pictures are not in marketing/media/, so the ClaudeDeck page still lists them as missing shots.
 - **48. Install 0.20.132: WinCraft no longer freezes while ClaudeDeck is in the tray**: done 2026-11-15. The user said "task 48 done"; 0.20.132 ran from 18:33 with ClaudeDeck in the tray, and the 30 s window saves never stopped up to 22:55.
