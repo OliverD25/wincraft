@@ -1,7 +1,7 @@
 # ClaudeDeck
 
 Feature: claudedeck
-Status: draft
+Status: approved 2026-11-15
 Updated: 2026-11-15
 Relies on: `Win+Alt+X`, `Open ClaudeDeck`, `News`, `Mini mode`, `Show in the Claude app`, `Rename the chat…`, `Fork in a terminal`, `Connect to Claude Code`, `Live in the tray (no taskbar button)`, `Show a count on the tray icon`, `Servers (ssh names)`
 
