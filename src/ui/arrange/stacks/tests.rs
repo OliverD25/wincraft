@@ -11,6 +11,7 @@ fn window(hwnd: isize, label: &str, monitor: Option<usize>) -> ArrangeWindow {
         saved_monitor: monitor,
         renamed: false,
         same_title: false,
+        pinned: false,
         attention: false,
         claude: None,
     }

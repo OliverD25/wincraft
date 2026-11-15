@@ -1,5 +1,6 @@
 //! What the strip asks to be done with one window that needs no saved
-//! layout: switch to it, close it, move it to another monitor or desktop.
+//! layout: switch to it, close it, move it to another monitor or desktop,
+//! show it on every desktop.
 //! Each of these changes a real window, so a read-only test instance must
 //! turn the request down before it calls one (Principle 1).
 
@@ -9,7 +10,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::core::monitor_list;
-use crate::core::virtual_desktops::{self as desktops, Desktop, DesktopId, Reader};
+use crate::core::virtual_desktops::{self as desktops, Desktop, DesktopId, Pinner, Reader};
 use crate::core::window_identity::Rect;
 use crate::core::{host, window_names};
 
@@ -78,5 +79,17 @@ pub fn move_to_desktop(
     match mover.move_to(hwnd, target) {
         Ok(()) => log::info!("moved \"{label}\" to {name}"),
         Err(err) => log::warn!("could not move \"{label}\" to {name}: {err}"),
+    }
+}
+
+/// Shows a window on every virtual desktop, or (`on` false) only on the
+/// one it is on now. Windows calls this "Show this window on all desktops".
+pub fn show_on_all_desktops(hwnd: HWND, on: bool) {
+    let label = window_names::display_title(hwnd);
+    crate::search::start_com();
+    match Pinner::new().and_then(|pinner| pinner.set_pinned(hwnd, on)) {
+        Ok(()) if on => log::info!("\"{label}\" shows on all desktops"),
+        Ok(()) => log::info!("\"{label}\" shows only on its own desktop"),
+        Err(err) => log::warn!("could not change the desktops of \"{label}\": {err}"),
     }
 }

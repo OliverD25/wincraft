@@ -204,8 +204,10 @@ its height; beyond that the mouse wheel scrolls it. In both views:
   and, with LayoutKeeper on, is saved. Dropping it in another desktop's row moves the window to
   that desktop (show the other desktops first, or hold the picture over the
   link).
-- **Right-click** for **Close window**, **Taskbar place** (see below) and
-  **Move to desktop**. Closing is only offered here, never on a key.
+- **Right-click** for **Close window**, **Taskbar place** (see below),
+  **Move to desktop** and **Show on all desktops** (a check item, like
+  Windows' "Show this window on all desktops"). Closing is only offered
+  here, never on a key.
 - **An orange card** is a window that wants your attention, like an orange
   taskbar button: the app flashed it, for example for a new chat message.
   The card has a soft orange tint and an orange border until you switch to

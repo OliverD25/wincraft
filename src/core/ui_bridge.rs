@@ -202,6 +202,10 @@ pub struct ArrangeWindow {
     /// Another window of the app has the same label, so a restore cannot
     /// tell them apart.
     pub same_title: bool,
+    /// The window shows on every virtual desktop (Windows' "Show this window
+    /// on all desktops", or the same for its whole app); its `desktop` is
+    /// then empty.
+    pub pinned: bool,
     /// The window flashed for attention and was not activated since, so its
     /// taskbar button is orange. The host fills it in; plugins leave it
     /// false.
@@ -434,6 +438,12 @@ pub enum ArrangeAction {
     MoveToDesktop {
         hwnd: isize,
         desktop: String,
+    },
+    /// Show the window on every virtual desktop (`on`), or only on the one
+    /// it is on now, like Windows' "Show this window on all desktops".
+    ShowOnAllDesktops {
+        hwnd: isize,
+        on: bool,
     },
     /// Move the window to the monitor with this device name now, keeping
     /// its size and place relative to the screen.

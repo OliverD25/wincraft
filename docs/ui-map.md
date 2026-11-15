@@ -190,6 +190,7 @@ Opened by: right-click a window card in the strip.
 - **Close window**.
 - **Taskbar place**: submenu; only when the app has more than one window in the row.
 - **Move to desktop**: submenu with the desktops.
+- **Show on all desktops**: a check item; checked while the window shows on every desktop (Windows' own "Show this window on all desktops"). Click it to turn it on or off.
 - **Add to group**: submenu with the app's groups and their open window counts, then **New group…**; only with **Group related windows** on and when the app has a group.
 - **New group…  (Ctrl + G)**: the name box for this card and the picked ones (Ctrl + click picks).
 

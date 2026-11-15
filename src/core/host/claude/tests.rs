@@ -67,6 +67,7 @@ fn window(hwnd: isize) -> ArrangeWindow {
         saved_monitor: None,
         renamed: false,
         same_title: false,
+        pinned: false,
         attention: false,
         claude: None,
     }

@@ -50,8 +50,16 @@ pub(super) fn card_menu(
             }
         }
     });
+    let mut pinned = group.windows[member].pinned;
+    if ui.checkbox(&mut pinned, ALL_DESKTOPS).clicked() {
+        chosen = Some(ArrangeAction::ShowOnAllDesktops { hwnd, on: pinned });
+        ui.close();
+    }
     chosen
 }
+
+/// The card menu's check item, Windows' own words for it.
+pub(super) const ALL_DESKTOPS: &str = "Show on all desktops";
 
 /// The text of the "Same title" chip's tooltip.
 const SAME_TITLE_HINT: &str = "Restores cannot tell these windows apart. Give one a name.";

@@ -163,6 +163,7 @@ mod tests {
             saved_monitor: on_monitor,
             renamed: false,
             same_title: false,
+            pinned: false,
             attention: false,
             claude: None,
         }

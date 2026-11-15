@@ -317,6 +317,7 @@ impl WinCraftPlugin for LayoutKeeper {
             ArrangeAction::Activate(_) => "switching to a window",
             ArrangeAction::Reorder { .. } => "reordering from the strip",
             ArrangeAction::MoveToDesktop { .. } => "moving a window to another desktop",
+            ArrangeAction::ShowOnAllDesktops { .. } => "showing a window on all desktops",
             ArrangeAction::MoveToMonitor { .. } => "moving a window to another monitor",
             ArrangeAction::Close(_) => "closing a window",
             // The host sends names to WindowNamer and new windows to the
@@ -339,6 +340,9 @@ impl WinCraftPlugin for LayoutKeeper {
                 model.set_order(order);
                 self.apply_group(group, false);
                 self.save("manual");
+            }
+            ArrangeAction::ShowOnAllDesktops { hwnd, on } => {
+                window_actions::show_on_all_desktops(*hwnd as HWND, *on);
             }
             ArrangeAction::MoveToDesktop { hwnd, desktop } => {
                 let Some(target) = DesktopId::parse(desktop) else {

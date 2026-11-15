@@ -250,6 +250,16 @@ pub(super) fn apply_locally(shared: &mut Shared, action: &ArrangeAction) {
                 window.saved_monitor = moved_to;
             }
         }
+        ArrangeAction::ShowOnAllDesktops { hwnd, on } => {
+            // A pinned window has no desktop of its own; unpinned, Windows
+            // keeps it on the current one, which the next snapshot names.
+            if let Some(window) = group.windows.iter_mut().find(|w| w.hwnd == *hwnd) {
+                window.pinned = *on;
+                if *on {
+                    window.desktop.clear();
+                }
+            }
+        }
         ArrangeAction::Close(hwnd) => group.windows.retain(|window| window.hwnd != *hwnd),
         ArrangeAction::Rename {
             hwnd,

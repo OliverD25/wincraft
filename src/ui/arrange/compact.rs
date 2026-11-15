@@ -904,6 +904,7 @@ mod tests {
                     saved_monitor: Some(0),
                     renamed: false,
                     same_title: false,
+                    pinned: false,
                     attention: false,
                     claude: None,
                 })

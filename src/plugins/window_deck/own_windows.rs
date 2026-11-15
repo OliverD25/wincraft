@@ -198,6 +198,7 @@ impl OwnWindows {
             ArrangeAction::Activate(_) => "switching to a window",
             ArrangeAction::Reorder { .. } => "reordering from the strip",
             ArrangeAction::MoveToDesktop { .. } => "moving a window to another desktop",
+            ArrangeAction::ShowOnAllDesktops { .. } => "showing a window on all desktops",
             ArrangeAction::MoveToMonitor { .. } => "moving a window to another monitor",
             ArrangeAction::Close(_) => "closing a window",
             // The host sends names to WindowNamer; they never come here.
@@ -223,6 +224,10 @@ impl OwnWindows {
             }
             ArrangeAction::MoveToDesktop { hwnd, desktop } => {
                 self.move_to_desktop(*hwnd, desktop);
+                After::Refresh
+            }
+            ArrangeAction::ShowOnAllDesktops { hwnd, on } => {
+                window_actions::show_on_all_desktops(*hwnd as HWND, *on);
                 After::Refresh
             }
             ArrangeAction::MoveToMonitor { hwnd, monitor } => {

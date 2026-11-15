@@ -72,6 +72,7 @@ fn group(desktops: &[&str]) -> ArrangeGroup {
                 saved_monitor: None,
                 renamed: false,
                 same_title: false,
+                pinned: false,
                 attention: false,
                 claude: None,
             })
@@ -1165,6 +1166,21 @@ fn a_move_to_another_desktop_shows_at_once() {
     );
     let group = shared.group().expect("a group");
     assert_eq!(group.windows[1].desktop, "home");
+    assert_eq!(group.windows[0].desktop, "work");
+}
+
+#[test]
+fn showing_on_all_desktops_shows_at_once() {
+    let arrange = shared_with(group(&["work", "home"]), Vec::new());
+    let mut shared = arrange.shared.lock().expect("the strip's state");
+    apply_locally(
+        &mut shared,
+        &ArrangeAction::ShowOnAllDesktops { hwnd: 1, on: true },
+    );
+    let group = shared.group().expect("a group");
+    assert!(group.windows[1].pinned);
+    assert_eq!(group.windows[1].desktop, "");
+    assert!(!group.windows[0].pinned);
     assert_eq!(group.windows[0].desktop, "work");
 }
 

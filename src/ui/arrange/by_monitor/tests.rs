@@ -381,6 +381,7 @@ fn group(windows: &[(&str, Option<usize>, Option<usize>)]) -> ArrangeGroup {
                 saved_monitor: *saved,
                 renamed: false,
                 same_title: false,
+                pinned: false,
                 attention: false,
                 claude: None,
             })
@@ -742,6 +743,7 @@ fn a_new_number_keeps_the_window_in_its_column() {
         saved_monitor: Some(monitor),
         renamed: false,
         same_title: false,
+        pinned: false,
         attention: false,
         claude: None,
     };
@@ -796,6 +798,7 @@ fn a_limited_strip_has_one_column_with_only_that_monitors_windows() {
         saved_monitor: Some(monitor),
         renamed: false,
         same_title: false,
+        pinned: false,
         attention: false,
         claude: None,
     };
@@ -1282,6 +1285,7 @@ fn spread() -> (ArrangeGroup, ArrangeSnapshot) {
         saved_monitor: Some(monitor),
         renamed: false,
         same_title: false,
+        pinned: false,
         attention: false,
         claude: None,
     };

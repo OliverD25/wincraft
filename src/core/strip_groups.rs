@@ -29,7 +29,8 @@ pub fn place_on(monitors: &[Monitor]) -> impl Fn(Rect) -> (Option<String>, Optio
 }
 
 /// The id of the desktop a window is on, as the strip spells it: empty when
-/// it cannot be read or the window is on every desktop.
+/// it cannot be read, `DesktopId::ALL` when the window is on every desktop
+/// (`group` turns that into `pinned` and an empty desktop).
 /// A window snapshot in use (see `core::window_snapshot`) answers first.
 pub fn desktop_of(reader: Option<&Reader>, hwnd: Handle) -> String {
     let read = |reader: &Reader| match window_snapshot::desktop_of(hwnd) {
@@ -38,9 +39,18 @@ pub fn desktop_of(reader: Option<&Reader>, hwnd: Handle) -> String {
     };
     reader
         .and_then(read)
-        .filter(|id| *id != DesktopId::ALL)
         .map(|id| id.to_string())
         .unwrap_or_default()
+}
+
+/// A desktop as `desktop_of` spells it, split into the card's desktop and
+/// whether the window shows on every desktop.
+fn card_desktop(desktop: String) -> (String, bool) {
+    if DesktopId::parse(&desktop) == Some(DesktopId::ALL) {
+        (String::new(), true)
+    } else {
+        (desktop, false)
+    }
 }
 
 /// One app's group for the strip, its windows in `windows`' order (the
@@ -59,11 +69,13 @@ pub fn group<'a>(
         .map(|(hwnd, identity)| {
             let name = window_names::custom(hwnd);
             let (monitor, on_monitor) = place(identity.rect);
+            let (desktop, pinned) = card_desktop(desktop_of(hwnd));
             ArrangeWindow {
                 hwnd,
                 renamed: name.is_some(),
                 label: name.unwrap_or_else(|| identity.label().to_string()),
-                desktop: desktop_of(hwnd),
+                desktop,
+                pinned,
                 monitor,
                 on_monitor,
                 saved_monitor: saved_monitor(hwnd),
@@ -188,6 +200,36 @@ mod tests {
         assert_eq!(group.windows[2].saved_monitor, Some(0));
         assert_eq!(group.windows[0].saved_monitor, None);
         assert!(group.windows.iter().all(|w| !w.attention && !w.renamed));
+    }
+
+    #[test]
+    fn a_window_on_every_desktop_is_pinned_with_no_desktop() {
+        let windows = [(0x7001, identity("Mail", 0)), (0x7002, identity("Docs", 0))];
+        let all = DesktopId::ALL.to_string();
+        let desktop_of = |hwnd: Handle| {
+            if hwnd == 0x7001 {
+                all.clone()
+            } else {
+                "{1150CF3A-755E-4731-B223-B07262115AD0}".to_string()
+            }
+        };
+        let group = group(
+            "Chrome",
+            "Chrome".to_string(),
+            windows.iter().map(|(hwnd, identity)| (*hwnd, identity)),
+            &desktop_of,
+            &no_place,
+            &|_| None,
+        )
+        .unwrap();
+        assert!(group.windows[0].pinned);
+        assert_eq!(group.windows[0].desktop, "");
+        assert!(!group.windows[1].pinned);
+        assert_eq!(
+            group.windows[1].desktop,
+            "{1150CF3A-755E-4731-B223-B07262115AD0}"
+        );
+        assert_eq!(card_desktop(String::new()), (String::new(), false));
     }
 
     #[test]
