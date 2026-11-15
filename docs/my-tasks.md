@@ -59,27 +59,3 @@ shows no "host was busy" lines.
 
 **Done when:** both files are in `marketing/media/` and show no private names you
 do not want public.
-
-### 50. Post the ClaudeDeck Reddit post on r/ClaudeAI
-
-- **State:** Ready to test. The post text is written and approved by its page.
-- **Kind:** approval · **Added:** 2026-11-15 (PC, branch claude/wincraft-design-artifact-move-4b267d)
-- **Why:** posting is a message to other people, so only you post it. The agent's
-  browser cannot open reddit.com, so the subreddit's rules are not checked yet.
-- **Agent can check:** the `Posted:` line of
-  `marketing/posts/2026-11-15-reddit-claudedeck.md` holds a date and a link.
-
-**Steps**
-
-1. Open https://www.reddit.com/r/ClaudeAI in your browser.
-2. Read its rules (the "Rules" box on the right, or "About" on a phone). Look for:
-   whether self-promotion is allowed and on which days, and which flair (the tag
-   you pick when posting) a post about your own tool needs.
-3. If the rules allow it, click "Create Post". Paste the title and the body from
-   `marketing/posts/2026-11-15-reddit-claudedeck.md` (the part under `---`).
-4. Optional but strong: add the ClaudeDeck picture from task 49.
-5. Pick the flair the rules ask for, and click "Post".
-6. Tell this chat "posted" with the link, or tell me what the rules forbid.
-
-**Done when:** the post is live and its link is in the post file, or you decided
-not to post it there.

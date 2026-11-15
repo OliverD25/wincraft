@@ -2,6 +2,7 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
+- **50. Post the ClaudeDeck Reddit post on r/ClaudeAI**: dropped 2026-11-15. The user said "do not need to post on reddit yet". The post stays ready in marketing/posts/2026-11-15-reddit-claudedeck.md.
 - **47. Install 0.20.131: ClaudeDeck opens without a white flash**: done 2026-11-15. The user said "done 47"; the log showed many hide-and-show rounds on 0.20.131 and no "shown before it had drawn itself" warning.
 - **46. Install 0.20.130: taskbar click opens WindowDeck, ClaudeDeck opens chats by link**: done 2026-11-15. The user said "done 46"; the log showed 5 taskbar clicks taken over by WindowDeck.
 - **45. Install 0.20.128, then reboot: WinCraft starts by itself and keeps windows on their desktops**: done 2026-11-15. The log showed the sign-in task start and all 24 Chrome windows on their desktops; the user said all feels fine.
