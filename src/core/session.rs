@@ -138,6 +138,11 @@ pub fn note_start(from_task: bool, started_again: bool) -> StartKind {
     kind
 }
 
+/// What `note_start` found; all false and unknown before it ran (in tests).
+pub fn start_kind() -> StartKind {
+    START.get().copied().unwrap_or_default()
+}
+
 fn marker_path() -> PathBuf {
     crate::core::config::data_dir().join(format!(
         "{}.txt",
@@ -158,12 +163,31 @@ fn is_first_start(marker: Option<&str>, logon: i64) -> bool {
     marker.and_then(|text| text.trim().parse::<i64>().ok()) != Some(logon)
 }
 
-/// Whether a start `age` after sign-in restores the saved layout. A start
-/// that something else caused (an update, Windows restarting WinCraft after
-/// an installer closed it) is never the start after sign-in, however young
-/// the session is.
-pub fn restores_at_start(age: Duration, started_again: bool) -> bool {
-    !started_again && age <= SIGN_IN_WINDOW
+/// What LayoutKeeper does when WinCraft starts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AtStart {
+    /// Put the saved layout back by itself.
+    Restore,
+    /// Move nothing; ask with a Put back button.
+    Offer,
+    Nothing,
+}
+
+/// LayoutKeeper restores by itself only for the start the sign-in task
+/// makes right after sign-in (Principle 1). The first WinCraft of a session
+/// that came later or by hand asks first. Any other start (an update,
+/// Windows starting WinCraft again after an installer closed it, a second
+/// start in the session) does nothing, however young the session is.
+pub fn at_start(start: StartKind, age: Duration) -> AtStart {
+    if start.started_again {
+        AtStart::Nothing
+    } else if start.from_task && age <= SIGN_IN_WINDOW {
+        AtStart::Restore
+    } else if start.first_in_session == Some(true) {
+        AtStart::Offer
+    } else {
+        AtStart::Nothing
+    }
 }
 
 /// "3 min" or "2 h 5 min", for the log.
@@ -184,25 +208,78 @@ mod tests {
         Duration::from_secs(count * 60)
     }
 
+    const BY_TASK: StartKind = StartKind {
+        from_task: true,
+        started_again: false,
+        first_in_session: Some(true),
+    };
+    const BY_HAND: StartKind = StartKind {
+        from_task: false,
+        started_again: false,
+        first_in_session: Some(true),
+    };
+
     #[test]
-    fn a_start_just_after_sign_in_restores() {
-        assert!(restores_at_start(Duration::from_secs(8), false));
-        assert!(restores_at_start(minutes(2), false));
+    fn the_task_start_just_after_sign_in_restores() {
+        assert_eq!(at_start(BY_TASK, Duration::from_secs(8)), AtStart::Restore);
+        assert_eq!(at_start(BY_TASK, minutes(2)), AtStart::Restore);
+        let unknown = StartKind {
+            first_in_session: None,
+            ..BY_TASK
+        };
+        assert_eq!(at_start(unknown, minutes(2)), AtStart::Restore);
     }
 
     #[test]
-    fn the_window_is_fifteen_minutes() {
-        assert!(restores_at_start(minutes(14), false));
-        assert!(restores_at_start(minutes(15), false));
-        assert!(!restores_at_start(minutes(16), false));
-        assert!(!restores_at_start(Duration::from_secs(15 * 60 + 1), false));
+    fn the_window_is_fifteen_minutes_and_a_late_first_start_asks() {
+        assert_eq!(at_start(BY_TASK, minutes(14)), AtStart::Restore);
+        assert_eq!(at_start(BY_TASK, minutes(15)), AtStart::Restore);
+        assert_eq!(at_start(BY_TASK, minutes(16)), AtStart::Offer);
+        assert_eq!(
+            at_start(BY_TASK, Duration::from_secs(15 * 60 + 1)),
+            AtStart::Offer
+        );
+    }
+
+    /// 2026-11-15: the task did not run, the user started WinCraft by hand
+    /// 12 minutes after sign-in, and it moved windows by itself.
+    #[test]
+    fn a_first_start_by_hand_asks_at_any_age() {
+        assert_eq!(at_start(BY_HAND, Duration::from_secs(8)), AtStart::Offer);
+        assert_eq!(at_start(BY_HAND, minutes(12)), AtStart::Offer);
+        assert_eq!(at_start(BY_HAND, minutes(300)), AtStart::Offer);
+    }
+
+    #[test]
+    fn a_second_start_or_an_unknown_session_by_hand_does_nothing() {
+        let second = StartKind {
+            first_in_session: Some(false),
+            ..BY_HAND
+        };
+        assert_eq!(at_start(second, minutes(1)), AtStart::Nothing);
+        let unknown = StartKind {
+            first_in_session: None,
+            ..BY_HAND
+        };
+        assert_eq!(at_start(unknown, minutes(1)), AtStart::Nothing);
+        let second_by_task = StartKind {
+            first_in_session: Some(false),
+            ..BY_TASK
+        };
+        assert_eq!(at_start(second_by_task, minutes(30)), AtStart::Nothing);
     }
 
     #[test]
     fn a_start_caused_by_an_update_or_an_installer_never_restores() {
         // The update restarts WinCraft seconds into a session, or hours.
-        assert!(!restores_at_start(minutes(1), true));
-        assert!(!restores_at_start(minutes(300), true));
+        for start in [BY_TASK, BY_HAND] {
+            let again = StartKind {
+                started_again: true,
+                ..start
+            };
+            assert_eq!(at_start(again, minutes(1)), AtStart::Nothing);
+            assert_eq!(at_start(again, minutes(300)), AtStart::Nothing);
+        }
     }
 
     #[test]

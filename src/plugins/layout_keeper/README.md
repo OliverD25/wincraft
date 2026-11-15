@@ -113,6 +113,21 @@ app on the **Never touch** list, after windows were closed on purpose, or
 while a restore runs (such as the one after sign-in). The setting **Offer to
 put windows back after an app restarts** switches it off.
 
+### When WinCraft starts late
+
+LayoutKeeper restores by itself only when the sign-in task started WinCraft
+(it passes `--from-task`) within 15 minutes of sign-in (Principle 1). When
+the first WinCraft start since this sign-in came from somewhere else, such
+as you starting it by hand because the task did not run, or the task ran
+later than that, nothing moves by itself. A notice asks instead: "WinCraft
+started after you signed in. Put your windows back where they were?", with
+"Or press Win+Alt+L" and a **Put back** button. It stays 60 seconds, longer
+while the mouse is on it. **Put back** restores the whole saved layout, the
+same as the restore after sign-in. While it shows, an app's restart offer
+does not replace it. A marker file in the data folder (`last-sign-in.txt`)
+holds the sign-in time WinCraft last started in, so a second start in the
+same session (after you quit it, or an update) offers nothing.
+
 ## Restoring
 
 Apps open their windows at their own pace after you sign in. **Each window

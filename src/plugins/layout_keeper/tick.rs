@@ -4,6 +4,9 @@ impl LayoutKeeper {
     pub(super) fn tick(&mut self) {
         self.ticks += 1;
         self.offer_step();
+        if std::mem::take(&mut self.late_offer) {
+            self.offer_late_start();
+        }
         if !self.reapply.is_empty() {
             self.refresh();
             for exe in std::mem::take(&mut self.reapply) {

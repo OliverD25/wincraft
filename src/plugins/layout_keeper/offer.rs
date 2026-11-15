@@ -20,6 +20,9 @@ use crate::core::notice::{self as shared, Clock, Glyph, Message, Notice};
 
 /// How long the offer stays, not counting the time the mouse rests on it.
 pub(super) const OFFER_MS: u64 = 15_000;
+/// How long the offer after a late first start stays. Longer than an app's
+/// offer: the user may not look at the screen the moment WinCraft starts.
+pub(super) const LATE_START_MS: u64 = 60_000;
 /// Wakes the plugin when the notice heard the mouse.
 pub(super) const OFFER_POST_ID: usize = 0x4C4B_0003;
 const NAME: &str = "LayoutKeeper";
@@ -41,6 +44,8 @@ pub(super) struct Shown {
     clock: Clock,
     /// The groups Put back restores; empty for a notice without the button.
     pub(super) put_back: Vec<Offered>,
+    /// Put back restores the whole saved layout (a late first start).
+    pub(super) layout: bool,
 }
 
 /// One restarted group in the offer.
@@ -67,6 +72,10 @@ pub(super) enum Outcome {
     PutBack(Vec<String>),
     /// The offer for these groups went away unanswered.
     Expired(Vec<String>),
+    /// Put back was clicked on the offer for the whole layout.
+    PutBackLayout,
+    /// The offer for the whole layout went away unanswered.
+    LayoutExpired,
 }
 
 impl Offers {
@@ -82,7 +91,7 @@ impl Offers {
         groups.retain(|offered| offered.group != entry.group);
         groups.push(entry);
         let message = offer_message(&groups, key);
-        self.show_at(message, groups, OFFER_MS, now);
+        self.show_at(message, groups, false, OFFER_MS, now);
         self.shown
             .as_ref()
             .map_or(&[], |shown| shown.put_back.as_slice())
@@ -91,10 +100,27 @@ impl Offers {
     /// Shows `message`, in place of any notice shown before. `put_back`
     /// names the groups the button restores.
     pub(super) fn show(&mut self, message: Message, put_back: Vec<Offered>, length: u64) {
-        self.show_at(message, put_back, length, now_ms());
+        self.show_at(message, put_back, false, length, now_ms());
     }
 
-    fn show_at(&mut self, message: Message, put_back: Vec<Offered>, length: u64, now: u64) {
+    /// Shows the offer to put the whole saved layout back.
+    pub(super) fn offer_layout(&mut self, message: Message, now: u64) {
+        self.show_at(message, Vec::new(), true, LATE_START_MS, now);
+    }
+
+    /// Whether the offer for the whole layout is on screen.
+    pub(super) fn layout_offered(&self) -> bool {
+        self.shown.as_ref().is_some_and(|shown| shown.layout)
+    }
+
+    fn show_at(
+        &mut self,
+        message: Message,
+        put_back: Vec<Offered>,
+        layout: bool,
+        length: u64,
+        now: u64,
+    ) {
         self.close();
         // A unit test never puts a window on the screen.
         let notice = if cfg!(test) {
@@ -109,6 +135,7 @@ impl Offers {
             notice,
             clock: Clock::lasting(now, length),
             put_back,
+            layout,
         });
     }
 
@@ -144,7 +171,11 @@ impl Offers {
                         .as_ref()
                         .is_some_and(|notice| notice.on_button(point.x, point.y));
                     let groups = self.offered();
+                    let layout = self.layout_offered();
                     self.close();
+                    if on_button && layout {
+                        return Outcome::PutBackLayout;
+                    }
                     if on_button && !groups.is_empty() {
                         return Outcome::PutBack(groups);
                     }
@@ -158,7 +189,11 @@ impl Offers {
             .is_some_and(|shown| shown.clock.expired(now))
         {
             let groups = self.offered();
+            let layout = self.layout_offered();
             self.close();
+            if layout {
+                return Outcome::LayoutExpired;
+            }
             if !groups.is_empty() {
                 return Outcome::Expired(groups);
             }
@@ -251,6 +286,10 @@ impl LayoutKeeper {
         let watched = mine
             .iter()
             .all(|window| self.watch.covers(&window.identity.exe));
+        // Put back on the whole layout covers this app too.
+        if self.offers.layout_offered() {
+            return;
+        }
         let restoring = self.restore.is_running() || self.finishing.is_some();
         if !may_offer(self.offer_on, restoring, watched, mine.len()) {
             return;
@@ -292,7 +331,35 @@ impl LayoutKeeper {
                 "the offer to put {} back went unanswered",
                 self.quoted(&groups)
             ),
+            Outcome::PutBackLayout => {
+                log::info!("Put back clicked: restoring the saved layout, as after sign-in");
+                self.start_restore(true);
+            }
+            Outcome::LayoutExpired => {
+                log::info!("the offer to put the saved layout back went unanswered");
+            }
         }
+    }
+
+    /// WinCraft started late or by hand as the first start of this session:
+    /// nothing moves by itself, the notice asks first (Principle 1).
+    pub(super) fn offer_late_start(&mut self) {
+        let apps = saved_apps(self.writer.last());
+        if apps == 0 {
+            log::info!("no Put back offer at start: no layout is saved");
+            return;
+        }
+        let key = if cfg!(test) {
+            None
+        } else {
+            stored_restore_key()
+        };
+        self.offers
+            .offer_layout(late_start_message(key.as_deref()), now_ms());
+        log::info!(
+            "offered to put the saved layout of {apps} apps back; it shows for {} s",
+            LATE_START_MS / 1000
+        );
     }
 
     /// Put back was clicked: restores those groups and no other, from the
@@ -384,6 +451,19 @@ pub(super) fn offer_message(groups: &[Offered], key: Option<&str>) -> Message {
     message
 }
 
+/// The offer after WinCraft started later than sign-in, or by hand.
+pub(super) fn late_start_message(key: Option<&str>) -> Message {
+    let mut message =
+        Message::new(NAME, Glyph::Monitor, LATE_START_TEXT.to_string()).with_button(PUT_BACK);
+    if let Some(line) = key_line(key) {
+        message = message.detail(line);
+    }
+    message
+}
+
+pub(super) const LATE_START_TEXT: &str =
+    "WinCraft started after you signed in. Put your windows back where they were?";
+
 /// "Or press Win+Alt+L", with the key the user set; nothing when Restore
 /// layout has no hotkey.
 pub(super) fn key_line(stored: Option<&str>) -> Option<String> {
@@ -441,6 +521,29 @@ mod tests {
         let rebound = offer_message(&telegram, Some("win+ctrl+r"));
         assert_eq!(rebound.detail.as_deref(), Some("Or press Win+Ctrl+R"));
         assert_eq!(offer_message(&telegram, Some("")).detail, None);
+    }
+
+    #[test]
+    fn a_late_first_start_asks_to_put_the_whole_layout_back() {
+        let message = late_start_message(None);
+        assert_eq!(message.app, "LayoutKeeper");
+        assert_eq!(
+            message.text,
+            "WinCraft started after you signed in. Put your windows back where they were?"
+        );
+        assert_eq!(message.button, Some("Put back"));
+        assert_eq!(message.detail.as_deref(), Some("Or press Win+Alt+L"));
+    }
+
+    #[test]
+    fn the_late_start_offer_stays_a_minute_and_then_goes_unanswered() {
+        let mut offers = Offers::default();
+        offers.offer_layout(late_start_message(None), 1_000);
+        assert!(offers.layout_offered());
+        assert!(offers.offered().is_empty(), "it names no single app");
+        assert_eq!(offers.step_at(1_000 + 59_000), Outcome::Nothing);
+        assert_eq!(offers.step_at(1_000 + 61_000), Outcome::LayoutExpired);
+        assert!(!offers.layout_offered());
     }
 
     fn entry(group: &str, exe: &str, windows: usize) -> Offered {

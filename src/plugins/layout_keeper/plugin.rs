@@ -47,7 +47,7 @@ impl WinCraftPlugin for LayoutKeeper {
             SettingField {
                 key: "restore_on_start",
                 label: "Restore on start",
-                help: "After you sign in to Windows, put the saved layout back once the programs have opened their windows. A later start of WinCraft, such as after an update, restores nothing; Restore layout (Win+Alt+L) does it at any time.",
+                help: "When Windows starts WinCraft at sign-in, put the saved layout back once the programs have opened their windows. If WinCraft starts later, or you start it yourself, it asks first with a Put back button. Any other start of WinCraft, such as after an update, restores nothing; Restore layout (Win+Alt+L) does it at any time.",
                 kind: FieldKind::Toggle,
             },
             SettingField {
@@ -176,8 +176,12 @@ impl WinCraftPlugin for LayoutKeeper {
         log::info!("watching {}", self.watch);
 
         // Switching the plugin off and on again is not a reboot.
-        if !self.started_once && self.restore_on_start && start_follows_sign_in() {
-            self.start_restore(true);
+        if !self.started_once && self.restore_on_start {
+            match start_choice() {
+                session::AtStart::Restore => self.start_restore(true),
+                session::AtStart::Offer => self.late_offer = true,
+                session::AtStart::Nothing => {}
+            }
         }
         self.started_once = true;
         if host::demo_restore_panel() {

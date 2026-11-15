@@ -140,6 +140,9 @@ pub struct LayoutKeeper {
     released: BTreeSet<Handle>,
     ticks: u64,
     started_once: bool,
+    /// Set at a late first start: the Put back offer for the whole layout
+    /// shows on the next tick.
+    late_offer: bool,
     reader: Option<desktops::Reader>,
     /// The windows the timer save is reading on a thread of its own.
     timer_read: Option<TimerRead>,
@@ -223,6 +226,7 @@ impl Default for LayoutKeeper {
             released: BTreeSet::new(),
             ticks: 0,
             started_once: false,
+            late_offer: false,
             reader: None,
             timer_read: None,
             restores_started: 0,
@@ -324,36 +328,46 @@ impl LayoutKeeper {
     }
 }
 
-/// Whether this start is the one that follows the user signing in. Any
-/// other start (a manual restart, an update, Windows starting WinCraft again
-/// after an installer closed it) restores nothing, because the windows are
-/// already where the user left them.
-fn start_follows_sign_in() -> bool {
+/// What this start does with the saved layout (`session::at_start`): the
+/// sign-in task's start restores it, the first start of a session that
+/// came later or by hand offers Put back, and any other start (a manual
+/// restart, an update, Windows starting WinCraft again after an installer
+/// closed it) does nothing, because the windows are already where the user
+/// left them.
+fn start_choice() -> session::AtStart {
     let (age, source) = session::sign_in_age();
-    let again = host::started_again();
-    let restores = session::restores_at_start(age, again);
-    if restores {
-        log::info!(
-            "restore on start: WinCraft started {} after sign-in",
-            session::describe(age)
-        );
-    } else if again {
-        log::info!(
-            "no restore: WinCraft was started again, not by signing in ({} after sign-in)",
-            session::describe(age)
-        );
-    } else {
-        log::info!(
-            "no restore: WinCraft started {} after sign-in{}",
-            session::describe(age),
-            if source == session::Source::Boot {
-                " (counted from the start of the PC)"
+    let mut start = session::start_kind();
+    start.started_again |= host::started_again();
+    let choice = session::at_start(start, age);
+    let age_text = format!(
+        "{}{}",
+        session::describe(age),
+        if source == session::Source::Boot {
+            " (counted from the start of the PC)"
+        } else {
+            ""
+        }
+    );
+    match choice {
+        session::AtStart::Restore => {
+            log::info!("restore on start: the sign-in task started WinCraft {age_text} after sign-in");
+        }
+        session::AtStart::Offer => log::info!(
+            "no restore by itself: WinCraft started {age_text} after sign-in, {}; offering Put back",
+            if start.from_task {
+                "later than the sign-in window"
             } else {
-                ""
+                "not by the sign-in task"
             }
-        );
+        ),
+        session::AtStart::Nothing if start.started_again => log::info!(
+            "no restore: WinCraft was started again, not by signing in ({age_text} after sign-in)"
+        ),
+        session::AtStart::Nothing => log::info!(
+            "no restore: WinCraft started {age_text} after sign-in, and it ran before in this session"
+        ),
     }
-    restores
+    choice
 }
 
 /// The layout `init` starts from: the state file, or the shutdown snapshot

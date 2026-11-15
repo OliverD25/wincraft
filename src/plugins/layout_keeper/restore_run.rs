@@ -5,7 +5,7 @@ impl LayoutKeeper {
     /// whose groups get their taskbar order a second time.
     pub(super) fn start_restore(&mut self, sign_in: bool) {
         // The full restore covers what a Put back offer would do.
-        if !self.offers.offered().is_empty() {
+        if !self.offers.offered().is_empty() || self.offers.layout_offered() {
             self.offers.close();
         }
         self.start_restore_of(sign_in, None);
