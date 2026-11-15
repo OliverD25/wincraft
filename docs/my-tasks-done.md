@@ -2,6 +2,7 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
+- **46. Install 0.20.130: taskbar click opens WindowDeck, ClaudeDeck opens chats by link**: done 2026-11-15. The user said "done 46"; the log showed 5 taskbar clicks taken over by WindowDeck.
 - **45. Install 0.20.128, then reboot: WinCraft starts by itself and keeps windows on their desktops**: done 2026-11-15. The log showed the sign-in task start and all 24 Chrome windows on their desktops; the user said all feels fine.
 - **44. Install 0.20.127: "Show on all desktops" in WindowDeck's card menu**: done 2026-11-15. The user said "done 44" after the test.
 - **43. Install 0.20.126: the homelab admin chat no longer shows "Job"**: done 2026-11-15. The user said "done 43" after the test.
