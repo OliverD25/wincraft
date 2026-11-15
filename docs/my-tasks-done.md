@@ -2,6 +2,7 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
+- **49. Take two ClaudeDeck pictures for the marketing page**: done 2026-11-15. The user said it is done, made another way; the pictures are not in marketing/media/, so the ClaudeDeck page still lists them as missing shots.
 - **48. Install 0.20.132: WinCraft no longer freezes while ClaudeDeck is in the tray**: done 2026-11-15. The user said "task 48 done"; 0.20.132 ran from 18:33 with ClaudeDeck in the tray, and the 30 s window saves never stopped up to 22:55.
 - **51. Show WindowDeck staying closed while only the desktop shows**: done 2026-11-15. Not reproduced. The detailed log showed WindowDeck opening for Claude and Windows Terminal, and staying closed only for apps with fewer than 2 windows (Chrome 1, Telegram 0, Explorer 0), as designed. (Called task 50 in chat; renumbered, because 50 was the dropped Reddit task.)
 - **50. Post the ClaudeDeck Reddit post on r/ClaudeAI**: dropped 2026-11-15. The user said "do not need to post on reddit yet". The post stays ready in marketing/posts/2026-11-15-reddit-claudedeck.md.
