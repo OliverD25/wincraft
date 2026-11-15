@@ -11,7 +11,7 @@
 //! answered, the window closes, or the user marks all as seen.
 
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::core::claude_waits::Ask;
 
@@ -26,9 +26,20 @@ const HSHELL_FLASH: u32 = HSHELL_REDRAW | HSHELL_HIGHBIT;
 /// Windows 10 and 11 for most activations.
 const HSHELL_RUDEAPPACTIVATED: u32 = HSHELL_WINDOWACTIVATED | HSHELL_HIGHBIT;
 
+/// This many different windows flashing within `BURST_TIME` is a burst:
+/// an app that starts or gets its windows moved (Chrome after a sign-in
+/// restore flashed all 24 of its windows twice), not news for the user.
+const BURST_WINDOWS: usize = 4;
+const BURST_TIME: Duration = Duration::from_secs(3);
+
 #[derive(Debug, Default)]
 pub struct Attention {
     windows: HashSet<isize>,
+    /// The flashes of the last `BURST_TIME`: when, which window, and
+    /// whether that flash set its mark.
+    recent: Vec<(Instant, isize, bool)>,
+    /// Flashes until then still belong to the burst and mark nothing.
+    burst_until: Option<Instant>,
     /// Windows a hook said wait for an answer, with the session title and
     /// when the mark was set.
     waiting: HashMap<isize, (String, Instant)>,
@@ -51,8 +62,19 @@ impl Attention {
     /// mark since the user is already in it. Returns whether the set
     /// changed.
     pub fn shell_message(&mut self, code: usize, hwnd: isize, foreground: isize) -> bool {
+        self.shell_message_at(code, hwnd, foreground, Instant::now())
+    }
+
+    /// `shell_message` at a given time.
+    pub fn shell_message_at(
+        &mut self,
+        code: usize,
+        hwnd: isize,
+        foreground: isize,
+        now: Instant,
+    ) -> bool {
         match (code & 0xFFFF) as u32 {
-            HSHELL_FLASH => hwnd != 0 && hwnd != foreground && self.windows.insert(hwnd),
+            HSHELL_FLASH => hwnd != 0 && hwnd != foreground && self.flash(hwnd, now),
             HSHELL_WINDOWACTIVATED | HSHELL_RUDEAPPACTIVATED => self.windows.remove(&hwnd),
             HSHELL_WINDOWDESTROYED => {
                 let flashed = self.windows.remove(&hwnd);
@@ -60,6 +82,38 @@ impl Attention {
             }
             _ => false,
         }
+    }
+
+    /// One flash. In a burst, the marks the burst set are taken back and
+    /// later flashes of the burst set none. Returns whether the set changed.
+    fn flash(&mut self, hwnd: isize, now: Instant) -> bool {
+        self.recent
+            .retain(|(at, _, _)| now.saturating_duration_since(*at) <= BURST_TIME);
+        let set = self.windows.insert(hwnd);
+        if !self.recent.iter().any(|(_, window, _)| *window == hwnd) {
+            self.recent.push((now, hwnd, set));
+        }
+        let in_burst = self.burst_until.is_some_and(|until| now <= until);
+        if !in_burst && self.recent.len() < BURST_WINDOWS {
+            return set;
+        }
+        if !in_burst {
+            log::info!(
+                "attention: {} windows flashed within {} s, so none of them is marked",
+                self.recent.len(),
+                BURST_TIME.as_secs()
+            );
+        }
+        self.burst_until = Some(now + BURST_TIME);
+        let mut changed = false;
+        for (_, window, was_set) in &mut self.recent {
+            if *was_set {
+                self.windows.remove(window);
+                *was_set = false;
+                changed = true;
+            }
+        }
+        changed
     }
 
     /// Marks a window as if it had flashed, for a test scene.
@@ -255,6 +309,42 @@ mod tests {
     const ACTIVATED: usize = 4;
     const RUDE_ACTIVATED: usize = 0x8004;
     const DESTROYED: usize = 2;
+
+    #[test]
+    fn a_burst_of_flashes_marks_no_window() {
+        let mut attention = Attention::default();
+        let start = Instant::now();
+        // A window marked before the burst keeps its mark.
+        attention.shell_message_at(FLASH, 1, 99, start);
+        let later = start + Duration::from_secs(10);
+        let after = |ms: u64| later + Duration::from_millis(ms);
+        for (i, hwnd) in [10, 11, 12].into_iter().enumerate() {
+            attention.shell_message_at(FLASH, hwnd, 99, after(i as u64 * 100));
+        }
+        assert!(attention.wants(10), "three flashes are no burst yet");
+        assert!(attention.shell_message_at(FLASH, 13, 99, after(300)));
+        for hwnd in [10, 11, 12, 13] {
+            assert!(!attention.wants(hwnd), "window {hwnd} is part of the burst");
+        }
+        // A flash while the burst goes on marks nothing either, even of a
+        // window that flashed before it, and the first mark stays.
+        attention.shell_message_at(FLASH, 1, 99, after(2_000));
+        attention.shell_message_at(FLASH, 14, 99, after(4_000));
+        assert!(!attention.wants(14));
+        assert!(attention.wants(1));
+    }
+
+    #[test]
+    fn a_flash_long_after_a_burst_marks_again() {
+        let mut attention = Attention::default();
+        let start = Instant::now();
+        for hwnd in 10..15 {
+            attention.shell_message_at(FLASH, hwnd, 99, start);
+        }
+        let later = start + Duration::from_secs(20);
+        assert!(attention.shell_message_at(FLASH, 10, 99, later));
+        assert!(attention.wants(10));
+    }
 
     #[test]
     fn a_flash_marks_the_window_until_it_is_activated() {

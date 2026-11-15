@@ -176,6 +176,7 @@ Opened by: the hotkey `Win+Alt+A` and then a taskbar number, or Tray menu → **
 - **Hide other desktops**: the same link while they are shown.
 - **Hide hints**: `Ctrl+H`; hides the key hints (**Show key hints** in the plugin settings brings them back).
 - **Mark all as seen**: `Ctrl+M`; clears the orange marks. **Undo**: `Ctrl+Z`, for a few seconds after.
+- The orange mark: a window whose taskbar button flashed. When 4 or more windows flash within 3 seconds (an app starting, or a restore moving its windows), none of them gets the mark.
 - **No windows on this desktop**.
 
 ### Custom WindowDeck: the Claude desktop app's cards
