@@ -179,3 +179,68 @@ fn the_timer_reads_nothing_while_the_window_shows() {
     read_while_hidden_with(&shared, &state, || panic!("read"), |_, _| panic!("counted"));
     assert_eq!(shared.lock().unwrap().home.counts, None);
 }
+
+/// The extended style winit writes for ClaudeDeck: read from the user's
+/// window on 2026-11-16, with the tray setting on.
+const WINIT_STYLE: u32 = 0x0004_0118;
+
+fn plan(set: bool, taskbar: bool, lost: bool) -> StylePlan {
+    StylePlan { set, taskbar, lost }
+}
+
+#[test]
+fn a_lost_tool_flag_is_put_back_although_the_window_was_styled_before() {
+    assert_eq!(WINIT_STYLE & TOOL, 0);
+    assert_eq!(
+        style_plan(Some((5, true)), 5, true, WINIT_STYLE),
+        plan(true, false, true)
+    );
+}
+
+#[test]
+fn an_added_app_flag_is_taken_away_again() {
+    let both = ex_style(WINIT_STYLE, true) | WS_EX_APPWINDOW_TEST;
+    assert_eq!(
+        style_plan(Some((5, true)), 5, true, both),
+        plan(true, false, true)
+    );
+}
+
+#[test]
+fn a_right_style_is_left_alone() {
+    let right = ex_style(WINIT_STYLE, true);
+    assert_eq!(
+        style_plan(Some((5, true)), 5, true, right),
+        plan(false, false, false)
+    );
+}
+
+#[test]
+fn with_the_setting_off_the_style_winit_writes_is_already_right() {
+    assert_eq!(
+        style_plan(Some((5, false)), 5, false, WINIT_STYLE),
+        plan(false, false, false)
+    );
+    // A new window with the setting off only gets its own button.
+    assert_eq!(
+        style_plan(None, 5, false, WINIT_STYLE),
+        plan(false, true, false)
+    );
+}
+
+#[test]
+fn a_new_window_or_a_changed_setting_is_styled_and_not_counted_as_lost() {
+    assert_eq!(
+        style_plan(None, 5, true, WINIT_STYLE),
+        plan(true, true, false)
+    );
+    assert_eq!(
+        style_plan(Some((4, true)), 5, true, WINIT_STYLE),
+        plan(true, true, false)
+    );
+    let tool = ex_style(WINIT_STYLE, true);
+    assert_eq!(
+        style_plan(Some((5, true)), 5, false, tool),
+        plan(true, true, false)
+    );
+}

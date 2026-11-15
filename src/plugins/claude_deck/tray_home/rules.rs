@@ -89,3 +89,32 @@ pub fn ex_style(current: u32, live_in_tray: bool) -> u32 {
         (current & !WS_EX_TOOLWINDOW) | WS_EX_APPWINDOW
     }
 }
+
+/// What `keep_style` does on one frame of the window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StylePlan {
+    /// The real style differs from what the setting asks: set it again.
+    pub set: bool,
+    /// The setting or the window is new: give or take the taskbar button.
+    pub taskbar: bool,
+    /// The style was right once and was lost since (winit writes its own
+    /// style on any change of its window flags, such as the pin).
+    pub lost: bool,
+}
+
+/// Decides from the window's real extended style, not only from what was
+/// done before: `styled` is the window and setting styled last.
+pub fn style_plan(
+    styled: Option<(isize, bool)>,
+    hwnd: isize,
+    live: bool,
+    current: u32,
+) -> StylePlan {
+    let set = ex_style(current, live) != current;
+    let changed = styled != Some((hwnd, live));
+    StylePlan {
+        set,
+        taskbar: changed,
+        lost: set && !changed,
+    }
+}

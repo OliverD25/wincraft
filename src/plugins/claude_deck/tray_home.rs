@@ -327,45 +327,51 @@ pub(super) fn hides_instead(shared: &mut Shared, state: &mut DeckUi) -> bool {
     true
 }
 
-/// Gives the window the style the setting asks for, once per window and
-/// setting: a tool window with no taskbar button while it lives in the
-/// tray, else its own taskbar button as before. A visible window is
-/// hidden and shown once so the taskbar sees the change, covered so that
-/// it does not show white; true when it was.
+/// Gives the window the style the setting asks for: a tool window with no
+/// taskbar button and no Win+Tab entry while it lives in the tray, else its
+/// own taskbar button as before. Runs on every frame of the window and
+/// reads its real style, because winit writes its own style (with
+/// `WS_EX_APPWINDOW`) whenever one of its window flags changes, for example
+/// the pin. Only a style that really differs is set again: the window is
+/// hidden and shown once so the taskbar sees it, covered so that it does
+/// not show white. True when it was.
 pub(super) fn keep_style(shared: &mut Shared, hwnd: isize) -> bool {
+    if hwnd == 0 {
+        return false;
+    }
     let live = shared.settings.tray_home;
-    if hwnd == 0 || shared.home.styled == Some((hwnd, live)) {
-        return false;
-    }
-    let first = shared.home.styled.is_none_or(|(old, _)| old != hwnd);
-    shared.home.styled = Some((hwnd, live));
-    if first && !live {
-        taskbar::own_button(hwnd);
-        return false;
-    }
     let handle = hwnd as HWND;
-    let visible = unsafe { IsWindowVisible(handle) } != 0;
     let style = unsafe { GetWindowLongPtrW(handle, GWL_EXSTYLE) } as u32;
-    unsafe {
-        if visible {
-            reveal::cover(hwnd);
-            ShowWindow(handle, SW_HIDE);
-        }
-        SetWindowLongPtrW(handle, GWL_EXSTYLE, ex_style(style, live) as isize);
-        SetWindowPos(
-            handle,
-            std::ptr::null_mut(),
-            0,
-            0,
-            0,
-            0,
-            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-        );
+    let plan = style_plan(shared.home.styled, hwnd, live, style);
+    shared.home.styled = Some((hwnd, live));
+    if plan.lost {
+        log::info!("ClaudeDeck: Windows lost the tray window style; put back");
     }
-    if live {
-        taskbar::release(hwnd);
-    } else {
-        taskbar::own_button(hwnd);
+    let visible = plan.set && unsafe { IsWindowVisible(handle) } != 0;
+    if plan.set {
+        unsafe {
+            if visible {
+                reveal::cover(hwnd);
+                ShowWindow(handle, SW_HIDE);
+            }
+            SetWindowLongPtrW(handle, GWL_EXSTYLE, ex_style(style, live) as isize);
+            SetWindowPos(
+                handle,
+                std::ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+    }
+    if plan.taskbar {
+        if live {
+            taskbar::release(hwnd);
+        } else {
+            taskbar::own_button(hwnd);
+        }
     }
     if visible {
         unsafe { ShowWindow(handle, SW_SHOWNA) };

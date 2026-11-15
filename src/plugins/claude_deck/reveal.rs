@@ -23,7 +23,10 @@ use super::Shared;
 
 /// The main frame's step, only when neither lock is busy
 /// (`reveal::try_both`). Returns the pin and the mini mode for the window's
-/// builder, or None when the step was skipped this frame.
+/// builder, or None when the builder keeps what it had: the step was
+/// skipped, or the window is hidden in the tray. A new pin there would
+/// change a winit window flag, and winit, which thinks the window is still
+/// shown, would show it again.
 pub(super) fn main_frame(
     ctx: &egui::Context,
     shared: &Mutex<Shared>,
@@ -32,7 +35,7 @@ pub(super) fn main_frame(
 ) -> Option<(bool, bool)> {
     let (shared, mut state) = reveal::try_both(ctx, shared, state)?;
     on_main_frame(ctx, &shared, &mut state, palette);
-    Some((shared.settings.stay_on_top, shared.settings.mini))
+    (!shared.home.hidden).then_some((shared.settings.stay_on_top, shared.settings.mini))
 }
 
 /// Runs while the window may still be hidden.

@@ -88,3 +88,20 @@ fn with_both_locks_free_the_main_frame_gives_the_pin_and_the_mini_mode() {
     // A closed deck has nothing to show, so nothing is asked.
     assert_eq!(asked(&repaints), 0);
 }
+
+#[test]
+fn while_hidden_in_the_tray_the_builder_keeps_its_pin() {
+    // A new pin would make winit show the hidden window again.
+    let (ctx, _) = counting_ctx();
+    let mut hidden = Shared {
+        open: true,
+        ..Default::default()
+    };
+    hidden.home.hidden = true;
+    let shared = Mutex::new(hidden);
+    let state = Mutex::new(DeckUi::default());
+    assert_eq!(main_frame(&ctx, &shared, &state, 0), None);
+    shared.lock().unwrap().home.hidden = false;
+    shared.lock().unwrap().settings.stay_on_top = false;
+    assert!(main_frame(&ctx, &shared, &state, 0).is_some_and(|(pin, _)| !pin));
+}

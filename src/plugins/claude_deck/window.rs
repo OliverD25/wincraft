@@ -232,6 +232,11 @@ impl PluginWindow for DeckWindow {
     fn show(&mut self, ctx: &egui::Context, frame: &WindowFrame) {
         // Never waits for a lock: the host thread may hold one (`reveal`).
         if let Some(look) = reveal::main_frame(ctx, &self.shared, &self.state, frame.palette_hwnd) {
+            if look != self.look {
+                // A new pin makes winit write its own window style; the
+                // window's next frame puts the tray style back (`keep_style`).
+                ctx.request_repaint_of(viewport_id());
+            }
             self.look = look;
         }
         let (on_top, mini) = self.look;
