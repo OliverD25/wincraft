@@ -8,7 +8,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 /// The most windows the list holds: one per digit.
-pub const SLOTS: usize = 10;
+pub const SLOTS: usize = crate::core::quick_pins::SLOTS;
 
 /// Where the file before 0.20.74 (ten fixed slots) is kept once it was
 /// turned into the list.
@@ -25,13 +25,7 @@ pub fn slot_of_digit(digit: u8) -> Option<usize> {
 }
 
 /// The digit that reaches a place.
-pub fn digit_of_slot(slot: usize) -> u8 {
-    if slot == 9 {
-        0
-    } else {
-        slot as u8 + 1
-    }
-}
+pub use crate::core::quick_pins::digit_of_slot;
 
 /// The number the user reads for a place: 1 to 10.
 pub fn number_of_slot(slot: usize) -> usize {

@@ -4,7 +4,7 @@
 use super::*;
 use crate::plugins::claude_deck::drop::*;
 use crate::plugins::claude_deck::edit::{GroupSpot, Spot};
-use crate::plugins::claude_deck::menu::{chat_items, group_items, Item};
+use crate::plugins::claude_deck::menu::{chat_items, group_items, has_number, with_quick, Item};
 
 fn group(id: &str, folded: bool, top: f32) -> Placed {
     Placed {
@@ -261,4 +261,37 @@ fn show_in_app_is_offered_only_for_a_chat_with_a_local_id() {
     terminal.chat.terminal = Some("rdehome2:E:/code".to_string());
     assert!(!chat_items(&terminal, true).contains(&Item::ShowInApp));
     assert!(!chat_items(&line(0, Fold::None), true).contains(&Item::ShowInApp));
+}
+
+#[test]
+fn the_quick_access_items_follow_pin_and_need_quickjump_and_a_desktop_chat() {
+    let mut desktop = line(0, Fold::None);
+    desktop.chat.id = "local_9f2c-41".to_string();
+    let items = |number| with_quick(chat_items(&desktop, true), &desktop, number);
+    let plain = chat_items(&desktop, true);
+    assert_eq!(items(None), plain, "QuickJump off: no items");
+    let free = items(Some(None));
+    let at = free.iter().position(|item| *item == Item::Pin).unwrap();
+    assert_eq!(free[at + 1], Item::Quick(None));
+    assert!(!free.contains(&Item::RemoveQuick));
+    let held = items(Some(Some(2)));
+    assert_eq!(
+        &held[at + 1..at + 3],
+        &[Item::Quick(Some(2)), Item::RemoveQuick]
+    );
+    // A chat with no local id has no link a pin could open.
+    let other = line(0, Fold::None);
+    assert_eq!(
+        with_quick(chat_items(&other, true), &other, Some(None)),
+        chat_items(&other, true)
+    );
+    // A fork has no Pin: the item follows Show in the Claude app.
+    let mut fork = line(1, Fold::None);
+    fork.chat.id = "local_ab".to_string();
+    let fork_items = with_quick(chat_items(&fork, true), &fork, Some(None));
+    assert_eq!(
+        &fork_items[..3],
+        &[Item::Open, Item::ShowInApp, Item::Quick(None)]
+    );
+    assert_eq!(has_number(9), "Quick access number 0");
 }

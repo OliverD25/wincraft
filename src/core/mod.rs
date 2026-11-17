@@ -41,6 +41,7 @@ pub mod open_timing;
 pub mod package;
 pub mod panel_look;
 pub mod plugin_tray;
+pub mod quick_pins;
 pub mod quit;
 pub mod raw_input;
 pub mod release_cache;

@@ -33,6 +33,7 @@ mod news;
 mod open_app;
 mod place;
 mod quick;
+mod quick_number;
 mod reading;
 mod reveal;
 mod rows;

@@ -1,9 +1,12 @@
 //! The right-click menus of ClaudeDeck: one for a chat, one for a group.
 //! The Menu key and Shift+F10 open them for the selected line. Every item
-//! changes only ClaudeDeck's own list; none closes, archives or renames a
-//! real chat.
+//! changes only ClaudeDeck's own list, except the Quick access number
+//! items, which ask QuickJump to change its pins; none closes, archives or
+//! renames a real chat.
 
 use egui::{Color32, Ui};
+
+use crate::core::quick_pins;
 
 use super::model::{ChatLine, Fold};
 use super::store::Colour;
@@ -12,6 +15,11 @@ pub const OPEN: &str = "Open the chat";
 pub const SHOW_IN_APP: &str = "Show in the Claude app";
 pub const PIN: &str = "Pin to the top";
 pub const UNPIN: &str = "Unpin";
+pub const GIVE_NUMBER: &str = "Give a Quick access number";
+pub const FIRST_FREE: &str = "First free number";
+pub const REMOVE_NUMBER: &str = "Remove the Quick access number";
+/// Followed by the chat's digit: "Quick access number 3".
+pub const HAS_NUMBER: &str = "Quick access number";
 pub const HIDE: &str = "Hide this chat";
 pub const SHOW: &str = "Show this chat";
 pub const COPY: &str = "Copy the name";
@@ -40,6 +48,9 @@ pub enum Item {
     ShowInApp,
     Pin,
     Unpin,
+    /// QuickJump's number of the chat: its place, None for no number.
+    Quick(Option<usize>),
+    RemoveQuick,
     Hide,
     Show,
     Copy,
@@ -69,6 +80,10 @@ pub enum Choice {
     /// The Claude app's main window shows the chat.
     ShowInApp,
     Pin(bool),
+    /// Give the chat this Quick access number (a place from 0), or the
+    /// first free one when None.
+    QuickAt(Option<usize>),
+    RemoveQuick,
     Hide(bool),
     Copy,
     /// The chat's name, changed in the Claude app too.
@@ -144,6 +159,59 @@ pub fn chat_items(line: &ChatLine, in_group: bool) -> Vec<Item> {
     items
 }
 
+/// Adds the Quick access number items after Pin to the top (or after
+/// Show in the Claude app for a chat that has no Pin) when `number` says
+/// QuickJump is on: Some(the chat's place, if any). Only a chat of the
+/// Claude app on this PC has a link a Quick access pin can open.
+pub fn with_quick(
+    mut items: Vec<Item>,
+    line: &ChatLine,
+    number: Option<Option<usize>>,
+) -> Vec<Item> {
+    let Some(number) = number.filter(|_| can_show_in_app(line)) else {
+        return items;
+    };
+    let after = items
+        .iter()
+        .position(|item| matches!(item, Item::Pin | Item::Unpin))
+        .or_else(|| items.iter().position(|item| *item == Item::ShowInApp));
+    let Some(after) = after else {
+        return items;
+    };
+    let mut quick = vec![Item::Quick(number)];
+    if number.is_some() {
+        quick.push(Item::RemoveQuick);
+    }
+    items.splice(after + 1..after + 1, quick);
+    items
+}
+
+/// "Quick access number 3".
+pub fn has_number(slot: usize) -> String {
+    format!("{HAS_NUMBER} {}", quick_pins::digit_of_slot(slot))
+}
+
+/// The numbers 1-9 and 0, each with what holds it; a chat with no number
+/// gets "First free number" on top while one is free.
+fn numbers(ui: &mut Ui, own: Option<usize>) -> Option<Choice> {
+    let held = quick_pins::held().unwrap_or_default();
+    let mut pick = None;
+    if own.is_none() && quick_pins::first_free(&held).is_some() && ui.button(FIRST_FREE).clicked() {
+        pick = Some(Choice::QuickAt(None));
+    }
+    if own.is_none() {
+        ui.separator();
+    }
+    for slot in 0..quick_pins::SLOTS {
+        let can = quick_pins::can_pick(slot, held.len(), own);
+        let line = quick_pins::menu_line(slot, &held);
+        if ui.add_enabled(can, egui::Button::new(line)).clicked() {
+            pick = Some(Choice::QuickAt(Some(slot)));
+        }
+    }
+    pick
+}
+
 fn fork_item(line: &ChatLine) -> Option<Item> {
     line.chat.fork.as_ref().map(|_| Item::Fork)
 }
@@ -202,6 +270,13 @@ pub fn show(ui: &mut Ui, items: &[Item], context: &Context) -> Option<Choice> {
             Item::ShowInApp => button(ui, SHOW_IN_APP, "Ctrl+Enter").then_some(Choice::ShowInApp),
             Item::Pin => button(ui, PIN, "").then_some(Choice::Pin(true)),
             Item::Unpin => button(ui, UNPIN, "").then_some(Choice::Pin(false)),
+            Item::Quick(own) => {
+                let title = own.map_or_else(|| GIVE_NUMBER.to_string(), has_number);
+                let mut pick = None;
+                ui.menu_button(title, |ui| pick = numbers(ui, *own));
+                pick
+            }
+            Item::RemoveQuick => button(ui, REMOVE_NUMBER, "").then_some(Choice::RemoveQuick),
             Item::Hide => button(ui, HIDE, "").then_some(Choice::Hide(true)),
             Item::Show => button(ui, SHOW, "").then_some(Choice::Hide(false)),
             Item::Copy => button(ui, COPY, "Ctrl+C").then_some(Choice::Copy),

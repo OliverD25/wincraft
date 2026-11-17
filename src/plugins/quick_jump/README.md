@@ -90,6 +90,16 @@ main window, never the closed chat. So the jump opens the chat by its link
 its main window. QuickJump presses nothing in the app. When the pin has no
 link the app takes, it starts the app as before and says why in the log.
 
+ClaudeDeck can pin a chat too: its right-click menu has **Give a Quick
+access number** (with **First free number** and the numbers 1 to 9 and 0)
+and **Remove the Quick access number**. The chat need not have a window
+open; its pin then holds the chat's name as its title and opens the chat by
+its link. The same rules as **Put at number** apply, with the same notice
+and Undo. The two plugins do not call each other: QuickJump writes what
+each number holds to `core::quick_pins` whenever its pins change and takes
+ClaudeDeck's asks from there on its own window's thread. ClaudeDeck shows a
+chat's number in a small box on its row.
+
 ### On another monitor
 
 When the window comes up on another monitor than the one you were using,

@@ -7,6 +7,7 @@
 //! the UI thread wakes it with requests. Everything else, the chord tip
 //! among it, it gets from the host.
 
+mod deck;
 mod follow;
 mod hint;
 mod keys;
@@ -41,7 +42,7 @@ use crate::core::traits::{
 };
 use crate::core::ui_bridge::ActionKind;
 use crate::core::{
-    chord, chord_tip, claude_app, config, host, instance, shortcuts, wide, window_hint,
+    chord, chord_tip, claude_app, config, host, instance, quick_pins, shortcuts, wide, window_hint,
 };
 use crate::search::actions;
 use crate::search::{Action, SearchProvider};
@@ -266,6 +267,7 @@ impl Engine {
                 pin_keys: self.pin_keys.clone(),
             };
         }
+        quick_pins::publish(deck::held(&self.slots), &self.jump_keys);
         host::plugin_changed();
     }
 
@@ -585,6 +587,7 @@ unsafe extern "system" fn engine_proc(
     let handled = match msg {
         WM_APP_KEY => Some(with_engine(Engine::on_keys)),
         shared::WM_APP_REQUEST => Some(with_engine(Engine::requests)),
+        quick_pins::WM_APP_QUICK_PINS => Some(with_engine(Engine::deck_asks)),
         notice::WM_APP_NOTICE_HOVER => Some(with_engine(|engine| engine.notice_hover(wparam != 0))),
         notice::WM_APP_NOTICE_CLICK => Some(with_engine(|engine| engine.notice_click(lparam))),
         WM_TIMER if wparam == chord::TIMER_ID => Some(with_engine(|engine| {
@@ -698,6 +701,7 @@ impl WinCraftPlugin for QuickJump {
         let path = state_path();
         let slots = Slots::load(&path, &config::plugins_dir().join(pins::BACKUP_NAME));
         log::info!("QuickJump: {} pins read", slots.count());
+        quick_pins::open(hwnd as isize, deck::held(&slots));
         if let Ok(mut shared) = self.shared.lock() {
             shared.plugin_window = hwnd as isize;
         }
@@ -891,6 +895,7 @@ impl WinCraftPlugin for QuickJump {
                 DestroyWindow(engine.hwnd);
             }
         }
+        quick_pins::close();
         if let Ok(mut shared) = self.shared.lock() {
             shared.plugin_window = 0;
             shared.list_open = false;

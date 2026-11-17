@@ -22,6 +22,7 @@ use super::hover;
 use super::menu::{self, Choice, Context, Item};
 use super::model::{Chat, ChatLine, Fold, GroupLine, Line};
 use super::open_app::{self, open_chat};
+use super::quick_number;
 use super::rows::{self, GroupState, Look};
 use super::select;
 use super::window::{DeckUi, Pick, Rename};
@@ -393,7 +394,7 @@ fn chat_line(
     if state.drag.as_ref() == Some(&pick) {
         row_painter.multiply_opacity(0.4);
     }
-    rows::chat(
+    let quick_box = rows::chat(
         &row_painter,
         row.rect,
         line,
@@ -421,7 +422,9 @@ fn chat_line(
             open_chat(line.chat.window, &line.chat.id, &line.chat.title, to_host);
         }
     }
+    quick_number::tip(&response, quick_box, &line.chat.id);
     let items = menu::chat_items(line, row.group.is_some());
+    let items = menu::with_quick(items, line, quick_number::state(&line.chat.id));
     if let Some(choice) = popup(&response, state, &pick, &items, draw.menu) {
         acts.push(Act {
             choice,
@@ -533,7 +536,9 @@ fn lifted(painter: &Painter, area: Rect, at: Pos2, lines: &[Line], pick: &Pick, 
     }
     painter.rect_filled(rect, 4.0, tokens.elevated_bg);
     match line {
-        Line::Chat(c) => rows::chat(painter, rect, c, look, false, false, None),
+        Line::Chat(c) => {
+            rows::chat(painter, rect, c, look, false, false, None);
+        }
         Line::Group(g) => {
             rows::group(painter, rect, g, look, GroupState::default());
         }
@@ -551,6 +556,8 @@ fn apply(act: Act, state: &mut DeckUi, to_host: &HostChannel) {
         Choice::Open => open_chat(act.window, &id, &act.title, to_host),
         Choice::ShowInApp => open_app::show_in_app(&id, &act.title),
         Choice::Pin(on) => edit::pin(saved, &id, on),
+        Choice::QuickAt(at) => quick_number::put(&id, &act.title, act.window, at),
+        Choice::RemoveQuick => quick_number::remove(&id),
         Choice::Hide(on) => edit::hide(saved, &id, on),
         Choice::Copy => {
             if !clipboard::put_text(state.window as HWND, &act.title) {

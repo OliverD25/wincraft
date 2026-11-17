@@ -233,7 +233,30 @@ nothing is read twice. Which replies you read here is kept in
   **N hidden chats** at the end lists them; right-click one and pick
   **Show this chat** to bring it back.
 
-All of this changes only ClaudeDeck's own list. Hiding a chat hides its row
+## Quick access numbers
+
+ClaudeDeck can give a chat a QuickJump number, so `` Win+` `` and a digit
+reach it from anywhere, without opening ClaudeDeck first. Right-click a
+chat of the Claude app on this PC and pick **Give a Quick access number**:
+**First free number**, or one of the numbers 1 to 9 and 0, each with what
+holds it now ("3 · WinCraft Rust Master", "4 · free"). A taken number moves
+its pin down one; QuickJump's numbers have no gaps, so only the first free
+number can be picked. A chat that has a number shows **Quick access number
+{n}** instead (the same list, to move it) and **Remove the Quick access
+number**. QuickJump shows its usual notice with Undo.
+
+A chat with a number shows its digit in a small box with an accent outline
+after its mark (the keyboard's digits sit in plain boxes before the mark).
+Rest the mouse on the box to see the keys. Mini mode does not show it.
+
+QuickJump keeps the numbers, not ClaudeDeck. The two plugins never call
+each other: QuickJump writes what each number holds to `core::quick_pins`,
+and ClaudeDeck reads it there and leaves its asks there. With QuickJump off
+the menu items and the boxes are gone. **Pin to the top** is a different
+thing: it only orders ClaudeDeck's own list.
+
+All of this changes only ClaudeDeck's own list (the Quick access numbers
+below are QuickJump's). Hiding a chat hides its row
 in ClaudeDeck; it never archives, closes or renames the real chat, and
 nothing in the Claude app changes.
 
@@ -309,7 +332,8 @@ a job's command line as the server reports it.
   brings the chat's own window to the front. Three actions you pick
   change something: **Rename the chat…** renames it in the Claude app too
   (see "Privacy" below), **Show in the Claude app** makes the app's main
-  window show that chat, and **Fork in a terminal** starts a new chat.
+  window show that chat, **Fork in a terminal** starts a new chat, and
+  **Give a Quick access number** changes QuickJump's pins.
   **Connect to Claude Code** adds WinCraft's hook to your Claude Code
   `settings.json`.
 - It never moves or closes another window, and never moves the mouse

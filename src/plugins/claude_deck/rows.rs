@@ -155,7 +155,8 @@ fn tree_lines(painter: &Painter, row: Rect, line: &ChatLine, colour: Color32) {
 }
 
 /// A chat's row. `key` is the digit that jumps to it, shown in a small box
-/// before the mark while the keyboard is in use.
+/// before the mark while the keyboard is in use. Returns the rect of the
+/// chat's Quick access number box, which goes after the mark.
 pub fn chat(
     painter: &Painter,
     row: Rect,
@@ -164,7 +165,7 @@ pub fn chat(
     hovered: bool,
     selected: bool,
     key: Option<u8>,
-) {
+) -> Option<Rect> {
     let tokens = look.tokens;
     let settings = look.settings;
     if selected {
@@ -220,7 +221,14 @@ pub fn chat(
             x += used + GAP;
         }
     }
-    parts(&painter, row, x, line, look);
+    let quick = (!line.stand_in)
+        .then(|| super::quick_number::slot_of(&line.chat.id))
+        .flatten()
+        .map(|slot| {
+            super::quick_number::paint(&painter, pos2(x, row.top() + MARK_TOP), slot, tokens)
+        });
+    let name_x = quick.map_or(x, |rect| x + rect.width() + GAP);
+    parts(&painter, row, name_x, line, look);
     if settings.text {
         if let Some(words) = &line.chat.text {
             let job = text::job(words, theme::regular(SMALL), tokens.text_secondary, None);
@@ -233,6 +241,7 @@ pub fn chat(
             );
         }
     }
+    quick
 }
 
 /// The digit's box, as on the design page: 14 px, a thin border, the
