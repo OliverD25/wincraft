@@ -331,6 +331,9 @@ impl PluginWindow for DeckWindow {
             if asked.mini {
                 clicked = Some(Click::Mini);
             }
+            if asked.hide {
+                clicked = Some(Click::Minimize);
+            }
             if asked.quick || std::mem::take(&mut shared.quick_wanted) {
                 state.quick.by_key = true;
             }

@@ -50,6 +50,12 @@ pub(in crate::plugins::claude_deck) fn keys(
         || egui::Popup::is_any_open(ui.ctx())
         || state.renaming.is_some()
         || state.drag.is_some();
+    if !busy && ui.ctx().input(|i| keys::hide_pressed(&i.events)) {
+        return Asked {
+            hide: true,
+            ..Asked::default()
+        };
+    }
     if let Some(back) = switch_pressed(ui).filter(|_| !busy) {
         let tabs = tabs(state.servers.is_on());
         let at = tabs
@@ -131,6 +137,7 @@ fn news_keys(ui: &Ui, state: &mut DeckUi, to_host: &HostChannel, now: u64) -> As
         give_back: pressed.esc,
         mini: pressed.mini,
         quick: pressed.quick,
+        hide: false,
     };
     let news = &mut state.news;
     let picks = news.picks.clone();

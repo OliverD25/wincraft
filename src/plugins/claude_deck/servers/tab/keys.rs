@@ -60,6 +60,7 @@ pub fn keys(ui: &Ui, state: &mut DeckUi, busy: bool) -> Asked {
         give_back: esc,
         mini,
         quick,
+        hide: false,
     };
     let tab = &mut state.servers.tab;
     let picks: Vec<Pick> = tab.picks.iter().map(|(pick, _)| pick.clone()).collect();

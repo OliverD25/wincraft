@@ -185,3 +185,31 @@ fn the_chat_whose_window_is_in_front_is_the_marked_row() {
         "another app in front changes nothing"
     );
 }
+
+#[test]
+fn ctrl_w_alone_hides_the_window() {
+    use crate::plugins::claude_deck::keys::hide_pressed;
+    use egui::{Event, Key, Modifiers};
+    let press = |key, modifiers| Event::Key {
+        key,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers,
+    };
+    assert!(hide_pressed(&[press(Key::W, Modifiers::COMMAND)]));
+    assert!(!hide_pressed(&[press(Key::W, Modifiers::NONE)]));
+    assert!(!hide_pressed(&[press(
+        Key::W,
+        Modifiers::COMMAND | Modifiers::SHIFT
+    )]));
+    assert!(!hide_pressed(&[press(Key::Q, Modifiers::COMMAND)]));
+    let released = Event::Key {
+        key: Key::W,
+        physical_key: None,
+        pressed: false,
+        repeat: false,
+        modifiers: Modifiers::COMMAND,
+    };
+    assert!(!hide_pressed(&[released]));
+}

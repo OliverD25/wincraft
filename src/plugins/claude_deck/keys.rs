@@ -63,6 +63,18 @@ pub struct Asked {
     pub mini: bool,
     /// Ctrl+,: open the quick settings.
     pub quick: bool,
+    /// Ctrl+W: what the minimise button does (hide to the tray, or
+    /// minimise with "Live in the tray" off).
+    pub hide: bool,
+}
+
+/// Ctrl+W was pressed this frame (not with Shift or Alt). It is read
+/// before the tabs, so it works on every tab and in mini mode.
+pub fn hide_pressed(events: &[egui::Event]) -> bool {
+    events.iter().any(|event| {
+        matches!(event, egui::Event::Key { key: Key::W, pressed: true, modifiers, .. }
+            if modifiers.command && !modifiers.shift && !modifiers.alt)
+    })
 }
 
 /// The lines that can be picked, top to bottom.
@@ -148,6 +160,7 @@ pub fn keys(
         give_back: pressed.esc,
         mini: pressed.mini,
         quick: pressed.quick,
+        hide: false,
     };
     let mut picks = picks(lines);
     picks.extend(state.servers.keyed.iter().map(|(pick, _)| pick.clone()));

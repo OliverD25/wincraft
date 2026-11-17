@@ -131,6 +131,10 @@ How WinCraft tells each status:
 - `Esc` gives the keyboard back to the window that was in front when you
   pressed `Win+Alt+X`. It closes nothing. While you rename a group, drag a
   line or have a menu open, `Esc` first ends that.
+- `Ctrl+W` does what the header's minimise button does: with **Live in the
+  tray (no taskbar button)** on it hides ClaudeDeck to the tray; with it off
+  it minimises the window. It works on every tab and in mini mode. While a
+  rename, a drag or a menu is open it does nothing.
 - `Ctrl+M` switches mini mode. The hotkey command **ClaudeDeck mini mode**
   does the same from anywhere; it has no keys until you set some in
   Settings → Hotkeys.
