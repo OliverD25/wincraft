@@ -57,6 +57,7 @@ fn every_setting_of_the_design_page_is_there_and_mini_mode_is_not_one() {
             "Project and branch",
             "Job count",
             "Model name",
+            "Token bar",
             "Servers (ssh names)",
         ]
     );
@@ -73,7 +74,13 @@ fn the_row_fields_sit_under_on_each_row() {
     for field in deck.settings_fields() {
         let row = matches!(
             field.key,
-            "status_mark" | "show_text" | "show_time" | "show_project" | "show_jobs" | "show_model"
+            "status_mark"
+                | "show_text"
+                | "show_time"
+                | "show_project"
+                | "show_jobs"
+                | "show_model"
+                | "show_token_bar"
         );
         let group = match field.key {
             "servers" => Some("Homelab"),

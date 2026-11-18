@@ -107,6 +107,10 @@ fn the_strip_shows_both_tabs_with_the_unseen_count_and_ctrl_tab_switches() {
         "Older starts folded"
     );
     ctrl_tab(&mut deck);
+    assert_eq!(deck.state.news.tab, Tab::Stats);
+    let painted = deck.settle();
+    assert!(painted.has(crate::plugins::claude_deck::stats::view::TODAY));
+    ctrl_tab(&mut deck);
     assert_eq!(deck.state.news.tab, Tab::Chats);
     let painted = deck.settle();
     deck.click(painted.at(view::NEWS));

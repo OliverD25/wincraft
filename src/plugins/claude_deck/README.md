@@ -301,7 +301,50 @@ a job's command line as the server reports it.
   you"), and only while ClaudeDeck is open.
 - Under **On each row**: **Status mark**, **A line of text (the question,
   or what it does)**, **Time in the status**, **Project and branch**,
-  **Job count**, **Model name**.
+  **Job count**, **Model name**, **Token bar**.
+
+## Stats
+
+The **Stats** tab (the last tab; `Ctrl+Tab` reaches it) shows how many
+tokens your Claude Code chats used. **Today** and **7 days** pick the time
+(`Left` and `Right` do the same). Under them:
+
+- **Top chats**: the 10 chats that used most, as bars. A chat's subagents
+  count for it. Rest the mouse on a bar for the raw counts (input, output,
+  cache read, cache write), the subagents' share, the cache read share and
+  the chat's context now (its last reply's input and cache). A click opens
+  the chat, as on the **Chats** tab.
+- **Groups**: the same, summed by your ClaudeDeck groups. A fork counts for
+  its chat's group.
+- **Days** (7 days only): one column per day.
+- **Models**: one bar cut by model, with each model's share.
+- **Busiest hours**: 24 columns, one per hour of the day.
+
+Bars weigh each token by its model's public API price, each kind at its own
+rate, so an Opus token weighs more than a Haiku token. The tab shows shares,
+never money. A model WinCraft does not know is counted at the Sonnet price
+and says "Other model" in its tooltip. The rates are in
+`src/core/claude_usage/prices.rs`, with their source and date.
+
+The **Token bar** setting (under **On each row**, on by default) draws a
+thin bar at the bottom of each chat row: its share of the last 7 days, where
+the chat that used most fills the row.
+
+How it counts: WinCraft reads the chats' files on this PC
+(`%USERPROFILE%\.claude\projects\<folder>\<chat>.jsonl` and their
+subagents' files) on a low-priority thread of its own. It reads only what
+was added since the last pass, and only files changed in the last 8 days.
+The first pass reads every such file (on the creator's PC: 1,654 files,
+5.9 GB, about 9 s); the tab says "Counting… N of M files" meanwhile. Later
+passes take under a second. What it read is kept in
+`%LOCALAPPDATA%\WinCraft\plugins\claude_deck.usage.json`, so a restart
+does not read everything again. It reads once a minute, and only while
+ClaudeDeck's window shows and the **Stats** tab is open or **Token bar** is
+on. It never changes a chat's files.
+
+Limits: chats on the homelab servers are not counted, because their files
+are not on this PC. A chat ClaudeDeck does not list shows by its project
+folder, with "(not listed)". Times are this PC's local time.
 
 ## What ClaudeDeck never does
 

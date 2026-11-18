@@ -54,7 +54,7 @@ fn ctrl_tab(deck: &mut Deck, shift: bool) {
 }
 
 #[test]
-fn the_servers_tab_shows_its_problems_and_ctrl_tab_goes_round_three_tabs() {
+fn the_servers_tab_shows_its_problems_and_ctrl_tab_goes_round_four_tabs() {
     let mut deck = with_server("rdetab1");
     let painted = deck.settle();
     assert!(
@@ -86,9 +86,11 @@ fn the_servers_tab_shows_its_problems_and_ctrl_tab_goes_round_three_tabs() {
         assert!(painted.has(words), "{words}: {:?}", painted.texts);
     }
     ctrl_tab(&mut deck, false);
+    assert_eq!(deck.state.news.tab, Tab::Stats, "Stats is last");
+    ctrl_tab(&mut deck, false);
     assert_eq!(deck.state.news.tab, Tab::Chats, "round to the first");
     ctrl_tab(&mut deck, true);
-    assert_eq!(deck.state.news.tab, Tab::Servers, "Shift goes back");
+    assert_eq!(deck.state.news.tab, Tab::Stats, "Shift goes back");
 }
 
 #[test]
@@ -98,7 +100,12 @@ fn the_tab_is_gone_while_no_server_is_listed() {
     assert!(!painted.texts.iter().any(|t| t == view::TAB));
     ctrl_tab(&mut deck, false);
     ctrl_tab(&mut deck, false);
-    assert_eq!(deck.state.news.tab, Tab::Chats, "two tabs only");
+    ctrl_tab(&mut deck, false);
+    assert_eq!(
+        deck.state.news.tab,
+        Tab::Chats,
+        "Chats, News and Stats only"
+    );
     deck.state.news.tab = Tab::Servers;
     deck.settle();
     assert_eq!(deck.state.news.tab, Tab::Chats, "falls back to Chats");

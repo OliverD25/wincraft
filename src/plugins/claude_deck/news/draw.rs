@@ -17,6 +17,7 @@ use super::super::model::Line as ChatLine;
 use super::super::open_app::open_chat;
 use super::super::rows::Look;
 use super::super::servers;
+use super::super::stats;
 use super::super::window::{empty, DeckUi};
 use super::collect::Item;
 use super::groups::{self, BlockParts, Shown};
@@ -60,8 +61,10 @@ pub(in crate::plugins::claude_deck) fn body(
     if state.news.tab == Tab::Servers && !state.servers.is_on() {
         state.news.tab = Tab::Chats;
     }
+    state.stats.bar_on = look.settings.token_bar;
     match state.news.tab {
         Tab::News => show(&mut list_ui, look, state, to_host),
+        Tab::Stats => stats::draw::show(&mut list_ui, look, state, to_host),
         Tab::Servers => servers::tab::draw::show(&mut list_ui, look, state),
         Tab::Chats if !servers::draw::has_lines(lines, state) => {
             empty(&mut list_ui, look.tokens, !state.chats.is_empty());
@@ -120,6 +123,7 @@ fn tabs(ui: &mut Ui, strip: Rect, state: &mut DeckUi, tokens: &Tokens) {
             Tab::Chats => (view::CHATS, 0, tokens.accent),
             Tab::News => (view::NEWS, state.news.count, tokens.accent),
             Tab::Servers => (servers::tab::view::TAB, problems.len(), tokens.danger),
+            Tab::Stats => (stats::view::TAB, 0, tokens.accent),
         };
         let on = state.news.tab == tab;
         let (font, colour) = if on {

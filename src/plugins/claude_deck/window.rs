@@ -154,6 +154,8 @@ pub(super) struct DeckUi {
     pub(super) servers: Deck,
     /// The News tab.
     pub(super) news: news::NewsUi,
+    /// The Stats tab and the token bars.
+    pub(super) stats: super::stats::StatsUi,
 }
 
 pub struct DeckWindow {

@@ -38,6 +38,8 @@ pub(super) fn read(state: &mut DeckUi) {
     servers::busy::warn_pc(&mut state.chats, &state.servers.views());
     state.archived = data::archived(&state.chats);
     news::refresh(state, &sessions, now);
+    let stats_open = state.news.tab == news::Tab::Stats;
+    state.stats.tick(&sessions, stats_open);
     if state.written.is_none() {
         let (saved, writable) = store::load(&store::path()).start();
         state.written = Some(saved.clone());

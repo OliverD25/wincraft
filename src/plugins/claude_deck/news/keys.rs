@@ -1,6 +1,7 @@
 //! The keyboard on the tabs (design sections 13 and 14). Ctrl+Tab and
-//! Ctrl+Shift+Tab go round Chats, News and Servers (while a server is
-//! listed) on any tab; the Servers tab's own keys are in `servers::tab`. On News:
+//! Ctrl+Shift+Tab go round Chats, News, Servers (while a server is
+//! listed) and Stats on any tab; on Stats, Left and Right pick Today or
+//! 7 days; the Servers tab's own keys are in `servers::tab`. On News:
 //! Up and Down move over the group lines, the chats' block lines and the
 //! replies ("N earlier replies" is skipped), Home and End go to the first
 //! and the last, Esc gives the keyboard back. On a group line Right
@@ -66,15 +67,21 @@ pub(in crate::plugins::claude_deck) fn keys(
         Tab::News if busy => Asked::default(),
         Tab::News => news_keys(ui, state, to_host, now),
         Tab::Servers => crate::plugins::claude_deck::servers::tab::keys::keys(ui, state, busy),
+        Tab::Stats => {
+            if !busy {
+                crate::plugins::claude_deck::stats::keys(ui, &mut state.stats);
+            }
+            Asked::default()
+        }
     }
 }
 
 /// The tabs in their order: Servers only while a server is listed.
 pub fn tabs(servers_on: bool) -> &'static [Tab] {
     if servers_on {
-        &[Tab::Chats, Tab::News, Tab::Servers]
+        &[Tab::Chats, Tab::News, Tab::Servers, Tab::Stats]
     } else {
-        &[Tab::Chats, Tab::News]
+        &[Tab::Chats, Tab::News, Tab::Stats]
     }
 }
 
