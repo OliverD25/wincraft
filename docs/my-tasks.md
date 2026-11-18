@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 55. Test Quick access numbers from ClaudeDeck and Ctrl+W
 
-- **State:** Wait: deploy 0.20.135. The release is building.
+- **State:** Ready to test. 0.20.135 is released (checked 2026-11-18).
 - **Kind:** test · **Added:** 2026-11-18 (PC)
 - **Why:** Notion card "Quickswitch Mechanics" waits for it; only unit tests cover the menu, the number box and Ctrl+W.
 
@@ -29,7 +29,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 56. Look at the ClaudeDeck Stats tab and the token bars
 
-- **State:** Wait: deploy 0.20.135. The release is building.
+- **State:** Ready to test. 0.20.135 is released (checked 2026-11-18).
 - **Kind:** test · **Added:** 2026-11-18 (PC)
 - **Why:** Notion card "Stats Tab in ClaudeDeck" waits for it; nobody has seen the tab or the bars on screen yet.
 
