@@ -171,6 +171,17 @@ fn subagents_add_to_their_chat_and_to_its_subagent_share() {
         "Opus costs more"
     );
     assert_eq!(snapshot.week.models[0].model, "claude-opus-5-5");
+    let parts: Vec<&str> = chat.models.iter().map(|(m, _)| m.as_str()).collect();
+    assert_eq!(
+        parts,
+        ["claude-opus-5-5", "claude-sonnet-5-5"],
+        "biggest first"
+    );
+    let summed: f64 = chat.models.iter().map(|(_, w)| w).sum();
+    assert!(
+        (summed - chat.weight).abs() < 1e-9,
+        "the parts add up to the chat"
+    );
     // Nothing changed: the second pass reads nothing.
     let mut again = Vec::new();
     assert!(!pass(

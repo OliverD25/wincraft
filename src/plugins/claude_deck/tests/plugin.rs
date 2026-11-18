@@ -41,6 +41,7 @@ fn settings_read_with_defaults_for_what_is_missing() {
 /// settings file stayed, so a file saved before reads the same.
 #[test]
 fn a_settings_file_from_before_the_view_heading_reads_unchanged() {
+    use crate::plugins::claude_deck::token_mark::Style as TokenStyle;
     use crate::plugins::claude_deck::{MarkStyle, Settings};
     let old = Settings::read(&serde_json::json!({
         "status_mark": "Off",
@@ -52,7 +53,12 @@ fn a_settings_file_from_before_the_view_heading_reads_unchanged() {
         "show_token_bar": false,
     }));
     assert_eq!(old.mark, MarkStyle::Off);
-    assert!(!old.text && !old.time && !old.project && !old.jobs && old.model && !old.token_bar);
+    assert!(!old.text && !old.time && !old.project && !old.jobs && old.model);
+    assert_eq!(
+        old.token_mark,
+        TokenStyle::Off,
+        "a Token bar off reads as Off"
+    );
     assert!(old.quick_numbers, "the new setting starts on");
     let hidden = Settings::read(&serde_json::json!({ "show_quick_numbers": false }));
     assert!(!hidden.quick_numbers);
@@ -79,7 +85,8 @@ fn every_setting_of_the_design_page_is_there_and_mini_mode_is_not_one() {
             "Job count",
             "Model name",
             "Quick access numbers",
-            "Token bar",
+            "Token mark",
+            "Token mark counts",
             "Servers (ssh names)",
         ]
     );
@@ -103,7 +110,8 @@ fn the_row_fields_sit_under_view() {
                 | "show_jobs"
                 | "show_model"
                 | "show_quick_numbers"
-                | "show_token_bar"
+                | "token_mark"
+                | "token_mark_counts"
         );
         let group = match field.key {
             "servers" => Some("Homelab"),

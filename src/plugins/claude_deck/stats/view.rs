@@ -8,6 +8,8 @@ use crate::core::claude_usage::{self, ChatUse, Span, Tokens};
 use crate::plugins::claude_deck::model::Chat;
 use crate::plugins::claude_deck::store::Saved;
 
+use super::split::{self, Hue, Part};
+
 pub const TAB: &str = "Stats";
 pub const TODAY: &str = "Today";
 pub const WEEK: &str = "7 days";
@@ -101,19 +103,34 @@ pub fn folder_name(folder: &str) -> String {
         .to_string()
 }
 
-/// Each listed chat's bar length against the biggest chat of the span.
-pub fn shares(span: &Span, chat_of: &HashMap<String, String>) -> HashMap<String, f32> {
+/// Each listed chat's mark: its length against the biggest chat of the
+/// span, and its share of the span's weight.
+pub fn shares(span: &Span, chat_of: &HashMap<String, String>) -> HashMap<String, Share> {
     let most = span.chats.first().map_or(0.0, |c| c.weight);
-    if most <= 0.0 {
+    if most <= 0.0 || span.weight <= 0.0 {
         return HashMap::new();
     }
     span.chats
         .iter()
+        .filter(|c| c.weight > 0.0)
         .filter_map(|c| {
             let chat = chat_of.get(&c.session)?;
-            Some((chat.clone(), (c.weight / most) as f32))
+            let share = Share {
+                length: (c.weight / most) as f32,
+                percent: c.weight * 100.0 / span.weight,
+            };
+            Some((chat.clone(), share))
         })
         .collect()
+}
+
+/// A chat's token mark.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Share {
+    /// 0 to 1: the chat that used most is 1.
+    pub length: f32,
+    /// Its share of the span, 0 to 100.
+    pub percent: f64,
 }
 
 /// One bar on the tab.
@@ -122,11 +139,23 @@ pub struct Bar {
     pub name: String,
     /// The length, 0 to 1, against the biggest bar.
     pub length: f32,
-    /// "34%" of the span's weight.
+    /// "34%" of the span's weight; a chat's says its tokens first,
+    /// "41.2M tokens · 34%".
     pub share: String,
     pub tip: String,
     /// The ClaudeDeck chat a click opens, if it is listed.
     pub chat: Option<String>,
+    /// A chat's bar cut by model; empty for the other bars.
+    pub parts: Vec<Part>,
+}
+
+/// A chat's right text: "41.2M tokens · 31%".
+pub fn chat_share(chat: &ChatUse, span: &Span) -> String {
+    format!(
+        "{} tokens \u{b7} {}",
+        count(chat.tokens.total()),
+        percent(chat.weight, span.weight)
+    )
 }
 
 /// The tooltip of a chat: its raw tokens, subagent and cache shares, and
@@ -169,8 +198,13 @@ fn tokens_tip(t: &Tokens) -> String {
 }
 
 /// The top chats of a span, with their names from ClaudeDeck's list or,
-/// for a chat not listed, from its project folder.
-pub fn chat_bars(span: &Span, chats: &[Chat], chat_of: &HashMap<String, String>) -> Vec<Bar> {
+/// for a chat not listed, from its project folder, each bar cut by model.
+pub fn chat_bars(
+    span: &Span,
+    chats: &[Chat],
+    chat_of: &HashMap<String, String>,
+    hues: &[(String, Hue)],
+) -> Vec<Bar> {
     let most = span.chats.first().map_or(0.0, |c| c.weight);
     span.chats
         .iter()
@@ -183,16 +217,18 @@ pub fn chat_bars(span: &Span, chats: &[Chat], chat_of: &HashMap<String, String>)
                 || format!("{} (not listed)", folder_name(&c.folder)),
                 |chat| chat.title.clone(),
             );
+            let length = if most > 0.0 {
+                (c.weight / most) as f32
+            } else {
+                0.0
+            };
             Bar {
                 name,
-                length: if most > 0.0 {
-                    (c.weight / most) as f32
-                } else {
-                    0.0
-                },
-                share: percent(c.weight, span.weight),
+                length,
+                share: chat_share(c, span),
                 tip: chat_tip(c),
                 chat: chat.map(|chat| chat.id.clone()),
+                parts: split::parts(c, length, hues),
             }
         })
         .collect()
@@ -246,6 +282,7 @@ pub fn group_bars(
             tip: tokens_tip(&tokens),
             name,
             chat: None,
+            parts: Vec::new(),
         })
         .collect()
 }
@@ -270,6 +307,7 @@ pub fn model_bars(span: &Span) -> Vec<Bar> {
                 share: percent(m.weight, span.weight),
                 tip,
                 chat: None,
+                parts: Vec::new(),
             }
         })
         .collect()

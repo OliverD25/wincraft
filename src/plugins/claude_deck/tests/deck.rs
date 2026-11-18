@@ -174,6 +174,7 @@ fn window_frame(
     let lines = Arc::clone(&state.cache.lines);
     let counts = state.cache.counts.clone();
     let turn = window::ring_turn(state);
+    let shares = std::sync::Arc::clone(&state.stats.rows);
     let menu_was_open = egui::Popup::is_any_open(ui.ctx());
     let mut hit = None;
     egui::CentralPanel::default()
@@ -185,6 +186,7 @@ fn window_frame(
                 settings,
                 now: NOW,
                 turn,
+                shares: &shares,
             };
             if settings.mini {
                 if mini::show(ui, &lines, &look, state, &bridge.to_host) {

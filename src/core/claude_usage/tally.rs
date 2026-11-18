@@ -23,6 +23,8 @@ pub struct ChatUse {
     pub context: Option<u64>,
     /// Some tokens are of a model the price table does not know.
     pub other_model: bool,
+    /// The chat's weight per model id, subagents in it, biggest first.
+    pub models: Vec<(String, f64)>,
 }
 
 /// One model's use in a span.
@@ -75,6 +77,10 @@ pub fn span<'a>(files: impl Iterator<Item = &'a FileState>, first: i32, last: i3
             chat.tokens.add(&bucket.tokens);
             chat.weight += weight;
             chat.other_model |= !known;
+            match chat.models.iter_mut().find(|(m, _)| *m == bucket.model) {
+                Some(part) => part.1 += weight,
+                None => chat.models.push((bucket.model.clone(), weight)),
+            }
             if file.subagent {
                 chat.subagent_tokens.add(&bucket.tokens);
                 chat.subagent_weight += weight;
@@ -100,6 +106,10 @@ pub fn span<'a>(files: impl Iterator<Item = &'a FileState>, first: i32, last: i3
         .into_values()
         .filter(|c| c.tokens.total() > 0)
         .collect();
+    for chat in &mut out.chats {
+        chat.models
+            .sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    }
     out.chats.sort_by(|a, b| {
         b.weight
             .total_cmp(&a.weight)

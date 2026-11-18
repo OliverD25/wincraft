@@ -142,6 +142,9 @@ How WinCraft tells each status:
   tray (no taskbar button)** on it hides ClaudeDeck to the tray; with it off
   it minimises the window. It works on every tab and in mini mode. While a
   rename, a drag or a menu is open it does nothing.
+- `Ctrl+B` turns the token mark off, and on again in the style it had.
+  `Ctrl+Shift+B` switches it between today and the last 7 days. Both work
+  on every tab and in mini mode, but not while you rename.
 - `Ctrl+M` switches mini mode. The hotkey command **ClaudeDeck mini mode**
   does the same from anywhere; it has no keys until you set some in
   Settings → Hotkeys.
@@ -339,7 +342,10 @@ a job's command line as the server reports it.
   settings stayed): **Status mark**, **A line of text (the question, or
   what it does)**, **Time in the status**, **Project and branch**, **Job
   count**, **Model name**, **Quick access numbers** (the number box on a
-  chat's row), **Token bar**.
+  chat's row), **Token mark** (**Line**, **Fill**, **Signal bars** or
+  **Off**; it was the on/off **Token bar**, and a saved Token bar on
+  reads as Line, off as Off), **Token mark counts** (**Today** or **The
+  last 7 days**).
 
 ## Stats
 
@@ -347,8 +353,12 @@ The **Stats** tab (the last tab; `Ctrl+Tab` reaches it) shows how many
 tokens your Claude Code chats used. **Today** and **7 days** pick the time
 (`Left` and `Right` do the same). Under them:
 
-- **Top chats**: the 10 chats that used most, as bars. A chat's subagents
-  count for it. Rest the mouse on a bar for the raw counts (input, output,
+- **Top chats**: the 10 chats that used most, as bars, with each chat's
+  tokens and share at the right ("41.2M tokens · 31%"). Each bar is cut
+  into its models, in the colours of **Models** (Opus in the accent colour,
+  Sonnet green, Haiku amber, other models the next free colour), and one
+  line under the list names them. So you see why a chat is big: many
+  tokens, or an expensive model. A chat's subagents count for it. Rest the mouse on a bar for the raw counts (input, output,
   cache read, cache write), the subagents' share, the cache read share and
   the chat's context now (its last reply's input and cache). A click opens
   the chat, as on the **Chats** tab.
@@ -364,9 +374,23 @@ never money. A model WinCraft does not know is counted at the Sonnet price
 and says "Other model" in its tooltip. The rates are in
 `src/core/claude_usage/prices.rs`, with their source and date.
 
-The **Token bar** setting (under **View**, on by default) draws a
-thin bar at the bottom of each chat row: its share of the last 7 days, where
-the chat that used most fills the row.
+The **Token mark** setting (under **View**) shows each chat's share on its
+row, where the chat that used most fills the row:
+
+- **Line** (the default): a thin line at the bottom of the row.
+- **Fill**: the row's background fills in grey from the left.
+- **Signal bars**: four small bars at the row's left edge, before the
+  status mark; 1 is lit under 6%, 2 under 12%, 3 under 25%, 4 from 25%.
+- **Off**: no mark.
+
+**Token mark counts** picks the tokens: **The last 7 days** (the default)
+or **Today**. With Today, a chat that used no tokens today shows no mark.
+Resting the mouse on a chat says which: "12% of the last 7 days" or "12% of
+today". In the window, `Ctrl+B` turns the mark off and on again in the style
+it had, and `Ctrl+Shift+B` switches between today and the last 7 days; the
+palette has **ClaudeDeck: Token mark on or off** and **ClaudeDeck: Token
+mark, today or 7 days**. The gear's **View** submenu has the same choices.
+Mini mode shows no mark.
 
 How it counts: WinCraft reads the chats' files on this PC
 (`%USERPROFILE%\.claude\projects\<folder>\<chat>.jsonl` and their
@@ -377,7 +401,7 @@ The first pass reads every such file (on the creator's PC: 1,654 files,
 passes take under a second. What it read is kept in
 `%LOCALAPPDATA%\WinCraft\plugins\claude_deck.usage.json`, so a restart
 does not read everything again. It reads once a minute, and only while
-ClaudeDeck's window shows and the **Stats** tab is open or **Token bar** is
+ClaudeDeck's window shows and the **Stats** tab is open or **Token mark** is
 on. It never changes a chat's files.
 
 Limits: chats on the homelab servers are not counted, because their files

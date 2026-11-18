@@ -1,6 +1,7 @@
 //! The hover panel (design section 8): resting the mouse on a chat shows
 //! its full name, status and time, its project and branch, how full its
-//! context is (design section 15), the full
+//! context is (design section 15), its share of the tokens while the
+//! token mark is on ("12% of the last 7 days", design section 16), the full
 //! question or last result, and "No open window" when a click would do
 //! nothing. Painted on the tooltip layer, inside ClaudeDeck's window.
 
@@ -75,6 +76,7 @@ pub struct Panel {
     head: Arc<Galley>,
     place: Arc<Galley>,
     context: Arc<Galley>,
+    token: Option<Arc<Galley>>,
     body: Option<Arc<Galley>>,
     no_window: Option<Arc<Galley>>,
     pub size: egui::Vec2,
@@ -105,6 +107,8 @@ pub fn layout(painter: &Painter, chat: &Chat, look: &Look, width: f32) -> Panel 
         tokens.text_secondary,
         inner - context::SIZE - GAP,
     );
+    let token = super::token_mark::tip_line(look, &chat.id)
+        .map(|words| wrapped(painter, &words, HEAD_SIZE, tokens.text_secondary, inner));
     let body = chat
         .full
         .as_deref()
@@ -115,13 +119,14 @@ pub fn layout(painter: &Painter, chat: &Chat, look: &Look, width: f32) -> Panel 
         .then(|| wrapped(painter, NO_WINDOW, HEAD_SIZE, tokens.text_disabled, inner));
     let mut height = PAD_Y * 2.0 + head.size().y.max(marks::SIZE) + GAP + place.size().y;
     height += GAP + context.size().y.max(context::SIZE);
-    for part in body.iter().chain(no_window.iter()) {
+    for part in token.iter().chain(body.iter()).chain(no_window.iter()) {
         height += GAP + part.size().y;
     }
     Panel {
         head,
         place,
         context,
+        token,
         body,
         no_window,
         size: vec2(width, height),
@@ -164,6 +169,7 @@ pub fn paint(painter: &Painter, rect: Rect, radius: u8, panel: Panel, chat: &Cha
         head,
         place,
         context,
+        token,
         body,
         no_window,
         ..
@@ -203,7 +209,7 @@ pub fn paint(painter: &Painter, rect: Rect, radius: u8, panel: Panel, chat: &Cha
         Color32::PLACEHOLDER,
     );
     y += context_height;
-    for part in body.into_iter().chain(no_window) {
+    for part in token.into_iter().chain(body).chain(no_window) {
         y += GAP;
         let part_height = part.size().y;
         painter.galley(pos2(x, y), part, Color32::PLACEHOLDER);

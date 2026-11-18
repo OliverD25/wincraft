@@ -90,10 +90,21 @@ pub(super) fn fields() -> Vec<SettingField> {
             kind: FieldKind::Toggle,
         },
         SettingField {
-            key: TOKEN_BAR_KEY,
-            label: "Token bar",
-            help: "A thin bar under each chat: its share of the tokens of the last 7 days, weighed by model price. The chat that used most fills the row. WinCraft reads the chats' files on this PC once a minute while ClaudeDeck is open. The Stats tab shows the numbers.",
-            kind: FieldKind::Toggle,
+            key: token_mark::KEY,
+            label: token_mark::LABEL,
+            help: "Each chat's share of the tokens, weighed by model price: a thin line under the row, a grey fill behind it, or four small bars before the status mark. The chat that used most fills the row. Ctrl+B in ClaudeDeck turns it off and on. WinCraft reads the chats' files on this PC once a minute while ClaudeDeck is open. The Stats tab shows the numbers.",
+            kind: FieldKind::Choice(&[
+                token_mark::LINE,
+                token_mark::FILL,
+                token_mark::SIGNAL,
+                token_mark::OFF,
+            ]),
+        },
+        SettingField {
+            key: token_mark::COUNTS_KEY,
+            label: token_mark::COUNTS_LABEL,
+            help: "Which tokens the mark shows a share of. With Today, a chat that used none today shows no mark. Ctrl+Shift+B in ClaudeDeck switches the two.",
+            kind: FieldKind::Choice(&[token_mark::TODAY, token_mark::WEEK]),
         },
         SettingField {
             key: SERVERS_KEY,
@@ -106,8 +117,15 @@ pub(super) fn fields() -> Vec<SettingField> {
 
 pub(super) fn group(key: &str) -> Option<&'static str> {
     match key {
-        MARK_KEY | TEXT_KEY | TIME_KEY | PROJECT_KEY | JOBS_KEY | MODEL_KEY | QUICK_NUMBERS_KEY
-        | TOKEN_BAR_KEY => Some(VIEW_GROUP),
+        MARK_KEY
+        | TEXT_KEY
+        | TIME_KEY
+        | PROJECT_KEY
+        | JOBS_KEY
+        | MODEL_KEY
+        | QUICK_NUMBERS_KEY
+        | token_mark::KEY
+        | token_mark::COUNTS_KEY => Some(VIEW_GROUP),
         SERVERS_KEY => Some("Homelab"),
         hook_link::KEY => Some(hook_link::GROUP),
         _ => None,

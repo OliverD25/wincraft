@@ -4,7 +4,8 @@
 //! the mini mode's menu window is too small for that, so there the items
 //! open below the **View** row. A click or `Enter` changes a setting and
 //! saves it; the menu stays open. When the keyboard opens the submenu, its
-//! first item takes the keyboard.
+//! first item takes the keyboard. Its last part is the token mark: on or
+//! off (`Ctrl+B`), its three styles, and what it counts.
 
 use egui::containers::menu::{MenuConfig, SubMenuButton};
 use egui::{Id, PopupCloseBehavior, Ui};
@@ -13,6 +14,7 @@ use serde_json::Value;
 use crate::core::ui_bridge::{HostChannel, HostRequest};
 
 use super::quick::{Pick, Toggle};
+use super::token_mark::{self, Counts, Style};
 use super::{MarkStyle, Settings, ID};
 
 pub const VIEW: &str = "View";
@@ -27,7 +29,7 @@ pub const MARKS: [(&str, MarkStyle); 3] = [
 ];
 
 /// The on/off row settings, in the Settings page's order.
-pub const TOGGLES: [Toggle; 7] = [
+pub const TOGGLES: [Toggle; 6] = [
     Toggle {
         label: "A line of text (the question, or what it does)",
         key: super::TEXT_KEY,
@@ -63,12 +65,6 @@ pub const TOGGLES: [Toggle; 7] = [
         key: super::QUICK_NUMBERS_KEY,
         get: |s| s.quick_numbers,
         set: |s, on| s.quick_numbers = on,
-    },
-    Toggle {
-        label: "Token bar",
-        key: super::TOKEN_BAR_KEY,
-        get: |s| s.token_bar,
-        set: |s, on| s.token_bar = on,
     },
 ];
 
@@ -133,6 +129,39 @@ fn items(ui: &mut Ui, settings: &Settings) -> Option<Pick> {
             picked = Some(Pick::View(at));
         }
     }
+    token_items(ui, settings).or(picked)
+}
+
+/// **Token mark** with its keys, the three styles under it, a line, and
+/// the two counts with the note on `Ctrl+Shift+B`.
+fn token_items(ui: &mut Ui, settings: &Settings) -> Option<Pick> {
+    let mut picked = None;
+    let mut on = settings.token_mark != Style::Off;
+    let label = (
+        token_mark::LABEL,
+        egui::Atom::grow(),
+        egui::RichText::new(token_mark::ON_OFF_KEYS).weak(),
+    );
+    if ui.add(egui::Checkbox::new(&mut on, label)).clicked() {
+        picked = Some(Pick::TokenFlip);
+    }
+    ui.indent("claude-deck-token-styles", |ui| {
+        for (label, style) in token_mark::STYLES {
+            if ui.radio(settings.token_mark == style, label).clicked() {
+                picked = Some(Pick::TokenStyle(style));
+            }
+        }
+    });
+    ui.separator();
+    for (label, counts) in [
+        (token_mark::COUNT_TODAY, Counts::Today),
+        (token_mark::COUNT_WEEK, Counts::Week),
+    ] {
+        if ui.radio(settings.token_counts == counts, label).clicked() {
+            picked = Some(Pick::TokenCounts(counts));
+        }
+    }
+    ui.weak(token_mark::SWITCH_NOTE);
     picked
 }
 
@@ -155,13 +184,25 @@ pub fn apply(settings: &mut Settings, pick: Pick, to_host: &HostChannel) -> bool
             (toggle.set)(settings, on);
             (toggle.key, Value::Bool(on))
         }
+        Pick::TokenFlip => return save(token_mark::flip(settings), to_host),
+        Pick::TokenStyle(style) => return save(token_mark::set_style(settings, style), to_host),
+        Pick::TokenCounts(counts) => {
+            return save(token_mark::set_counts(settings, counts), to_host)
+        }
         Pick::Flip(_) | Pick::All => return false,
     };
-    to_host.send(HostRequest::SetSetting {
-        plugin: ID.to_string(),
-        key: key.to_string(),
-        value,
-    });
+    save(vec![(key, value)], to_host)
+}
+
+/// Sends each change to the host, which saves it.
+pub fn save(saves: token_mark::Saves, to_host: &HostChannel) -> bool {
+    for (key, value) in saves {
+        to_host.send(HostRequest::SetSetting {
+            plugin: ID.to_string(),
+            key: key.to_string(),
+            value,
+        });
+    }
     true
 }
 
@@ -181,6 +222,7 @@ mod tests {
             .collect();
         let mut menu = vec![MARK];
         menu.extend(TOGGLES.iter().map(|toggle| toggle.label));
+        menu.extend([token_mark::LABEL, token_mark::COUNTS_LABEL]);
         assert_eq!(view, menu);
         for toggle in &TOGGLES {
             let field = fields.iter().find(|field| field.key == toggle.key);

@@ -5,6 +5,7 @@
 //! window, Alt+Up and Alt+Down move the picked chat or group,
 //! F2 renames the picked group, Ctrl+C copies the picked chat's name, and
 //! the Menu key or Shift+F10 opens its menu. Ctrl+M switches mini mode,
+//! Ctrl+B and Ctrl+Shift+B change the token mark (`token_mark`),
 //! Ctrl+, opens the quick settings, and
 //! Esc gives the keyboard back to the window that had it before the hotkey.
 //! The arrow keys also reach the server lines and rows after the PC chats;

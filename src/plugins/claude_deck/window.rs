@@ -45,6 +45,7 @@ use super::servers::Deck;
 use super::status::Seen;
 use super::store::{self, Saved};
 use super::taskbar;
+use super::token_mark;
 use super::tray_home::{self, rules::hides};
 use super::{Handle, ID, MINI_KEY, ONLY_OPEN_KEY, STAY_ON_TOP_KEY};
 
@@ -299,6 +300,7 @@ impl PluginWindow for DeckWindow {
             keep_min_size(ui.ctx(), &mut state, settings.mini);
             switch_mode(ui.ctx(), &mut state, settings.mini, &lines);
             let turn = ring_turn(&state);
+            let shares = Arc::clone(&state.stats.rows);
             let menu_was_open = egui::Popup::is_any_open(ui.ctx());
             let mut clicked = None;
             egui::CentralPanel::default()
@@ -310,6 +312,7 @@ impl PluginWindow for DeckWindow {
                         settings: &settings,
                         now,
                         turn,
+                        shares: &shares,
                     };
                     if settings.mini {
                         if mini::show(ui, &lines, &look, &mut state, &to_host) {
@@ -347,6 +350,8 @@ impl PluginWindow for DeckWindow {
             if let Some(pick) = quick::show(ui, &mut state, &settings, &tokens) {
                 clicked = quick::apply(&mut shared.settings, pick, &to_host).or(clicked);
             }
+            let typing = state.renaming.is_some();
+            token_mark::window_keys(ui.ctx(), typing, &mut shared.settings, &to_host);
             commit(&mut state);
             shared.picked = picked_chat(&lines, &state);
             match clicked {

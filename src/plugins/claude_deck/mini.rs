@@ -305,6 +305,7 @@ fn panel(ctx: &egui::Context, cell: Rect, chat: &Chat, look: &Look, reveal: &mut
             settings: &settings,
             now,
             turn,
+            shares: &Default::default(),
         };
         let rect = ui.ctx().content_rect();
         let painter = ui.painter().clone();

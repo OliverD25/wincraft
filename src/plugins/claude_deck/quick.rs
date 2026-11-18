@@ -82,6 +82,10 @@ pub enum Pick {
     /// A row of the View submenu's on/off settings.
     View(usize),
     Mark(super::MarkStyle),
+    /// The View submenu's **Token mark** row: on or off.
+    TokenFlip,
+    TokenStyle(super::token_mark::Style),
+    TokenCounts(super::token_mark::Counts),
     All,
 }
 
@@ -267,7 +271,11 @@ pub fn apply(settings: &mut Settings, pick: Pick, to_host: &HostChannel) -> Opti
             return None;
         }
         Pick::Flip(at) => TOGGLES.get(at)?,
-        Pick::View(_) | Pick::Mark(_) => {
+        Pick::View(_)
+        | Pick::Mark(_)
+        | Pick::TokenFlip
+        | Pick::TokenStyle(_)
+        | Pick::TokenCounts(_) => {
             quick_view::apply(settings, pick, to_host);
             return None;
         }

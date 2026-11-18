@@ -45,6 +45,7 @@ mod stats;
 mod status;
 mod store;
 mod taskbar;
+mod token_mark;
 mod tray_home;
 mod tree;
 mod window;
@@ -74,6 +75,7 @@ const COMMAND_TERMINAL: u32 = 1;
 const COMMAND_QUICK: u32 = 2;
 /// The palette command that shows the picked chat in the Claude app.
 const COMMAND_SHOW: u32 = 3;
+// The token mark's palette commands are 4 and 5 (`token_mark`).
 /// The `host::post_to_plugins` id the window sends when the tray count
 /// changed.
 pub(crate) const TRAY_POST_ID: usize = 0xC1A0_DEC0;
@@ -86,7 +88,6 @@ const TIME_KEY: &str = "show_time";
 const PROJECT_KEY: &str = "show_project";
 const JOBS_KEY: &str = "show_jobs";
 const MODEL_KEY: &str = "show_model";
-const TOKEN_BAR_KEY: &str = "show_token_bar";
 const QUICK_NUMBERS_KEY: &str = "show_quick_numbers";
 const TEXT_KEY: &str = "show_text";
 const FADE_KEY: &str = "fade_when_away";
@@ -126,8 +127,12 @@ pub struct Settings {
     pub project: bool,
     pub jobs: bool,
     pub model: bool,
-    /// The thin bar under a chat row: its share of the week's tokens.
-    pub token_bar: bool,
+    /// How a chat row shows its share of the tokens.
+    pub token_mark: token_mark::Style,
+    /// The style `Ctrl+B` turns the mark back on to; never Off.
+    pub token_last: token_mark::Style,
+    /// Whether the share is of today's tokens or the last 7 days'.
+    pub token_counts: token_mark::Counts,
     /// The box with the chat's Quick access number on its row.
     pub quick_numbers: bool,
     /// The line of text under the name.
@@ -153,7 +158,9 @@ impl Default for Settings {
             project: true,
             jobs: true,
             model: false,
-            token_bar: true,
+            token_mark: token_mark::Style::Line,
+            token_last: token_mark::Style::Line,
+            token_counts: token_mark::Counts::Week,
             quick_numbers: true,
             text: true,
             fade: true,
@@ -179,6 +186,7 @@ impl Settings {
             Some(MARK_OFF) => MarkStyle::Off,
             _ => MarkStyle::Shapes,
         };
+        let (token_mark, token_last, token_counts) = token_mark::read(settings);
         Settings {
             stay_on_top: flag(STAY_ON_TOP_KEY, defaults.stay_on_top),
             only_open: flag(ONLY_OPEN_KEY, defaults.only_open),
@@ -188,7 +196,9 @@ impl Settings {
             project: flag(PROJECT_KEY, defaults.project),
             jobs: flag(JOBS_KEY, defaults.jobs),
             model: flag(MODEL_KEY, defaults.model),
-            token_bar: flag(TOKEN_BAR_KEY, defaults.token_bar),
+            token_mark,
+            token_last,
+            token_counts,
             quick_numbers: flag(QUICK_NUMBERS_KEY, defaults.quick_numbers),
             text: flag(TEXT_KEY, defaults.text),
             fade: flag(FADE_KEY, defaults.fade),
@@ -256,7 +266,15 @@ impl ClaudeDeck {
 
     fn apply(&mut self, settings: &Value) {
         if let Ok(mut shared) = self.shared.lock() {
-            shared.settings = Settings::read(settings);
+            let mut fresh = Settings::read(settings);
+            if let Some(last) = token_mark::keep_last(&shared.settings, &mut fresh) {
+                host::save_setting(
+                    ID,
+                    token_mark::LAST_KEY,
+                    token_mark::style_word(last).into(),
+                );
+            }
+            shared.settings = fresh;
         }
         self.tray_settings_changed();
     }
@@ -316,7 +334,8 @@ impl WinCraftPlugin for ClaudeDeck {
             PROJECT_KEY: true,
             JOBS_KEY: true,
             MODEL_KEY: false,
-            TOKEN_BAR_KEY: true,
+            token_mark::KEY: token_mark::LINE,
+            token_mark::COUNTS_KEY: token_mark::WEEK,
             QUICK_NUMBERS_KEY: true,
             TEXT_KEY: true,
             FADE_KEY: true,
@@ -328,6 +347,10 @@ impl WinCraftPlugin for ClaudeDeck {
 
     fn settings_fields(&self) -> Vec<SettingField> {
         fields::fields()
+    }
+
+    fn migrate_settings(&self, settings: &mut Value) {
+        token_mark::migrate(settings);
     }
 
     fn settings_group(&self, key: &str) -> Option<&'static str> {
@@ -476,10 +499,16 @@ impl WinCraftPlugin for ClaudeDeck {
                 list: false,
                 toggle: None,
             },
+            token_mark::command(token_mark::Asked::Flip),
+            token_mark::command(token_mark::Asked::Counts),
         ]
     }
 
     fn on_palette_command(&mut self, id: u32) {
+        if let Some(asked) = token_mark::asked_by(id) {
+            token_mark::run(&self.shared, asked);
+            return;
+        }
         if id == COMMAND_SHOW {
             let picked = self.shared.lock().ok().and_then(|s| s.picked.clone());
             match picked {

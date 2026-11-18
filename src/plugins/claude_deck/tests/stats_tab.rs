@@ -1,4 +1,4 @@
-//! The Stats tab and the token bar, drawn from a summary set by hand: the
+//! The Stats tab and the token mark, drawn from a summary set by hand: the
 //! tests never read the user's transcripts.
 
 use egui::Key;
@@ -8,6 +8,7 @@ use crate::core::claude_usage::tally::ModelUse;
 use crate::core::claude_usage::{ChatUse, Progress, Snapshot, Span, Tokens};
 use crate::plugins::claude_deck::news::Tab;
 use crate::plugins::claude_deck::stats::{view, Spans};
+use crate::plugins::claude_deck::token_mark::{Counts, Style};
 use crate::plugins::claude_deck::Settings;
 
 fn week() -> Span {
@@ -23,6 +24,7 @@ fn week() -> Span {
         folder: "E--b--Beta".into(),
         tokens,
         weight,
+        models: vec![("claude-opus-5-5".into(), weight)],
         ..ChatUse::default()
     };
     Span {
@@ -66,7 +68,7 @@ fn the_stats_tab_shows_the_top_chats_models_days_and_hours() {
         view::NOTE,
         view::CHATS,
         "Chat b1",
-        "67%",
+        "93k tokens \u{b7} 67%",
         view::GROUPS,
         view::DAYS,
         "Mon",
@@ -103,17 +105,47 @@ fn the_first_pass_shows_how_far_it_counted() {
 }
 
 #[test]
-fn the_token_bar_draws_under_the_chats_that_used_tokens() {
-    let shapes = |token_bar: bool| {
+fn each_token_mark_draws_on_the_chats_that_used_tokens() {
+    let shapes = |token_mark: Style, token_counts: Counts| {
         let settings = Settings {
-            token_bar,
+            token_mark,
+            token_counts,
             ..Settings::default()
         };
         deck_with_stats(settings, None).settle().shapes
     };
+    let off = shapes(Style::Off, Counts::Week);
     assert_eq!(
-        shapes(true),
-        shapes(false) + 2,
-        "one bar for each of two chats"
+        shapes(Style::Line, Counts::Week),
+        off + 2,
+        "a line for each of two chats"
+    );
+    assert_eq!(
+        shapes(Style::Fill, Counts::Week),
+        off + 2,
+        "a fill for each"
+    );
+    assert_eq!(
+        shapes(Style::Signal, Counts::Week),
+        off + 8,
+        "four bars for each"
+    );
+    assert_eq!(
+        shapes(Style::Line, Counts::Today),
+        off,
+        "no tokens today: no mark"
+    );
+    let mini = Settings {
+        mini: true,
+        ..Settings::default()
+    };
+    let mini_off = Settings {
+        token_mark: Style::Off,
+        ..mini.clone()
+    };
+    assert_eq!(
+        deck_with_stats(mini, None).settle().shapes,
+        deck_with_stats(mini_off, None).settle().shapes,
+        "mini mode shows no mark"
     );
 }

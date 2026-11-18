@@ -16,6 +16,7 @@ use crate::plugins::claude_deck::rows::Look;
 use crate::plugins::claude_deck::window::DeckUi;
 use crate::ui::widgets::text;
 
+use super::split::{self, Hue};
 use super::view::{self, Bar};
 use super::Spans;
 
@@ -77,7 +78,8 @@ pub fn show(ui: &mut Ui, look: &Look, state: &mut DeckUi, to_host: &HostChannel)
             }
             message(ui, view::NOTE, tokens);
             title(ui, view::CHATS, tokens);
-            let chats = view::chat_bars(span, &state.chats, &state.stats.chat_of);
+            let hues = split::hues(span);
+            let chats = view::chat_bars(span, &state.chats, &state.stats.chat_of, &hues);
             for bar in &chats {
                 if bar_row(ui, bar, tokens) {
                     if let Some(chat) = bar
@@ -89,6 +91,8 @@ pub fn show(ui: &mut Ui, look: &Look, state: &mut DeckUi, to_host: &HostChannel)
                     }
                 }
             }
+            let listed: Vec<_> = span.chats.iter().take(view::TOP).collect();
+            legend(ui, &split::legend(&listed, &hues), tokens);
             title(ui, view::GROUPS, tokens);
             for bar in view::group_bars(span, &state.chats, &state.stats.chat_of, &state.saved) {
                 bar_row(ui, &bar, tokens);
@@ -111,7 +115,7 @@ pub fn show(ui: &mut Ui, look: &Look, state: &mut DeckUi, to_host: &HostChannel)
                 );
             }
             title(ui, view::MODELS, tokens);
-            models(ui, &view::model_bars(span), tokens);
+            models(ui, &view::model_bars(span), &hues, tokens);
             title(ui, view::HOURS, tokens);
             let labels: Vec<String> = (0..24)
                 .map(|h| {
@@ -255,7 +259,23 @@ fn bar_row(ui: &mut Ui, bar: &Bar, tokens: &Tokens) -> bool {
             BAR_H,
         ),
     );
-    painter.rect_filled(fill, BAR_H / 2.0, tokens.accent);
+    if bar.parts.is_empty() {
+        painter.rect_filled(fill, BAR_H / 2.0, tokens.accent);
+    } else {
+        // The pieces sit inside the rounded fill, so its ends stay round.
+        let painter = painter.with_clip_rect(fill);
+        let mut x = track.left();
+        for part in &bar.parts {
+            let w = track.width() * part.length.clamp(0.0, 1.0);
+            let piece = Rect::from_min_size(pos2(x, track.top()), vec2(w, BAR_H));
+            painter.rect_filled(piece, 0.0, colour(part.hue, tokens));
+            x += w;
+        }
+        let rest = Rect::from_min_max(pos2(x, track.top()), fill.max);
+        if let Some(last) = bar.parts.last().filter(|_| rest.width() > 0.0) {
+            painter.rect_filled(rest, 0.0, colour(last.hue, tokens));
+        }
+    }
     let clicked = response.clicked();
     response.on_hover_text(&bar.tip);
     clicked
@@ -315,20 +335,51 @@ fn columns(
     }
 }
 
-/// The colours of the stacked models bar, in order.
-fn model_colour(at: usize, tokens: &Tokens) -> Color32 {
-    let colours = [
-        tokens.accent,
-        tokens.success,
-        tokens.warning,
-        tokens.info,
-        tokens.danger,
-    ];
-    colours.get(at).copied().unwrap_or(tokens.text_secondary)
+/// A model's colour on the tab.
+fn colour(hue: Hue, tokens: &Tokens) -> Color32 {
+    match hue {
+        Hue::Accent => tokens.accent,
+        Hue::Success => tokens.success,
+        Hue::Warning => tokens.warning,
+        Hue::Info => tokens.info,
+        Hue::Danger => tokens.danger,
+        Hue::Grey => tokens.text_secondary,
+    }
+}
+
+fn model_colour(at: usize, hues: &[(String, Hue)], tokens: &Tokens) -> Color32 {
+    colour(hues.get(at).map_or(Hue::Grey, |(_, h)| *h), tokens)
+}
+
+/// One line under the Top chats: a dot and a name for each model.
+fn legend(ui: &mut Ui, items: &[(String, Hue)], tokens: &Tokens) {
+    if items.is_empty() {
+        return;
+    }
+    let width = ui.available_width();
+    let (row, _) = ui.allocate_exact_size(vec2(width, LEGEND_ROW), Sense::hover());
+    let painter = ui.painter_at(row);
+    let middle = row.center().y;
+    let mut x = row.left() + PAD;
+    for (name, hue) in items {
+        let galley = one_line(
+            &painter,
+            name,
+            SMALL,
+            tokens.text_primary,
+            row.right() - PAD - x - DOT - 6.0,
+        );
+        if x + DOT + 6.0 + galley.size().x > row.right() - PAD {
+            break;
+        }
+        painter.circle_filled(pos2(x + DOT / 2.0, middle), DOT / 2.0, colour(*hue, tokens));
+        let h = galley.size().y;
+        x += DOT + 6.0 + put(&painter, pos2(x + DOT + 6.0, middle - h / 2.0), galley) + 12.0;
+    }
 }
 
 /// One bar cut by model, and a line for each model under it.
-fn models(ui: &mut Ui, bars: &[Bar], tokens: &Tokens) {
+fn models(ui: &mut Ui, bars: &[Bar], hues: &[(String, Hue)], tokens: &Tokens) {
     let width = ui.available_width();
     let (area, _) = ui.allocate_exact_size(vec2(width, STACK_H + 6.0), Sense::hover());
     let painter = ui.painter_at(area);
@@ -341,7 +392,7 @@ fn models(ui: &mut Ui, bars: &[Bar], tokens: &Tokens) {
     for (at, bar) in bars.iter().enumerate() {
         let w = track.width() * bar.length.clamp(0.0, 1.0);
         let part = Rect::from_min_size(pos2(x, track.top()), vec2(w, STACK_H));
-        painter.rect_filled(part, 0.0, model_colour(at, tokens));
+        painter.rect_filled(part, 0.0, model_colour(at, hues, tokens));
         x += w;
     }
     for (at, bar) in bars.iter().enumerate() {
@@ -351,7 +402,7 @@ fn models(ui: &mut Ui, bars: &[Bar], tokens: &Tokens) {
         painter.circle_filled(
             pos2(row.left() + PAD + DOT / 2.0, middle),
             DOT / 2.0,
-            model_colour(at, tokens),
+            model_colour(at, hues, tokens),
         );
         let share = painter.layout_job(text::job(
             &bar.share,

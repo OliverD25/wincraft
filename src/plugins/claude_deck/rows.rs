@@ -18,7 +18,9 @@ use super::labels::{
 };
 use super::marks;
 use super::model::{ChatLine, ColdLine, Fold, GroupLine, HiddenLine, Line, Mark};
+use super::stats::{bar, RowShares};
 use super::store::Colour;
+use super::token_mark;
 use super::{MarkStyle, Settings};
 
 pub const ROW: f32 = 22.0;
@@ -60,6 +62,8 @@ pub struct Look<'a> {
     pub now: u64,
     /// Where the Working ring has got to, 0 to 1.
     pub turn: f32,
+    /// Each chat's token mark.
+    pub shares: &'a RowShares,
 }
 
 /// The height a line takes, its gap above included. `two` is the setting
@@ -179,6 +183,8 @@ pub fn chat(
     } else if hovered {
         painter.rect_filled(row, 0.0, tokens.hover_bg);
     }
+    let token = token_mark::share_of(look, line);
+    bar::under(painter, row, settings.token_mark, token, tokens);
     let mut painter = painter.clone();
     if line.stand_in || line.hidden {
         painter.multiply_opacity(STAND_IN_OPACITY);
@@ -241,6 +247,15 @@ pub fn chat(
             );
         }
     }
+    let mark_bottom = row.top() + MARK_TOP + marks::SIZE;
+    bar::over(
+        &painter,
+        row,
+        mark_bottom,
+        settings.token_mark,
+        token,
+        tokens,
+    );
     quick
 }
 

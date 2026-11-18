@@ -139,6 +139,7 @@ fn a_chat_row_shows_its_name_branch_time_jobs_and_text_line() {
             settings,
             now: NOW,
             turn: 0.0,
+            shares: &Default::default(),
         };
         screen.frame(Vec::new(), |ui| {
             rows::chat(
@@ -188,6 +189,7 @@ fn forks_stand_ins_and_folded_parents_are_drawn_differently() {
             settings,
             now: NOW,
             turn: 0.0,
+            shares: &Default::default(),
         };
         screen.frame(Vec::new(), |ui| {
             rows::chat(ui.painter(), row_rect(), line, &look, false, false, None);
@@ -259,6 +261,7 @@ fn a_long_name_is_cut_and_a_narrow_row_does_not_panic() {
             settings: &settings,
             now: NOW,
             turn: 0.1,
+            shares: &Default::default(),
         };
         let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(width, 34.0));
         let painted = screen.frame(Vec::new(), |ui| {
@@ -296,6 +299,7 @@ fn group_headers_open_folded_coloured_and_being_renamed() {
             settings: set,
             now: NOW,
             turn: 0.0,
+            shares: &Default::default(),
         };
         let mut room = Rect::NOTHING;
         let painted = screen.frame(Vec::new(), |ui| {
@@ -364,6 +368,7 @@ fn the_cold_the_hidden_and_the_drop_lines() {
         settings: &settings,
         now: NOW,
         turn: 0.0,
+        shares: &Default::default(),
     };
     let rect = Rect::from_min_size(pos2(0.0, 30.0), vec2(360.0, 28.0));
     let cold_line = ColdLine {

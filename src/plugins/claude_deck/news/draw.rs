@@ -61,7 +61,7 @@ pub(in crate::plugins::claude_deck) fn body(
     if state.news.tab == Tab::Servers && !state.servers.is_on() {
         state.news.tab = Tab::Chats;
     }
-    state.stats.bar_on = look.settings.token_bar;
+    state.stats.bar_on = look.settings.token_mark != super::super::token_mark::Style::Off;
     match state.news.tab {
         Tab::News => show(&mut list_ui, look, state, to_host),
         Tab::Stats => stats::draw::show(&mut list_ui, look, state, to_host),
