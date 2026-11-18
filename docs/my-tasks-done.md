@@ -2,6 +2,8 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
+- 56. Look at the ClaudeDeck Stats tab and the token bars (added 2026-11-18, done 2026-11-18): works; user wants other graph looks.
+- 55. Test Quick access numbers from ClaudeDeck and Ctrl+W (added 2026-11-18, done 2026-11-18): works; cursor should follow jumps.
 - **54. Install 0.20.134: ClaudeDeck stays out of Win+Tab**: done 2026-11-16. The user said "done"; the log at 01:00:45 shows "ClaudeDeck: Windows lost the tray window style; put back", the new self-repair.
 - **53. Install 0.20.134: QuickJump pins survive a closed window**: done 2026-11-16. The user said "done"; the log shows four R re-pins at 01:02, and the saved pins hold their chat ids.
 - **52. Test dragging WindowDeck cards when an app has 2 windows**: done 2026-11-15. The user said the swapped order stayed when WindowDeck opened again. The log of 23:26 has no "order changed by a drag" line, so the drop itself is not confirmed by the log.
