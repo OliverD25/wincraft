@@ -2,6 +2,7 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
+- 58. Look at the new token views in ClaudeDeck (added 2026-11-18, done 2026-11-18): works on 0.20.138 with Win+Alt+Shift+T.
 - 57. Test the ClaudeDeck cursor after a jump, and the View settings (added 2026-11-18, done 2026-11-18): works.
 - 56. Look at the ClaudeDeck Stats tab and the token bars (added 2026-11-18, done 2026-11-18): works; user wants other graph looks.
 - 55. Test Quick access numbers from ClaudeDeck and Ctrl+W (added 2026-11-18, done 2026-11-18): works; cursor should follow jumps.
