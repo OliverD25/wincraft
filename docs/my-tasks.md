@@ -21,7 +21,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 3. Right-click a Claude chat → **Give a Quick access number** → **First free number**. You should see a small outlined number box before the chat's name.
 4. Rest the mouse on the box. The tooltip should say "Win+` then N jumps here".
 5. Click another window (any app), then press `` Win+` `` and the chat's digit. The chat's window should come to the front (or, if it has no window, the Claude app shows it).
-6. In ClaudeDeck, right-click the same chat → **Quick access number N** → **Remove the Quick access number**. The box should go away.
+6. In ClaudeDeck, right-click the same chat → **Remove the Quick access number** (it is in the main menu, right under **Quick access number N**). The box should go away.
 7. With ClaudeDeck in front, press `Ctrl+W`. ClaudeDeck should hide to the tray (its tray icon stays).
 8. Tell any session of this project "done 55", or describe what looked wrong.
 
