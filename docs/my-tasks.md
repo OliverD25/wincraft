@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 59. Check that QuickJump keeps a window at number 9
 
-- **State:** Wait: 0.20.139 is being built.
+- **State:** Ready to test. 0.20.139 is released (checked 2026-11-18).
 - **Kind:** test · **Added:** 2026-11-18 (PC)
 - **Why:** the fix for "could not place the window to number 9" (0.20.139)
   needs a check on your real pins.
