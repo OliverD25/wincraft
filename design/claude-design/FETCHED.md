@@ -371,3 +371,13 @@ bars = B3, Off) plus "Token mark counts" (Today, The last 7 days).
 Ctrl+B turns the mark on and off, Ctrl+Shift+B switches Today and 7 days,
 both in the ClaudeDeck window, with two palette commands. Drawn: the
 line in both ranges, the Quick settings lines and the Settings rows.
+
+## 2026-11-18 (night): ClaudeDeck, View menu radio dots
+
+Version 52 of the artifact, copied byte for byte (455120 bytes). Section
+16 follows 0.20.137: in the gear's View submenu the Token mark styles and
+the two Count lines are radio dots (as the Status mark choices), the
+Settings heading reads "View", and a new line gives the model colours
+(a second model of one family takes info, then danger, then grey; the
+Models bar uses the same colours). CODE-CHANGES row of 2026-11-18 (last)
+is now "in design (artifact v52, section 16)".

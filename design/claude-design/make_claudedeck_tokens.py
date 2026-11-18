@@ -340,12 +340,19 @@ def qmenu(theme):
     def mi(t, right, ind=False):
         pad = ' style="padding-left:24px"' if ind else ""
         return f'<div class="mi"{pad}><span>{t}</span>{right}</div>'
+
+    def radio(t, on, ind=False):
+        dot = ('<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" style="flex:none">'
+               '<circle cx="6" cy="6" r="5" fill="none" stroke="var(--text2)" stroke-width="1.2"/>'
+               + ('<circle cx="6" cy="6" r="2.6" fill="var(--accent)"/>' if on else "") + "</svg>")
+        pad = "padding-left:24px;" if ind else ""
+        return (f'<div class="mi" style="{pad}justify-content:flex-start;gap:8px">{dot}<span>{t}</span></div>')
     return (f'<div class="{theme} menu" style="width:250px">'
             + mi("Job count", ck) + mi("Model name", no)
             + mi("Token mark", '<span class="mk2">✓ Ctrl+B</span>')
-            + mi("Line", ck, True) + mi("Fill", no, True) + mi("Signal bars", no, True)
+            + radio("Line", True, True) + radio("Fill", False, True) + radio("Signal bars", False, True)
             + '<div class="msep"></div>'
-            + mi("Count today", no) + mi("Count the last 7 days", ck)
+            + radio("Count today", False) + radio("Count the last 7 days", True)
             + '<div style="font-size:12px;color:var(--text2);padding:2px 10px 4px">Ctrl+Shift+B switches the two.</div>'
             + '<div class="msep"></div>' + mi("All settings…", no) + "</div>")
 
@@ -357,7 +364,7 @@ def dropdown(v):
 
 
 def settings(theme):
-    return (f'<div class="{theme} settings" style="width:420px"><div class="shead">On each row</div>'
+    return (f'<div class="{theme} settings" style="width:420px"><div class="shead">View</div>'
             '<div class="srow"><span>Model name</span><span class="sw"><span></span></span></div>'
             f'<div class="srow"><span>Token mark</span>{dropdown("Line")}</div>'
             '<div style="font-size:12px;color:var(--text2);margin:-2px 0 4px">Choices: Line, Fill, Signal bars, Off.</div>'
@@ -378,14 +385,19 @@ DECIDED = (
     "<li>Keys in the ClaudeDeck window: <b>Ctrl+B</b> turns the mark on and off (back to the style "
     "it had), <b>Ctrl+Shift+B</b> switches Today and 7 days. Both are free in the window today. "
     "The palette gets <b>ClaudeDeck: Token mark on or off</b> and <b>ClaudeDeck: Token mark, today or 7 days</b>. "
-    "Mini mode shows no mark.</li></ul>"
+    "Mini mode shows no mark.</li>"
+    "<li>In the gear's <b>View</b> submenu the styles and the two Count lines are radio choices, with a dot "
+    "on the one in use, as the Status mark choices are (changed in code for 0.20.137).</li>"
+    "<li>Model colours: Opus accent, Sonnet success, Haiku warning. A second model of the same family gets the "
+    "next free colour (info, then danger, then grey). The Models bar uses the same colours as the Top chats "
+    "bars.</li></ul>"
     '<div class="side">'
     f'<div>{cap("Line, the last 7 days (the default)")}{line_deck("dark", "week")}</div>'
     f'<div>{cap("Line after Ctrl+Shift+B: today")}{line_deck("dark", "today")}</div>'
     '</div><div class="side" style="margin-top:20px">'
-    f'<div>{cap("Quick settings (the gear), dark")}{qmenu("dark")}</div>'
-    f'<div>{cap("Quick settings, light")}{qmenu("light")}</div>'
-    f'<div>{cap("Settings → Plugins → ClaudeDeck, under On each row")}{settings("dark")}</div>'
+    f'<div>{cap("Quick settings (the gear) → View, dark")}{qmenu("dark")}</div>'
+    f'<div>{cap("Quick settings → View, light")}{qmenu("light")}</div>'
+    f'<div>{cap("Settings → Plugins → ClaudeDeck, under View")}{settings("dark")}</div>'
     "</div>"
 )
 
