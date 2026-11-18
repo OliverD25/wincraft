@@ -381,3 +381,12 @@ Settings heading reads "View", and a new line gives the model colours
 (a second model of one family takes info, then danger, then grey; the
 Models bar uses the same colours). CODE-CHANGES row of 2026-11-18 (last)
 is now "in design (artifact v52, section 16)".
+
+## 2026-11-18 (late night): ClaudeDeck, token mark hotkeys
+
+Version 53 of the artifact, copied byte for byte (455200 bytes). Section
+16 follows 0.20.138: Ctrl+B and Ctrl+Shift+B are gone (they went to the
+Claude chat input). The hotkey "ClaudeDeck: Token mark on or off" has the
+default Win+Alt+Shift+T and shows at the right of the Token mark row in
+the View submenu; "ClaudeDeck: Token mark, today or 7 days" has no
+default keys, so its grey note is not drawn.

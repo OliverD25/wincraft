@@ -349,11 +349,10 @@ def qmenu(theme):
         return (f'<div class="mi" style="{pad}justify-content:flex-start;gap:8px">{dot}<span>{t}</span></div>')
     return (f'<div class="{theme} menu" style="width:250px">'
             + mi("Job count", ck) + mi("Model name", no)
-            + mi("Token mark", '<span class="mk2">✓ Ctrl+B</span>')
+            + mi("Token mark", '<span class="mk2">✓ Win+Alt+Shift+T</span>')
             + radio("Line", True, True) + radio("Fill", False, True) + radio("Signal bars", False, True)
             + '<div class="msep"></div>'
             + radio("Count today", False) + radio("Count the last 7 days", True)
-            + '<div style="font-size:12px;color:var(--text2);padding:2px 10px 4px">Ctrl+Shift+B switches the two.</div>'
             + '<div class="msep"></div>' + mi("All settings…", no) + "</div>")
 
 
@@ -382,10 +381,12 @@ DECIDED = (
     "<li>A second setting, <b>Token mark counts</b>: <b>Today</b> or <b>The last 7 days</b> (the default). "
     "With Today the mark is the chat's share of today's tokens; a chat with none today shows no mark. "
     "The tooltip says which: “12% of today” or “12% of the last 7 days”.</li>"
-    "<li>Keys in the ClaudeDeck window: <b>Ctrl+B</b> turns the mark on and off (back to the style "
-    "it had), <b>Ctrl+Shift+B</b> switches Today and 7 days. Both are free in the window today. "
-    "The palette gets <b>ClaudeDeck: Token mark on or off</b> and <b>ClaudeDeck: Token mark, today or 7 days</b>. "
-    "Mini mode shows no mark.</li>"
+    "<li>Hotkeys that work from any window (changed in 0.20.138: ClaudeDeck rarely has the keyboard, so "
+    "Ctrl+B went to the Claude chat): <b>ClaudeDeck: Token mark on or off</b>, default <b>Win+Alt+Shift+T</b> "
+    "(back to the style it had), and <b>ClaudeDeck: Token mark, today or 7 days</b>, with no default keys. "
+    "Both are also palette commands. In the gear's <b>View</b> submenu the Token mark row shows the on/off "
+    "hotkey's keys at the right (nothing when it has none); the grey note “{keys} switches the two.” "
+    "shows under the Count lines only when the second hotkey has keys. Mini mode shows no mark.</li>"
     "<li>In the gear's <b>View</b> submenu the styles and the two Count lines are radio choices, with a dot "
     "on the one in use, as the Status mark choices are (changed in code for 0.20.137).</li>"
     "<li>Model colours: Opus accent, Sonnet success, Haiku warning. A second model of the same family gets the "
@@ -393,7 +394,7 @@ DECIDED = (
     "bars.</li></ul>"
     '<div class="side">'
     f'<div>{cap("Line, the last 7 days (the default)")}{line_deck("dark", "week")}</div>'
-    f'<div>{cap("Line after Ctrl+Shift+B: today")}{line_deck("dark", "today")}</div>'
+    f'<div>{cap("Line, counting today")}{line_deck("dark", "today")}</div>'
     '</div><div class="side" style="margin-top:20px">'
     f'<div>{cap("Quick settings (the gear) → View, dark")}{qmenu("dark")}</div>'
     f'<div>{cap("Quick settings → View, light")}{qmenu("light")}</div>'
