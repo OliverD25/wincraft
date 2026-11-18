@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 57. Test the ClaudeDeck cursor after a jump, and the View settings
 
-- **State:** Wait: deploy 0.20.136. The release is building.
+- **State:** Ready to test. 0.20.136 is released (checked 2026-11-18).
 - **Kind:** test · **Added:** 2026-11-18 (PC)
 - **Why:** the cursor fix and the View group are covered only by unit tests.
 
