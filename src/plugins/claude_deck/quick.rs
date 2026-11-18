@@ -32,7 +32,7 @@ pub struct Toggle {
 
 /// The settings the menu lists, in its order. A separator comes before
 /// the row settings, as on the Settings page under "On each row".
-pub const TOGGLES: [Toggle; 11] = [
+pub const TOGGLES: [Toggle; 12] = [
     Toggle {
         label: "Fade when the mouse is away",
         key: super::FADE_KEY,
@@ -98,6 +98,12 @@ pub const TOGGLES: [Toggle; 11] = [
         key: super::MODEL_KEY,
         get: |s| s.model,
         set: |s, on| s.model = on,
+    },
+    Toggle {
+        label: "Token bar",
+        key: super::TOKEN_BAR_KEY,
+        get: |s| s.token_bar,
+        set: |s, on| s.token_bar = on,
     },
 ];
 /// The height of a row, smaller than the theme's 32 px.

@@ -12,6 +12,7 @@ pub mod claude_jobs;
 pub mod claude_launches;
 pub mod claude_sessions;
 pub mod claude_turns;
+pub mod claude_usage;
 pub mod claude_waits;
 pub mod claude_windows;
 pub mod clipboard;

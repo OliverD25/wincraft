@@ -122,4 +122,5 @@ mod plugin;
 mod screen;
 mod servers_keys;
 mod servers_tab;
+mod stats_tab;
 mod store;

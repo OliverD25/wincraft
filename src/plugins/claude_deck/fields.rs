@@ -79,6 +79,12 @@ pub(super) fn fields() -> Vec<SettingField> {
             kind: FieldKind::Toggle,
         },
         SettingField {
+            key: TOKEN_BAR_KEY,
+            label: "Token bar",
+            help: "A thin bar under each chat: its share of the tokens of the last 7 days, weighed by model price. The chat that used most fills the row. WinCraft reads the chats' files on this PC once a minute while ClaudeDeck is open. The Stats tab shows the numbers.",
+            kind: FieldKind::Toggle,
+        },
+        SettingField {
             key: SERVERS_KEY,
             label: "Servers (ssh names)",
             help: "For example rdehome1, rdehome2. Empty: no servers are read. WinCraft reads them every 30 s while the ClaudeDeck window is open, or all the time while ClaudeDeck lives in the tray, and never changes anything on them.",
@@ -89,7 +95,9 @@ pub(super) fn fields() -> Vec<SettingField> {
 
 pub(super) fn group(key: &str) -> Option<&'static str> {
     match key {
-        MARK_KEY | TEXT_KEY | TIME_KEY | PROJECT_KEY | JOBS_KEY | MODEL_KEY => Some("On each row"),
+        MARK_KEY | TEXT_KEY | TIME_KEY | PROJECT_KEY | JOBS_KEY | MODEL_KEY | TOKEN_BAR_KEY => {
+            Some("On each row")
+        }
         SERVERS_KEY => Some("Homelab"),
         hook_link::KEY => Some(hook_link::GROUP),
         _ => None,

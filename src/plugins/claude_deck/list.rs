@@ -403,6 +403,10 @@ fn chat_line(
         selected,
         row.key,
     );
+    if look.settings.token_bar && !line.stand_in {
+        let share = state.stats.share(&line.chat.id);
+        super::stats::bar::draw(&row_painter, row.rect, share, look.tokens);
+    }
     if selected && std::mem::take(&mut state.scroll_to_selected) {
         ui.scroll_to_rect(row.rect, None);
     }
