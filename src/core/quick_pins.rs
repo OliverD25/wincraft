@@ -20,9 +20,12 @@ pub const WM_APP_QUICK_PINS: u32 = WM_APP + 44;
 /// What a number in the menu says when no pin holds it.
 pub const FREE: &str = "free";
 
-/// What one Quick access number holds, in number order.
+/// What one taken Quick access number holds; the list is in number order
+/// and leaves out the free numbers.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Held {
+    /// The number's place, counted from 0.
+    pub slot: usize,
     /// What the pin is called.
     pub name: String,
     /// The Claude chat (its `local_` sessionId) when the pin is a chat.
@@ -120,31 +123,30 @@ pub fn number_of(session: &str) -> Option<Option<usize>> {
 /// The place of the chat in `held`.
 pub fn slot_of(held: &[Held], session: &str) -> Option<usize> {
     held.iter()
-        .position(|held| held.session.as_deref() == Some(session))
+        .find(|held| held.session.as_deref() == Some(session))
+        .map(|held| held.slot)
 }
 
-/// The first free place: numbers have no gaps, so it is the one after the
-/// last pin. None when all ten are taken.
+/// The lowest free place; None when all ten are taken.
 pub fn first_free(held: &[Held]) -> Option<usize> {
-    (held.len() < SLOTS).then_some(held.len())
+    (0..SLOTS).find(|&slot| held.iter().all(|held| held.slot != slot))
 }
 
 /// A line of the number menu: "3 · WinCraft Rust Master" or "4 · free".
 pub fn menu_line(slot: usize, held: &[Held]) -> String {
-    let what = held.get(slot).map_or(FREE, |held| held.name.as_str());
+    let what = held
+        .iter()
+        .find(|held| held.slot == slot)
+        .map_or(FREE, |held| held.name.as_str());
     format!("{} \u{b7} {what}", digit_of_slot(slot))
 }
 
-/// Whether the number menu lets the user pick `slot`. A chat with a
-/// number (`own`) can move to another taken number. A chat without one
-/// can take a taken number (that pin moves down one) or the first free
-/// one; a free number after it would land on the first free one, so it is
-/// not offered, and a full list takes no new chat.
+/// Whether the number menu lets the user pick `slot`. A pin keeps its
+/// number, so any number but the chat's own (`own`) can be picked: a free
+/// one simply takes the chat, and a pin at a taken one is pushed down. A
+/// full list (`count` pins) takes no new chat.
 pub fn can_pick(slot: usize, count: usize, own: Option<usize>) -> bool {
-    match own {
-        Some(own) => slot < count && slot != own,
-        None => slot <= count && count < SLOTS,
-    }
+    slot < SLOTS && own != Some(slot) && (own.is_some() || count < SLOTS)
 }
 
 /// Hands an ask to QuickJump; dropped while QuickJump is off.
@@ -172,7 +174,9 @@ mod tests {
     fn held(names: &[(&str, Option<&str>)]) -> Vec<Held> {
         names
             .iter()
-            .map(|(name, session)| Held {
+            .enumerate()
+            .map(|(slot, (name, session))| Held {
+                slot,
                 name: name.to_string(),
                 session: session.map(str::to_string),
             })
@@ -196,25 +200,31 @@ mod tests {
     }
 
     #[test]
-    fn the_first_free_number_follows_the_last_pin_and_a_full_list_has_none() {
+    fn the_first_free_number_is_the_lowest_and_a_full_list_has_none() {
         assert_eq!(first_free(&[]), Some(0));
-        assert_eq!(first_free(&held(&[("A", None), ("B", None)])), Some(2));
-        let full: Vec<Held> = (0..SLOTS).map(|_| Held::default()).collect();
-        assert_eq!(first_free(&full), None);
+        let mut list = held(&[("A", None), ("B", None), ("C", Some("local_c"))]);
+        assert_eq!(first_free(&list), Some(3));
+        list.remove(1);
+        assert_eq!(first_free(&list), Some(1));
+        assert_eq!(slot_of(&list, "local_c"), Some(2));
+        assert_eq!(menu_line(1, &list), "2 \u{b7} free");
+        assert_eq!(menu_line(2, &list), "3 \u{b7} C");
+        let names = vec![("X", None); SLOTS];
+        assert_eq!(first_free(&held(&names)), None);
     }
 
     #[test]
-    fn the_menu_offers_taken_numbers_and_only_the_first_free_one() {
-        // Three pins, the chat has none: 1-3 and 4 (free), not 5.
+    fn the_menu_offers_every_number_but_the_chats_own() {
+        // Three pins, the chat has none: number 9 is fine too.
         assert!(can_pick(0, 3, None));
-        assert!(can_pick(3, 3, None));
-        assert!(!can_pick(4, 3, None));
+        assert!(can_pick(8, 3, None));
+        assert!(!can_pick(SLOTS, 3, None));
         // A full list takes no new chat.
         assert!(!can_pick(0, SLOTS, None));
-        // The chat is number 2: it can move to 1 or 3, not to 2 or a free one.
+        // The chat is number 2: it can move to any number but 2.
         assert!(can_pick(0, 3, Some(1)));
         assert!(!can_pick(1, 3, Some(1)));
-        assert!(!can_pick(3, 3, Some(1)));
+        assert!(can_pick(8, 3, Some(1)));
     }
 
     #[test]

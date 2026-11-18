@@ -10,9 +10,9 @@ Press **Win+`** (the key left of 1), then one more key:
 
 | Then | What it does |
 |---|---|
-| 1 to 9, 0 | Jump to window 1 to 10 in the list |
+| 1 to 9, 0 | Jump to the window at number 1 to 10 |
 | ` (Win+` twice) | Open Quick access |
-| A | Add the window in front to the end of the list |
+| A | Add the window in front at the first free number |
 | Alt+1 to Alt+9, Alt+0 | Put the window in front at that number |
 | U | Unpin the window in front |
 | Esc | Cancel |
@@ -53,25 +53,30 @@ Or give QuickJump other keys in WinCraft's Settings, Hotkeys.
 
 ## The list
 
-The list holds up to ten windows, in order. A window's number is its place
-in the list:
+The list holds up to ten windows, one per number. A window keeps its
+number until you move it, so a digit keeps reaching the same window. A
+number can be empty:
 
-- **A** adds the window in front to the end. With ten windows the tip says
-  "Quick access is full", and nothing changes. A window that is in the list
-  already keeps its number, and the tip says "Already number N".
-- **Alt and a digit** puts the window in front at that number: the window
-  that had the number and the ones after it move down one. A window that is
-  in the list already moves from its old place. A number past the end of
-  the list puts the window at the end.
-- **U**, or Del in Quick access, unpins a window. The windows after it move
-  up one, so there is never a gap.
+- **A** adds the window in front at the lowest free number. With ten
+  windows the tip says "Quick access is full", and nothing changes. A
+  window that is in the list already keeps its number, and the tip says
+  "Already number N".
+- **Alt and a digit** puts the window in front at that number, also when
+  fewer windows are pinned. A free number simply takes it. At a taken
+  number the window there moves down one, and so do the taken numbers
+  right after it, up to the first free number. When no number after it is
+  free, those windows move up one instead, into the nearest free number
+  before it. A window that is in the list already leaves its old number
+  free first, so moving 2 to 9 leaves 2 empty.
+- **U**, or Del in Quick access, unpins a window. Its number is free now,
+  and no other window moves.
 
 Every change shows a notice with **Undo**; Ctrl+Z works too while the
 notice is on screen. The notice stays longer while the mouse rests on it.
 
-Before 0.20.74 the pins sat in ten fixed slots. The first start of 0.20.74
-turns them into the list, in slot order without the empty slots, and keeps
-a copy of the old file as
+Before 0.20.74 the pins sat in ten fixed slots. A file from then is read
+with each pin at its old number and saved again in the new form; a copy of
+the old file is kept as
 `%LOCALAPPDATA%\WinCraft\plugins\quick_jump.state.before-0.20.74.json`.
 
 ## Jumping
@@ -173,8 +178,9 @@ A spot on a monitor that is gone or smaller is moved onto the nearest screen.
 |---|---|
 | ↑ ↓ ← → | Select a card |
 | Enter, double-click, 1 to 0 | Jump, and close Quick access |
-| Ctrl+arrows, drag | Move the window to another place |
-| Del, middle click | Unpin the window; the ones after it move up |
+| Ctrl+Left, Ctrl+Right | Move the window to the number before or after; a window there takes its old number |
+| Ctrl+Up, Ctrl+Down, drag | Move the window onto another card: it takes that card's number, and the cards between shift one |
+| Del, middle click | Unpin the window; the others keep their numbers |
 | F2, click the selected card | Open the details |
 | R, on a card that is not open | Re-pin: the window that was in front when Quick access opened takes this number, with the card's label |
 | Right click, Menu key, Shift+F10 | Open the card's menu |
@@ -184,11 +190,13 @@ A dragged card lifts above the others and follows the mouse. The other
 cards slide aside to open a gap where it will land, and it slides into the
 gap when you let go. Esc during a drag puts everything back. Ctrl+arrow
 moves slide the same way, and an unpinned card fades out while the cards
-after it close the gap. With the Windows setting "Animation effects" off,
-the cards change places at once.
+after it move up on screen; their numbers stay. Free numbers have no card,
+so the numbers under the cards can skip, for example 1, 2, 5. With the
+Windows setting "Animation effects" off, the cards change places at once.
 
-The card's menu has "Jump to it", "Put at number" (1 to 10, with the
-card's own number marked), "Re-pin the window I was in" (R, only while the
+The card's menu has "Jump to it", "Put at number" (1 to 10, free or
+taken, with the card's own number marked; the same rule as Alt and a
+digit), "Re-pin the window I was in" (R, only while the
 window is not open), "Edit details" (F2), "Unpin" (Del) and, only while the
 window is open, "Close the window". That one closes the real
 window, as its own close button would, and only when you pick it. Every
@@ -198,7 +206,7 @@ it.
 Re-pin mends a pin whose window is gone for good. Go to the window, open
 Quick access, pick the card that says "not open" and press R. The window
 takes that number and keeps the card's label. A window that was pinned at
-another number moves here, as with "Put at number". The header shows the
+another number moves here and leaves that number free. The header shows the
 hint "R Re-pin" only while the picked card is not open.
 
 The details give a pin a label, which the tip and Quick access show instead
@@ -210,5 +218,5 @@ windows match now. Changes take effect with Done; Esc drops them.
 
 Type "jump" in the palette for one row per pinned window, such as "Jump to
 3 · Claude". "Add a window to Quick access…" lists the open windows to
-choose from, and adds the one you pick to the end. "Pin this window…" and
+choose from, and adds the one you pick at the first free number. "Pin this window…" and
 "Open quick access" are there too.

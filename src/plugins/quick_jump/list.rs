@@ -53,6 +53,7 @@ const REFRESH: Duration = Duration::from_secs(1);
 /// The pin being edited in the details panel; it changes only on Done.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Draft {
+    /// The pin's place (its number from 0), not its card's index.
     slot: usize,
     pin: Pin,
     /// The pin when the panel opened, to tell what the user changed.
@@ -206,7 +207,8 @@ impl PluginWindow for PinList {
                 }
             }
             if let Some(slot) = shared.select.take() {
-                state.selected = slot;
+                let mut cards = shared.view.slots.iter();
+                state.selected = cards.position(|card| card.slot == slot).unwrap_or(0);
             }
             if state.icons.is_none() {
                 state.icons = Some(IconCache::new(ui.ctx()));
@@ -322,10 +324,11 @@ fn remember_spot(shared: &mut Shared, window: isize) {
     }
 }
 
-fn draft(view: &View, slot: usize) -> Option<Draft> {
-    let pin = view.pins.get(slot).cloned()?;
+/// The details of the card at `index` of the view.
+fn draft(view: &View, index: usize) -> Option<Draft> {
+    let pin = view.pins.get(index).cloned()?;
     Some(Draft {
-        slot,
+        slot: view.slots.get(index)?.slot,
         before: pin.clone(),
         pin,
     })
@@ -434,7 +437,8 @@ fn details_panel(ui: &mut Ui, view: &View, area: Rect, state: &mut ListUi, out: 
         return;
     };
     let slot = draft.slot;
-    let view_slot = view.slots.get(slot).cloned().unwrap_or_default();
+    let view_slot = view.slots.iter().find(|card| card.slot == slot);
+    let view_slot = view_slot.cloned().unwrap_or_default();
     let mut done = false;
     let mut remove = false;
     let inner = area.shrink(20.0);

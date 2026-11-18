@@ -345,7 +345,7 @@ impl Engine {
         done
     }
 
-    /// "Pin a window…" chose this window: it goes to the end of the list.
+    /// "Pin a window…" chose this window: it takes the lowest free number.
     pub(super) fn add_window(&mut self, window: &Live) {
         let done = self.place(Act::Add, window);
         if !done.changed() {
@@ -385,7 +385,7 @@ impl Engine {
         self.notify(message, Some((undo, text)));
     }
 
-    /// Takes the pin at `slot` out; the gap closes.
+    /// Takes the pin at `slot` out; its number is free now.
     pub(super) fn unpin(&mut self, slot: usize) {
         if let Some((pin, undo)) = self.slots.remove(slot) {
             let message = notice::removed(pin.name(), slot);

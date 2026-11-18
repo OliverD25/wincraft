@@ -255,9 +255,9 @@ ClaudeDeck can give a chat a QuickJump number, so `` Win+` `` and a digit
 reach it from anywhere, without opening ClaudeDeck first. Right-click a
 chat of the Claude app on this PC and pick **Give a Quick access number**:
 **First free number**, or one of the numbers 1 to 9 and 0, each with what
-holds it now ("3 · WinCraft Rust Master", "4 · free"). A taken number moves
-its pin down one; QuickJump's numbers have no gaps, so only the first free
-number can be picked. A chat that has a number shows **Quick access number
+holds it now ("3 · WinCraft Rust Master", "4 · free"). Any number can be
+picked, and the chat lands at that number: at a taken one, that pin moves
+down one, as with QuickJump's Put at number. A chat that has a number shows **Quick access number
 {n}** instead (the same list, to move it) and **Remove the Quick access
 number**. QuickJump shows its usual notice with Undo.
 

@@ -1,15 +1,15 @@
 //! What ClaudeDeck asks of QuickJump through `core::quick_pins`: give a
 //! Claude chat a Quick access number, or take it away. The same rules as
-//! Put at number: a chat that has a number moves, and the pin that was at
-//! the number moves down one. The chat need not have a window open; its
-//! pin then opens the chat by its link.
+//! Put at number: a chat that has a number moves and leaves it free, and a
+//! pin at the new number is pushed down. The chat need not have a window
+//! open; its pin then opens the chat by its link.
 
 use crate::core::quick_pins::{self, Ask, Held};
 use crate::core::window_identity::{bare_title, exe_key};
 
 use super::matching::Live;
 use super::notice;
-use super::pins::{Pin, Pinned, Slots, Undo, SLOTS};
+use super::pins::{Pin, Pinned, Slots, Undo};
 use super::Engine;
 
 const CLAUDE_EXE: &str = "claude.exe";
@@ -20,7 +20,8 @@ const CLAUDE_NAME: &str = "Claude";
 pub fn held(slots: &Slots) -> Vec<Held> {
     slots
         .iter()
-        .map(|(_, pin)| Held {
+        .map(|(slot, pin)| Held {
+            slot,
             name: shown_name(pin),
             session: pin.claude_session.clone(),
         })
@@ -88,20 +89,19 @@ pub fn chat_pin(
     }
 }
 
-/// Gives the chat of `pin` the number at `at`, or the first free one.
+/// Gives the chat of `pin` the number at `at`, or the lowest free one.
 /// A chat that has a number moves there; "first free" leaves it where it
 /// is.
 pub fn put(slots: &mut Slots, pin: Pin, at: Option<usize>) -> (Pinned, Undo) {
     let session = pin.claude_session.clone().unwrap_or_default();
-    match slot_of_chat(slots, &session) {
-        Some(from) => {
-            let to = at.unwrap_or(from).min(slots.count() - 1);
-            match slots.move_to(from, to) {
-                Some(undo) => (Pinned::Moved { from, to }, undo),
-                None => (Pinned::Same { at: from }, Undo::default()),
-            }
-        }
-        None => slots.pin(at.unwrap_or(SLOTS), pin),
+    match (slot_of_chat(slots, &session), at) {
+        (Some(from), Some(to)) => match slots.move_to(from, to) {
+            Some(undo) => (Pinned::Moved { from, to }, undo),
+            None => (Pinned::Same { at: from }, Undo::default()),
+        },
+        (Some(from), None) => (Pinned::Same { at: from }, Undo::default()),
+        (None, Some(to)) => slots.pin(to, pin),
+        (None, None) => slots.add(pin),
     }
 }
 
@@ -153,6 +153,7 @@ impl Engine {
 mod tests {
     use super::*;
     use crate::plugins::quick_jump::pins::tests::{list, pin};
+    use crate::plugins::quick_jump::pins::SLOTS;
 
     fn chat(session: &str, name: &str) -> Pin {
         chat_pin(session, name, None, &[], &Slots::default())
@@ -193,9 +194,23 @@ mod tests {
         assert_eq!(done, Pinned::New { at: 1 });
         let (again, _) = put(&mut slots, chat("local_x", "X"), None);
         assert_eq!(again, Pinned::Same { at: 1 });
-        // A number far past the end is the first free one.
+        // A free number after the last pin is kept, not packed.
         let (far, _) = put(&mut slots, chat("local_y", "Y"), Some(8));
-        assert_eq!(far, Pinned::New { at: 2 });
+        assert_eq!(far, Pinned::New { at: 8 });
+        slots.remove(0);
+        let (first, _) = put(&mut slots, chat("local_z", "Z"), None);
+        assert_eq!(first, Pinned::New { at: 0 });
+    }
+
+    #[test]
+    fn at_9_with_3_pins_gives_number_9() {
+        let mut slots = list(&["a", "b", "c"]);
+        let (done, _) = put(&mut slots, chat("local_x", "X"), Some(8));
+        assert_eq!(done, Pinned::New { at: 8 });
+        assert_eq!(held(&slots).last().map(|held| held.slot), Some(8));
+        let (moved, _) = put(&mut slots, chat("local_x", "X"), Some(5));
+        assert_eq!(moved, Pinned::Moved { from: 8, to: 5 });
+        assert_eq!(slot_of_chat(&slots, "local_x"), Some(5));
     }
 
     #[test]

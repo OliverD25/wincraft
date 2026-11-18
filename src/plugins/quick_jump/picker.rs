@@ -1,5 +1,5 @@
 //! "Add a window…": the open windows to choose from, with a search box.
-//! Enter adds the chosen window to the end of Quick access (a window that
+//! Enter adds the chosen window at the lowest free number (a window that
 //! is in it already keeps its number), Esc closes.
 
 use std::path::PathBuf;

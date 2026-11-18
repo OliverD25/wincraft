@@ -1,8 +1,9 @@
 //! How Quick access cards move: a dragged card follows the pointer while
 //! the others slide aside to open the gap it will land in, a change sent to
-//! the engine shows at once (the cards stand in their new order until the
+//! the engine shows at once (the cards stand at their new numbers until the
 //! view catches up), and an unpinned card shrinks and fades out. The
-//! timing and easing are WindowDeck's (`ui::slide`).
+//! timing and easing are WindowDeck's (`ui::slide`). The new numbers come
+//! from the same rules the engine uses (`pins::reorder_at`, `pins::put_at`).
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -13,6 +14,7 @@ use egui::{Pos2, Rect, Vec2};
 use crate::ui::slide::{self, SlideKey, Slides, CLOSE_TIME};
 
 use super::super::matching::SlotView;
+use super::super::pins::{put_at, reorder_at, SLOTS};
 use super::super::shared::{Request, View};
 use super::grid::card_rect;
 
@@ -23,20 +25,20 @@ const PENDING_FOR: Duration = Duration::from_millis(1500);
 /// A card being dragged.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Drag {
-    /// The card's place in the list when the drag started.
-    pub from: usize,
+    /// The dragged card, as its index in the view.
+    pub card: usize,
     /// Where the pointer holds the card, from its top left.
     pub grab: Vec2,
-    /// The place it lands in when it is dropped now.
+    /// The place the pointer is over: the card there gives its number.
     pub gap: usize,
 }
 
-/// A change sent to the engine: the order the cards stand in until the
-/// view shows it.
+/// A change sent to the engine: each card's number (None for an unpinned
+/// one) until the view shows it.
 #[derive(Clone, Debug, PartialEq)]
 struct Pending {
     keys: Vec<isize>,
-    order: Vec<usize>,
+    numbers: Vec<Option<usize>>,
     since: Instant,
 }
 
@@ -90,25 +92,45 @@ pub fn card_keys(view: &View) -> Vec<isize> {
     keys
 }
 
-/// The order after the card at place `from` moves to place `to`, the
-/// others closing up around it, as the engine's move does.
-pub fn moved_order(order: &[usize], from: usize, to: usize) -> Vec<usize> {
-    let mut order = order.to_vec();
-    if from < order.len() {
-        let to = to.min(order.len() - 1);
-        let card = order.remove(from);
-        order.insert(to, card);
-    }
+/// The cards in number order, the unpinned ones left out.
+pub fn order_of(numbers: &[Option<usize>]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..numbers.len())
+        .filter(|&card| numbers[card].is_some())
+        .collect();
+    order.sort_by_key(|&card| numbers[card]);
     order
 }
 
-/// The order after the card at place `slot` is unpinned.
-pub fn removed_order(order: &[usize], slot: usize) -> Vec<usize> {
-    let mut order = order.to_vec();
-    if slot < order.len() {
-        order.remove(slot);
+/// Each card's number after `card` goes to number `to`: as a drag moves
+/// it, or with `push` as Put at number does.
+pub fn moved_numbers(
+    numbers: &[Option<usize>],
+    card: usize,
+    to: usize,
+    push: bool,
+) -> Vec<Option<usize>> {
+    let mut places: Vec<Option<usize>> = vec![None; SLOTS];
+    for (index, number) in numbers.iter().enumerate() {
+        if let Some(place) = number.and_then(|number| places.get_mut(number)) {
+            *place = Some(index);
+        }
     }
-    order
+    let Some(from) = numbers.get(card).copied().flatten().filter(|&n| n < SLOTS) else {
+        return numbers.to_vec();
+    };
+    if push {
+        places[from] = None;
+        put_at(&mut places, to, card);
+    } else {
+        reorder_at(&mut places, from, to);
+    }
+    let mut moved = vec![None; numbers.len()];
+    for (number, index) in places.into_iter().enumerate() {
+        if let Some(index) = index {
+            moved[index] = Some(number);
+        }
+    }
+    moved
 }
 
 /// The place a card whose centre is at `centre` lands in: the nearest of
@@ -128,7 +150,7 @@ impl Motion {
     /// the view now shows (or that took too long) and a card that faded.
     pub fn begin(&mut self, keys: &[isize], now: Instant) {
         self.slides.next_frame();
-        if self.drag.is_some_and(|drag| drag.from >= keys.len()) {
+        if self.drag.is_some_and(|drag| drag.card >= keys.len()) {
             self.drag = None;
         }
         if self.pending.as_ref().is_some_and(|pending| {
@@ -145,32 +167,49 @@ impl Motion {
         }
     }
 
-    /// Which card of the view stands at each place: the view's order, with
-    /// a change that is on its way, and with the gap of a drag.
-    pub fn order(&self, count: usize) -> Vec<usize> {
-        let order = self.settled(count);
-        match self.drag {
-            Some(drag) => moved_order(&order, drag.from, drag.gap),
-            None => order,
+    /// Which card of the view stands at each place, for the view's
+    /// `numbers`: with a change that is on its way, and with the gap of a
+    /// drag.
+    pub fn order(&self, numbers: &[usize]) -> Vec<usize> {
+        let settled = self.settled(numbers);
+        match (self.drag, self.drop_on(&settled)) {
+            (Some(drag), Some(to)) => order_of(&moved_numbers(&settled, drag.card, to, false)),
+            _ => order_of(&settled),
         }
     }
 
-    fn settled(&self, count: usize) -> Vec<usize> {
+    fn settled(&self, numbers: &[usize]) -> Vec<Option<usize>> {
         match &self.pending {
-            Some(pending) => pending.order.clone(),
-            None => (0..count).collect(),
+            Some(pending) => pending.numbers.clone(),
+            None => numbers.iter().copied().map(Some).collect(),
         }
+    }
+
+    /// The number of the card the dragged one is over, when that is
+    /// another card.
+    fn drop_on(&self, settled: &[Option<usize>]) -> Option<usize> {
+        let drag = self.drag?;
+        let on = *order_of(settled).get(drag.gap)?;
+        (on != drag.card).then_some(settled[on]).flatten()
+    }
+
+    /// Where `card` stands now, a change on its way counted.
+    pub fn place_of(&self, numbers: &[usize], card: usize) -> Option<usize> {
+        order_of(&self.settled(numbers))
+            .iter()
+            .position(|&at| at == card)
     }
 
     pub fn dragging(&self) -> bool {
         self.drag.is_some()
     }
 
-    pub fn start(&mut self, from: usize, grab: Vec2) {
+    /// `card`, standing at `place`, is picked up.
+    pub fn start(&mut self, card: usize, place: usize, grab: Vec2) {
         self.drag = Some(Drag {
-            from,
+            card,
             grab,
-            gap: from,
+            gap: place,
         });
     }
 
@@ -185,49 +224,62 @@ impl Motion {
         self.drag = None;
     }
 
-    /// The button came up: the move to send, when the card landed in
-    /// another place.
-    pub fn release(&mut self, keys: &[isize], now: Instant) -> Option<Request> {
+    /// The button came up: the move to send, when the card was dropped
+    /// on another card.
+    pub fn release(&mut self, keys: &[isize], numbers: &[usize], now: Instant) -> Option<Request> {
+        let to = self.drop_on(&self.settled(numbers));
         let drag = self.drag.take()?;
-        (drag.gap != drag.from).then(|| {
-            self.moved(keys, drag.from, drag.gap, now);
-            Request::Move {
-                from: drag.from,
-                to: drag.gap,
-            }
-        })
+        Some(self.moved(keys, numbers, (drag.card, to?), false, now))
     }
 
-    /// A move was sent: the cards stand in the new order at once.
-    pub fn moved(&mut self, keys: &[isize], from: usize, to: usize, now: Instant) {
-        let order = moved_order(&self.settled(keys.len()), from, to);
+    /// `card` goes to number `to`, as a drag moves it or with `push` as
+    /// Put at number does: the cards stand at their new numbers at once.
+    /// The request to send.
+    pub fn moved(
+        &mut self,
+        keys: &[isize],
+        numbers: &[usize],
+        (card, to): (usize, usize),
+        push: bool,
+        now: Instant,
+    ) -> Request {
+        let settled = self.settled(numbers);
+        let from = settled.get(card).copied().flatten().unwrap_or(to);
         self.pending = Some(Pending {
             keys: keys.to_vec(),
-            order,
+            numbers: moved_numbers(&settled, card, to, push),
             since: now,
         });
+        if push {
+            Request::PutAt { from, to }
+        } else {
+            Request::Move { from, to }
+        }
     }
 
-    /// A card was unpinned: it fades out at `rect`, and the cards after it
-    /// close the gap at once.
+    /// `card` was unpinned: it fades out where it was drawn, and the
+    /// others keep their numbers. The request to send; None when the card
+    /// has no number.
     pub fn removed(
         &mut self,
         keys: &[isize],
-        slot: usize,
-        card: Option<(SlotView, Rect)>,
+        numbers: &[usize],
+        (card, leaving): (usize, Option<(SlotView, Rect)>),
         now: Instant,
-    ) {
-        let order = removed_order(&self.settled(keys.len()), slot);
+    ) -> Option<Request> {
+        let mut settled = self.settled(numbers);
+        let from = settled.get_mut(card)?.take()?;
         self.pending = Some(Pending {
             keys: keys.to_vec(),
-            order,
+            numbers: settled,
             since: now,
         });
-        self.leaving = card.map(|(card, rect)| Leaving {
+        self.leaving = leaving.map(|(card, rect)| Leaving {
             card,
             rect,
             since: now,
         });
+        Some(Request::Remove(from))
     }
 
     /// Whether something still moves, so the window keeps drawing.

@@ -31,7 +31,7 @@ pub enum Key {
     Access,
     /// One of QuickJump's own shortcuts once more.
     Again,
-    /// A: add the window in front to the end.
+    /// A: add the window in front at the lowest free number.
     Add,
     /// U: unpin the window in front.
     Unpin,

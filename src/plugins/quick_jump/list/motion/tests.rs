@@ -6,6 +6,8 @@ fn ms(n: u64) -> Duration {
 }
 
 const KEYS: [isize; 4] = [11, 22, 33, 44];
+/// Four cards at numbers 1 to 4.
+const FOUR: [usize; 4] = [0, 1, 2, 3];
 
 #[test]
 fn the_gap_follows_the_pointer_to_the_nearest_place() {
@@ -23,54 +25,83 @@ fn the_gap_follows_the_pointer_to_the_nearest_place() {
 #[test]
 fn while_dragging_the_others_close_up_and_open_the_gap() {
     let mut motion = Motion::default();
-    motion.start(0, vec2(10.0, 10.0));
-    assert_eq!(motion.order(4), vec![0, 1, 2, 3], "no gap moved yet");
+    motion.start(0, 0, vec2(10.0, 10.0));
+    assert_eq!(motion.order(&FOUR), vec![0, 1, 2, 3], "no gap moved yet");
     motion.drag_to(2);
-    assert_eq!(motion.order(4), vec![1, 2, 0, 3]);
+    assert_eq!(motion.order(&FOUR), vec![1, 2, 0, 3]);
     motion.drag_to(3);
-    assert_eq!(motion.order(4), vec![1, 2, 3, 0]);
+    assert_eq!(motion.order(&FOUR), vec![1, 2, 3, 0]);
+    // With gaps the same: the card takes the number of the card it is
+    // over, and the gaps stay.
+    assert_eq!(motion.order(&[1, 4, 6, 8]), vec![1, 2, 3, 0]);
+    motion.drag_to(1);
+    assert_eq!(motion.order(&[1, 4, 6, 8]), vec![1, 0, 2, 3]);
 }
 
 #[test]
 fn a_drop_sends_the_move_and_the_cards_keep_the_new_order() {
     let t0 = Instant::now();
     let mut motion = Motion::default();
-    motion.start(1, Vec2::ZERO);
+    motion.start(1, 1, Vec2::ZERO);
     motion.drag_to(3);
+    let numbers = [0, 2, 5, 7];
     assert_eq!(
-        motion.release(&KEYS, t0),
-        Some(Request::Move { from: 1, to: 3 })
+        motion.release(&KEYS, &numbers, t0),
+        Some(Request::Move { from: 2, to: 7 })
     );
     assert!(!motion.dragging());
-    assert_eq!(motion.order(4), vec![0, 2, 3, 1], "until the view shows it");
+    assert_eq!(
+        motion.order(&numbers),
+        vec![0, 2, 3, 1],
+        "until the view shows it"
+    );
+    assert_eq!(motion.place_of(&numbers, 1), Some(3));
     // The view shows it: the keys changed, and its own order is right.
     motion.begin(&[11, 33, 44, 22], t0 + ms(30));
-    assert_eq!(motion.order(4), vec![0, 1, 2, 3]);
+    assert_eq!(motion.order(&numbers), vec![0, 1, 2, 3]);
 }
 
 #[test]
 fn a_drop_on_its_own_place_and_esc_send_nothing() {
     let t0 = Instant::now();
     let mut motion = Motion::default();
-    motion.start(2, Vec2::ZERO);
-    assert_eq!(motion.release(&KEYS, t0), None);
-    motion.start(2, Vec2::ZERO);
+    motion.start(2, 2, Vec2::ZERO);
+    assert_eq!(motion.release(&KEYS, &FOUR, t0), None);
+    motion.start(2, 2, Vec2::ZERO);
     motion.drag_to(0);
     motion.cancel();
     assert!(!motion.dragging());
-    assert_eq!(motion.release(&KEYS, t0), None);
-    assert_eq!(motion.order(4), vec![0, 1, 2, 3], "everything goes back");
+    assert_eq!(motion.release(&KEYS, &FOUR, t0), None);
+    assert_eq!(
+        motion.order(&FOUR),
+        vec![0, 1, 2, 3],
+        "everything goes back"
+    );
 }
 
 #[test]
 fn a_change_the_view_never_shows_is_given_up() {
     let t0 = Instant::now();
     let mut motion = Motion::default();
-    motion.moved(&KEYS, 0, 1, t0);
+    motion.moved(&KEYS, &FOUR, (0, 1), false, t0);
     motion.begin(&KEYS, t0 + ms(100));
-    assert_eq!(motion.order(4), vec![1, 0, 2, 3]);
+    assert_eq!(motion.order(&FOUR), vec![1, 0, 2, 3]);
     motion.begin(&KEYS, t0 + PENDING_FOR);
-    assert_eq!(motion.order(4), vec![0, 1, 2, 3]);
+    assert_eq!(motion.order(&FOUR), vec![0, 1, 2, 3]);
+}
+
+#[test]
+fn put_at_a_number_pushes_the_card_there_down_and_says_the_numbers() {
+    let t0 = Instant::now();
+    let mut motion = Motion::default();
+    // Cards at 1, 2 and 3; the first goes to 2 and pushes the second down.
+    let request = motion.moved(&KEYS[..3], &[0, 1, 2], (0, 1), true, t0);
+    assert_eq!(request, Request::PutAt { from: 0, to: 1 });
+    assert_eq!(motion.order(&[0, 1, 2]), vec![0, 1, 2], "1 is free now");
+    // A free number after the others: the card goes last, nothing else moves.
+    let mut motion = Motion::default();
+    motion.moved(&KEYS[..3], &[0, 1, 2], (0, 8), true, t0);
+    assert_eq!(motion.order(&[0, 1, 2]), vec![1, 2, 0]);
 }
 
 #[test]
@@ -78,8 +109,10 @@ fn an_unpinned_card_fades_out_while_the_rest_close_the_gap() {
     let t0 = Instant::now();
     let mut motion = Motion::default();
     let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(300.0, 250.0));
-    motion.removed(&KEYS, 1, Some((SlotView::default(), rect)), t0);
-    assert_eq!(motion.order(4), vec![0, 2, 3]);
+    let card = Some((SlotView::default(), rect));
+    let request = motion.removed(&KEYS, &[0, 1, 4, 7], (1, card), t0);
+    assert_eq!(request, Some(Request::Remove(1)));
+    assert_eq!(motion.order(&[0, 1, 4, 7]), vec![0, 2, 3]);
     let (start, shown) = motion.leaving.as_ref().unwrap().look(t0);
     assert_eq!((start, shown), (rect, 1.0));
     let (half, fading) = motion.leaving.as_ref().unwrap().look(t0 + ms(90));
@@ -93,9 +126,14 @@ fn an_unpinned_card_fades_out_while_the_rest_close_the_gap() {
 fn moves_and_unpins_in_a_row_build_on_each_other() {
     let t0 = Instant::now();
     let mut motion = Motion::default();
-    motion.moved(&KEYS, 0, 3, t0);
-    motion.removed(&KEYS, 0, None, t0);
-    assert_eq!(motion.order(4), vec![2, 3, 0]);
+    motion.moved(&KEYS, &FOUR, (0, 3), false, t0);
+    let request = motion.removed(&KEYS, &FOUR, (1, None), t0);
+    assert_eq!(
+        request,
+        Some(Request::Remove(0)),
+        "its number after the move"
+    );
+    assert_eq!(motion.order(&FOUR), vec![2, 3, 0]);
 }
 
 #[test]

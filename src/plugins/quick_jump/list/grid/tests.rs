@@ -2,23 +2,28 @@ use super::super::card::{first_letter, icon_alpha, title_colour};
 use super::super::NOT_OPEN;
 use super::*;
 
+/// The numbers of `count` cards at 1, 2, 3 and on.
+fn first(count: usize) -> Vec<usize> {
+    (0..count).collect()
+}
+
 #[test]
 fn arrows_move_in_rows_of_four() {
     // Six cards: 0 1 2 3 / 4 5.
-    assert_eq!(step(ListKey::Right, 0, 6, false), Step::Select(1));
-    assert_eq!(step(ListKey::Right, 5, 6, false), Step::Select(5));
-    assert_eq!(step(ListKey::Left, 0, 6, false), Step::Select(0));
-    assert_eq!(step(ListKey::Down, 1, 6, false), Step::Select(5));
+    assert_eq!(step(ListKey::Right, 0, &first(6), false), Step::Select(1));
+    assert_eq!(step(ListKey::Right, 5, &first(6), false), Step::Select(5));
+    assert_eq!(step(ListKey::Left, 0, &first(6), false), Step::Select(0));
+    assert_eq!(step(ListKey::Down, 1, &first(6), false), Step::Select(5));
     assert_eq!(
-        step(ListKey::Down, 3, 6, false),
+        step(ListKey::Down, 3, &first(6), false),
         Step::Select(5),
         "shorter row"
     );
-    assert_eq!(step(ListKey::Down, 5, 6, false), Step::Select(5));
-    assert_eq!(step(ListKey::Up, 5, 6, false), Step::Select(1));
-    assert_eq!(step(ListKey::Up, 2, 6, false), Step::Select(2));
+    assert_eq!(step(ListKey::Down, 5, &first(6), false), Step::Select(5));
+    assert_eq!(step(ListKey::Up, 5, &first(6), false), Step::Select(1));
+    assert_eq!(step(ListKey::Up, 2, &first(6), false), Step::Select(2));
     assert_eq!(
-        step(ListKey::Down, 9, 6, false),
+        step(ListKey::Down, 9, &first(6), false),
         Step::Select(5),
         "past the end"
     );
@@ -27,24 +32,45 @@ fn arrows_move_in_rows_of_four() {
 #[test]
 fn ctrl_arrows_reorder_and_the_other_keys_jump_unpin_or_close() {
     assert_eq!(
-        step(ListKey::CtrlRight, 0, 6, false),
+        step(ListKey::CtrlRight, 0, &first(6), false),
         Step::Move { from: 0, to: 1 }
     );
     assert_eq!(
-        step(ListKey::CtrlDown, 2, 6, false),
+        step(ListKey::CtrlDown, 2, &first(6), false),
         Step::Move { from: 2, to: 5 }
     );
-    assert_eq!(step(ListKey::CtrlLeft, 0, 6, false), Step::Nothing);
-    assert_eq!(step(ListKey::Enter, 2, 6, false), Step::Jump(2));
-    assert_eq!(step(ListKey::Digit(3), 0, 6, false), Step::Jump(2));
-    assert_eq!(step(ListKey::Digit(9), 0, 6, false), Step::Nothing);
-    assert_eq!(step(ListKey::Digit(0), 0, 10, false), Step::Jump(9));
-    assert_eq!(step(ListKey::Delete, 4, 6, false), Step::Remove(4));
-    assert_eq!(step(ListKey::F2, 1, 6, false), Step::Details(1));
-    assert_eq!(step(ListKey::Escape, 0, 6, true), Step::CloseDetails);
-    assert_eq!(step(ListKey::Escape, 0, 6, false), Step::Close);
-    assert_eq!(step(ListKey::Enter, 0, 0, false), Step::Nothing);
-    assert_eq!(step(ListKey::Escape, 0, 0, false), Step::Close);
+    assert_eq!(step(ListKey::CtrlLeft, 0, &first(6), false), Step::Nothing);
+    assert_eq!(step(ListKey::Enter, 2, &first(6), false), Step::Jump(2));
+    assert_eq!(step(ListKey::Digit(3), 0, &first(6), false), Step::Jump(2));
+    assert_eq!(step(ListKey::Digit(9), 0, &first(6), false), Step::Nothing);
+    assert_eq!(step(ListKey::Digit(0), 0, &first(10), false), Step::Jump(9));
+    assert_eq!(step(ListKey::Delete, 4, &first(6), false), Step::Remove(4));
+    assert_eq!(step(ListKey::F2, 1, &first(6), false), Step::Details(1));
+    assert_eq!(
+        step(ListKey::Escape, 0, &first(6), true),
+        Step::CloseDetails
+    );
+    assert_eq!(step(ListKey::Escape, 0, &first(6), false), Step::Close);
+    assert_eq!(step(ListKey::Enter, 0, &first(0), false), Step::Nothing);
+    assert_eq!(step(ListKey::Escape, 0, &first(0), false), Step::Close);
+}
+
+#[test]
+fn with_gaps_ctrl_arrows_step_one_number_and_digits_find_their_card() {
+    // Cards at numbers 2, 5 and 9.
+    let numbers = [1, 4, 8];
+    let ctrl = |key, at| step(key, at, &numbers, false);
+    assert_eq!(ctrl(ListKey::CtrlLeft, 0), Step::Move { from: 0, to: 0 });
+    assert_eq!(ctrl(ListKey::CtrlRight, 1), Step::Move { from: 1, to: 5 });
+    assert_eq!(ctrl(ListKey::CtrlRight, 2), Step::Move { from: 2, to: 9 });
+    assert_eq!(ctrl(ListKey::CtrlUp, 1), Step::Nothing);
+    assert_eq!(step(ListKey::Digit(5), 0, &numbers, false), Step::Jump(1));
+    assert_eq!(step(ListKey::Digit(1), 0, &numbers, false), Step::Nothing);
+    assert_eq!(
+        step(ListKey::CtrlRight, 0, &[9], false),
+        Step::Nothing,
+        "number 10 is the last"
+    );
 }
 
 #[test]
@@ -64,7 +90,7 @@ fn the_header_counts_of_ten_and_lists_the_keys_that_work() {
         [("Esc", "Close")],
         "an empty list has only Esc"
     );
-    assert_eq!(step(ListKey::Repin, 2, 6, false), Step::Repin(2));
+    assert_eq!(step(ListKey::Repin, 2, &first(6), false), Step::Repin(2));
 }
 
 #[test]

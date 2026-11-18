@@ -6,7 +6,17 @@ use super::*;
 use crate::core::config::ThemeName;
 
 fn view() -> View {
-    let slots = list(&["Claude", "Code"]);
+    view_of(list(&["Claude", "Code"]))
+}
+
+/// Claude at number 1 and Code at number 9.
+fn gapped() -> View {
+    let mut slots = list(&["Claude"]);
+    slots.pin(8, super::super::pins::tests::pin("Code", Some(2)));
+    view_of(slots)
+}
+
+fn view_of(slots: Slots) -> View {
     let live = vec![window(1, "Claude", "Claude")];
     View {
         slots: slot_views(&slots, &live, 1),
@@ -234,6 +244,30 @@ fn a_card_dragged_onto_another_place_sends_the_move() {
     assert_eq!(out, vec![Outcome::Send(Request::Move { from: 0, to: 1 })]);
     assert_eq!(state.selected, 1, "the dropped card stays selected");
     assert!(state.motion.drag.is_none());
+}
+
+#[test]
+fn with_a_gap_the_cards_send_their_own_numbers() {
+    let view = gapped();
+    assert_eq!(view.slots[1].digit, 9);
+    let mut state = ListUi::default();
+    let out = draw(&view, &mut state, vec![key(Key::Num9)]);
+    assert!(out.contains(&Outcome::Send(Request::Jump(8))), "{out:?}");
+    let mut state = ListUi {
+        selected: 1,
+        ..ListUi::default()
+    };
+    let out = draw(&view, &mut state, vec![key(Key::Delete)]);
+    assert_eq!(out, vec![Outcome::Send(Request::Remove(8))]);
+    // Dropped on the card at 9, the first card takes 9 and Code takes 1.
+    let mut state = ListUi::default();
+    let mut frames = drag_to_second();
+    let end = pos2(490.0, 150.0);
+    frames.push(vec![button(end, egui::PointerButton::Primary, false)]);
+    frames.push(Vec::new());
+    let out = run(&egui::Context::default(), &view, &mut state, frames);
+    assert_eq!(out, vec![Outcome::Send(Request::Move { from: 0, to: 8 })]);
+    assert_eq!(state.selected, 1);
 }
 
 #[test]

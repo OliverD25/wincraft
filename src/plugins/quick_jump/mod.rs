@@ -499,6 +499,25 @@ impl Engine {
         }
     }
 
+    /// Quick access moved the pin at `from` to `to`: as a drag does, or
+    /// with `push` as Put at number does.
+    fn move_pin(&mut self, from: usize, to: usize, push: bool) {
+        let undo = if push {
+            self.slots.move_to(from, to)
+        } else {
+            self.slots.reorder(from, to)
+        };
+        let Some(undo) = undo else {
+            return;
+        };
+        let name = self.slots.get(to).map(|pin| pin.name().to_string());
+        let message = notice::moved(&name.unwrap_or_default(), from, to);
+        self.save();
+        self.publish();
+        let text = message.text.clone();
+        self.notify(message, Some((undo, text)));
+    }
+
     fn request(&mut self, request: Request) {
         match request {
             Request::Refresh => self.refresh(),
@@ -523,20 +542,8 @@ impl Engine {
                     None => log::info!("QuickJump: the window to add has closed"),
                 }
             }
-            Request::Move { from, to } => {
-                if let Some(undo) = self.slots.move_to(from, to) {
-                    let name = self
-                        .slots
-                        .get(to)
-                        .map(|pin| pin.name().to_string())
-                        .unwrap_or_default();
-                    let message = notice::moved(&name, from, to);
-                    self.save();
-                    self.publish();
-                    let text = message.text.clone();
-                    self.notify(message, Some((undo, text)));
-                }
-            }
+            Request::Move { from, to } => self.move_pin(from, to, false),
+            Request::PutAt { from, to } => self.move_pin(from, to, true),
             Request::Remove(slot) => self.unpin(slot),
             Request::CloseWindow(slot) => {
                 self.refresh();
@@ -837,7 +844,7 @@ impl WinCraftPlugin for QuickJump {
             (ActionKind::Tray, TRAY_LIST) => Some(matching::windows_line(count)),
             (ActionKind::Palette, PALETTE_ADD) => Some("Choose from the open windows".to_string()),
             (ActionKind::Palette, PALETTE_ADD_FRONT) => {
-                Some("Adds the window in front to the end".to_string())
+                Some("Adds the window in front at the first free number".to_string())
             }
             _ => None,
         }

@@ -1,10 +1,12 @@
 //! Quick access (design 4a): the pinned windows as cards in rows of four,
-//! in pin order, each with its live picture, title and app, and the key
-//! that reaches it in a keycap under it. ↑↓←→ select, Enter or a double
-//! click jumps, 1–0 jumps, Ctrl+arrows or a drag reorder (the other cards
-//! slide aside), Del or a middle click unpins (the card fades and the gap
-//! closes), F2 opens the details, a right click, the Menu key or Shift+F10
-//! opens the card's menu, Esc closes.
+//! in number order, each with its live picture, title and app, and the key
+//! that reaches it in a keycap under it. Free numbers have no card. ↑↓←→
+//! select, Enter or a double click jumps, 1–0 jumps, Ctrl+←→ move a card
+//! to the number before or after it, Ctrl+↑↓ or a drag move it onto
+//! another card's number (the cards between shift one and slide aside),
+//! Del or a middle click unpins (the card fades, the others keep their
+//! numbers), F2 opens the details, a right click, the Menu key or
+//! Shift+F10 opens the card's menu, Esc closes.
 
 use std::time::Instant;
 
@@ -15,7 +17,7 @@ use crate::core::theme::{self, Tokens};
 use crate::ui::widgets::icons::{self, Icon};
 
 use super::super::matching::State;
-use super::super::pins::slot_of_digit;
+use super::super::pins::{slot_of_digit, SLOTS};
 use super::super::shared::{Request, View};
 use super::card::{draw_card, Look};
 use super::card_menu::{self, Choice};
@@ -90,7 +92,11 @@ pub enum ListKey {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {
     Select(usize),
-    Move { from: usize, to: usize },
+    /// The card at `from` goes to number `to` (a place from 0).
+    Move {
+        from: usize,
+        to: usize,
+    },
     Jump(usize),
     Remove(usize),
     Details(usize),
@@ -119,7 +125,10 @@ fn neighbour(key: ListKey, at: usize, count: usize) -> usize {
     }
 }
 
-pub fn step(key: ListKey, selected: usize, count: usize, details: bool) -> Step {
+/// What `key` does, with the cards' `numbers` in order; cards are counted
+/// by their index.
+pub fn step(key: ListKey, selected: usize, numbers: &[usize], details: bool) -> Step {
+    let count = numbers.len();
     if key == ListKey::Escape {
         return if details {
             Step::CloseDetails
@@ -135,17 +144,25 @@ pub fn step(key: ListKey, selected: usize, count: usize, details: bool) -> Step 
         ListKey::Up | ListKey::Down | ListKey::Left | ListKey::Right => {
             Step::Select(neighbour(key, selected, count))
         }
-        ListKey::CtrlUp | ListKey::CtrlDown | ListKey::CtrlLeft | ListKey::CtrlRight => {
-            match neighbour(key, selected, count) {
-                to if to == selected => Step::Nothing,
-                to => Step::Move { from: selected, to },
-            }
+        ListKey::CtrlLeft | ListKey::CtrlRight => {
+            let number = numbers[selected];
+            let to = match key {
+                ListKey::CtrlLeft => number.checked_sub(1),
+                _ => Some(number + 1).filter(|&to| to < SLOTS),
+            };
+            to.map_or(Step::Nothing, |to| Step::Move { from: selected, to })
         }
-        ListKey::Enter => Step::Jump(selected),
-        ListKey::Digit(digit) => match slot_of_digit(digit) {
-            Some(slot) if slot < count => Step::Jump(slot),
-            _ => Step::Nothing,
+        ListKey::CtrlUp | ListKey::CtrlDown => match neighbour(key, selected, count) {
+            to if to == selected => Step::Nothing,
+            to => Step::Move {
+                from: selected,
+                to: numbers[to],
+            },
         },
+        ListKey::Enter => Step::Jump(selected),
+        ListKey::Digit(digit) => slot_of_digit(digit)
+            .and_then(|slot| numbers.iter().position(|&number| number == slot))
+            .map_or(Step::Nothing, Step::Jump),
         ListKey::Delete => Step::Remove(selected),
         ListKey::F2 => Step::Details(selected),
         ListKey::Repin => Step::Repin(selected),
@@ -218,7 +235,8 @@ pub fn card_rect(origin: egui::Pos2, index: usize) -> Rect {
 
 pub(super) fn contents(ui: &mut Ui, view: &View, state: &mut ListUi, out: &mut Vec<Outcome>) {
     let tokens = Tokens::get(ui.ctx());
-    let count = view.slots.len();
+    let numbers = numbers(view);
+    let count = numbers.len();
     let typing = ui.ctx().memory(|memory| memory.focused().is_some());
     let full = ui.max_rect();
     let details = state.details.is_some();
@@ -245,17 +263,17 @@ pub(super) fn contents(ui: &mut Ui, view: &View, state: &mut ListUi, out: &mut V
             state.motion.cancel();
             continue;
         }
-        match step(key, state.selected, count, details) {
-            Step::Select(slot) => state.selected = slot,
-            Step::Move { from, to } => move_card(state, &keys, (from, to), now, out),
-            Step::Jump(slot) => jump(slot, out),
-            Step::Remove(slot) => unpin(view, state, &keys, slot, out),
-            Step::Details(slot) => state.details = draft(view, slot),
-            Step::Repin(slot) => {
+        match step(key, state.selected, &numbers, details) {
+            Step::Select(index) => state.selected = index,
+            Step::Move { from, to } => move_card(view, state, &keys, (from, to, false), out),
+            Step::Jump(index) => jump(view, index, out),
+            Step::Remove(index) => unpin(view, state, &keys, index, out),
+            Step::Details(index) => state.details = draft(view, index),
+            Step::Repin(index) => {
                 if let Some(request) = view
                     .slots
-                    .get(slot)
-                    .and_then(|card| card_menu::repin_request(card, slot))
+                    .get(index)
+                    .and_then(|card| card_menu::repin_request(card, card.slot))
                 {
                     out.push(Outcome::Send(request));
                 }
@@ -317,11 +335,8 @@ pub(super) fn contents(ui: &mut Ui, view: &View, state: &mut ListUi, out: &mut V
         let centre = at - drag.grab + vec2(CARD_W, CARD_H) / 2.0;
         state.motion.drag_to(gap_at(origin, centre, count));
     }
-    let order = state.motion.order(count);
-    let dragged = state
-        .motion
-        .drag
-        .and_then(|drag| order.get(drag.gap).copied());
+    let order = state.motion.order(&numbers);
+    let dragged = state.motion.drag.map(|drag| drag.card);
     for (place, &index) in order.iter().enumerate() {
         if dragged == Some(index) {
             continue;
@@ -338,21 +353,21 @@ pub(super) fn contents(ui: &mut Ui, view: &View, state: &mut ListUi, out: &mut V
             // details, so they can be reached without F2 too.
             let again = state.selected == index;
             state.selected = index;
-            let other = state.details.as_ref().is_some_and(|d| d.slot != index);
+            let other = state.details.as_ref().is_some_and(|d| d.slot != card.slot);
             if other || again {
                 state.details = draft(view, index);
             }
         }
         if response.double_clicked() {
-            jump(index, out);
+            jump(view, index, out);
         }
         // A middle click unpins, as Del does.
         if response.middle_clicked() {
-            unpin(view, state, &keys, place, out);
+            unpin(view, state, &keys, index, out);
         }
         if response.drag_started_by(egui::PointerButton::Primary) {
             if let Some(at) = response.interact_pointer_pos() {
-                state.motion.start(place, at - target.min);
+                state.motion.start(index, place, at - target.min);
                 state.selected = index;
                 if let Some(hwnd) = card.hwnd {
                     state.pictures.raise(hwnd);
@@ -378,15 +393,17 @@ pub(super) fn contents(ui: &mut Ui, view: &View, state: &mut ListUi, out: &mut V
         egui::Popup::menu(&response)
             .open_memory(set)
             .at_position(state.menu_at.unwrap_or(target.center()))
-            .show(|ui| choice = card_menu::show(ui, card, place, count));
+            .show(|ui| choice = card_menu::show(ui, card));
         if choice == Some(Choice::Edit) {
             state.selected = index;
             state.details = draft(view, index);
         }
-        match choice.and_then(|choice| choice.request(place)) {
-            Some(Request::Jump(_)) => jump(index, out),
-            Some(Request::Move { from, to }) => move_card(state, &keys, (from, to), now, out),
-            Some(Request::Remove(slot)) => unpin(view, state, &keys, slot, out),
+        match choice.and_then(|choice| choice.request(card.slot)) {
+            Some(Request::Jump(_)) => jump(view, index, out),
+            Some(Request::PutAt { to, .. }) => {
+                move_card(view, state, &keys, (index, to, true), out)
+            }
+            Some(Request::Remove(_)) => unpin(view, state, &keys, index, out),
             Some(request) => out.push(Outcome::Send(request)),
             None => {}
         }
@@ -436,8 +453,9 @@ pub(super) fn contents(ui: &mut Ui, view: &View, state: &mut ListUi, out: &mut V
             state.motion.slides.float(slide_key(keys[index]), rect);
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
             if !ui.ctx().input(|i| i.pointer.primary_down()) {
-                if let Some(request) = state.motion.release(&keys, now) {
-                    state.selected = drag.gap;
+                if let Some(request) = state.motion.release(&keys, &numbers, now) {
+                    let placed = state.motion.place_of(&numbers, index);
+                    state.selected = placed.unwrap_or(drag.gap);
                     state.details = None;
                     out.push(Outcome::Send(request));
                 }
@@ -456,38 +474,54 @@ pub(super) fn contents(ui: &mut Ui, view: &View, state: &mut ListUi, out: &mut V
     }
 }
 
-fn jump(slot: usize, out: &mut Vec<Outcome>) {
-    out.push(Outcome::Send(Request::Jump(slot)));
-    out.push(Outcome::Close);
+/// Jumps to the card at `index` of the view.
+fn jump(view: &View, index: usize, out: &mut Vec<Outcome>) {
+    if let Some(card) = view.slots.get(index) {
+        out.push(Outcome::Send(Request::Jump(card.slot)));
+        out.push(Outcome::Close);
+    }
 }
 
-/// Sends a move, and the cards stand in their new order at once.
+fn numbers(view: &View) -> Vec<usize> {
+    view.slots.iter().map(|card| card.slot).collect()
+}
+
+/// Sends the move of card `index` to number `to` (with `push` as Put at
+/// number does), and the cards stand at their new numbers at once.
 fn move_card(
+    view: &View,
     state: &mut ListUi,
     keys: &[isize],
-    (from, to): (usize, usize),
-    now: Instant,
+    (index, to, push): (usize, usize, bool),
     out: &mut Vec<Outcome>,
 ) {
-    out.push(Outcome::Send(Request::Move { from, to }));
-    state.motion.moved(keys, from, to, now);
-    state.selected = to.min(keys.len().saturating_sub(1));
+    let numbers = numbers(view);
+    let request = state
+        .motion
+        .moved(keys, &numbers, (index, to), push, Instant::now());
+    out.push(Outcome::Send(request));
+    state.selected = state.motion.place_of(&numbers, index).unwrap_or(index);
     state.details = None;
 }
 
-/// Unpins the card at place `slot`, as Del, a middle click and the menu
-/// do: the engine shows the notice with Undo, and the card fades out.
-fn unpin(view: &View, state: &mut ListUi, keys: &[isize], slot: usize, out: &mut Vec<Outcome>) {
-    out.push(Outcome::Send(Request::Remove(slot)));
+/// Unpins the card at `index` of the view, as Del, a middle click and the
+/// menu do: the engine shows the notice with Undo, and the card fades out.
+fn unpin(view: &View, state: &mut ListUi, keys: &[isize], index: usize, out: &mut Vec<Outcome>) {
     state.details = None;
     let leaving = animations::on()
-        .then(|| state.motion.order(keys.len()).get(slot).copied())
-        .flatten()
-        .and_then(|index| {
-            let rect = state.motion.slides.drawn_last(slide_key(keys[index]))?;
+        .then(|| {
+            let rect = state
+                .motion
+                .slides
+                .drawn_last(slide_key(*keys.get(index)?))?;
             Some((view.slots.get(index)?.clone(), rect))
-        });
-    state.motion.removed(keys, slot, leaving, Instant::now());
+        })
+        .flatten();
+    let now = Instant::now();
+    let numbers = numbers(view);
+    if let Some(request) = state.motion.removed(keys, &numbers, (index, leaving), now) {
+        out.push(Outcome::Send(request));
+    }
 }
 
 /// The Menu key went down, or Shift+F10 was pressed: the selected card's

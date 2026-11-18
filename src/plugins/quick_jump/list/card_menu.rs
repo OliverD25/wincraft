@@ -25,7 +25,7 @@ pub enum Item {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {
     Jump,
-    /// Move the card to this place (from 0).
+    /// Put the card at this number's place (from 0).
     PutAt(usize),
     Repin,
     Edit,
@@ -34,12 +34,12 @@ pub enum Choice {
 }
 
 impl Choice {
-    /// What the choice asks of the engine, for the card at place `slot`.
+    /// What the choice asks of the engine, for the pin at place `slot`.
     /// Edit details only opens the panel.
     pub fn request(self, slot: usize) -> Option<Request> {
         match self {
             Choice::Jump => Some(Request::Jump(slot)),
-            Choice::PutAt(to) => Some(Request::Move { from: slot, to }),
+            Choice::PutAt(to) => Some(Request::PutAt { from: slot, to }),
             Choice::Repin => Some(Request::Repin(slot)),
             Choice::Edit => None,
             Choice::Unpin => Some(Request::Remove(slot)),
@@ -84,16 +84,16 @@ fn is_open(card: &SlotView) -> bool {
     matches!(card.state, State::Open | State::InFront) && card.hwnd.is_some()
 }
 
-/// The numbers "Put at number" offers: all ten, the card's own marked,
-/// and those past the end of the list greyed out.
-pub fn numbers(slot: usize, count: usize) -> Vec<(usize, bool, bool)> {
+/// The numbers "Put at number" offers: all ten, free or taken, with the
+/// card's own marked.
+pub fn numbers(slot: usize) -> Vec<(usize, bool)> {
     (0..SLOTS)
-        .map(|place| (number_of_slot(place), place == slot, place < count))
+        .map(|place| (number_of_slot(place), place == slot))
         .collect()
 }
 
-/// Draws the menu for the card at place `slot` of `count`.
-pub fn show(ui: &mut Ui, card: &SlotView, slot: usize, count: usize) -> Option<Choice> {
+/// Draws the menu for `card`.
+pub fn show(ui: &mut Ui, card: &SlotView) -> Option<Choice> {
     let mut chosen = None;
     for item in items(card) {
         match item {
@@ -104,13 +104,8 @@ pub fn show(ui: &mut Ui, card: &SlotView, slot: usize, count: usize) -> Option<C
             }
             Item::PutAt => {
                 ui.menu_button(PUT_AT, |ui| {
-                    for (place, (number, current, enabled)) in
-                        numbers(slot, count).into_iter().enumerate()
-                    {
-                        let label = ui.add_enabled(
-                            enabled,
-                            egui::Button::selectable(current, number.to_string()),
-                        );
+                    for (place, (number, current)) in numbers(card.slot).into_iter().enumerate() {
+                        let label = ui.add(egui::Button::selectable(current, number.to_string()));
                         if label.clicked() && !current {
                             chosen = Some(Choice::PutAt(place));
                         }
@@ -217,7 +212,7 @@ mod tests {
     fn each_choice_asks_the_engine_for_the_same_as_its_key() {
         assert_eq!(
             Choice::PutAt(4).request(1),
-            Some(Request::Move { from: 1, to: 4 })
+            Some(Request::PutAt { from: 1, to: 4 })
         );
         assert_eq!(Choice::Unpin.request(2), Some(Request::Remove(2)));
         assert_eq!(Choice::Jump.request(3), Some(Request::Jump(3)));
@@ -230,12 +225,10 @@ mod tests {
 
     #[test]
     fn put_at_number_offers_one_to_ten_with_the_own_number_marked() {
-        let numbers = numbers(2, 4);
+        let numbers = numbers(2);
         assert_eq!(numbers.len(), 10);
-        assert_eq!(numbers[0], (1, false, true));
-        assert_eq!(numbers[2], (3, true, true), "the card's own number");
-        assert_eq!(numbers[3], (4, false, true));
-        assert_eq!(numbers[4], (5, false, false), "past the end of the list");
-        assert_eq!(numbers[9], (10, false, false));
+        assert_eq!(numbers[0], (1, false));
+        assert_eq!(numbers[2], (3, true), "the card's own number");
+        assert_eq!(numbers[9], (10, false), "free numbers can be picked too");
     }
 }

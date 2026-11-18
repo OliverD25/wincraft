@@ -17,10 +17,16 @@ pub const WM_APP_REQUEST: u32 = WM_APP + 43;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
     Jump(usize),
-    /// Add this window to the end of the list.
+    /// Add this window at the lowest free number.
     Add(isize),
-    /// Move a pin to another place; the others close up around it.
+    /// A drag or Ctrl+arrow: a pin takes another number, and the pins
+    /// between shift one towards its old number (`Slots::reorder`).
     Move {
+        from: usize,
+        to: usize,
+    },
+    /// The card menu's Put at number: a pin there is pushed down.
+    PutAt {
         from: usize,
         to: usize,
     },
@@ -55,7 +61,7 @@ pub struct App {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct View {
     pub slots: Vec<SlotView>,
-    /// The pins themselves, in order, for the details panel.
+    /// The pins themselves, in the order of `slots`, for the details panel.
     pub pins: Vec<Pin>,
     /// The open app windows, top of the z-order first.
     pub windows: Vec<Live>,
@@ -76,7 +82,8 @@ pub struct Shared {
     pub list_open: bool,
     /// The picker is on screen (the value is not used).
     pub picker: Option<usize>,
-    /// Quick access should select this pin when it next draws.
+    /// Quick access should select the pin at this place when it next
+    /// draws.
     pub select: Option<usize>,
     /// Quick access opens where the user left it, not in the middle.
     pub keep_spot: bool,
