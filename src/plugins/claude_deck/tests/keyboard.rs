@@ -178,11 +178,52 @@ fn the_chat_whose_window_is_in_front_is_the_marked_row() {
         },
     ];
     let got = lines(&chats, &Archived::new(), &View::default(), NOW);
-    assert_eq!(front_pick(&got, 0x20), Some(Pick::Chat("two".into())));
+    assert_eq!(front_pick(&got, 0x20, None), Some(Pick::Chat("two".into())));
     assert_eq!(
-        front_pick(&got, 0x99),
+        front_pick(&got, 0x99, None),
         None,
         "another app in front changes nothing"
+    );
+}
+
+/// The bug of 0.20.135: QuickJump opened a chat by its link in the Claude
+/// app's main window, and the cursor stayed where it was. That window is
+/// titled "Claude Home" whatever chat it shows, so no chat claims it.
+#[test]
+fn the_main_window_marks_the_chat_a_link_showed_there() {
+    let chats = vec![
+        Chat {
+            window: Some(0x10),
+            ..chat("popped", Some(r"E:\code\WinCraft"), 1)
+        },
+        chat("local_a", Some(r"E:\code\WinCraft"), 2),
+        chat("local_b", Some(r"E:\code\WinCraft"), 3),
+    ];
+    let got = lines(&chats, &Archived::new(), &View::default(), NOW);
+    let home = 0x50;
+    assert_eq!(
+        front_pick(&got, home, Some((home, "local_b"))),
+        Some(Pick::Chat("local_b".into()))
+    );
+    assert_eq!(
+        front_pick(&got, home, Some((home, "local_a"))),
+        Some(Pick::Chat("local_a".into())),
+        "the same window in front with another chat moves the cursor"
+    );
+    assert_eq!(
+        front_pick(&got, 0x10, Some((home, "local_a"))),
+        Some(Pick::Chat("popped".into())),
+        "a chat's own window still wins when it is in front"
+    );
+    assert_eq!(
+        front_pick(&got, 0x99, Some((home, "local_a"))),
+        None,
+        "QuickJump's list in front for a moment changes nothing"
+    );
+    assert_eq!(
+        front_pick(&got, 0, Some((0, "local_a"))),
+        None,
+        "the main window not found yet matches nothing"
     );
 }
 

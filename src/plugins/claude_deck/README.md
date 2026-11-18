@@ -102,7 +102,12 @@ How WinCraft tells each status:
   Claude app marks a chat idle when you send a message in the middle of a
   turn.
 - The marked row follows you: when a chat's window comes to the front, its
-  row becomes the marked one, so the list shows which chat you work in.
+  row becomes the marked one at once, so the list shows which chat you work
+  in. This works for QuickJump jumps too. When QuickJump or ClaudeDeck
+  opens a chat in the Claude app's main window, that chat is marked while
+  the main window is in front. A chat you pick inside the app yourself is
+  not seen: the main window's title does not change. While ClaudeDeck is
+  hidden in the tray, the mark still follows, so it is right when it shows.
 - **Done, not seen**: the chat's turn ended while ClaudeDeck was open, and
   since then you have not had its window in front. A turn that ended while
   ClaudeDeck was closed shows as Idle, because WinCraft cannot know whether

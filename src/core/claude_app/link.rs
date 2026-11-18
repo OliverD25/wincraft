@@ -3,6 +3,7 @@
 //! session file's `local_` id. The app opens an empty new chat for any other
 //! id, so only a `local_` id gets a link.
 
+use std::sync::Mutex;
 use std::time::Duration;
 
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
@@ -17,6 +18,30 @@ const MOST_AFTER_PREFIX: usize = 64;
 /// How long the home window gets to show before it is brought forward.
 const FORWARD_WAIT: Duration = Duration::from_secs(3);
 const FORWARD_STEP: Duration = Duration::from_millis(150);
+
+/// The chat a link last showed in the main window, and that window once it
+/// was found. The main window's title stays "Claude Home" whatever chat it
+/// shows, so this is the only way to know which chat it holds; a chat the
+/// user picks inside the app later is not seen.
+static HOME_CHAT: Mutex<Option<(isize, String)>> = Mutex::new(None);
+
+/// The main window and the chat a link last showed in it. The window is 0
+/// until it was found.
+pub fn home_chat() -> Option<(isize, String)> {
+    HOME_CHAT.lock().ok().and_then(|home| home.clone())
+}
+
+/// Notes the chat a link shows; a window of 0 keeps the one found before,
+/// which still is the main window when the app stayed open.
+fn note_home(hwnd: isize, id: &str) {
+    if let Ok(mut home) = HOME_CHAT.lock() {
+        let hwnd = match home.as_ref() {
+            Some((before, _)) if hwnd == 0 => *before,
+            _ => hwnd,
+        };
+        *home = Some((hwnd, id.to_string()));
+    }
+}
 
 /// The link for a desktop chat id, or `None` when the app would not take it
 /// (it accepts `local_` and 1 to 64 letters, digits or dashes).
@@ -73,21 +98,25 @@ pub fn show_chat_then(id: &str, finished: impl FnOnce() + Send + 'static) -> boo
         finished();
         return false;
     }
+    note_home(0, id);
+    let id = id.to_string();
     std::thread::spawn(move || {
-        bring_home_forward();
+        bring_home_forward(&id);
         finished();
     });
     true
 }
 
-/// Brings the window titled "Claude Home" forward once it shows.
-fn bring_home_forward() {
+/// Brings the window titled "Claude Home" forward once it shows, and notes
+/// it as the window that shows chat `id`.
+fn bring_home_forward(id: &str) {
     let home = poll(FORWARD_WAIT, FORWARD_STEP, || {
         app_windows()
             .into_iter()
             .find(|hwnd| windows_list::window_text(*hwnd) == HOME_TITLE)
     });
     if let Some(hwnd) = home {
+        note_home(hwnd as isize, id);
         window_actions::activate(hwnd);
     }
 }
@@ -112,6 +141,16 @@ mod tests {
         for bad in ["local_a&b", "local_a b", "local_a/b", "local_a_b"] {
             assert_eq!(chat_link(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn a_new_link_keeps_the_main_window_found_before() {
+        note_home(0, "local_a");
+        note_home(42, "local_a");
+        note_home(0, "local_b");
+        assert_eq!(home_chat(), Some((42, "local_b".to_string())));
+        note_home(43, "local_c");
+        assert_eq!(home_chat(), Some((43, "local_c".to_string())));
     }
 
     #[test]

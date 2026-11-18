@@ -388,7 +388,7 @@ pub mod guards;
 mod keys;
 mod link;
 mod menu;
-pub use link::{chat_link, show_chat, show_chat_then};
+pub use link::{chat_link, home_chat, show_chat, show_chat_then};
 pub use menu::rename_chat;
 
 #[cfg(test)]

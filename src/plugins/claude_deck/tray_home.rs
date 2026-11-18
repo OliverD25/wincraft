@@ -22,6 +22,7 @@ use crate::core::tray::MenuItem;
 use crate::core::{claude_jobs, claude_sessions, claude_windows, host, windows_list};
 use crate::ui::reveal::{self, Reveal};
 
+use super::front;
 use super::reading;
 use super::servers::Deck;
 use super::taskbar;
@@ -228,6 +229,8 @@ fn read_while_hidden(shared: &Arc<Mutex<Shared>>, state: &Arc<Mutex<DeckUi>>) {
             let now = claude_sessions::now_ms();
             reading::read(state);
             window::build(state, settings, now);
+            let lines = Arc::clone(&state.cache.lines);
+            front::follow(state, &lines);
             (state.cache.waiting, state.news.count)
         },
     );
@@ -304,6 +307,7 @@ pub(super) fn hide(shared: &mut Shared, state: &mut DeckUi) {
     window::keep_place(state);
     window::commit(state);
     unsafe { ShowWindow(state.window as HWND, SW_HIDE) };
+    front::stop();
     shared.home.hidden = true;
     log::info!("ClaudeDeck: hidden in the tray");
 }

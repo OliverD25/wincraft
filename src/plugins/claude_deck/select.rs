@@ -68,15 +68,29 @@ pub fn open_pick(lines: &[Line], last: Option<&Pick>) -> Option<Pick> {
 }
 
 /// The row of the chat whose window is in front, so the list marks the
-/// chat the user works in. None when the window in front is no shown
-/// chat's window: the row marked before then stays.
-pub fn front_pick(lines: &[Line], front: isize) -> Option<Pick> {
-    lines.iter().find_map(|line| match line {
-        Line::Chat(c) if !c.stand_in && !c.hidden && c.chat.window == Some(front) => {
+/// chat the user works in. The Claude app's main window is titled "Claude
+/// Home" whatever chat it shows, so when it is in front, `home` (the main
+/// window and the chat a link showed there last) names the chat. None
+/// when the window in front is no shown chat's window: the row marked
+/// before then stays.
+pub fn front_pick(lines: &[Line], front: isize, home: Option<(isize, &str)>) -> Option<Pick> {
+    let shown = |line: &Line, wanted: &dyn Fn(&Chat) -> bool| match line {
+        Line::Chat(c) if !c.stand_in && !c.hidden && wanted(&c.chat) => {
             Some(Pick::Chat(c.chat.id.clone()))
         }
         _ => None,
-    })
+    };
+    if let Some((_, id)) = home.filter(|(hwnd, _)| *hwnd != 0 && *hwnd == front) {
+        if let Some(pick) = lines
+            .iter()
+            .find_map(|line| shown(line, &|chat| chat.id == id))
+        {
+            return Some(pick);
+        }
+    }
+    lines
+        .iter()
+        .find_map(|line| shown(line, &|chat| chat.window == Some(front)))
 }
 
 /// The digit a chat row shows: the first nine chat rows on screen get 1

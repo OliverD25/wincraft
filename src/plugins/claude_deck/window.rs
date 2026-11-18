@@ -3,7 +3,8 @@
 //! the header, resized by its edges, and comes back at the same place and
 //! size. While it is open it asks the host for fresh data every few
 //! seconds; it repaints only for that, for the times, for the turning
-//! ring of a working chat when Windows allows animations, and for the
+//! ring of a working chat when Windows allows animations, when another
+//! window comes to the front (`front`), and for the
 //! short fade step. The list's lines are built again only when the chats,
 //! the arrangement or the view changed.
 
@@ -13,7 +14,7 @@ use std::time::{Duration, Instant};
 use egui::{pos2, vec2, Color32, Rect, Ui};
 use serde_json::Value;
 use windows_sys::Win32::Foundation::HWND;
-use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, IsIconic};
+use windows_sys::Win32::UI::WindowsAndMessaging::IsIconic;
 
 use crate::core::claude_jobs;
 use crate::core::claude_sessions;
@@ -27,6 +28,7 @@ use crate::ui::widgets::{focus, text};
 use super::arrange::hidden_chats;
 use super::edges;
 use super::fade::Fade;
+use super::front;
 use super::header::{self, Click};
 use super::mini;
 use super::model::{self, Archived, Chat, Line, Mark, View};
@@ -136,6 +138,8 @@ pub(super) struct DeckUi {
     select_on_open: bool,
     /// The window in front when the list last looked, once chats are in.
     pub(super) front_seen: Option<isize>,
+    /// The row the window in front named when the list last looked.
+    pub(super) front_pick: Option<Pick>,
     /// The window in front when the hotkey was pressed.
     pub(super) before: Option<isize>,
     /// The mode the window has now; None before the first frame.
@@ -290,7 +294,8 @@ impl PluginWindow for DeckWindow {
                 state.selected = select::open_pick(&lines, state.selected.as_ref());
                 state.scroll_to_selected = true;
             }
-            follow_front(&mut state, &lines);
+            front::listen(ui.ctx());
+            front::follow(&mut state, &lines);
             keep_min_size(ui.ctx(), &mut state, settings.mini);
             switch_mode(ui.ctx(), &mut state, settings.mini, &lines);
             let turn = ring_turn(&state);
@@ -424,6 +429,7 @@ pub(super) fn build(state: &mut DeckUi, settings: &super::Settings, now: u64) {
 /// Keeps the place, and stops what only an open window needs: the jobs
 /// it wanted read and the list of open chat windows.
 pub(super) fn forget(state: &mut DeckUi) {
+    front::stop();
     if state.window != 0 {
         keep_place(state);
         taskbar::release(state.window);
@@ -500,26 +506,6 @@ pub(super) fn listed(state: &DeckUi) -> Vec<Chat> {
         .filter(|(at, _)| !hidden.contains(at))
         .map(|(_, chat)| chat.clone())
         .collect()
-}
-
-/// When another window comes to the front and it is a shown chat's window,
-/// that chat's row becomes the marked one. The user then sees in the list
-/// which chat they work in. A menu, a rename or a drag is left alone.
-fn follow_front(state: &mut DeckUi, lines: &[Line]) {
-    if state.chats.is_empty() {
-        return;
-    }
-    let front = unsafe { GetForegroundWindow() } as isize;
-    if state.front_seen.replace(front) == Some(front) {
-        return;
-    }
-    let busy = state.drag.is_some() || state.renaming.is_some() || state.menu_for.is_some();
-    if let Some(pick) = select::front_pick(lines, front).filter(|_| !busy) {
-        if state.selected.as_ref() != Some(&pick) {
-            state.selected = Some(pick);
-            state.scroll_to_selected = true;
-        }
-    }
 }
 
 /// Saves the window's place and size when they changed; never the

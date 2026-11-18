@@ -18,6 +18,7 @@ mod fade;
 mod fields;
 mod fork;
 mod forks;
+mod front;
 mod header;
 mod hook_link;
 mod hover;
@@ -538,6 +539,7 @@ impl WinCraftPlugin for ClaudeDeck {
             shared.open = false;
         }
         self.stop_tray();
+        front::stop();
     }
 }
 

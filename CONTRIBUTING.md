@@ -487,8 +487,10 @@ There are two: the Win32 host loop on the main thread, and the egui UI thread.
   on-screen panel for `core::layered`), `notice` (the notice with Undo
   that QuickJump and QuickActions show after a change), `window_hint`
   (after you bring a window to the front, `window_hint::show` points to it
-  when it is on another monitor than the one the user looks at) and
-  `animations` (whether the Windows setting "Animation effects" is on).
+  when it is on another monitor than the one the user looks at),
+  `animations` (whether the Windows setting "Animation effects" is on) and
+  `front_watch` (a call at once when the window in front changes; the hook
+  thread runs only while someone listens).
   A frameless egui window that the user drags by its own header calls
   `dpi_follow::follow(hwnd)` once, so it keeps its size in points and does
   not flip between two scales when it is dragged to a monitor with another
