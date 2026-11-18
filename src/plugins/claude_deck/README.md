@@ -142,9 +142,11 @@ How WinCraft tells each status:
   tray (no taskbar button)** on it hides ClaudeDeck to the tray; with it off
   it minimises the window. It works on every tab and in mini mode. While a
   rename, a drag or a menu is open it does nothing.
-- `Ctrl+B` turns the token mark off, and on again in the style it had.
-  `Ctrl+Shift+B` switches it between today and the last 7 days. Both work
-  on every tab and in mini mode, but not while you rename.
+- The hotkey command **ClaudeDeck: Token mark on or off** (`Win+Alt+Shift+T`
+  by default) turns the token mark off, and on again in the style it had.
+  **ClaudeDeck: Token mark, today or 7 days** switches it between today and
+  the last 7 days; it has no keys until you set some in Settings → Hotkeys.
+  Both work from anywhere, also while ClaudeDeck is hidden in the tray.
 - `Ctrl+M` switches mini mode. The hotkey command **ClaudeDeck mini mode**
   does the same from anywhere; it has no keys until you set some in
   Settings → Hotkeys.
@@ -386,10 +388,10 @@ row, where the chat that used most fills the row:
 **Token mark counts** picks the tokens: **The last 7 days** (the default)
 or **Today**. With Today, a chat that used no tokens today shows no mark.
 Resting the mouse on a chat says which: "12% of the last 7 days" or "12% of
-today". In the window, `Ctrl+B` turns the mark off and on again in the style
-it had, and `Ctrl+Shift+B` switches between today and the last 7 days; the
-palette has **ClaudeDeck: Token mark on or off** and **ClaudeDeck: Token
-mark, today or 7 days**. The gear's **View** submenu has the same choices.
+today". The hotkey commands **ClaudeDeck: Token mark on or off**
+(`Win+Alt+Shift+T`) and **ClaudeDeck: Token mark, today or 7 days** (no keys
+until you set some) turn the mark off and on again in the style it had, and
+switch between today and the last 7 days; the palette has both too. The gear's **View** submenu has the same choices.
 Mini mode shows no mark.
 
 How it counts: WinCraft reads the chats' files on this PC

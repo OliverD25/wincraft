@@ -5,7 +5,7 @@
 //! open below the **View** row. A click or `Enter` changes a setting and
 //! saves it; the menu stays open. When the keyboard opens the submenu, its
 //! first item takes the keyboard. Its last part is the token mark: on or
-//! off (`Ctrl+B`), its three styles, and what it counts.
+//! off, its three styles, and what it counts.
 
 use egui::containers::menu::{MenuConfig, SubMenuButton};
 use egui::{Id, PopupCloseBehavior, Ui};
@@ -133,14 +133,14 @@ fn items(ui: &mut Ui, settings: &Settings) -> Option<Pick> {
 }
 
 /// **Token mark** with its keys, the three styles under it, a line, and
-/// the two counts with the note on `Ctrl+Shift+B`.
+/// the two counts, and the note on the counts hotkey when it has keys.
 fn token_items(ui: &mut Ui, settings: &Settings) -> Option<Pick> {
     let mut picked = None;
     let mut on = settings.token_mark != Style::Off;
     let label = (
         token_mark::LABEL,
         egui::Atom::grow(),
-        egui::RichText::new(token_mark::ON_OFF_KEYS).weak(),
+        egui::RichText::new(token_mark::flip_keys()).weak(),
     );
     if ui.add(egui::Checkbox::new(&mut on, label)).clicked() {
         picked = Some(Pick::TokenFlip);
@@ -161,7 +161,9 @@ fn token_items(ui: &mut Ui, settings: &Settings) -> Option<Pick> {
             picked = Some(Pick::TokenCounts(counts));
         }
     }
-    ui.weak(token_mark::SWITCH_NOTE);
+    if let Some(note) = token_mark::switch_note() {
+        ui.weak(note);
+    }
     picked
 }
 

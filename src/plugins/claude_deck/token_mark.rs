@@ -1,16 +1,14 @@
 //! The token mark on each chat row (design section 16, decided
 //! 2026-11-18): the settings **Token mark** (Line, Fill, Signal bars or
-//! Off) and **Token mark counts** (Today or The last 7 days), the window
-//! keys `Ctrl+B` and `Ctrl+Shift+B`, and the words of the row's tip. It
+//! Off) and **Token mark counts** (Today or The last 7 days), the two
+//! hotkey commands that change them, and the words of the row's tip. It
 //! replaced the on/off **Token bar**; a saved Token bar on reads as Line,
 //! off as Off. The drawing is in `stats::bar`.
 
-use egui::{Event, Key};
 use serde_json::Value;
 
 use crate::core::host;
 use crate::core::traits::PaletteCommand;
-use crate::core::ui_bridge::HostChannel;
 
 use super::model::ChatLine;
 use super::rows::Look;
@@ -19,7 +17,7 @@ use super::{Handle, Settings, ID};
 
 pub const KEY: &str = "token_mark";
 pub const COUNTS_KEY: &str = "token_mark_counts";
-/// Not on the settings page: the style `Ctrl+B` turns the mark back on to.
+/// Not on the settings page: the style the on/off command turns the mark back on to.
 pub const LAST_KEY: &str = "token_mark_last";
 /// The on/off setting it replaced.
 pub const OLD_KEY: &str = "show_token_bar";
@@ -35,8 +33,6 @@ pub const WEEK: &str = "The last 7 days";
 /// The quick settings' words for the two counts.
 pub const COUNT_TODAY: &str = "Count today";
 pub const COUNT_WEEK: &str = "Count the last 7 days";
-pub const ON_OFF_KEYS: &str = "Ctrl+B";
-pub const SWITCH_NOTE: &str = "Ctrl+Shift+B switches the two.";
 pub const ON_OFF_COMMAND: &str = "ClaudeDeck: Token mark on or off";
 pub const COUNTS_COMMAND: &str = "ClaudeDeck: Token mark, today or 7 days";
 
@@ -141,8 +137,8 @@ fn word(text: &str) -> Value {
     Value::String(text.to_string())
 }
 
-/// Sets a style. Turning the mark off keeps the style it had, for
-/// `Ctrl+B` to come back to.
+/// Sets a style. Turning the mark off keeps the style it had, for the
+/// on/off command to come back to.
 pub fn set_style(settings: &mut Settings, style: Style) -> Saves {
     let mut saves = vec![(KEY, word(style_word(style)))];
     if style == Style::Off {
@@ -157,7 +153,7 @@ pub fn set_style(settings: &mut Settings, style: Style) -> Saves {
     saves
 }
 
-/// `Ctrl+B`: off, or back on in the style it had last.
+/// The on/off command: off, or back on in the style it had last.
 pub fn flip(settings: &mut Settings) -> Saves {
     let style = if settings.token_mark == Style::Off {
         settings.token_last
@@ -172,7 +168,7 @@ pub fn set_counts(settings: &mut Settings, counts: Counts) -> Saves {
     vec![(COUNTS_KEY, word(counts_word(counts)))]
 }
 
-/// `Ctrl+Shift+B`: Today and the last 7 days.
+/// The counts command: Today and the last 7 days.
 pub fn switch_counts(settings: &mut Settings) -> Saves {
     let counts = match settings.token_counts {
         Counts::Today => Counts::Week,
@@ -190,49 +186,37 @@ pub fn keep_last(before: &Settings, after: &mut Settings) -> Option<Style> {
     })
 }
 
-/// What `Ctrl+B` or `Ctrl+Shift+B` asks for this frame.
+/// What a hotkey or palette command asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Asked {
     Flip,
     Counts,
 }
 
-/// The window's keys: `Ctrl+B` and `Ctrl+Shift+B`, not with Alt. Nothing
-/// while a rename or another text field has the keyboard.
-pub fn asked(events: &[Event], typing: bool) -> Option<Asked> {
-    if typing {
-        return None;
-    }
-    events.iter().find_map(|event| match event {
-        Event::Key {
-            key: Key::B,
-            pressed: true,
-            repeat: false,
-            modifiers,
-            ..
-        } if modifiers.command && !modifiers.alt => Some(if modifiers.shift {
-            Asked::Counts
-        } else {
-            Asked::Flip
-        }),
-        _ => None,
-    })
-}
+/// The keys the user set for the two hotkey commands ("" for none), kept
+/// for the quick settings menu. Not saved: the host gives them at start.
+static KEYS: std::sync::Mutex<(String, String)> =
+    std::sync::Mutex::new((String::new(), String::new()));
 
-/// The window's frame: carries out `Ctrl+B` or `Ctrl+Shift+B`.
-pub fn window_keys(
-    ctx: &egui::Context,
-    typing: bool,
-    settings: &mut Settings,
-    to_host: &HostChannel,
-) {
-    let typing = typing || ctx.text_edit_focused();
-    if let Some(asked) = ctx.input(|i| asked(&i.events, typing)) {
-        super::quick_view::save(apply(settings, asked), to_host);
+pub fn set_keys(flip: &str, counts: &str) {
+    if let Ok(mut keys) = KEYS.lock() {
+        *keys = (flip.to_string(), counts.to_string());
     }
 }
 
-/// Carries out a key or a palette command on the settings.
+/// The keys of the on/off command, empty for none.
+pub fn flip_keys() -> String {
+    KEYS.lock().map(|keys| keys.0.clone()).unwrap_or_default()
+}
+
+/// The grey note under the two counts: only when the counts command has
+/// keys.
+pub fn switch_note() -> Option<String> {
+    let keys = KEYS.lock().map(|keys| keys.1.clone()).unwrap_or_default();
+    (!keys.is_empty()).then(|| format!("{keys} switches the two."))
+}
+
+/// Carries out a hotkey or a palette command on the settings.
 pub fn apply(settings: &mut Settings, asked: Asked) -> Saves {
     match asked {
         Asked::Flip => flip(settings),
@@ -250,13 +234,13 @@ pub fn command(asked: Asked) -> PaletteCommand {
         Asked::Flip => (
             COMMAND_FLIP,
             ON_OFF_COMMAND,
-            "The share of tokens on each chat row (Ctrl+B in ClaudeDeck)",
+            "The share of tokens on each chat row",
             "token bar usage stats line fill signal",
         ),
         Asked::Counts => (
             COMMAND_COUNTS,
             COUNTS_COMMAND,
-            "Count today's tokens or the last 7 days' (Ctrl+Shift+B in ClaudeDeck)",
+            "Count today's tokens or the last 7 days'",
             "token bar usage stats week",
         ),
     };
@@ -271,7 +255,7 @@ pub fn command(asked: Asked) -> PaletteCommand {
     }
 }
 
-/// The key a palette command stands for.
+/// What a palette command asks for.
 pub fn asked_by(id: u32) -> Option<Asked> {
     match id {
         COMMAND_FLIP => Some(Asked::Flip),
@@ -280,7 +264,7 @@ pub fn asked_by(id: u32) -> Option<Asked> {
     }
 }
 
-/// A palette command, on the host thread: change and save.
+/// A hotkey or palette command, on the host thread: change and save.
 pub fn run(shared: &Handle, asked: Asked) {
     let saves = match shared.lock() {
         Ok(mut shared) => apply(&mut shared.settings, asked),

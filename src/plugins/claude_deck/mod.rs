@@ -54,7 +54,7 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 use windows_sys::Win32::Foundation::HWND;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN};
 use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
 use crate::core::traits::{
@@ -69,6 +69,8 @@ use crate::core::{claude_windows, host, instance, window_actions};
 const ID: &str = "claude_deck";
 const ACTION_OPEN: u32 = 1;
 const ACTION_MINI: u32 = 2;
+const ACTION_TOKEN_MARK: u32 = 3;
+const ACTION_TOKEN_COUNTS: u32 = 4;
 /// The palette command that lists the servers to open a terminal on.
 const COMMAND_TERMINAL: u32 = 1;
 /// The palette command that opens the window with its quick settings.
@@ -129,7 +131,7 @@ pub struct Settings {
     pub model: bool,
     /// How a chat row shows its share of the tokens.
     pub token_mark: token_mark::Style,
-    /// The style `Ctrl+B` turns the mark back on to; never Off.
+    /// The style the on/off command turns the mark back on to; never Off.
     pub token_last: token_mark::Style,
     /// Whether the share is of today's tokens or the last 7 days'.
     pub token_counts: token_mark::Counts,
@@ -404,6 +406,21 @@ impl WinCraftPlugin for ClaudeDeck {
                 label: "ClaudeDeck mini mode",
                 default: Hotkey::NONE,
             },
+            HotkeyAction {
+                id: ACTION_TOKEN_MARK,
+                name: "token_mark",
+                label: token_mark::ON_OFF_COMMAND,
+                default: Hotkey {
+                    modifiers: MOD_NOREPEAT | MOD_WIN | MOD_ALT | MOD_SHIFT,
+                    vk: u32::from(b'T'),
+                },
+            },
+            HotkeyAction {
+                id: ACTION_TOKEN_COUNTS,
+                name: "token_counts",
+                label: token_mark::COUNTS_COMMAND,
+                default: Hotkey::NONE,
+            },
         ]
     }
 
@@ -431,8 +448,20 @@ impl WinCraftPlugin for ClaudeDeck {
                 }
                 self.open();
             }
+            ACTION_TOKEN_MARK => token_mark::run(&self.shared, token_mark::Asked::Flip),
+            ACTION_TOKEN_COUNTS => token_mark::run(&self.shared, token_mark::Asked::Counts),
             _ => {}
         }
+    }
+
+    fn on_hotkeys_bound(&mut self, keys: &[(u32, String)]) {
+        let text = |id: u32| {
+            keys.iter()
+                .find(|(action, _)| *action == id)
+                .map(|(_, keys)| keys.clone())
+                .unwrap_or_default()
+        };
+        token_mark::set_keys(&text(ACTION_TOKEN_MARK), &text(ACTION_TOKEN_COUNTS));
     }
 
     fn on_windows_message(&mut self, msg: u32, wparam: usize, _lparam: isize) {

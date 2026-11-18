@@ -45,7 +45,6 @@ use super::servers::Deck;
 use super::status::Seen;
 use super::store::{self, Saved};
 use super::taskbar;
-use super::token_mark;
 use super::tray_home::{self, rules::hides};
 use super::{Handle, ID, MINI_KEY, ONLY_OPEN_KEY, STAY_ON_TOP_KEY};
 
@@ -350,8 +349,6 @@ impl PluginWindow for DeckWindow {
             if let Some(pick) = quick::show(ui, &mut state, &settings, &tokens) {
                 clicked = quick::apply(&mut shared.settings, pick, &to_host).or(clicked);
             }
-            let typing = state.renaming.is_some();
-            token_mark::window_keys(ui.ctx(), typing, &mut shared.settings, &to_host);
             commit(&mut state);
             shared.picked = picked_chat(&lines, &state);
             match clicked {

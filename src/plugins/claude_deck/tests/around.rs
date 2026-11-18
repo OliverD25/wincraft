@@ -30,7 +30,7 @@ fn the_plugin_answers_the_host_with_its_hotkeys_tray_entry_and_window() {
     assert!(!meta.readme.is_empty());
     let hotkeys = deck.hotkey_actions();
     let names: Vec<&str> = hotkeys.iter().map(|h| h.name).collect();
-    assert_eq!(names, ["open", "mini"]);
+    assert_eq!(names, ["open", "mini", "token_mark", "token_counts"]);
     assert_eq!(hotkeys[0].default.vk, u32::from(b'X'));
     assert_eq!(hotkeys[1].default, crate::core::traits::Hotkey::NONE);
     let tray = deck.tray_actions();

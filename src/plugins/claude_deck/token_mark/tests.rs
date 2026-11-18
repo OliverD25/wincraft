@@ -1,20 +1,9 @@
-use egui::{Event, Key, Modifiers};
 use serde_json::json;
 
 use super::*;
 use crate::core::config::PluginConfig;
 use crate::core::traits::WinCraftPlugin;
 use crate::plugins::claude_deck::ClaudeDeck;
-
-fn key(modifiers: Modifiers) -> Vec<Event> {
-    vec![Event::Key {
-        key: Key::B,
-        physical_key: None,
-        pressed: true,
-        repeat: false,
-        modifiers,
-    }]
-}
 
 /// What the host does at start: fill in the defaults, then migrate.
 fn started(saved: serde_json::Value) -> Settings {
@@ -95,16 +84,42 @@ fn the_settings_page_turning_it_off_keeps_the_style() {
 }
 
 #[test]
-fn the_keys_need_ctrl_and_never_act_while_typing() {
-    let ctrl = Modifiers::COMMAND;
-    assert_eq!(asked(&key(ctrl), false), Some(Asked::Flip));
+fn the_hotkeys_change_the_mark_and_the_menu_shows_their_keys() {
+    use crate::core::traits::Hotkey;
+    let deck = ClaudeDeck::new();
+    let actions = deck.hotkey_actions();
+    let flip = actions
+        .iter()
+        .find(|a| a.label == ON_OFF_COMMAND)
+        .expect("the on/off hotkey");
+    let counts = actions
+        .iter()
+        .find(|a| a.label == COUNTS_COMMAND)
+        .expect("the counts hotkey");
+    assert_ne!(flip.default, Hotkey::NONE, "the on/off hotkey has keys");
+    assert_eq!(counts.default, Hotkey::NONE, "the counts hotkey has none");
+    assert_ne!(flip.id, counts.id);
+    assert_ne!(flip.name, counts.name);
+
+    let mut shared = deck.shared.lock().expect("shared");
+    shared.settings = Settings::default();
+    drop(shared);
+    run(&deck.shared, Asked::Flip);
+    run(&deck.shared, Asked::Counts);
+    let settings = deck.shared.lock().expect("shared").settings.clone();
+    assert_eq!(settings.token_mark, Style::Off);
+    assert_eq!(settings.token_counts, Counts::Today);
+
+    set_keys("", "");
+    assert_eq!(flip_keys(), "");
+    assert_eq!(switch_note(), None, "no keys, no note");
+    set_keys("Win+Alt+Shift+T", "Win+Alt+Y");
+    assert_eq!(flip_keys(), "Win+Alt+Shift+T");
     assert_eq!(
-        asked(&key(ctrl | Modifiers::SHIFT), false),
-        Some(Asked::Counts)
+        switch_note().as_deref(),
+        Some("Win+Alt+Y switches the two.")
     );
-    assert_eq!(asked(&key(ctrl), true), None, "a rename has the keyboard");
-    assert_eq!(asked(&key(Modifiers::NONE), false), None);
-    assert_eq!(asked(&key(ctrl | Modifiers::ALT), false), None);
+    set_keys("", "");
 }
 
 #[test]
@@ -118,7 +133,7 @@ fn the_tip_says_which_tokens_and_the_bars_follow_the_share() {
 }
 
 #[test]
-fn the_palette_commands_carry_out_the_keys() {
+fn the_palette_commands_carry_out_the_changes() {
     let deck = ClaudeDeck::new();
     let labels: Vec<&str> = deck.palette_commands().iter().map(|c| c.label).collect();
     assert!(labels.contains(&ON_OFF_COMMAND) && labels.contains(&COUNTS_COMMAND));

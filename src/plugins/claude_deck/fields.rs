@@ -92,7 +92,7 @@ pub(super) fn fields() -> Vec<SettingField> {
         SettingField {
             key: token_mark::KEY,
             label: token_mark::LABEL,
-            help: "Each chat's share of the tokens, weighed by model price: a thin line under the row, a grey fill behind it, or four small bars before the status mark. The chat that used most fills the row. Ctrl+B in ClaudeDeck turns it off and on. WinCraft reads the chats' files on this PC once a minute while ClaudeDeck is open. The Stats tab shows the numbers.",
+            help: "Each chat's share of the tokens, weighed by model price: a thin line under the row, a grey fill behind it, or four small bars before the status mark. The chat that used most fills the row. WinCraft reads the chats' files on this PC once a minute while ClaudeDeck is open. The Stats tab shows the numbers.",
             kind: FieldKind::Choice(&[
                 token_mark::LINE,
                 token_mark::FILL,
@@ -103,7 +103,7 @@ pub(super) fn fields() -> Vec<SettingField> {
         SettingField {
             key: token_mark::COUNTS_KEY,
             label: token_mark::COUNTS_LABEL,
-            help: "Which tokens the mark shows a share of. With Today, a chat that used none today shows no mark. Ctrl+Shift+B in ClaudeDeck switches the two.",
+            help: "Which tokens the mark shows a share of. With Today, a chat that used none today shows no mark.",
             kind: FieldKind::Choice(&[token_mark::TODAY, token_mark::WEEK]),
         },
         SettingField {
