@@ -349,3 +349,25 @@ only when the size is not known. Two placements, A (before the time,
 recommended) and B (after the model name), in dark and light, and the
 hover panel's new "Context 318k of 777k (41%) · compacted 2 times" line.
 Not built yet. Made by make_claudedeck_context_ring.py from version 45.
+
+## 2026-11-18: ClaudeDeck, tokens per chat (options to pick)
+
+Version 50 of the artifact, copied byte for byte (441955 bytes). New
+section 16 "Tokens per chat", asked by the WinCraft Rust chat: the Stats
+tab and the row token bar as 0.20.135 draws them, then four options for
+the Top chats graph (A1 bars split by model, recommended; A2 tiles; A3 a
+ranked list with 7 days per chat; A4 a donut) and four for the mark on
+each Chats row (B1 share chip; B2 7-day mini chart; B3 signal bars;
+B4 a faint fill behind the row, recommended), each in dark and light.
+Made by make_claudedeck_tokens.py from version 47.
+
+## 2026-11-18 (later): ClaudeDeck, tokens per chat decided
+
+Version 51 of the artifact, copied byte for byte (452650 bytes). Section
+16 gets "Decided 2026-11-18": the Stats tab's Top chats use A1 (bars cut
+by model, token count beside the share). The row keeps today's 2 px line
+by default; "Token bar" becomes "Token mark" (Line, Fill = B4, Signal
+bars = B3, Off) plus "Token mark counts" (Today, The last 7 days).
+Ctrl+B turns the mark on and off, Ctrl+Shift+B switches Today and 7 days,
+both in the ClaudeDeck window, with two palette commands. Drawn: the
+line in both ranges, the Quick settings lines and the Settings rows.
