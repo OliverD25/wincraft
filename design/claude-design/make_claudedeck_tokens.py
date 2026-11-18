@@ -272,50 +272,132 @@ def rows_deck(theme, opt):
 
 
 REC = '<span class="rec">Recommended</span>'
+CHOSEN = '<span class="rec">Chosen</span>'
+KEPT = '<span class="rec" style="background:var(--text2)">Kept as a choice</span>'
 
 
-def pair(title, dark, light, rec=False):
-    return (f'<div style="margin-top:22px"><div class="optcap">{title} {REC if rec else ""}</div>'
+def pair(title, dark, light, rec=""):
+    return (f'<div style="margin-top:22px"><div class="optcap">{title} {rec}</div>'
             f'<div class="side"><div>{cap("Dark")}{dark}</div><div>{cap("Light")}{light}</div></div></div>')
 
 
 A_OPTS = [
     ("A1. Bars split by model", a1,
      "Each bar is cut into its models, in the Models colours, with the token count beside the share. "
-     "You see at once why a chat is big: many tokens, or an expensive model.", True),
+     "You see at once why a chat is big: many tokens, or an expensive model.", CHOSEN),
     ("A2. Tiles (a treemap)", a2,
      "One block, cut into tiles; the size of a tile is the chat's share. The biggest chats stand out at "
-     "once, but small chats lose their names, and the narrow window leaves little room.", False),
+     "once, but small chats lose their names, and the narrow window leaves little room.", ""),
     ("A3. A ranked list with 7 days per chat", a3,
      "No long bars. Each chat gets its place, its share, and a small chart of its last 7 days, so you see "
-     "when it was busy, not only how much.", False),
+     "when it was busy, not only how much.", ""),
     ("A4. A donut", a4,
      "The five biggest chats and \"Other chats\" as a ring with a legend. Good for the shape of the week; "
-     "hard to compare two chats of near the same size.", False),
+     "hard to compare two chats of near the same size.", ""),
 ]
 B_OPTS = [
     ("B1. A share chip before the time", "B1",
      "A small rounded chip with the share, \"12%\", tinted stronger for bigger chats. The only option that shows "
-     "a number without hovering. It takes the place at the right edge that ring option A of section 15 also wants.", False),
+     "a number without hovering. It takes the place at the right edge that ring option A of section 15 also wants.", ""),
     ("B2. A 7-day mini chart before the time", "B2",
      "Seven tiny columns, Monday to today. Shows when the chat worked; the size is only relative to the chat itself. "
-     "Also takes room at the right edge.", False),
+     "Also takes room at the right edge.", ""),
     ("B3. Signal bars before the status mark", "B3",
      "Four small bars, like a Wi-Fi signal: 1 bar under 6%, 2 under 12%, 3 under 25%, 4 from 25%. "
-     "Easy to scan down the list, uses the empty space at the left, and never clashes with the context ring.", False),
+     "Easy to scan down the list, uses the empty space at the left, and never clashes with the context ring.", KEPT),
     ("B4. A faint fill behind the row", "B4",
      "The row's background fills from the left, in grey at 9%, as far as its share. No extra item on the row; "
-     "the grey keeps it apart from the amber selection colour.", True),
+     "the grey keeps it apart from the amber selection colour.", KEPT),
 ]
 
+def today_shares():
+    tot = sum(c[6][-1] for c in CHATS)
+    return {c[0]: round(c[6][-1] / tot * 100) for c in CHATS}
+
+
+def line_deck(theme, mode):
+    sh = today_shares() if mode == "today" else {c[0]: c[3] for c in CHATS}
+    top = max(sh[c[0]] for c in ROW_CHATS) or 1
+    rows = ""
+    for c in ROW_CHATS:
+        name, status = c[0], c[2]
+        v = sh[name]
+        when = "today" if mode == "today" else "the last 7 days"
+        bar = (f'<span class="tbar" title="{v}% of {when}" '
+               f'style="width:calc((100% - 24px) * {v / top:.3f})"></span>') if v else ""
+        rows += (f'<div class="row two" style="padding-bottom:4px">{bar}<span style="width:10px;flex:none"></span>'
+                 f'{MK[status]}<div class="body"><div class="l1"><span class="nm">{name}</span>'
+                 f'<span class="tag">{BRANCH[name]}</span><span class="tm">{TIME[name]}</span></div>'
+                 f'<div class="t2">{LINE2[name]}</div></div></div>')
+    return (f'<div class="{theme} deck" style="width:360px"><div class="tabs"><span class="tab on">Chats</span>'
+            f'<span class="tab">News</span><span class="tab">Stats</span></div>{rows}<div style="height:6px"></div></div>')
+
+
+def qmenu(theme):
+    ck = '<span class="mk2">✓</span>'
+    no = '<span class="mk2"></span>'
+
+    def mi(t, right, ind=False):
+        pad = ' style="padding-left:24px"' if ind else ""
+        return f'<div class="mi"{pad}><span>{t}</span>{right}</div>'
+    return (f'<div class="{theme} menu" style="width:250px">'
+            + mi("Job count", ck) + mi("Model name", no)
+            + mi("Token mark", '<span class="mk2">✓ Ctrl+B</span>')
+            + mi("Line", ck, True) + mi("Fill", no, True) + mi("Signal bars", no, True)
+            + '<div class="msep"></div>'
+            + mi("Count today", no) + mi("Count the last 7 days", ck)
+            + '<div style="font-size:12px;color:var(--text2);padding:2px 10px 4px">Ctrl+Shift+B switches the two.</div>'
+            + '<div class="msep"></div>' + mi("All settings…", no) + "</div>")
+
+
+def dropdown(v):
+    return ('<span style="display:inline-flex;align-items:center;gap:8px;padding:3px 10px;border:1px solid var(--border);'
+            f'border-radius:5px;background:var(--raised);font-size:13px">{v}<svg width="10" height="10" viewBox="0 0 10 10">'
+            '<path d="M2 3.5l3 3 3-3" fill="none" stroke="var(--text2)" stroke-width="1.4"/></svg></span>')
+
+
+def settings(theme):
+    return (f'<div class="{theme} settings" style="width:420px"><div class="shead">On each row</div>'
+            '<div class="srow"><span>Model name</span><span class="sw"><span></span></span></div>'
+            f'<div class="srow"><span>Token mark</span>{dropdown("Line")}</div>'
+            '<div style="font-size:12px;color:var(--text2);margin:-2px 0 4px">Choices: Line, Fill, Signal bars, Off.</div>'
+            f'<div class="srow"><span>Token mark counts</span>{dropdown("The last 7 days")}</div>'
+            '<div style="font-size:12px;color:var(--text2);margin:-2px 0 4px">Choices: Today, The last 7 days.</div></div>')
+
+
+DECIDED = (
+    '<h3 style="margin-top:16px">Decided 2026-11-18</h3>'
+    "<ul>"
+    "<li><b>Stats tab:</b> A1. Each Top chats bar is cut by model, with the token count beside the share.</li>"
+    "<li><b>Chats rows:</b> today's 2 px line stays the default. The setting <b>Token bar</b> becomes "
+    "<b>Token mark</b> with four choices: <b>Line</b> (as now), <b>Fill</b> (B4), <b>Signal bars</b> (B3) "
+    "and <b>Off</b>.</li>"
+    "<li>A second setting, <b>Token mark counts</b>: <b>Today</b> or <b>The last 7 days</b> (the default). "
+    "With Today the mark is the chat's share of today's tokens; a chat with none today shows no mark. "
+    "The tooltip says which: “12% of today” or “12% of the last 7 days”.</li>"
+    "<li>Keys in the ClaudeDeck window: <b>Ctrl+B</b> turns the mark on and off (back to the style "
+    "it had), <b>Ctrl+Shift+B</b> switches Today and 7 days. Both are free in the window today. "
+    "The palette gets <b>ClaudeDeck: Token mark on or off</b> and <b>ClaudeDeck: Token mark, today or 7 days</b>. "
+    "Mini mode shows no mark.</li></ul>"
+    '<div class="side">'
+    f'<div>{cap("Line, the last 7 days (the default)")}{line_deck("dark", "week")}</div>'
+    f'<div>{cap("Line after Ctrl+Shift+B: today")}{line_deck("dark", "today")}</div>'
+    '</div><div class="side" style="margin-top:20px">'
+    f'<div>{cap("Quick settings (the gear), dark")}{qmenu("dark")}</div>'
+    f'<div>{cap("Quick settings, light")}{qmenu("light")}</div>'
+    f'<div>{cap("Settings → Plugins → ClaudeDeck, under On each row")}{settings("dark")}</div>'
+    "</div>"
+)
+
 section = (
-    '<section><h2>16. Tokens per chat: the Stats tab and the rows (options, 2026-11-18)</h2>'
+    '<section><h2>16. Tokens per chat: the Stats tab and the rows (decided 2026-11-18)</h2>'
     "<p>Asked on 2026-11-18 in the WinCraft Rust chat: you do not like the look of the token views much. "
     "First the Stats tab and the row token bar as release 0.20.135 draws them, then four options for the graph "
     "of each chat on the Stats tab (A) and four options for the mark on each Chats row (B). Pick one A and one B. "
     "All shares weigh each token by its model's API price, as now; no dollars are shown.</p>"
 
-    '<h3 style="margin-top:16px">Now, in 0.20.135</h3>'
+    + DECIDED +
+    '<h3 style="margin-top:28px">Now, in 0.20.135</h3>'
     "<p>The Stats tab: <b>Today</b> and <b>7 days</b>, the note line, then <b>Top chats</b> and <b>Groups</b> as "
     "6 px bars, <b>Days</b>, <b>Models</b> as one cut bar, and <b>Busiest hours</b>. On each Chats row, with "
     "<b>Token bar</b> on, a 2 px amber line at the bottom of the row as long as its share (the biggest chat "
@@ -328,15 +410,12 @@ section = (
     f'<div>{cap("Chats rows with the token bar, light")}{rows_deck("light", "now")}</div></div>'
 
     '<h3 style="margin-top:28px">A. The graph of each chat on the Stats tab</h3>'
-    "<p>Only <b>Top chats</b> changes; the other sections stay. A1 is my recommendation: it keeps the "
-    "readable names of today's list and adds the one thing the price weighting hides, which model the "
-    "tokens went to.</p>"
+    "<p>Only <b>Top chats</b> changes; the other sections stay. You chose A1.</p>"
     + "".join(pair(t, deck("dark", f()), deck("light", f()), rec) .replace(
         '<div class="side">', f'<p style="margin:0 0 8px">{d}</p><div class="side">', 1) for t, f, d, rec in A_OPTS)
     + '<h3 style="margin-top:28px">B. The mark on each Chats row</h3>'
-    "<p>Five chats of the same week. B4 is my recommendation: it adds nothing to the row's line, so the name, "
-    "the branch, the time and the context ring of section 15 keep their room, and you still see the big "
-    "chats at a glance. Hover shows the share in all four.</p>"
+    "<p>Five chats of the same week. You kept today's line as the default, and B3 and B4 as choices "
+    "of the new <b>Token mark</b> setting. B1 and B2 are not built.</p>"
     + "".join(pair(t, rows_deck("dark", o), rows_deck("light", o), rec).replace(
         '<div class="side">', f'<p style="margin:0 0 8px">{d}</p><div class="side">', 1) for t, o, d, rec in B_OPTS)
     + "</section>"
