@@ -4,6 +4,11 @@ use crate::core::traits::{FieldKind, SettingField};
 
 use super::*;
 
+/// The heading of the settings that change what the list shows, the name
+/// of the quick settings' submenu too. It was "On each row"; the saved
+/// keys stayed the same.
+const VIEW_GROUP: &str = super::quick_view::VIEW;
+
 pub(super) fn fields() -> Vec<SettingField> {
     vec![
         SettingField {
@@ -79,6 +84,12 @@ pub(super) fn fields() -> Vec<SettingField> {
             kind: FieldKind::Toggle,
         },
         SettingField {
+            key: QUICK_NUMBERS_KEY,
+            label: "Quick access numbers",
+            help: "The box with a chat's Quick access number from QuickJump, before its name. Off hides the box; the numbers still work.",
+            kind: FieldKind::Toggle,
+        },
+        SettingField {
             key: TOKEN_BAR_KEY,
             label: "Token bar",
             help: "A thin bar under each chat: its share of the tokens of the last 7 days, weighed by model price. The chat that used most fills the row. WinCraft reads the chats' files on this PC once a minute while ClaudeDeck is open. The Stats tab shows the numbers.",
@@ -95,9 +106,8 @@ pub(super) fn fields() -> Vec<SettingField> {
 
 pub(super) fn group(key: &str) -> Option<&'static str> {
     match key {
-        MARK_KEY | TEXT_KEY | TIME_KEY | PROJECT_KEY | JOBS_KEY | MODEL_KEY | TOKEN_BAR_KEY => {
-            Some("On each row")
-        }
+        MARK_KEY | TEXT_KEY | TIME_KEY | PROJECT_KEY | JOBS_KEY | MODEL_KEY | QUICK_NUMBERS_KEY
+        | TOKEN_BAR_KEY => Some(VIEW_GROUP),
         SERVERS_KEY => Some("Homelab"),
         hook_link::KEY => Some(hook_link::GROUP),
         _ => None,

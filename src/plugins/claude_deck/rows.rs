@@ -221,7 +221,7 @@ pub fn chat(
             x += used + GAP;
         }
     }
-    let quick = (!line.stand_in)
+    let quick = (!line.stand_in && settings.quick_numbers)
         .then(|| super::quick_number::slot_of(&line.chat.id))
         .flatten()
         .map(|slot| {

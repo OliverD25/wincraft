@@ -37,6 +37,27 @@ fn settings_read_with_defaults_for_what_is_missing() {
     assert_eq!(listed.servers, vec!["rdehome1", "rdehome2"]);
 }
 
+/// The heading "On each row" became "View" (2026-11-18); the keys in the
+/// settings file stayed, so a file saved before reads the same.
+#[test]
+fn a_settings_file_from_before_the_view_heading_reads_unchanged() {
+    use crate::plugins::claude_deck::{MarkStyle, Settings};
+    let old = Settings::read(&serde_json::json!({
+        "status_mark": "Off",
+        "show_text": false,
+        "show_time": false,
+        "show_project": false,
+        "show_jobs": false,
+        "show_model": true,
+        "show_token_bar": false,
+    }));
+    assert_eq!(old.mark, MarkStyle::Off);
+    assert!(!old.text && !old.time && !old.project && !old.jobs && old.model && !old.token_bar);
+    assert!(old.quick_numbers, "the new setting starts on");
+    let hidden = Settings::read(&serde_json::json!({ "show_quick_numbers": false }));
+    assert!(!hidden.quick_numbers);
+}
+
 #[test]
 fn every_setting_of_the_design_page_is_there_and_mini_mode_is_not_one() {
     use crate::core::traits::WinCraftPlugin;
@@ -57,6 +78,7 @@ fn every_setting_of_the_design_page_is_there_and_mini_mode_is_not_one() {
             "Project and branch",
             "Job count",
             "Model name",
+            "Quick access numbers",
             "Token bar",
             "Servers (ssh names)",
         ]
@@ -68,7 +90,7 @@ fn every_setting_of_the_design_page_is_there_and_mini_mode_is_not_one() {
 }
 
 #[test]
-fn the_row_fields_sit_under_on_each_row() {
+fn the_row_fields_sit_under_view() {
     use crate::core::traits::WinCraftPlugin;
     let deck = crate::plugins::claude_deck::ClaudeDeck::new();
     for field in deck.settings_fields() {
@@ -80,11 +102,12 @@ fn the_row_fields_sit_under_on_each_row() {
                 | "show_project"
                 | "show_jobs"
                 | "show_model"
+                | "show_quick_numbers"
                 | "show_token_bar"
         );
         let group = match field.key {
             "servers" => Some("Homelab"),
-            _ => row.then_some("On each row"),
+            _ => row.then_some("View"),
         };
         assert_eq!(deck.settings_group(field.key), group, "{}", field.key);
     }

@@ -35,6 +35,7 @@ mod open_app;
 mod place;
 mod quick;
 mod quick_number;
+mod quick_view;
 mod reading;
 mod reveal;
 mod rows;
@@ -86,6 +87,7 @@ const PROJECT_KEY: &str = "show_project";
 const JOBS_KEY: &str = "show_jobs";
 const MODEL_KEY: &str = "show_model";
 const TOKEN_BAR_KEY: &str = "show_token_bar";
+const QUICK_NUMBERS_KEY: &str = "show_quick_numbers";
 const TEXT_KEY: &str = "show_text";
 const FADE_KEY: &str = "fade_when_away";
 const TRAY_KEY: &str = "tray_count";
@@ -126,6 +128,8 @@ pub struct Settings {
     pub model: bool,
     /// The thin bar under a chat row: its share of the week's tokens.
     pub token_bar: bool,
+    /// The box with the chat's Quick access number on its row.
+    pub quick_numbers: bool,
     /// The line of text under the name.
     pub text: bool,
     pub fade: bool,
@@ -150,6 +154,7 @@ impl Default for Settings {
             jobs: true,
             model: false,
             token_bar: true,
+            quick_numbers: true,
             text: true,
             fade: true,
             tray_count: true,
@@ -184,6 +189,7 @@ impl Settings {
             jobs: flag(JOBS_KEY, defaults.jobs),
             model: flag(MODEL_KEY, defaults.model),
             token_bar: flag(TOKEN_BAR_KEY, defaults.token_bar),
+            quick_numbers: flag(QUICK_NUMBERS_KEY, defaults.quick_numbers),
             text: flag(TEXT_KEY, defaults.text),
             fade: flag(FADE_KEY, defaults.fade),
             tray_count: flag(TRAY_KEY, defaults.tray_count),
@@ -311,6 +317,7 @@ impl WinCraftPlugin for ClaudeDeck {
             JOBS_KEY: true,
             MODEL_KEY: false,
             TOKEN_BAR_KEY: true,
+            QUICK_NUMBERS_KEY: true,
             TEXT_KEY: true,
             FADE_KEY: true,
             TRAY_KEY: true,

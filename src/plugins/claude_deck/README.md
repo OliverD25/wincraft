@@ -32,12 +32,14 @@ and which one is idle.
   menu of ClaudeDeck's on/off settings, with the same names as on its
   Settings page: **Fade when the mouse is away**, **Only open windows**,
   **Stay on top**, **Mini mode**, **Fold chats idle for over 1 day**,
-  **Show a count on the tray icon**, then what each row shows. A click (or
-  `Enter` on a row picked with the arrow keys) turns it on or off and saves
-  it at once; the menu stays open. **All settings…** opens ClaudeDeck's page
+  **Show a count on the tray icon**, then the submenu **View** with what
+  each row shows (the same items as the Settings page's **View** heading).
+  A click (or `Enter` on a row picked with the arrow keys) turns it on or
+  off and saves it at once; the menu stays open. `Enter` on **View** opens
+  it with the keyboard on its first item. **All settings…** opens ClaudeDeck's page
   in WinCraft's Settings window. `Esc` closes the menu. While a menu is
   open the window does not fade. In mini mode `Ctrl+,` opens the same menu
-  beside the column. The palette command **ClaudeDeck: Quick settings**
+  beside the column; there the **View** items open under the **View** row. The palette command **ClaudeDeck: Quick settings**
   opens ClaudeDeck with the menu open.
 - Drag the header to move the window, and its edges to resize it. It opens
   again at the same place and size.
@@ -256,7 +258,9 @@ number**. QuickJump shows its usual notice with Undo.
 
 A chat with a number shows its digit in a small box with an accent outline
 after its mark (the keyboard's digits sit in plain boxes before the mark).
-Rest the mouse on the box to see the keys. Mini mode does not show it.
+Rest the mouse on the box to see the keys. Mini mode does not show it. The
+setting **Quick access numbers** (under **View**, on by default) hides the
+boxes; the numbers still work.
 
 QuickJump keeps the numbers, not ClaudeDeck. The two plugins never call
 each other: QuickJump writes what each number holds to `core::quick_pins`,
@@ -331,9 +335,11 @@ a job's command line as the server reports it.
   replies". With **Live in the tray (no taskbar button)** off, WinCraft's
   tray icon says it in its tooltip instead ("WinCraft — 2 chats wait for
   you"), and only while ClaudeDeck is open.
-- Under **On each row**: **Status mark**, **A line of text (the question,
-  or what it does)**, **Time in the status**, **Project and branch**,
-  **Job count**, **Model name**, **Token bar**.
+- Under **View** (called "On each row" before 2026-11-18; the saved
+  settings stayed): **Status mark**, **A line of text (the question, or
+  what it does)**, **Time in the status**, **Project and branch**, **Job
+  count**, **Model name**, **Quick access numbers** (the number box on a
+  chat's row), **Token bar**.
 
 ## Stats
 
@@ -358,7 +364,7 @@ never money. A model WinCraft does not know is counted at the Sonnet price
 and says "Other model" in its tooltip. The rates are in
 `src/core/claude_usage/prices.rs`, with their source and date.
 
-The **Token bar** setting (under **On each row**, on by default) draws a
+The **Token bar** setting (under **View**, on by default) draws a
 thin bar at the bottom of each chat row: its share of the last 7 days, where
 the chat that used most fills the row.
 

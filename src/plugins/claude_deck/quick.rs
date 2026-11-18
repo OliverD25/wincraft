@@ -1,7 +1,8 @@
 //! Quick settings: the gear in the header (or `Ctrl+,`) opens a small menu
 //! of ClaudeDeck's on/off settings, with the labels of the Settings page,
-//! and "All settings…", which opens ClaudeDeck's page in WinCraft's
-//! Settings window. A click flips a setting and saves it at once; the menu
+//! the **View** submenu with what each row shows (`quick_view`), and "All
+//! settings…", which opens ClaudeDeck's page in WinCraft's Settings
+//! window. A click flips a setting and saves it at once; the menu
 //! stays open, so several can be changed. In mini mode the column is too
 //! narrow for the menu, so it opens in a small window of its own beside it.
 
@@ -14,6 +15,7 @@ use crate::ui::reveal::Immediate;
 use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOW;
 
 use super::header::Click;
+use super::quick_view;
 use super::window::DeckUi;
 use super::{Settings, ID, MINI_KEY, ONLY_OPEN_KEY, STAY_ON_TOP_KEY};
 
@@ -26,13 +28,13 @@ pub const KEY: &str = "Ctrl+,";
 pub struct Toggle {
     pub label: &'static str,
     pub key: &'static str,
-    get: fn(&Settings) -> bool,
-    set: fn(&mut Settings, bool),
+    pub(super) get: fn(&Settings) -> bool,
+    pub(super) set: fn(&mut Settings, bool),
 }
 
-/// The settings the menu lists, in its order. A separator comes before
-/// the row settings, as on the Settings page under "On each row".
-pub const TOGGLES: [Toggle; 12] = [
+/// The settings the menu lists, in its order. The row settings follow in
+/// the **View** submenu.
+pub const TOGGLES: [Toggle; 6] = [
     Toggle {
         label: "Fade when the mouse is away",
         key: super::FADE_KEY,
@@ -69,52 +71,17 @@ pub const TOGGLES: [Toggle; 12] = [
         get: |s| s.tray_count,
         set: |s, on| s.tray_count = on,
     },
-    Toggle {
-        label: "A line of text (the question, or what it does)",
-        key: super::TEXT_KEY,
-        get: |s| s.text,
-        set: |s, on| s.text = on,
-    },
-    Toggle {
-        label: "Time in the status",
-        key: super::TIME_KEY,
-        get: |s| s.time,
-        set: |s, on| s.time = on,
-    },
-    Toggle {
-        label: "Project and branch",
-        key: super::PROJECT_KEY,
-        get: |s| s.project,
-        set: |s, on| s.project = on,
-    },
-    Toggle {
-        label: "Job count",
-        key: super::JOBS_KEY,
-        get: |s| s.jobs,
-        set: |s, on| s.jobs = on,
-    },
-    Toggle {
-        label: "Model name",
-        key: super::MODEL_KEY,
-        get: |s| s.model,
-        set: |s, on| s.model = on,
-    },
-    Toggle {
-        label: "Token bar",
-        key: super::TOKEN_BAR_KEY,
-        get: |s| s.token_bar,
-        set: |s, on| s.token_bar = on,
-    },
 ];
 /// The height of a row, smaller than the theme's 32 px.
 const ROW: f32 = 24.0;
-/// The first row setting: a separator goes before it.
-const ROW_SETTINGS_FROM: usize = 6;
 
 /// What the user picked in the menu.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pick {
     Flip(usize),
+    /// A row of the View submenu's on/off settings.
+    View(usize),
+    Mark(super::MarkStyle),
     All,
 }
 
@@ -133,6 +100,8 @@ pub struct Quick {
     mini_open: bool,
     mini_focused: bool,
     mini_size: Option<egui::Vec2>,
+    /// Mini mode: the View items show under their row.
+    mini_view: bool,
     /// The menu's own window shows once it has drawn.
     reveal: Immediate,
 }
@@ -148,16 +117,19 @@ fn popup_id() -> Id {
     Id::new("claude-deck-quick-settings")
 }
 
-/// The rows. A click flips a setting; the menu stays open.
-fn rows(ui: &mut Ui, settings: &Settings, focus_first: bool) -> Option<Pick> {
-    // Thirteen rows of the theme's 32 px would not fit the window's 480 px.
+/// The rows. A click flips a setting; the menu stays open. `below` is
+/// the mini mode's open state of the View items.
+fn rows(
+    ui: &mut Ui,
+    settings: &Settings,
+    focus_first: bool,
+    below: Option<&mut bool>,
+) -> Option<Pick> {
+    // The theme's 32 px rows would make the menu too tall for the window.
     ui.spacing_mut().interact_size.y = ROW;
     ui.spacing_mut().item_spacing.y = 2.0;
     let mut picked = None;
     for (at, toggle) in TOGGLES.iter().enumerate() {
-        if at == ROW_SETTINGS_FROM {
-            ui.separator();
-        }
         let mut on = (toggle.get)(settings);
         let response = ui.checkbox(&mut on, toggle.label);
         if at == 0 && focus_first {
@@ -167,6 +139,8 @@ fn rows(ui: &mut Ui, settings: &Settings, focus_first: bool) -> Option<Pick> {
             picked = Some(Pick::Flip(at));
         }
     }
+    ui.separator();
+    picked = quick_view::entry(ui, settings, below).or(picked);
     ui.separator();
     if ui.button(ALL).clicked() {
         picked = Some(Pick::All);
@@ -210,7 +184,7 @@ pub fn show(ui: &mut Ui, state: &mut DeckUi, settings: &Settings, tokens: &Token
         .style(egui::containers::menu::menu_style)
         .open_memory(command)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-        .show(|ui| rows(ui, settings, focus_first));
+        .show(|ui| rows(ui, settings, focus_first, None));
     let picked = shown.and_then(|shown| shown.inner);
     if picked == Some(Pick::All) {
         egui::Popup::close_id(ui.ctx(), popup_id());
@@ -261,7 +235,7 @@ fn beside(
             ui.set_width(300.0);
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
                 egui::containers::menu::menu_style(ui.style_mut());
-                rows(ui, settings, focus_first)
+                rows(ui, settings, focus_first, Some(&mut quick.mini_view))
             })
             .inner
         });
@@ -293,6 +267,10 @@ pub fn apply(settings: &mut Settings, pick: Pick, to_host: &HostChannel) -> Opti
             return None;
         }
         Pick::Flip(at) => TOGGLES.get(at)?,
+        Pick::View(_) | Pick::Mark(_) => {
+            quick_view::apply(settings, pick, to_host);
+            return None;
+        }
     };
     match toggle.key {
         STAY_ON_TOP_KEY => return Some(Click::Pin),
