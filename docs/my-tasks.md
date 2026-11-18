@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 58. Look at the new token views in ClaudeDeck
 
-- **State:** Wait: deploy 0.20.138 (the Win+Alt+Shift+T hotkey). The release is building.
+- **State:** Ready to test. 0.20.138 is released (checked 2026-11-18).
 - **Kind:** test · **Added:** 2026-11-18 (PC)
 - **Why:** the design you picked (graph A1, Token mark) is only checked by unit tests; nobody has seen it on screen.
 
