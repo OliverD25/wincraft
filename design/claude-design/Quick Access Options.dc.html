@@ -108,11 +108,11 @@ class Component extends DCLogic {
     const slots = Array.from({ length: 9 }, (_, i) => card([0, 1, 2, 4].includes(i) ? pins[[0, 1, 2, 4].indexOf(i)] : null, i, i === 0));
     const hints = [{ k: '1–9', l: 'Switch' }, { k: 'Del', l: 'Unpin' }, { k: 'Esc', l: 'Close' }];
     const opts = [
-      { id: '4a', name: 'Rows of 4, keycap under each card', colW: '1420px', count: '6 pinned',
+      { id: '4a', name: 'Rows of 4, keycap under each card (chosen)', colW: '1420px', count: '6 pinned',
         cols: 'repeat(4, 300px)', gap: '28px 20px', h: '188px', fs: '18px', emptyH: '0', keycap: true, numeral: false,
         desc: 'Pinned windows in rows of four, in the order you pinned them. Each card has the picture, window title and app name, with a keycap underneath showing the number to press.',
         cards: six,
-        rules: ['Cards 300 px wide, picture 16:10, titles 18 px (same as 4b). Up to 4 in a row; from the 5th card on they wrap to a second row.', 'The keycap matches the key on the keyboard; the selected card and its keycap use the accent.', 'Numbers follow pin order. Unpinning closes the gap, so later windows move down one number.'] },
+        rules: ['Cards 300 px wide, picture 16:10, titles 18 px (same as 4b). Up to 4 in a row; from the 5th card on they wrap to a second row.', 'The keycap matches the key on the keyboard; the selected card and its keycap use the accent.', 'Since 0.20.139 numbers are fixed: a window keeps its number, and the keycaps can skip (1, 2, 5, 9). See QuickJump v2, section 2b.'] },
       { id: '4b', name: 'Larger cards, large numeral', colW: '1100px', count: '6 pinned',
         cols: 'repeat(3, 300px)', gap: '28px 20px', h: '188px', fs: '18px', emptyH: '0', keycap: false, numeral: true,
         desc: 'Three per row with larger pictures, closer to the 3a deck sizes. The number is a plain numeral under the card with no box, so it reads first when you scan the grid.',

@@ -390,3 +390,23 @@ Claude chat input). The hotkey "ClaudeDeck: Token mark on or off" has the
 default Win+Alt+Shift+T and shows at the right of the Token mark row in
 the View submenu; "ClaudeDeck: Token mark, today or 7 days" has no
 default keys, so its grey note is not drawn.
+
+## 2026-11-18 (morning): QuickJump fixed numbers (0.20.139)
+
+Version 54 of the artifact, three pages copied byte for byte.
+
+- `QuickJump v2.dc.html` (57494 bytes). Built on the live page, which was
+  newer than the repo copy of 2026-11-06: it also brings the earlier
+  design edits (app icon on each card, 14 px detail buttons, section 4b
+  on the empty-state shortcut line). New: title "up to ten windows on
+  fixed numbers", section 2b (four cards with keycaps 1, 2, 5 and 9; the
+  card menu's "Put at number" with all ten numbers; the unpin fade with
+  numbers kept), and the keys table and rules for fixed numbers
+  (A takes the lowest free number, U frees the number, Ctrl+arrows and
+  drag move cards).
+- `Quick Access Options.dc.html` (13476 bytes): the 4a rule on numbering
+  now points to fixed numbers.
+- `ClaudeDeck.dc.html` (456314 bytes): section 8's chat menu gains
+  "Give a Quick access number ›", with its submenu drawn (First free
+  number, then 1 to 9 and 0 with what holds each; every one can be
+  picked). The server chat menu has no such item.
