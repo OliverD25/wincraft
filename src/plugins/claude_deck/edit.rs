@@ -128,6 +128,11 @@ pub fn rename(saved: &mut Saved, id: &str, name: &str) {
     if name.is_empty() || saved.groups[g].name == name {
         return;
     }
+    if saved.groups[g].id == NEW_ID {
+        // A renamed "New" is the user's own group now; chats of a new
+        // project must not keep landing in it.
+        saved.groups[g].id = next_id(saved);
+    }
     saved.groups[g].name = name.to_string();
     saved.groups[g].keep = true;
 }

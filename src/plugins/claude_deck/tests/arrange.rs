@@ -207,3 +207,38 @@ fn an_empty_group_the_user_made_shows_unless_only_open_windows_is_on() {
     let got = lines(&chats, &Archived::new(), &view, NOW);
     assert!(shape(&got).is_empty());
 }
+
+#[test]
+fn a_renamed_new_group_no_longer_takes_chats_of_new_projects() {
+    // The user renamed "New" to "Litpolibat" and folded it; a chat of a
+    // project no group knows must still show, in a fresh unfolded "New".
+    let mut chats = vec![chat("w1", Some(WC), 1), chat("x", None, 2)];
+    let mut saved = arrange(&Saved::default(), &chats, NOW);
+    crate::plugins::claude_deck::edit::rename(&mut saved, NEW_ID, "Litpolibat");
+    let mine = saved.groups[0].id.clone();
+    crate::plugins::claude_deck::edit::fold_group(&mut saved, &mine);
+    assert!(saved.groups[0].folded);
+    assert_ne!(saved.groups[0].id, NEW_ID);
+    chats.push(chat("pay", Some(r"E:\projects\agentic_payment_test"), 3));
+    let saved = arrange(&saved, &chats, NOW);
+    let new = saved.groups.iter().find(|g| g.id == NEW_ID).expect("a fresh New");
+    assert_eq!(new.name, "New");
+    assert_eq!(new.chats, ["pay"]);
+    assert!(!new.folded);
+    assert!(names(&saved).contains(&"Litpolibat: x".to_string()));
+}
+
+#[test]
+fn a_saved_renamed_new_group_gets_its_own_id_on_load() {
+    // A list saved before 0.20.140: "New" renamed, still with the id "new".
+    let chats = vec![chat("x", None, 1), chat("pay", Some(WC), 2)];
+    let mut saved = arrange(&Saved::default(), &chats[..1], NOW);
+    saved.groups[0].name = "Litpolibat".into();
+    saved.groups[0].folded = true;
+    let saved = arrange(&saved, &chats, NOW);
+    let mine = saved.groups.iter().find(|g| g.name == "Litpolibat").expect("kept");
+    assert_ne!(mine.id, NEW_ID);
+    assert_eq!(mine.chats, ["x"]);
+    let new = saved.groups.iter().find(|g| g.id == NEW_ID).expect("a fresh New");
+    assert_eq!((new.chats.clone(), new.folded), (vec!["pay".to_string()], false));
+}

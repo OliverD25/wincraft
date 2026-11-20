@@ -12,7 +12,9 @@ and which one is idle.
   worktree belongs to its repository's group. After that the groups are
   yours (see "Your own order" below). A new chat goes to the end of the
   group that already holds chats of its project folder; a fork hangs under
-  its chat; a chat of a project no group holds goes to **New** at the top.
+  its chat; a chat of a project no group holds goes to **New** at the top,
+  which unfolds so the chat shows. Renaming **New** makes it a group of your
+  own; the next such chat starts a fresh **New**.
 - A forked chat, or a chat started by another chat, hangs under it with thin
   tree lines. Click the small arrow to fold a chat's forks; folded, it shows
   the most urgent status of the family. When the chat a fork came from was

@@ -50,6 +50,7 @@ pub fn arrange(saved: &Saved, chats: &[Chat], now: u64) -> Saved {
     let found = families_of(chats);
     let mut out = saved.clone();
     out.version = out.version.max(VERSION);
+    release_renamed_inbox(&mut out);
     let live: HashSet<&str> = chats
         .iter()
         .map(|chat| chat.id.as_str())
@@ -80,7 +81,12 @@ pub fn arrange(saved: &Saved, chats: &[Chat], now: u64) -> Saved {
                 });
                 out.groups.len() - 1
             }
-            None => inbox(&mut out),
+            None => {
+                let at = inbox(&mut out);
+                // A folded "New" would hide the chat it just took.
+                out.groups[at].folded = false;
+                at
+            }
         };
         out.groups[at].chats.push(family.key.clone());
     }
@@ -131,6 +137,20 @@ pub fn inbox(saved: &mut Saved) -> usize {
         },
     );
     0
+}
+
+/// Before 0.20.140 a renamed "New" kept its id, so chats of every new
+/// project went into the user's renamed (often folded) group and seemed
+/// lost. Such a group gets an id of its own; a fresh "New" is made when
+/// the next unknown chat comes.
+fn release_renamed_inbox(saved: &mut Saved) {
+    if let Some(at) = saved
+        .groups
+        .iter()
+        .position(|group| group.id == NEW_ID && group.name != NEW_GROUP)
+    {
+        saved.groups[at].id = next_id(saved);
+    }
 }
 
 /// A group id no group has yet: "g1", "g2", ...
