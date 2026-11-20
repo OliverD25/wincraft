@@ -2,6 +2,7 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
+- 60. Check that a chat of a new project shows in ClaudeDeck (added 2026-11-20, done 2026-11-20): works on 0.20.140.
 - 59. Check that QuickJump keeps a window at number 9 (added 2026-11-18, done 2026-11-18): works on 0.20.139.
 - 58. Look at the new token views in ClaudeDeck (added 2026-11-18, done 2026-11-18): works on 0.20.138 with Win+Alt+Shift+T.
 - 57. Test the ClaudeDeck cursor after a jump, and the View settings (added 2026-11-18, done 2026-11-18): works.
