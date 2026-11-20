@@ -221,7 +221,11 @@ fn a_renamed_new_group_no_longer_takes_chats_of_new_projects() {
     assert_ne!(saved.groups[0].id, NEW_ID);
     chats.push(chat("pay", Some(r"E:\projects\agentic_payment_test"), 3));
     let saved = arrange(&saved, &chats, NOW);
-    let new = saved.groups.iter().find(|g| g.id == NEW_ID).expect("a fresh New");
+    let new = saved
+        .groups
+        .iter()
+        .find(|g| g.id == NEW_ID)
+        .expect("a fresh New");
     assert_eq!(new.name, "New");
     assert_eq!(new.chats, ["pay"]);
     assert!(!new.folded);
@@ -236,9 +240,20 @@ fn a_saved_renamed_new_group_gets_its_own_id_on_load() {
     saved.groups[0].name = "Litpolibat".into();
     saved.groups[0].folded = true;
     let saved = arrange(&saved, &chats, NOW);
-    let mine = saved.groups.iter().find(|g| g.name == "Litpolibat").expect("kept");
+    let mine = saved
+        .groups
+        .iter()
+        .find(|g| g.name == "Litpolibat")
+        .expect("kept");
     assert_ne!(mine.id, NEW_ID);
     assert_eq!(mine.chats, ["x"]);
-    let new = saved.groups.iter().find(|g| g.id == NEW_ID).expect("a fresh New");
-    assert_eq!((new.chats.clone(), new.folded), (vec!["pay".to_string()], false));
+    let new = saved
+        .groups
+        .iter()
+        .find(|g| g.id == NEW_ID)
+        .expect("a fresh New");
+    assert_eq!(
+        (new.chats.clone(), new.folded),
+        (vec!["pay".to_string()], false)
+    );
 }
