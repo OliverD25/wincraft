@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 60. Check that a chat of a new project shows in ClaudeDeck
 
-- **State:** Wait: 0.20.140 is being built.
+- **State:** Ready to test. 0.20.140 is released (checked 2026-11-20).
 - **Kind:** test · **Added:** 2026-11-20 (PC)
 - **Why:** the fix for "I opened a new session in a new window and it did
   not appear in ClaudeDeck" (0.20.140). The chat went into your renamed,
