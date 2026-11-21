@@ -79,6 +79,9 @@ pub struct Saved {
     /// Saved chats that are not listed now, with when they were first
     /// missed (Unix ms). Dropped after `KEEP_GONE_MS`.
     pub gone: BTreeMap<String, u64>,
+    /// Chats the user dragged, with when (Unix ms). Such a chat stays out
+    /// of the cold line for a day, so a drag from the cold line shows.
+    pub warm: BTreeMap<String, u64>,
 }
 
 /// How long a chat that is no longer listed keeps its place.

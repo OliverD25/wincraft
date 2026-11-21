@@ -90,6 +90,7 @@ pub(super) fn show(
             let mut acts: Vec<Act> = Vec::new();
             let mut group: Option<&str> = None;
             let mut family: Option<&str> = None;
+            let mut cold = false;
             let mut menu_found = false;
             let mut numbered = 0;
             state.digit_rows.clear();
@@ -107,10 +108,12 @@ pub(super) fn show(
                     Line::Group(g) => {
                         group = Some(&g.key);
                         family = None;
+                        cold = false;
                     }
                     Line::Cold(_) | Line::Hidden(_) => {
                         group = None;
                         family = None;
+                        cold = matches!(line, Line::Cold(_));
                     }
                     Line::Chat(c) if c.depth == 0 => family = Some(&c.chat.id),
                     Line::Chat(_) => {}
@@ -173,6 +176,7 @@ pub(super) fn show(
                             line: c,
                             group,
                             family,
+                            cold,
                             key: key.filter(|_| state.keyboard),
                         };
                         let draw = Draw {
@@ -363,6 +367,8 @@ struct Row<'a> {
     /// The chat at the top of its family. A drag that starts on a fork
     /// moves this chat with all its forks.
     family: Option<&'a str>,
+    /// Under the cold line: no group, but it can still be dragged into one.
+    cold: bool,
     /// The digit shown before the mark.
     key: Option<u8>,
 }
@@ -379,7 +385,9 @@ fn chat_line(
     let line = row.line;
     let look = draw.look;
     let pick = Pick::Chat(line.chat.id.clone());
-    let lead = row.family.filter(|_| row.group.is_some() && !line.hidden);
+    let lead = row
+        .family
+        .filter(|_| (row.group.is_some() || row.cold) && !line.hidden);
     let draggable = lead.is_some();
     let sense = if draggable {
         Sense::click_and_drag()
@@ -475,7 +483,9 @@ fn dragging(
         state.drag = None;
         match (&pick, spot) {
             (Pick::Chat(key), Some((Some(spot), _, _))) => {
-                edit::place_chat(&mut state.saved, key, &spot)
+                edit::place_chat(&mut state.saved, key, &spot);
+                let now = crate::core::claude_sessions::now_ms();
+                state.saved.warm.insert(key.clone(), now);
             }
             (Pick::Group(id), Some((_, Some(spot), _))) => {
                 edit::place_group(&mut state.saved, id, &spot)

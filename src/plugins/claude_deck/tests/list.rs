@@ -215,6 +215,29 @@ fn chats_idle_over_a_day_fold_into_one_line_at_the_end() {
 }
 
 #[test]
+fn a_chat_dragged_from_the_cold_line_shows_in_its_group_for_a_day() {
+    let chats = vec![
+        chat("live", Some(r"E:\a"), 1),
+        cold("old", Some(r"E:\a"), 3),
+    ];
+    let mut view = View {
+        fold_cold: true,
+        ..View::default()
+    };
+    view.saved.warm.insert("old".into(), NOW - 1_000);
+    let got = lines(&chats, &Archived::new(), &view, NOW);
+    assert_eq!(shape(&got), ["G a 2", "C live 0", "C old 0"]);
+
+    view.saved.warm.insert("old".into(), NOW - DAY_MS);
+    let got = lines(&chats, &Archived::new(), &view, NOW);
+    assert_eq!(
+        shape(&got),
+        ["G a 1", "C live 0", "~ 1"],
+        "cold again after a day"
+    );
+}
+
+#[test]
 fn the_header_counts_only_the_marks_it_shows_in_its_order() {
     let mut chats: Vec<Chat> = (0..5).map(|n| chat(&n.to_string(), None, n)).collect();
     chats[0].mark = Mark::DoneNotSeen;

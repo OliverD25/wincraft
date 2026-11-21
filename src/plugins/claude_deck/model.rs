@@ -338,7 +338,8 @@ pub fn lines(chats: &[Chat], archived: &Archived, view: &View, now: u64) -> Vec<
     let mut cold: Vec<Family> = Vec::new();
     for family in families(&tree) {
         let all_cold = family.members.iter().all(|at| is_cold(&shown[*at]));
-        if view.fold_cold && all_cold {
+        let warm = saved.warm.contains_key(&key_of(&tree, &family));
+        if view.fold_cold && all_cold && !warm {
             cold.push(family);
         } else {
             by_key.insert(key_of(&tree, &family), family);

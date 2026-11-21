@@ -325,6 +325,34 @@ fn dragging_a_fork_moves_its_whole_family() {
 }
 
 #[test]
+fn a_cold_chat_can_be_dragged_into_a_group_and_shows_there() {
+    let mut deck = deck();
+    deck.state.saved.cold_open = true;
+    let painted = deck.settle();
+    let from = painted.at("Chat old");
+    let to = pos2(from.x + 20.0, painted.at("Chat b1").y + 4.0);
+    let press = |pressed, at| Event::PointerButton {
+        pos: at,
+        button: PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    deck.frame(vec![Event::PointerMoved(from)]);
+    deck.frame(vec![press(true, from)]);
+    deck.frame(vec![Event::PointerMoved(pos2(from.x, from.y - 12.0))]);
+    deck.frame(vec![Event::PointerMoved(to)]);
+    assert!(
+        matches!(deck.state.drag, Some(Pick::Chat(_))),
+        "a cold chat lifts"
+    );
+    deck.frame(vec![press(false, to)]);
+    let painted = deck.settle();
+    assert!(deck.state.saved.warm.contains_key("old"));
+    assert!(painted.has("Chat old"));
+    assert!(!painted.has(&cold_label(1)), "it left the cold line");
+}
+
+#[test]
 fn dragging_a_group_header_moves_the_group() {
     let mut deck = deck();
     let painted = deck.settle();

@@ -57,6 +57,8 @@ pub fn arrange(saved: &Saved, chats: &[Chat], now: u64) -> Saved {
         .chain(found.iter().map(|family| family.key.as_str()))
         .collect();
     forget_gone(&mut out, &live, now);
+    out.warm
+        .retain(|_, since| now.saturating_sub(*since) < super::model::DAY_MS);
     let first = out.groups.is_empty();
     let folders: HashMap<&str, String> = found
         .iter()

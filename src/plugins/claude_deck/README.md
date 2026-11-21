@@ -234,7 +234,7 @@ nothing is read twice. Which replies you read here is kept in
 - Drag a group's header to move the group. Drag a chat to another place or
   another group; a blue line shows where it lands. A chat takes its forks
   along. A drag that starts on a fork moves the whole family: the fork stays
-  under its chat. Cold chats and hidden chats cannot be dragged. With the keyboard, pick a chat or a group with the arrow keys and
+  under its chat. A cold chat can be dragged into a group too: it shows there for a day, then goes back to the cold line if it is still idle. Hidden chats cannot be dragged. With the keyboard, pick a chat or a group with the arrow keys and
   press `Alt+Up` or `Alt+Down`.
 - Double-click a group's header, or pick it and press `F2`, to rename it:
   `Enter` saves, `Esc` puts the old name back. Scrolling the group out of
