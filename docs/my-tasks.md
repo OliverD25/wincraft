@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 61. Check that a cold chat can be dragged into a ClaudeDeck group
 
-- **State:** Wait: 0.20.141 is being built.
+- **State:** Ready to test. 0.20.141 is released (checked 2026-11-22).
 - **Kind:** test · **Added:** 2026-11-22 (PC)
 - **Why:** you could not drag chats from the cold chats line in
   ClaudeDeck. In 0.20.141 a cold chat can be dragged into a group.
