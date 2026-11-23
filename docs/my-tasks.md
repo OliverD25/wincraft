@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 62. Try notes on chats in ClaudeDeck
 
-- **State:** Wait: 0.20.142 is being built.
+- **State:** Ready to test. 0.20.142 is released (checked 2026-11-23).
 - **Kind:** test · **Added:** 2026-11-23 (PC)
 - **Why:** you asked to pin a small note to a chat and remove it again.
   You approved design option A (a third line under the chat) with the ×
