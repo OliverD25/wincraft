@@ -410,3 +410,14 @@ Version 54 of the artifact, three pages copied byte for byte.
   "Give a Quick access number ›", with its submenu drawn (First free
   number, then 1 to 9 and 0 with what holds each; every one can be
   picked). The server chat menu has no such item.
+
+## 2026-11-23: ClaudeDeck, a note on a chat (options)
+
+Version 59 of the artifact, `ClaudeDeck.dc.html` copied byte for byte
+(492764 bytes). New section 17, built by `make_claudedeck_notes.py` from
+the v54 page: three options for a note on a chat row (A a third line,
+recommended; B a chip after the name; C the note in place of the "Last:"
+line), dark and light, with a long note and a fork; adding and editing
+(Add a note… / Edit the note…, key N, a one-line box, Enter saves, Esc
+cancels, a count to 120); removing (Remove the note, a × on hover); the
+note in the hover panel only. For the user's pick; nothing is built yet.
