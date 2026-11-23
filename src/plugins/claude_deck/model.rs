@@ -283,6 +283,8 @@ pub struct ChatLine {
     pub pinned: bool,
     /// Listed under the "hidden chats" line.
     pub hidden: bool,
+    /// The user's note on the chat, shown as a third line.
+    pub note: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -349,6 +351,7 @@ pub fn lines(chats: &[Chat], archived: &Archived, view: &View, now: u64) -> Vec<
         tree: &tree,
         folded: &saved.folded_chats,
         pinned: &saved.pinned,
+        notes: &saved.notes,
         archived,
         lines: Vec::new(),
         drawn: Default::default(),
@@ -453,6 +456,7 @@ fn hidden_lines(
             fold: Fold::None,
             pinned: false,
             hidden: true,
+            note: None,
         })));
     }
 }

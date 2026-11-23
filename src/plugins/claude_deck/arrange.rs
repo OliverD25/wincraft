@@ -173,6 +173,7 @@ fn forget_gone(saved: &mut Saved, live: &HashSet<&str>, now: u64) {
         .chain(saved.hidden.iter().cloned())
         .chain(saved.pinned.iter().cloned())
         .chain(saved.folded_chats.iter().cloned())
+        .chain(saved.notes.keys().cloned())
         .collect();
     saved.gone.retain(|id, _| tracked.contains(id));
     for id in &tracked {
@@ -197,6 +198,7 @@ fn forget_gone(saved: &mut Saved, live: &HashSet<&str>, now: u64) {
     saved.hidden.retain(|id| !expired.contains(id));
     saved.pinned.retain(|id| !expired.contains(id));
     saved.folded_chats.retain(|id| !expired.contains(id));
+    saved.notes.retain(|id, _| !expired.contains(id));
     saved.gone.retain(|id, _| !expired.contains(id));
 }
 

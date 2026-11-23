@@ -38,7 +38,10 @@ pub(super) fn follow(state: &mut DeckUi, lines: &[Line]) {
     }
     let front = claude_windows::foreground();
     let moved = state.front_seen.replace(front) != Some(front);
-    let busy = state.drag.is_some() || state.renaming.is_some() || state.menu_for.is_some();
+    let busy = state.drag.is_some()
+        || state.renaming.is_some()
+        || state.noting.is_some()
+        || state.menu_for.is_some();
     if busy {
         return;
     }

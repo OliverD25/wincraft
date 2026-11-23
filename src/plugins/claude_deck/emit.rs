@@ -2,7 +2,7 @@
 //! grey stand-in for its missing chat), its forks with their tree lines,
 //! and the roll-up of a folded chat.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use super::labels::fork_line;
 use super::model::{stand_in, Archived, Chat, ChatLine, Fold, Line, Mark};
@@ -38,6 +38,8 @@ pub(super) struct Emit<'a> {
     /// Chats whose forks are folded.
     pub folded: &'a BTreeSet<String>,
     pub pinned: &'a BTreeSet<String>,
+    /// The user's notes, by chat id. A stand-in has none.
+    pub notes: &'a BTreeMap<String, String>,
     pub archived: &'a Archived,
     pub lines: Vec<Line>,
     /// Chats already drawn, so a loop of forks cannot draw forever.
@@ -77,6 +79,7 @@ impl Emit<'_> {
             stand_in: true,
             pinned: self.pinned.contains(&family.missing),
             hidden: false,
+            note: None,
             depth: 0,
             rails: Vec::new(),
             last: false,
@@ -127,6 +130,7 @@ impl Emit<'_> {
             stand_in: false,
             pinned: depth == 0 && self.pinned.contains(&chat.id),
             hidden: false,
+            note: self.notes.get(&chat.id).cloned(),
             depth,
             rails: rails.clone(),
             last,

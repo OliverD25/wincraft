@@ -2,7 +2,8 @@
 //! its full name, status and time, its project and branch, how full its
 //! context is (design section 15), its share of the tokens while the
 //! token mark is on ("12% of the last 7 days", design section 16), the full
-//! question or last result, and "No open window" when a click would do
+//! question or last result, the user's note on the chat after the project
+//! line (design section 17), and "No open window" when a click would do
 //! nothing. Painted on the tooltip layer, inside ClaudeDeck's window.
 
 use std::sync::Arc;
@@ -35,6 +36,10 @@ const HEAD_SIZE: f32 = 12.0;
 const BODY_SIZE: f32 = 13.0;
 const BODY_LINE: f32 = 13.0 * 1.45;
 const GAP: f32 = 6.0;
+/// The note's tint: its padding, and where its text starts.
+const NOTE_PAD_X: f32 = 6.0;
+const NOTE_PAD_Y: f32 = 3.0;
+const NOTE_INSET: f32 = NOTE_PAD_X + super::note::ICON + 5.0 + NOTE_PAD_X;
 
 /// The panel's first line: "WinCraft design · asks you · 4 min".
 pub fn head_line(chat: &Chat, now: u64) -> String {
@@ -75,6 +80,7 @@ fn wrapped(painter: &Painter, words: &str, size: f32, colour: Color32, width: f3
 pub struct Panel {
     head: Arc<Galley>,
     place: Arc<Galley>,
+    note: Option<Arc<Galley>>,
     context: Arc<Galley>,
     token: Option<Arc<Galley>>,
     body: Option<Arc<Galley>>,
@@ -82,8 +88,14 @@ pub struct Panel {
     pub size: egui::Vec2,
 }
 
-/// Lays the panel out at `width`.
-pub fn layout(painter: &Painter, chat: &Chat, look: &Look, width: f32) -> Panel {
+/// Lays the panel out at `width`, with the chat's note when it has one.
+pub fn layout(
+    painter: &Painter,
+    chat: &Chat,
+    look: &Look,
+    width: f32,
+    note: Option<&str>,
+) -> Panel {
     let tokens: &Tokens = look.tokens;
     let inner = width - 2.0 * PAD_X;
     let head = wrapped(
@@ -100,6 +112,15 @@ pub fn layout(painter: &Painter, chat: &Chat, look: &Look, width: f32) -> Panel 
         tokens.text_secondary,
         inner,
     );
+    let note = note.map(|words| {
+        wrapped(
+            painter,
+            words,
+            HEAD_SIZE,
+            tokens.text_primary,
+            inner - NOTE_INSET,
+        )
+    });
     let context = wrapped(
         painter,
         &context::hover_text(chat.context),
@@ -118,6 +139,9 @@ pub fn layout(painter: &Painter, chat: &Chat, look: &Look, width: f32) -> Panel 
         .is_none()
         .then(|| wrapped(painter, NO_WINDOW, HEAD_SIZE, tokens.text_disabled, inner));
     let mut height = PAD_Y * 2.0 + head.size().y.max(marks::SIZE) + GAP + place.size().y;
+    if let Some(note) = &note {
+        height += GAP + note.size().y + 2.0 * NOTE_PAD_Y;
+    }
     height += GAP + context.size().y.max(context::SIZE);
     for part in token.iter().chain(body.iter()).chain(no_window.iter()) {
         height += GAP + part.size().y;
@@ -125,6 +149,7 @@ pub fn layout(painter: &Painter, chat: &Chat, look: &Look, width: f32) -> Panel 
     Panel {
         head,
         place,
+        note,
         context,
         token,
         body,
@@ -134,10 +159,10 @@ pub fn layout(painter: &Painter, chat: &Chat, look: &Look, width: f32) -> Panel 
 }
 
 /// Paints the panel for `chat`, hovered in `row`, inside `area` (the list).
-pub fn show(ctx: &Context, row: Rect, area: Rect, chat: &Chat, look: &Look) {
+pub fn show(ctx: &Context, row: Rect, area: Rect, chat: &Chat, look: &Look, note: Option<&str>) {
     let painter = ctx.layer_painter(LayerId::new(Order::Tooltip, Id::new("claude-deck-hover")));
     let width = WIDTH.min(area.width() - 2.0 * MARGIN).max(80.0);
-    let panel = layout(&painter, chat, look, width);
+    let panel = layout(&painter, chat, look, width, note);
     let height = panel.size.y;
     let left = (row.left() + IN_FROM_LEFT)
         .min(area.right() - MARGIN - width)
@@ -168,6 +193,7 @@ pub fn paint(painter: &Painter, rect: Rect, radius: u8, panel: Panel, chat: &Cha
     let Panel {
         head,
         place,
+        note,
         context,
         token,
         body,
@@ -197,6 +223,28 @@ pub fn paint(painter: &Painter, rect: Rect, radius: u8, panel: Panel, chat: &Cha
     let place_height = place.size().y;
     painter.galley(pos2(x, y), place, Color32::PLACEHOLDER);
     y += place_height + GAP;
+    if let Some(note) = note {
+        let tint = Rect::from_min_size(
+            pos2(x, y),
+            vec2(rect.width() - 2.0 * PAD_X, note.size().y + 2.0 * NOTE_PAD_Y),
+        );
+        painter.rect_filled(tint, 4.0, tokens.accent.gamma_multiply(0.14));
+        super::note::icon(
+            painter,
+            pos2(
+                x + NOTE_PAD_X,
+                y + NOTE_PAD_Y + super::note::ICON / 2.0 + 1.0,
+            ),
+            tokens.accent,
+        );
+        let note_height = note.size().y;
+        painter.galley(
+            pos2(x + NOTE_INSET - NOTE_PAD_X, y + NOTE_PAD_Y),
+            note,
+            Color32::PLACEHOLDER,
+        );
+        y += note_height + 2.0 * NOTE_PAD_Y + GAP;
+    }
     let context_height = context.size().y.max(context::SIZE);
     let ring = Rect::from_min_size(
         pos2(x, y + (context_height - context::SIZE) / 2.0),

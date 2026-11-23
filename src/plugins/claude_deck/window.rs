@@ -120,7 +120,10 @@ pub(super) struct DeckUi {
     pub scroll_to_selected: bool,
     pub drag: Option<Pick>,
     pub renaming: Option<Rename>,
-    /// A rename ended this frame: its Enter or Esc is not the list's.
+    /// The note box open on a chat's row.
+    pub(super) noting: Option<super::note::NoteEdit>,
+    /// A rename or a note ended this frame: its Enter or Esc is not the
+    /// list's.
     pub renamed: bool,
     /// The keyboard asked for this line's menu.
     pub menu_for: Option<Pick>,

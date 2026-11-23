@@ -196,6 +196,7 @@ fn the_menu_of_a_terminal_fork_is_open_and_copy_only() {
         fold: Fold::None,
         pinned: false,
         hidden: false,
+        note: None,
     };
     assert_eq!(chat_items(&line, true), [Item::Open, Item::Copy]);
 }

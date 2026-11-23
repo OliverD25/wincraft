@@ -1,6 +1,6 @@
 //! The list in ClaudeDeck's window: each line drawn, what a click, a
 //! double-click, a drag or a right-click on it does, the rename field of a
-//! group, and the hover panel. Every change goes to the saved arrangement
+//! group, a chat's note, and the hover panel. Every change goes to the saved arrangement
 //! of ClaudeDeck's own list; no real chat is ever changed.
 
 use std::time::Duration;
@@ -21,6 +21,7 @@ use super::edit;
 use super::hover;
 use super::menu::{self, Choice, Context, Item};
 use super::model::{Chat, ChatLine, Fold, GroupLine, Line};
+use super::note;
 use super::open_app::{self, open_chat};
 use super::quick_number;
 use super::rows::{self, GroupState, Look};
@@ -75,10 +76,15 @@ pub(super) fn show(
         .auto_shrink(false)
         .show(ui, |ui| {
             let width = ui.available_width();
+            let noting = state.noting.as_ref().map(|n| n.id.clone());
+            let height_of = |at: usize, line: &Line| {
+                rows::height(line, at == 0, look.settings.text)
+                    + note::extra(line, noting.as_deref())
+            };
             let total: f32 = lines
                 .iter()
                 .enumerate()
-                .map(|(at, line)| rows::height(line, at == 0, look.settings.text))
+                .map(|(at, line)| height_of(at, line))
                 .sum::<f32>()
                 + LIST_TOP_PAD
                 + LIST_BOTTOM_PAD;
@@ -86,7 +92,7 @@ pub(super) fn show(
             let painter = ui.painter_at(area);
             let mut top = area.top() + LIST_TOP_PAD;
             let mut placed = Vec::with_capacity(lines.len());
-            let mut resting: Option<(Rect, &Chat)> = None;
+            let mut resting: Option<(Rect, &Chat, Option<&str>)> = None;
             let mut acts: Vec<Act> = Vec::new();
             let mut group: Option<&str> = None;
             let mut family: Option<&str> = None;
@@ -95,7 +101,7 @@ pub(super) fn show(
             let mut numbered = 0;
             state.digit_rows.clear();
             for (at, (line, kind)) in lines.iter().zip(&kinds).enumerate() {
-                let height = rows::height(line, at == 0, look.settings.text);
+                let height = height_of(at, line);
                 let whole = Rect::from_min_size(pos2(area.left(), top), vec2(width, height));
                 top += height;
                 let rect = rows::body(line, whole);
@@ -126,6 +132,7 @@ pub(super) fn show(
                 menu_found |= pick.is_some() && pick == state.menu_for;
                 if !ui.is_rect_visible(rect) {
                     end_hidden_rename(line, state);
+                    note::end_hidden(line, state);
                     continue;
                 }
                 match line {
@@ -185,7 +192,7 @@ pub(super) fn show(
                             menu: &menu,
                         };
                         if chat_line(ui, &draw, &row, state, &mut acts, to_host) {
-                            resting = Some((rect, &c.chat));
+                            resting = Some((rect, &c.chat, c.note.as_deref()));
                         }
                     }
                 }
@@ -196,10 +203,11 @@ pub(super) fn show(
             dragging(ui, area, lines, &placed, look, state);
             // The hover panel never covers a menu: with a menu open it stays away.
             let menu_open = state.menu_for.is_some() || egui::Popup::is_any_open(ui.ctx());
-            if let Some((row, chat)) = resting.filter(|_| state.drag.is_none() && !menu_open) {
+            let resting = resting.filter(|_| state.drag.is_none() && !menu_open);
+            if let Some((row, chat, words)) = resting.filter(|_| state.noting.is_none()) {
                 let still = ui.ctx().input(|i| i.pointer.time_since_last_movement());
                 if still >= hover::DELAY {
-                    hover::show(ui.ctx(), row, ui.clip_rect(), chat, look);
+                    hover::show(ui.ctx(), row, ui.clip_rect(), chat, look, words);
                 } else {
                     ui.ctx()
                         .request_repaint_after(Duration::from_secs_f32(hover::DELAY - still));
@@ -402,15 +410,40 @@ fn chat_line(
     if state.drag.as_ref() == Some(&pick) {
         row_painter.multiply_opacity(0.4);
     }
+    let room = rows::note_room(row.rect, line, look.settings, row.key);
+    let noting = state.noting.as_ref().is_some_and(|n| n.id == line.chat.id);
+    let without_note;
+    let painted = if noting && line.note.is_some() {
+        without_note = ChatLine {
+            note: None,
+            ..line.clone()
+        };
+        &without_note
+    } else {
+        line
+    };
     let quick_box = rows::chat(
         &row_painter,
         row.rect,
-        line,
+        painted,
         look,
         hovered,
         selected,
         row.key,
     );
+    if noting {
+        note::field(ui, room, state, look);
+    }
+    let chip = line
+        .note
+        .as_deref()
+        .filter(|_| !noting)
+        .map(|words| note::hit(draw.painter, room, words, look.tokens, hovered));
+    let pointer = response.interact_pointer_pos();
+    let on_chip = chip.is_some_and(|chip| pointer.is_some_and(|at| chip.rect.contains(at)));
+    let on_cross = chip
+        .and_then(|chip| chip.cross)
+        .is_some_and(|cross| pointer.is_some_and(|at| cross.contains(at)));
     if selected && std::mem::take(&mut state.scroll_to_selected) {
         ui.scroll_to_rect(row.rect, None);
     }
@@ -418,7 +451,15 @@ fn chat_line(
         state.drag = Some(Pick::Chat(lead.to_string()));
         state.selected = Some(pick.clone());
     }
-    if response.clicked() {
+    if response.clicked() && on_cross {
+        note::remove(&mut state.saved, &line.chat.id);
+    } else if response.double_clicked() && on_chip {
+        note::start(state, &line.chat.id);
+    } else if response.clicked() && on_chip {
+        // A click on the note only picks the row, so a double-click can
+        // edit it without bringing the chat forward first.
+        state.selected = Some(pick.clone());
+    } else if response.clicked() {
         let on_arrow = line.fold != Fold::None
             && response
                 .interact_pointer_pos()
@@ -566,6 +607,8 @@ fn apply(act: Act, state: &mut DeckUi, to_host: &HostChannel) {
         Choice::Open => open_chat(act.window, &id, &act.title, to_host),
         Choice::ShowInApp => open_app::show_in_app(&id, &act.title),
         Choice::Pin(on) => edit::pin(saved, &id, on),
+        Choice::Note => note::start(state, &id),
+        Choice::RemoveNote => note::remove(saved, &id),
         Choice::QuickAt(at) => quick_number::put(&id, &act.title, act.window, at),
         Choice::RemoveQuick => quick_number::remove(&id),
         Choice::Hide(on) => edit::hide(saved, &id, on),

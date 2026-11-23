@@ -127,6 +127,7 @@ fn line(depth: usize, fold: Fold) -> ChatLine {
         fold,
         pinned: false,
         hidden: false,
+        note: None,
     }
 }
 
@@ -135,12 +136,12 @@ fn the_chat_menu_offers_what_fits_the_row() {
     use Item::*;
     assert_eq!(
         chat_items(&line(0, Fold::Open), true),
-        [Open, Pin, Hide, Copy, RenameChat, Separator, FoldForks, MoveTo, NewWith]
+        [Open, Pin, AddNote, Hide, Copy, RenameChat, Separator, FoldForks, MoveTo, NewWith]
     );
-    // A fork stays under its chat: no pin, no move.
+    // A fork stays under its chat: no pin, no move; it has its own note.
     assert_eq!(
         chat_items(&line(1, Fold::None), true),
-        [Open, Hide, Copy, RenameChat]
+        [Open, AddNote, Hide, Copy, RenameChat]
     );
     let pinned = ChatLine {
         pinned: true,
@@ -151,6 +152,7 @@ fn the_chat_menu_offers_what_fits_the_row() {
         [
             Open,
             Unpin,
+            AddNote,
             Hide,
             Copy,
             RenameChat,
@@ -176,8 +178,39 @@ fn the_chat_menu_offers_what_fits_the_row() {
     // Under the cold line: no pin and no move.
     assert_eq!(
         chat_items(&line(0, Fold::None), false),
-        [Open, Hide, Copy, RenameChat]
+        [Open, AddNote, Hide, Copy, RenameChat]
     );
+}
+
+#[test]
+fn a_chat_with_a_note_can_edit_or_remove_it_and_stand_ins_and_hidden_chats_have_no_note_items() {
+    use Item::*;
+    let noted = ChatLine {
+        note: Some("Test the tray".into()),
+        ..line(0, Fold::None)
+    };
+    assert_eq!(
+        chat_items(&noted, true),
+        [Open, Pin, EditNote, RemoveNote, Hide, Copy, RenameChat, Separator, MoveTo, NewWith]
+    );
+    let no_note = |items: Vec<Item>| {
+        !items
+            .iter()
+            .any(|item| matches!(item, AddNote | EditNote | RemoveNote))
+    };
+    let stand_in = ChatLine {
+        stand_in: true,
+        ..noted.clone()
+    };
+    assert!(no_note(chat_items(&stand_in, true)));
+    let hidden = ChatLine {
+        hidden: true,
+        ..noted.clone()
+    };
+    assert!(no_note(chat_items(&hidden, false)));
+    let mut terminal = noted;
+    terminal.chat.terminal = Some("rdehome2:E:/code".to_string());
+    assert!(no_note(chat_items(&terminal, true)));
 }
 
 #[test]
@@ -221,7 +254,7 @@ fn only_a_chat_that_can_be_forked_gets_the_fork_item() {
     forkable.chat.fork = Fork::new(id, Some(r"E:\code\WinCraft"));
     assert_eq!(
         chat_items(&forkable, true),
-        [Open, Pin, Hide, Copy, RenameChat, Fork, Separator, MoveTo, NewWith]
+        [Open, Pin, AddNote, Hide, Copy, RenameChat, Fork, Separator, MoveTo, NewWith]
     );
     assert!(!chat_items(&line(0, Fold::None), true).contains(&Fork));
     let stand_in = ChatLine {
@@ -271,7 +304,9 @@ fn the_quick_access_items_follow_pin_and_need_quickjump_and_a_desktop_chat() {
     let plain = chat_items(&desktop, true);
     assert_eq!(items(None), plain, "QuickJump off: no items");
     let free = items(Some(None));
-    let at = free.iter().position(|item| *item == Item::Pin).unwrap();
+    // After Pin to the top and the note item, as on the design page.
+    let at = free.iter().position(|item| *item == Item::AddNote).unwrap();
+    assert_eq!(free[at - 1], Item::Pin);
     assert_eq!(free[at + 1], Item::Quick(None));
     assert!(!free.contains(&Item::RemoveQuick));
     let held = items(Some(Some(2)));
@@ -285,13 +320,18 @@ fn the_quick_access_items_follow_pin_and_need_quickjump_and_a_desktop_chat() {
         with_quick(chat_items(&other, true), &other, Some(None)),
         chat_items(&other, true)
     );
-    // A fork has no Pin: the item follows Show in the Claude app.
+    // A fork has no Pin: the item follows its note item.
     let mut fork = line(1, Fold::None);
     fork.chat.id = "local_ab".to_string();
     let fork_items = with_quick(chat_items(&fork, true), &fork, Some(None));
     assert_eq!(
-        &fork_items[..3],
-        &[Item::Open, Item::ShowInApp, Item::Quick(None)]
+        &fork_items[..4],
+        &[
+            Item::Open,
+            Item::ShowInApp,
+            Item::AddNote,
+            Item::Quick(None)
+        ]
     );
     assert_eq!(has_number(9), "Quick access number 0");
 }

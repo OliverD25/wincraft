@@ -1,7 +1,8 @@
 //! The user's own arrangement of ClaudeDeck's list, kept in one small file
 //! next to the window's place: the groups (name, colour, fold, order), which
 //! chat sits in which group and where, folded forks, hidden and pinned
-//! chats, and whether the cold line is open. All of it is about ClaudeDeck's
+//! chats, the user's notes on chats, and whether the cold line is open.
+//! All of it is about ClaudeDeck's
 //! list only; nothing here touches a real chat.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -82,6 +83,9 @@ pub struct Saved {
     /// Chats the user dragged, with when (Unix ms). Such a chat stays out
     /// of the cold line for a day, so a drag from the cold line shows.
     pub warm: BTreeMap<String, u64>,
+    /// The user's one-line note on a chat, by chat id. Older versions
+    /// ignore the field.
+    pub notes: BTreeMap<String, String>,
 }
 
 /// How long a chat that is no longer listed keeps its place.

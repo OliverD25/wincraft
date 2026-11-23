@@ -276,7 +276,7 @@ fn panel(ctx: &egui::Context, cell: Rect, chat: &Chat, look: &Look, reveal: &mut
         return;
     };
     let painter = ctx.layer_painter(egui::LayerId::background());
-    let size = hover::layout(&painter, chat, look, hover::OWN_WIDTH).size;
+    let size = hover::layout(&painter, chat, look, hover::OWN_WIDTH, None).size;
     let monitor = ctx.input(|i| i.viewport().monitor_size);
     let right_room = monitor.is_none_or(|m| outer.right() + GAP + size.x <= m.x);
     let left = if right_room {
@@ -309,7 +309,7 @@ fn panel(ctx: &egui::Context, cell: Rect, chat: &Chat, look: &Look, reveal: &mut
         };
         let rect = ui.ctx().content_rect();
         let painter = ui.painter().clone();
-        let laid = hover::layout(&painter, chat, &look, hover::OWN_WIDTH);
+        let laid = hover::layout(&painter, chat, &look, hover::OWN_WIDTH, None);
         hover::paint(&painter, rect, 0, laid, chat, &look);
     });
     reveal.after_call(ctx, id, HOVER_TITLE, SW_SHOWNA);

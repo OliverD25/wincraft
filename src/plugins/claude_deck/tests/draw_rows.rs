@@ -35,6 +35,7 @@ fn line_of(chat: Chat) -> ChatLine {
         fold: Fold::None,
         pinned: false,
         hidden: false,
+        note: None,
     }
 }
 

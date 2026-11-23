@@ -251,6 +251,21 @@ nothing is read twice. Which replies you read here is kept in
   **N hidden chats** at the end lists them; right-click one and pick
   **Show this chat** to bring it back.
 
+## Notes
+
+Pin a short note to a chat: right-click it and pick **Add a note…**, or
+pick it and press `N`. A one-line box opens on the row. `Enter` saves,
+`Esc` keeps the old note, and `Enter` on an empty box changes nothing. A
+note has at most 120 characters. It shows as a third line under the row,
+with a small note icon on an amber tint; a long note is cut with "…", and
+the hover panel shows all of it. Double-click the note, or use
+**Edit the note…**, to change it. **Remove the note** in the menu, or the
+small × at the end of the note while the mouse is on the row, removes it.
+Each chat has its own note, forks too. A note is saved with the list, so
+it stays after a restart, when the chat goes cold and when it moves. It
+changes nothing in the real chat. Mini mode, the Board, News and Stats do
+not show notes.
+
 ## Quick access numbers
 
 ClaudeDeck can give a chat a QuickJump number, so `` Win+` `` and a digit

@@ -50,6 +50,7 @@ pub(in crate::plugins::claude_deck) fn keys(
     let busy = menu_was_open
         || egui::Popup::is_any_open(ui.ctx())
         || state.renaming.is_some()
+        || state.noting.is_some()
         || state.drag.is_some();
     if !busy && ui.ctx().input(|i| keys::hide_pressed(&i.events)) {
         return Asked {

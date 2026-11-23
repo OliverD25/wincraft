@@ -1,7 +1,7 @@
 //! One line of the list, painted: a group's header, a chat's row with its
 //! tree lines, or the line of cold chats. Sizes are the design page's: a
-//! 22 px row (34 px with its line of text), a 24 px group header and cold
-//! line, 14 px per tree level.
+//! 22 px row (34 px with its line of text, 22 px more with a note), a
+//! 24 px group header and cold line, 14 px per tree level.
 
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{pos2, vec2, Color32, Galley, Painter, Pos2, Rect, Shape, Stroke, StrokeKind};
@@ -27,6 +27,8 @@ pub const ROW: f32 = 22.0;
 /// A row with its line of text under the name.
 pub const ROW_TWO: f32 = 34.0;
 pub const GROUP: f32 = 24.0;
+/// The note line under a chat's one or two lines.
+pub const NOTE: f32 = 22.0;
 /// The space above a group's header (not the first) and the cold line.
 pub const GROUP_GAP: f32 = 4.0;
 const PAD_LEFT: f32 = 12.0;
@@ -70,8 +72,10 @@ pub struct Look<'a> {
 /// for the line of text; every chat row then has it, so rows line up.
 pub fn height(line: &Line, first: bool, two: bool) -> f32 {
     match line {
-        Line::Chat(_) if two => ROW_TWO,
-        Line::Chat(_) => ROW,
+        Line::Chat(c) => {
+            let base = if two { ROW_TWO } else { ROW };
+            base + if c.note.is_some() { NOTE } else { 0.0 }
+        }
         Line::Group(_) if first => GROUP,
         Line::Group(_) | Line::Cold(_) | Line::Hidden(_) => GROUP + GROUP_GAP,
     }
@@ -89,6 +93,21 @@ pub fn body(line: &Line, rect: Rect) -> Rect {
 pub fn chevron_rect(row: Rect, depth: usize) -> Rect {
     let left = row.left() + PAD_LEFT + indent(depth);
     Rect::from_min_size(pos2(left, row.top() + CHEVRON_TOP), vec2(CHEVRON, CHEVRON)).expand(3.0)
+}
+
+/// Where a chat's note line goes: under the row's one or two lines, from
+/// where its text starts (after the fold arrow, the digit and the mark).
+pub fn note_room(row: Rect, line: &ChatLine, settings: &Settings, key: Option<u8>) -> Rect {
+    let mut left = row.left() + PAD_LEFT + indent(line.depth) + CHEVRON + GAP;
+    if key.is_some() {
+        left += marks::SIZE + GAP;
+    }
+    let mark = marks::width(settings.mark);
+    if mark > 0.0 {
+        left += mark + GAP;
+    }
+    let top = row.top() + if settings.text { ROW_TWO } else { ROW };
+    Rect::from_min_max(pos2(left, top), pos2(row.right() - PAD_RIGHT, top + NOTE))
 }
 
 fn indent(depth: usize) -> f32 {
@@ -246,6 +265,10 @@ pub fn chat(
                 cut(&painter, job, room),
             );
         }
+    }
+    if let Some(note) = &line.note {
+        let room = note_room(row, line, settings, key);
+        super::note::paint(&painter, room, note, tokens, hovered);
     }
     let mark_bottom = row.top() + MARK_TOP + marks::SIZE;
     bar::over(

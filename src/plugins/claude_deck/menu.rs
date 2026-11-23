@@ -2,7 +2,7 @@
 //! The Menu key and Shift+F10 open them for the selected line. Every item
 //! changes only ClaudeDeck's own list, except the Quick access number
 //! items, which ask QuickJump to change its pins; none closes, archives or
-//! renames a real chat.
+//! renames a real chat. A note is ClaudeDeck's own too.
 
 use egui::{Color32, Ui};
 
@@ -15,6 +15,9 @@ pub const OPEN: &str = "Open the chat";
 pub const SHOW_IN_APP: &str = "Show in the Claude app";
 pub const PIN: &str = "Pin to the top";
 pub const UNPIN: &str = "Unpin";
+pub const ADD_NOTE: &str = "Add a note\u{2026}";
+pub const EDIT_NOTE: &str = "Edit the note\u{2026}";
+pub const REMOVE_NOTE: &str = "Remove the note";
 pub const GIVE_NUMBER: &str = "Give a Quick access number";
 pub const FIRST_FREE: &str = "First free number";
 pub const REMOVE_NUMBER: &str = "Remove the Quick access number";
@@ -48,6 +51,9 @@ pub enum Item {
     ShowInApp,
     Pin,
     Unpin,
+    AddNote,
+    EditNote,
+    RemoveNote,
     /// QuickJump's number of the chat: its place, None for no number.
     Quick(Option<usize>),
     RemoveQuick,
@@ -80,6 +86,9 @@ pub enum Choice {
     /// The Claude app's main window shows the chat.
     ShowInApp,
     Pin(bool),
+    /// Open the note box on the row (to add or to edit).
+    Note,
+    RemoveNote,
     /// Give the chat this Quick access number (a place from 0), or the
     /// first free one when None.
     QuickAt(Option<usize>),
@@ -138,6 +147,13 @@ pub fn chat_items(line: &ChatLine, in_group: bool) -> Vec<Item> {
     if top {
         items.push(if line.pinned { Item::Unpin } else { Item::Pin });
     }
+    if super::note::can_note(line) {
+        if line.note.is_some() {
+            items.extend([Item::EditNote, Item::RemoveNote]);
+        } else {
+            items.push(Item::AddNote);
+        }
+    }
     items.push(Item::Hide);
     if !line.stand_in {
         items.extend([Item::Copy, Item::RenameChat]);
@@ -159,8 +175,9 @@ pub fn chat_items(line: &ChatLine, in_group: bool) -> Vec<Item> {
     items
 }
 
-/// Adds the Quick access number items after Pin to the top (or after
-/// Show in the Claude app for a chat that has no Pin) when `number` says
+/// Adds the Quick access number items after Pin to the top and the note
+/// items (or after Show in the Claude app for a chat that has neither)
+/// when `number` says
 /// QuickJump is on: Some(the chat's place, if any). Only a chat of the
 /// Claude app on this PC has a link a Quick access pin can open.
 pub fn with_quick(
@@ -173,7 +190,12 @@ pub fn with_quick(
     };
     let after = items
         .iter()
-        .position(|item| matches!(item, Item::Pin | Item::Unpin))
+        .rposition(|item| {
+            matches!(
+                item,
+                Item::Pin | Item::Unpin | Item::AddNote | Item::EditNote | Item::RemoveNote
+            )
+        })
         .or_else(|| items.iter().position(|item| *item == Item::ShowInApp));
     let Some(after) = after else {
         return items;
@@ -270,6 +292,9 @@ pub fn show(ui: &mut Ui, items: &[Item], context: &Context) -> Option<Choice> {
             Item::ShowInApp => button(ui, SHOW_IN_APP, "Ctrl+Enter").then_some(Choice::ShowInApp),
             Item::Pin => button(ui, PIN, "").then_some(Choice::Pin(true)),
             Item::Unpin => button(ui, UNPIN, "").then_some(Choice::Pin(false)),
+            Item::AddNote => button(ui, ADD_NOTE, "N").then_some(Choice::Note),
+            Item::EditNote => button(ui, EDIT_NOTE, "N").then_some(Choice::Note),
+            Item::RemoveNote => button(ui, REMOVE_NOTE, "").then_some(Choice::RemoveNote),
             Item::Quick(own) => {
                 let title = own.map_or_else(|| GIVE_NUMBER.to_string(), has_number);
                 let mut pick = None;

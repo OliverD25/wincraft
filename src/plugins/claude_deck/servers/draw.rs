@@ -188,7 +188,7 @@ pub(super) fn rest_hover(
             // A click opens a terminal, so the panel must not say "No open
             // window"; the window number is never used for a server chat.
             chat.window = Some(0);
-            hover::show(ui.ctx(), row, ui.clip_rect(), &chat, look);
+            hover::show(ui.ctx(), row, ui.clip_rect(), &chat, look, None);
         } else {
             ui.ctx()
                 .request_repaint_after(Duration::from_secs_f32(hover::DELAY - still));
@@ -227,6 +227,7 @@ pub(super) fn row(
                 fold: Fold::None,
                 pinned: *pinned,
                 hidden: false,
+                note: None,
             };
             row.chat.news = state.news.unseen_chats.contains(&chat.id);
             let mut row_painter = painter.clone();

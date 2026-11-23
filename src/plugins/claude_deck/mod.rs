@@ -31,6 +31,7 @@ mod mini;
 mod model;
 mod modes;
 mod news;
+mod note;
 mod open_app;
 mod place;
 mod quick;

@@ -3,7 +3,8 @@
 //! with that digit, Left and Right fold and unfold. Enter opens the chat
 //! (or folds the group), Ctrl+Enter shows the chat in the Claude app's main
 //! window, Alt+Up and Alt+Down move the picked chat or group,
-//! F2 renames the picked group, Ctrl+C copies the picked chat's name, and
+//! F2 renames the picked group, N opens the picked chat's note box,
+//! Ctrl+C copies the picked chat's name, and
 //! the Menu key or Shift+F10 opens its menu. Ctrl+M switches mini mode,
 //! Ctrl+, opens the quick settings, and
 //! Esc gives the keyboard back to the window that had it before the hotkey.
@@ -21,6 +22,7 @@ use super::edit;
 use super::list::start_rename;
 use super::menu;
 use super::model::{Fold, Line};
+use super::note;
 use super::open_app::{self, open_chat};
 use super::select::DIGITS;
 use super::servers;
@@ -35,6 +37,7 @@ struct Pressed {
     show_in_app: bool,
     alt: bool,
     rename: bool,
+    note: bool,
     copy: bool,
     menu: bool,
     home: bool,
@@ -123,6 +126,7 @@ fn read(ui: &Ui, state: &mut DeckUi) -> Pressed {
             show_in_app: i.key_pressed(Key::Enter) && i.modifiers.command,
             alt: i.modifiers.alt,
             rename: i.key_pressed(Key::F2),
+            note: i.key_pressed(Key::N) && !i.modifiers.any(),
             copy: i.events.iter().any(|e| matches!(e, egui::Event::Copy)),
             menu: (menu_pressed && i.focused) || shift_f10,
             home: i.key_pressed(Key::Home),
@@ -148,10 +152,13 @@ pub fn keys(
     to_host: &HostChannel,
     menu_was_open: bool,
 ) -> Asked {
-    // A menu, a rename or a drag has the keys while it is on.
+    // A menu, a rename, a note box or a drag has the keys while it is on.
     let renamed = std::mem::take(&mut state.renamed);
-    let busy =
-        menu_was_open || egui::Popup::is_any_open(ui.ctx()) || state.renaming.is_some() || renamed;
+    let busy = menu_was_open
+        || egui::Popup::is_any_open(ui.ctx())
+        || state.renaming.is_some()
+        || state.noting.is_some()
+        || renamed;
     if busy || state.drag.is_some() {
         return Asked::default();
     }
@@ -250,6 +257,9 @@ pub fn keys(
             let app_chat = !line.stand_in && line.chat.terminal.is_none();
             if pressed.rename && app_chat {
                 open_app::ask_rename(&line.chat.id, &line.chat.title, line.chat.window);
+            }
+            if pressed.note && note::can_note(line) {
+                note::start(state, &id);
             }
             if pressed.copy && !line.stand_in {
                 let _ = clipboard::put_text(state.window as HWND, &line.chat.title);
