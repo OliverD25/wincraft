@@ -14,3 +14,4 @@ When /marketing update handles a line, `open` becomes `done <date>`.
 - 2026-11-18 | quickjump | fixed numbers: a pin keeps its number until you move it, Alt+9 (and Put at number, ClaudeDeck's number menu) puts a window at 9 even with fewer pins, unpinning leaves the number empty and moves nothing else | f3a55d3 | open
 - 2026-11-20 | claudedeck | a chat of a new project always shows: it goes to an unfolded New group, also after you renamed New to a group of your own | 37aeda9 | open
 - 2026-11-22 | claudedeck | a chat in the cold line can be dragged into a group; it shows there for a day | 758ed98 | open
+- 2026-11-23 | claudedeck | a note on a chat: right-click → Add a note… (or N) puts one line of your own text under the row; the × on hover or Remove the note takes it away; the hover panel shows all of it | be9abb9 | open
