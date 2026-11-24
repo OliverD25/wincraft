@@ -2,6 +2,7 @@
 
 Moved here from my-tasks.md when closed. Newest first. Agents read this file only when asked about past tasks.
 
+- 63. Try typing a folder path in the palette (added 2026-11-24, done 2026-11-24): works on 0.20.143.
 - 62. Try notes on chats in ClaudeDeck (added 2026-11-23, done 2026-11-23): works on 0.20.142.
 - 61. Check that a cold chat can be dragged into a ClaudeDeck group (added 2026-11-22, done 2026-11-22): works on 0.20.141.
 - 60. Check that a chat of a new project shows in ClaudeDeck (added 2026-11-20, done 2026-11-20): works on 0.20.140.
