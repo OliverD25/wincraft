@@ -33,7 +33,7 @@ Shown beside WinCraft's icon while ClaudeDeck is on and **Live in the tray (no t
 
 ## Command palette
 Opened by: the palette hotkey (default `Win+Alt+P`; changed in Settings → General → **Palette hotkey**), or Tray menu → **Open palette**.
-- Search box: type to search; a prefix key at the start filters (`<` windows, `/` folders, `.` files, `'` bookmarks, `=` calculator, `>` terminal, `!` WinCraft commands, `?` prefix list and **Ask AI**).
+- Search box: type to search; a prefix key at the start filters (`<` windows, `/` folders, `.` files, `'` bookmarks, `=` calculator, `>` terminal, `!` WinCraft commands, `?` prefix list and **Ask AI**). A full path typed or pasted with no prefix (`E:\...`, `C:/...`, `\server\share`, quotes allowed) is browsed like `/`: `Enter` on the folder opens it in File Explorer. A path that is not there shows the nearest folder that exists, with “<name>” was not found. This is the nearest folder that exists.
 - **Recent and suggested**: the group shown under an empty box.
 - **Best match**: the top group while typing.
 - **Update ready**: a row pinned at the top under an empty box, only after an update check found a newer version (and it was not hidden).

@@ -786,3 +786,39 @@ fn picks_are_saved_to_the_usage_file_and_come_back_in_a_new_session() {
     assert_eq!(again.usage.len(), 0, "clearing reached the file");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_full_path_typed_with_no_prefix_is_browsed_as_a_path() {
+    let mut router = router(&[]);
+    assert_eq!(
+        found(&mut router, None, r"E:\code\_io"),
+        [r"paths:E:\code\_io"]
+    );
+    assert_eq!(found(&mut router, None, "c:/users"), ["paths:c:/users"]);
+    assert_eq!(
+        found(&mut router, None, r#""E:\code\a b""#),
+        [r"paths:E:\code\a b"],
+        "quotes from Copy as path come off"
+    );
+    assert_eq!(
+        found(&mut router, None, r"\\nas\share"),
+        [r"paths:\\nas\share"]
+    );
+    assert_eq!(
+        found(&mut router, None, "chrome"),
+        ["commands:chrome", "windows:chrome"]
+    );
+    assert_eq!(
+        found(&mut router, None, "e:"),
+        ["commands:e:", "windows:e:"]
+    );
+}
+
+#[test]
+fn with_the_path_prefix_off_a_typed_path_stays_blended() {
+    let mut router = router(&[("paths", "")]);
+    assert_eq!(
+        found(&mut router, None, r"E:\x"),
+        [r"commands:E:\x", r"windows:E:\x"]
+    );
+}

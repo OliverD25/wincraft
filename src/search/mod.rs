@@ -809,6 +809,13 @@ impl Router {
         crate::detailed!("palette: query {text:?} with prefix {prefix:?}");
         let text = text.trim_start();
         let Some(prefix) = prefix else {
+            // A full path typed or pasted with no prefix is browsed as if the
+            // path prefix were on, so Enter opens the folder itself.
+            if let (Some(path), Some(paths)) =
+                (typed_path(text.trim_end()), self.prefix_of("paths"))
+            {
+                return self.search(Some(&paths), path, context);
+            }
             return self.blended(text.trim_end(), context);
         };
         let help = prefix == HELP_PREFIX;
@@ -1014,6 +1021,21 @@ impl Router {
             ..Default::default()
         }
     }
+}
+
+/// The text as a path to browse when it is a full one: `C:\...`, `C:/...` or
+/// `\\server\share\...`. Quotes from Explorer's "Copy as path" are taken off.
+pub(crate) fn typed_path(text: &str) -> Option<&str> {
+    let path = text
+        .strip_prefix('"')
+        .map(|rest| rest.strip_suffix('"').unwrap_or(rest))
+        .unwrap_or(text);
+    let bytes = path.as_bytes();
+    let drive = bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'\\' | b'/');
+    (drive || (path.starts_with(r"\\") && path.len() > 2)).then_some(path)
 }
 
 /// What the memory of typed texts files a pick under: the prefix and the

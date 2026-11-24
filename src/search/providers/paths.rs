@@ -227,8 +227,50 @@ impl Paths {
                 ..Default::default()
             }
         }));
+        if items.is_empty() {
+            items.extend(nearest_row(&format!("{dir}{filter}")));
+        }
         items
     }
+}
+
+/// The folder nearest to `wanted` that exists, and the first part of the
+/// path that does not, for a typed path that leads nowhere.
+pub fn nearest(wanted: &str) -> Option<(String, String)> {
+    let mut path = wanted.trim_end_matches('\\');
+    loop {
+        let at = path.rfind('\\')?;
+        let missing = &path[at + 1..];
+        let parent = &path[..=at];
+        if std::path::Path::new(parent).is_dir() {
+            return Some((parent.to_string(), missing.to_string()));
+        }
+        path = &path[..at];
+    }
+}
+
+/// "Open the nearest folder": what a path that is not there can still do.
+fn nearest_row(wanted: &str) -> Option<ResultItem> {
+    let (dir, missing) = nearest(wanted)?;
+    if missing.is_empty() {
+        return None;
+    }
+    Some(ResultItem {
+        group: header(&dir),
+        title: folder_name(&dir),
+        subtitle: format!(
+            "\u{201c}{missing}\u{201d} was not found. This is the nearest folder that exists."
+        ),
+        icon: IconRef::Path(PathBuf::from(&dir)),
+        usage_key: Some(usage::path_key(&dir)),
+        enter: open(&dir),
+        tab: Some(Completion {
+            label: "Open folder".to_string(),
+            text: dir.clone(),
+        }),
+        bookmark: bookmark(&dir),
+        ..Default::default()
+    })
 }
 
 /// Long folder paths keep their end, the part that tells folders apart.
@@ -350,6 +392,28 @@ pub fn size_text(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_missing_path_leads_to_the_nearest_folder_that_exists() {
+        let root = std::env::temp_dir().join("wincraft-nearest-test");
+        std::fs::create_dir_all(root.join("real")).unwrap();
+        let base = format!(r"{}\", root.display());
+        assert_eq!(
+            nearest(&format!(r"{base}real\gone\deeper")),
+            Some((format!(r"{base}real\"), "gone".to_string()))
+        );
+        assert_eq!(
+            nearest(&format!("{base}nope")),
+            Some((base.clone(), "nope".to_string()))
+        );
+        assert_eq!(nearest(r"Q9:\x"), None);
+        let row = nearest_row(&format!(r"{base}real\gone")).unwrap();
+        assert_eq!(row.title, "real");
+        assert!(row
+            .subtitle
+            .starts_with("\u{201c}gone\u{201d} was not found"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn text_without_a_backslash_filters_the_drives() {
