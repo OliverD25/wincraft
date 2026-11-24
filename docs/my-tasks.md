@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 63. Try typing a folder path in the palette
 
-- **State:** Wait: 0.20.143 is being built on GitHub.
+- **State:** Ready to test. 0.20.143 is released (checked 2026-11-24).
 - **Kind:** test · **Added:** 2026-11-24 (PC)
 - **Why:** you pasted a folder path into the palette and it showed only
   Ask AI and Search the web. Now a full path lists that folder, and a
