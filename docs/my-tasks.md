@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 65. Check that the ClaudeDeck pin no longer blinks
 
-- **State:** Wait: 0.20.145 is being built on GitHub.
+- **State:** Ready to test. 0.20.145 is released (checked 2026-11-27).
 - **Kind:** test · **Added:** 2026-11-27 (PC)
 - **Why:** you saw the ClaudeDeck window blink (vanish and come back)
   each time you pinned or unpinned it. The pin changed the window's
