@@ -1,23 +1,21 @@
 //! One line of the list, painted: a group's header, a chat's row with its
-//! tree lines, or the line of cold chats. Sizes are the design page's: a
+//! tree lines, or the line of hidden chats. Sizes are the design page's: a
 //! 22 px row (34 px with its line of text, 22 px more with a note), a
-//! 24 px group header and cold line, 14 px per tree level.
+//! 30 px group header (`sections`), a 24 px hidden line, 14 px per tree
+//! level. The cold header and the line above a group are in `sections`.
 
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{pos2, vec2, Color32, Galley, Painter, Pos2, Rect, Shape, Stroke, StrokeKind};
 use std::sync::Arc;
 
-use crate::core::claude_sessions::Age;
 use crate::core::theme::{self, Tokens};
 use crate::ui::widgets::text;
 
 use super::context;
-use super::labels::{
-    chats_label, cold_label, days_label, forks_label, hidden_label, jobs_label, model_label,
-    time_label,
-};
+use super::labels::{chats_label, forks_label, hidden_label, jobs_label, model_label, time_label};
 use super::marks;
-use super::model::{ChatLine, ColdLine, Fold, GroupLine, HiddenLine, Line, Mark};
+use super::model::{ChatLine, Fold, GroupLine, HiddenLine, Line};
+use super::sections::{COLD_GAP, GROUP_GAP, GROUP_NAME, HEADER};
 use super::stats::{bar, RowShares};
 use super::store::Colour;
 use super::token_mark;
@@ -26,19 +24,19 @@ use super::{MarkStyle, Settings};
 pub const ROW: f32 = 22.0;
 /// A row with its line of text under the name.
 pub const ROW_TWO: f32 = 34.0;
-pub const GROUP: f32 = 24.0;
+/// The line of hidden chats, and a server's lines of cold and hidden chats.
+pub const FOLD_LINE: f32 = 24.0;
 /// The note line under a chat's one or two lines.
 pub const NOTE: f32 = 22.0;
-/// The space above a group's header (not the first) and the cold line.
-pub const GROUP_GAP: f32 = 4.0;
+/// The space above a fold line.
+pub const FOLD_GAP: f32 = 4.0;
 const PAD_LEFT: f32 = 12.0;
 const PAD_RIGHT: f32 = 10.0;
 const GROUP_PAD: f32 = 10.0;
-const COLD_PAD: f32 = 27.0;
 const LEVEL: f32 = 14.0;
 const GAP: f32 = 5.0;
 const PART_GAP: f32 = 6.0;
-const CHEVRON: f32 = 10.0;
+pub const CHEVRON: f32 = 10.0;
 /// From a row's top: the chevron, the mark, and the middle of the text.
 const CHEVRON_TOP: f32 = 7.0;
 const MARK_TOP: f32 = 5.0;
@@ -76,8 +74,10 @@ pub fn height(line: &Line, first: bool, two: bool) -> f32 {
             let base = if two { ROW_TWO } else { ROW };
             base + if c.note.is_some() { NOTE } else { 0.0 }
         }
-        Line::Group(_) if first => GROUP,
-        Line::Group(_) | Line::Cold(_) | Line::Hidden(_) => GROUP + GROUP_GAP,
+        Line::Group(_) | Line::Cold(_) if first => HEADER,
+        Line::Group(_) => HEADER + GROUP_GAP,
+        Line::Cold(_) => HEADER + COLD_GAP,
+        Line::Hidden(_) => FOLD_LINE + FOLD_GAP,
     }
 }
 
@@ -85,7 +85,12 @@ pub fn height(line: &Line, first: bool, two: bool) -> f32 {
 pub fn body(line: &Line, rect: Rect) -> Rect {
     match line {
         Line::Chat(_) => rect,
-        _ => Rect::from_min_max(pos2(rect.left(), rect.bottom() - GROUP), rect.max),
+        Line::Group(_) | Line::Cold(_) => {
+            Rect::from_min_max(pos2(rect.left(), rect.bottom() - HEADER), rect.max)
+        }
+        Line::Hidden(_) => {
+            Rect::from_min_max(pos2(rect.left(), rect.bottom() - FOLD_LINE), rect.max)
+        }
     }
 }
 
@@ -119,7 +124,7 @@ fn indent(depth: usize) -> f32 {
 }
 
 /// The fold arrow: pointing down when open, right when folded.
-fn chevron(painter: &Painter, at: Pos2, folded: bool, colour: Color32) {
+pub(super) fn chevron(painter: &Painter, at: Pos2, folded: bool, colour: Color32) {
     let points: [(f32, f32); 3] = if folded {
         [(3.5, 8.0), (6.5, 5.0), (3.5, 2.0)]
     } else {
@@ -137,7 +142,7 @@ fn galley(painter: &Painter, words: &str, size: f32, colour: Color32) -> Arc<Gal
 }
 
 /// One line of text cut to `width` with an ellipsis.
-fn cut(painter: &Painter, mut job: LayoutJob, width: f32) -> Arc<Galley> {
+pub(super) fn cut(painter: &Painter, mut job: LayoutJob, width: f32) -> Arc<Galley> {
     job.wrap = TextWrapping {
         max_width: width.max(0.0),
         max_rows: 1,
@@ -147,7 +152,7 @@ fn cut(painter: &Painter, mut job: LayoutJob, width: f32) -> Arc<Galley> {
     painter.layout_job(job)
 }
 
-fn put(painter: &Painter, left: f32, middle: f32, galley: Arc<Galley>) -> f32 {
+pub(super) fn put(painter: &Painter, left: f32, middle: f32, galley: Arc<Galley>) -> f32 {
     let size = galley.size();
     painter.galley(
         pos2(left, middle - size.y / 2.0),
@@ -527,8 +532,8 @@ pub fn group(
         name_left += DOT + PART_GAP;
     }
     let room = Rect::from_min_max(
-        pos2(name_left, middle - 9.0),
-        pos2(right - PART_GAP, middle + 9.0),
+        pos2(name_left, middle - 10.0),
+        pos2(right - PART_GAP, middle + 10.0),
     );
     if state.renaming {
         painter.rect_filled(room, 3.0, tokens.elevated_bg);
@@ -542,8 +547,8 @@ pub fn group(
     }
     let job = text::job(
         &line.name,
-        theme::semibold(SMALL),
-        tokens.text_secondary,
+        theme::semibold(GROUP_NAME),
+        tokens.text_primary,
         None,
     );
     put(
@@ -596,47 +601,5 @@ pub fn hidden(painter: &Painter, rect: Rect, line: &HiddenLine, look: &Look, hov
         label_left,
         middle,
         cut(painter, label, rect.right() - PAD_RIGHT - label_left),
-    );
-}
-
-/// The grey line that holds the chats idle for over a day.
-pub fn cold(painter: &Painter, rect: Rect, line: &ColdLine, look: &Look, hovered: bool) {
-    let tokens = look.tokens;
-    if hovered {
-        painter.rect_filled(rect, 0.0, tokens.hover_bg);
-    }
-    painter.extend(Shape::dashed_line(
-        &[rect.left_top(), rect.right_top()],
-        Stroke::new(1.0, tokens.border),
-        3.0,
-        3.0,
-    ));
-    let middle = rect.center().y;
-    let left = rect.left() + COLD_PAD;
-    marks::shape(
-        painter,
-        Rect::from_min_size(
-            pos2(left, middle - marks::SIZE / 2.0),
-            vec2(marks::SIZE, marks::SIZE),
-        ),
-        Mark::Idle(Age::Frozen),
-        tokens,
-        0.0,
-    );
-    let days = galley(painter, &days_label(line.days), SMALL, tokens.info);
-    let right = rect.right() - PAD_RIGHT - days.size().x;
-    put(painter, right, middle, days);
-    let label = text::job(
-        &cold_label(line.chats),
-        theme::regular(SMALL),
-        tokens.info,
-        None,
-    );
-    let label_left = left + marks::SIZE + PART_GAP;
-    put(
-        painter,
-        label_left,
-        middle,
-        cut(painter, label, right - PART_GAP - label_left),
     );
 }

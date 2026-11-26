@@ -9,6 +9,7 @@ use super::*;
 use crate::core::ui_bridge::HostRequest;
 use crate::plugins::claude_deck::header::Click;
 use crate::plugins::claude_deck::menu;
+use crate::plugins::claude_deck::sections::COLD_TITLE;
 use crate::plugins::claude_deck::window::Pick;
 use crate::plugins::claude_deck::Settings;
 
@@ -34,7 +35,7 @@ fn the_list_shows_groups_chats_forks_the_cold_line_and_the_header() {
     ] {
         assert!(painted.has(words), "{words}: {:?}", painted.texts);
     }
-    assert!(painted.has(&cold_label(1)), "the cold chat is folded away");
+    assert!(painted.has(COLD_TITLE), "the cold chat is folded away");
     assert!(!painted.has("Chat old"));
     assert!(painted.has("Chat not found"), "the stand-in");
     assert!(
@@ -53,10 +54,17 @@ fn the_list_shows_groups_chats_forks_the_cold_line_and_the_header() {
 fn a_click_on_the_cold_line_opens_it_and_the_hidden_line_lists_hidden_chats() {
     let mut deck = deck();
     let painted = deck.settle();
-    deck.click(painted.at(&cold_label(1)));
+    deck.click(painted.at(COLD_TITLE));
     assert!(deck.state.saved.cold_open);
     let painted = deck.settle();
     assert!(painted.has("Chat old"));
+    assert!(painted.has(COLD_TITLE), "the header stays");
+    deck.click(painted.at(COLD_TITLE));
+    assert!(!deck.state.saved.cold_open, "a second click folds it");
+    let painted = deck.settle();
+    assert!(!painted.has("Chat old"));
+    deck.click(painted.at(COLD_TITLE));
+    assert!(deck.state.saved.cold_open);
     deck.state.saved.hidden.insert("h".to_string());
     let painted = deck.settle();
     assert!(!painted.has("Chat h"));
@@ -349,7 +357,19 @@ fn a_cold_chat_can_be_dragged_into_a_group_and_shows_there() {
     let painted = deck.settle();
     assert!(deck.state.saved.warm.contains_key("old"));
     assert!(painted.has("Chat old"));
-    assert!(!painted.has(&cold_label(1)), "it left the cold line");
+    assert!(!painted.has(COLD_TITLE), "it left the cold area");
+}
+
+#[test]
+fn with_fold_off_there_is_no_cold_area() {
+    let settings = Settings {
+        fold_cold: false,
+        ..Settings::default()
+    };
+    let mut deck = Deck::new(sample(), settings);
+    let painted = deck.settle();
+    assert!(!painted.has(COLD_TITLE), "{:?}", painted.texts);
+    assert!(painted.has("Chat old"), "the idle chat is in its group");
 }
 
 #[test]

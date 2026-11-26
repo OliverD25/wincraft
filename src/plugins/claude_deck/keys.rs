@@ -1,7 +1,7 @@
 //! The keyboard in ClaudeDeck's list (design section 9). Up and Down pick a
 //! chat or a group, Home and End the first and the last, 1 to 9 the chat
 //! with that digit, Left and Right fold and unfold. Enter opens the chat
-//! (or folds the group), Ctrl+Enter shows the chat in the Claude app's main
+//! (or folds the group or the cold chats; Space does that too), Ctrl+Enter shows the chat in the Claude app's main
 //! window, Alt+Up and Alt+Down move the picked chat or group,
 //! F2 renames the picked group, N opens the picked chat's note box,
 //! Ctrl+C copies the picked chat's name, and
@@ -34,6 +34,7 @@ struct Pressed {
     down: bool,
     up: bool,
     enter: bool,
+    space: bool,
     show_in_app: bool,
     alt: bool,
     rename: bool,
@@ -87,7 +88,8 @@ pub fn picks(lines: &[Line]) -> Vec<Pick> {
         .filter_map(|line| match line {
             Line::Group(group) => Some(Pick::Group(group.key.clone())),
             Line::Chat(chat) => Some(Pick::Chat(chat.chat.id.clone())),
-            _ => None,
+            Line::Cold(_) => Some(Pick::Cold),
+            Line::Hidden(_) => None,
         })
         .collect()
 }
@@ -123,6 +125,7 @@ fn read(ui: &Ui, state: &mut DeckUi) -> Pressed {
             down: i.key_pressed(Key::ArrowDown),
             up: i.key_pressed(Key::ArrowUp),
             enter: i.key_pressed(Key::Enter) && !i.modifiers.command,
+            space: i.key_pressed(Key::Space) && !i.modifiers.any(),
             show_in_app: i.key_pressed(Key::Enter) && i.modifiers.command,
             alt: i.modifiers.alt,
             rename: i.key_pressed(Key::F2),
@@ -225,8 +228,13 @@ pub fn keys(
         return asked;
     }
     match picked {
+        Pick::Cold => {
+            if pressed.enter || pressed.space {
+                state.saved.cold_open = !state.saved.cold_open;
+            }
+        }
         Pick::Group(id) => {
-            if pressed.enter {
+            if pressed.enter || pressed.space {
                 edit::fold_group(&mut state.saved, &id);
             }
             if pressed.rename {
@@ -283,6 +291,7 @@ fn fold_picked(lines: &[Line], state: &mut DeckUi, picked: &Pick, open: bool) {
                     edit::fold_chat(&mut state.saved, id);
                 }
             }
+            (Line::Cold(_), Pick::Cold) => state.saved.cold_open = open,
             _ => {}
         }
     }
@@ -306,7 +315,7 @@ fn move_picked(lines: &[Line], state: &mut DeckUi, up: bool) {
             }
         }
         Some(Pick::Group(id)) => edit::step_group(&mut state.saved, &id, up),
-        None => {}
+        Some(Pick::Cold) | None => {}
     }
     state.scroll_to_selected = true;
 }

@@ -73,6 +73,8 @@ const NONE_OPEN: &str = "No chat has a window open.";
 pub(super) enum Pick {
     Chat(String),
     Group(String),
+    /// The cold header.
+    Cold,
 }
 
 /// A group whose name is being changed.

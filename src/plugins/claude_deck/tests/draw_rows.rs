@@ -8,6 +8,7 @@ use crate::core::config::ThemeChoice;
 use crate::plugins::claude_deck::header::{self, Click};
 use crate::plugins::claude_deck::marks;
 use crate::plugins::claude_deck::rows::{self, GroupState, Look};
+use crate::plugins::claude_deck::sections;
 use crate::plugins::claude_deck::store::Colour;
 use crate::plugins::claude_deck::{MarkStyle, Settings};
 
@@ -377,14 +378,21 @@ fn the_cold_the_hidden_and_the_drop_lines() {
         days: (2, 30),
         open: false,
     };
-    let plain = screen.frame(Vec::new(), |ui| {
-        rows::cold(ui.painter(), rect, &cold_line, &look, false)
-    });
-    let hovered = screen.frame(Vec::new(), |ui| {
-        rows::cold(ui.painter(), rect, &cold_line, &look, true)
-    });
-    assert!(plain.has(&cold_label(5)), "{:?}", plain.texts);
+    let (line, seen) = (&cold_line, &look);
+    let cold = |hovered, selected| {
+        move |ui: &mut egui::Ui| sections::cold(ui.painter(), rect, line, seen, hovered, selected)
+    };
+    let plain = screen.frame(Vec::new(), cold(false, false));
+    let hovered = screen.frame(Vec::new(), cold(true, false));
+    let selected = screen.frame(Vec::new(), cold(false, true));
+    assert!(plain.has(sections::COLD_TITLE), "{:?}", plain.texts);
+    assert!(
+        plain.has("5 chats \u{b7} 2 \u{2013} 30 days"),
+        "{:?}",
+        plain.texts
+    );
     assert_eq!(hovered.shapes, plain.shapes + 1);
+    assert_eq!(selected.shapes, plain.shapes + 2, "a fill and an outline");
     for open in [false, true] {
         let line = HiddenLine { chats: 2, open };
         let a = screen.frame(Vec::new(), |ui| {
@@ -422,15 +430,21 @@ fn row_heights_and_the_drawn_body() {
     });
     assert_eq!(rows::height(&c, false, false), rows::ROW);
     assert_eq!(rows::height(&c, false, true), rows::ROW_TWO);
-    assert_eq!(rows::height(&g, true, true), rows::GROUP);
-    assert_eq!(rows::height(&g, false, true), rows::GROUP + rows::GROUP_GAP);
+    // Design section 18, option A: a 30 px header; 8 px more above every
+    // group but the first, and 12 px above the cold header.
+    assert_eq!(rows::height(&g, true, true), 30.0, "the first group");
+    assert_eq!(rows::height(&g, false, true), 38.0);
+    assert_eq!(rows::height(&k, false, false), 42.0);
+    assert_eq!(rows::height(&k, true, false), 30.0, "nothing above it");
     assert_eq!(
-        rows::height(&k, false, false),
-        rows::GROUP + rows::GROUP_GAP
+        rows::height(&h, true, false),
+        rows::FOLD_LINE + rows::FOLD_GAP
     );
-    assert_eq!(rows::height(&h, true, false), rows::GROUP + rows::GROUP_GAP);
-    let whole = Rect::from_min_size(pos2(0.0, 100.0), vec2(300.0, 28.0));
-    assert!(rows::body(&g, whole).height() <= whole.height());
+    let whole = Rect::from_min_size(pos2(0.0, 100.0), vec2(300.0, 42.0));
+    assert_eq!(rows::body(&g, whole).height(), 30.0);
+    assert_eq!(rows::body(&k, whole).height(), 30.0);
+    assert_eq!(rows::body(&k, whole).bottom(), whole.bottom());
+    assert_eq!(rows::body(&h, whole).height(), rows::FOLD_LINE);
     assert_eq!(rows::body(&c, whole), whole, "a chat row has no gap above");
     let chevron = rows::chevron_rect(whole, 1);
     assert!(chevron.left() > rows::chevron_rect(whole, 0).left());

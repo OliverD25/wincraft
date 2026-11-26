@@ -19,8 +19,12 @@ and which one is idle.
   tree lines. Click the small arrow to fold a chat's forks; folded, it shows
   the most urgent status of the family. When the chat a fork came from was
   archived, a grey stand-in keeps the tree whole.
-- Click a group's header to fold it. Chats idle for over a day go into one
-  grey line at the end; click it to see them.
+- Click a group's header to fold it. A thin line runs above each group but
+  the first. Chats idle for over a day go into the cold area at the end, on
+  a darker background under a **Cold chats** header with their count and
+  age ("3 chats · 1 – 3 days"). Click the header, or pick it and press
+  `Left`, `Right`, `Space` or `Enter`, to show or fold them; it is folded
+  the first time and stays as you left it.
 - Rows never move by themselves. Only your drag, `Alt+Up` or `Alt+Down`
   changes the order.
 - Click a chat to bring its window to the front. A chat with no open window
@@ -234,7 +238,7 @@ nothing is read twice. Which replies you read here is kept in
 - Drag a group's header to move the group. Drag a chat to another place or
   another group; a blue line shows where it lands. A chat takes its forks
   along. A drag that starts on a fork moves the whole family: the fork stays
-  under its chat. A cold chat can be dragged into a group too: it shows there for a day, then goes back to the cold line if it is still idle. Hidden chats cannot be dragged. With the keyboard, pick a chat or a group with the arrow keys and
+  under its chat. A cold chat can be dragged into a group too: it shows there for a day, then goes back to the cold area if it is still idle. Hidden chats cannot be dragged. With the keyboard, pick a chat or a group with the arrow keys and
   press `Alt+Up` or `Alt+Down`.
 - Double-click a group's header, or pick it and press `F2`, to rename it:
   `Enter` saves, `Esc` puts the old name back. Scrolling the group out of
@@ -349,8 +353,8 @@ a job's command line as the server reports it.
 - **Fade when the mouse is away**: 3 seconds after the mouse leaves,
   ClaudeDeck turns half see-through. It is solid again when the mouse comes
   back, when it has the keyboard, or when a chat starts to wait.
-- **Fold chats idle for over 1 day**: old idle chats go into one grey line
-  at the end.
+- **Fold chats idle for over 1 day**: old idle chats go into the cold area
+  at the end. Off, there is no cold area.
 - **Show a count on the tray icon**: ClaudeDeck's tray icon shows a red
   badge with the number of chats that wait for you ("9+" above 9), and its
   tooltip says it, for example "ClaudeDeck — 2 chats wait for you, 4 new

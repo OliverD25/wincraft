@@ -58,6 +58,7 @@ pub fn open_pick(lines: &[Line], last: Option<&Pick>) -> Option<Pick> {
         lines.iter().any(|line| match (line, pick) {
             (Line::Chat(c), Pick::Chat(id)) => &c.chat.id == id,
             (Line::Group(g), Pick::Group(id)) => &g.key == id,
+            (Line::Cold(_), Pick::Cold) => true,
             _ => false,
         })
     };

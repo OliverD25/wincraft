@@ -159,8 +159,10 @@ fn worktrees_count_as_their_repository() {
 
 #[test]
 fn labels_say_one_or_many() {
-    assert_eq!(cold_label(1), "1 cold chat");
-    assert_eq!(cold_label(6), "6 cold chats");
+    use crate::plugins::claude_deck::sections::cold_count;
+    assert_eq!(cold_count(3, (1, 3)), "3 chats \u{b7} 1 \u{2013} 3 days");
+    assert_eq!(cold_count(1, (2, 2)), "1 chat \u{b7} 2 days");
+    assert_eq!(cold_count(1, (1, 1)), "1 chat \u{b7} 1 day");
     assert_eq!(jobs_label(1), "1 job");
     assert_eq!(jobs_label(2), "2 jobs");
     assert_eq!(forks_label(1), "1 fork");

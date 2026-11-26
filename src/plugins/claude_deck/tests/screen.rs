@@ -7,7 +7,7 @@ use crate::core::config::{ThemeChoice, ThemeName};
 use crate::core::theme::{self, Tokens};
 
 pub const WIDTH: f32 = 360.0;
-pub const HEIGHT: f32 = 480.0;
+pub const HEIGHT: f32 = 600.0;
 
 pub struct Screen {
     pub ctx: egui::Context,

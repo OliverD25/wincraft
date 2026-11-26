@@ -4,14 +4,6 @@ use crate::core::claude_sessions;
 
 use super::model::Mark;
 
-/// "6 cold chats", "1 cold chat".
-pub fn cold_label(chats: usize) -> String {
-    match chats {
-        1 => "1 cold chat".to_string(),
-        n => format!("{n} cold chats"),
-    }
-}
-
 /// "2 hidden chats", "1 hidden chat".
 pub fn hidden_label(chats: usize) -> String {
     match chats {

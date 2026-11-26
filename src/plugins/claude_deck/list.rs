@@ -25,6 +25,7 @@ use super::note;
 use super::open_app::{self, open_chat};
 use super::quick_number;
 use super::rows::{self, GroupState, Look};
+use super::sections;
 use super::select;
 use super::window::{DeckUi, Pick, Rename};
 
@@ -35,7 +36,6 @@ const LIFT: f32 = 10.0;
 /// Near the top or bottom edge, a drag scrolls the list.
 const EDGE: f32 = 24.0;
 const EDGE_STEP: f32 = 8.0;
-const RENAME_SIZE: f32 = 12.0;
 const RENAME_LIMIT: usize = 60;
 
 /// What drawing a line needs besides the line.
@@ -130,6 +130,10 @@ pub(super) fn show(
                     _ => None,
                 };
                 menu_found |= pick.is_some() && pick == state.menu_for;
+                if matches!(line, Line::Cold(_)) {
+                    let bottom = sections::cold_bottom(lines, at, top, &height_of);
+                    sections::shelf(&painter, rect, bottom, look.tokens);
+                }
                 if !ui.is_rect_visible(rect) {
                     end_hidden_rename(line, state);
                     note::end_hidden(line, state);
@@ -148,14 +152,11 @@ pub(super) fn show(
                             menu: &menu,
                         };
                         group_line(ui, &draw, rect, g, state, &mut acts);
-                    }
-                    Line::Cold(cold) => {
-                        let response = ui.interact(rect, ui.id().with("cd-cold"), Sense::click());
-                        rows::cold(&painter, rect, cold, look, response.hovered());
-                        if response.clicked() {
-                            state.saved.cold_open = !state.saved.cold_open;
+                        if at > 0 {
+                            sections::group_rule(&painter, rect, look.tokens);
                         }
                     }
+                    Line::Cold(cold) => sections::cold_line(ui, &painter, rect, cold, look, state),
                     Line::Hidden(hidden) => {
                         let response = ui.interact(rect, ui.id().with("cd-hidden"), Sense::click());
                         rows::hidden(&painter, rect, hidden, look, response.hovered());
@@ -329,7 +330,7 @@ fn rename_field(ui: &mut Ui, room: Rect, state: &mut DeckUi, look: &Look) {
     };
     let edit = egui::TextEdit::singleline(&mut rename.text)
         .id_salt(("cd-rename", rename.id.as_str()))
-        .font(theme::semibold(RENAME_SIZE))
+        .font(theme::semibold(sections::GROUP_NAME))
         .text_color(look.tokens.text_primary)
         .frame(egui::Frame::NONE)
         .margin(egui::Margin::symmetric(4, 0))
@@ -422,11 +423,23 @@ fn chat_line(
     } else {
         line
     };
+    let cold_tokens;
+    let cold_look;
+    let row_look = if row.cold {
+        cold_tokens = sections::cold_tokens(look.tokens);
+        cold_look = Look {
+            tokens: &cold_tokens,
+            ..*look
+        };
+        &cold_look
+    } else {
+        look
+    };
     let quick_box = rows::chat(
         &row_painter,
         row.rect,
         painted,
-        look,
+        row_look,
         hovered,
         selected,
         row.key,
@@ -519,6 +532,7 @@ fn dragging(
     let spot = match &pick {
         Pick::Chat(_) => drop::chat_spot(placed, at.y).map(|(spot, y)| (Some(spot), None, y)),
         Pick::Group(_) => drop::group_spot(placed, at.y).map(|(spot, y)| (None, Some(spot), y)),
+        Pick::Cold => None,
     };
     if !down {
         state.drag = None;
@@ -602,6 +616,7 @@ fn apply(act: Act, state: &mut DeckUi, to_host: &HostChannel) {
     let saved = &mut state.saved;
     let id = match &act.pick {
         Pick::Chat(id) | Pick::Group(id) => id.clone(),
+        Pick::Cold => return,
     };
     match act.choice {
         Choice::Open => open_chat(act.window, &id, &act.title, to_host),

@@ -67,9 +67,9 @@ fn the_arrow_keys_reach_the_server_line_after_the_pc_chats() {
     assert!(
         matches!(
             deck.state.selected,
-            Some(Pick::Chat(_)) | Some(Pick::Group(_))
+            Some(Pick::Chat(_)) | Some(Pick::Group(_)) | Some(Pick::Cold)
         ),
-        "Up goes back into the PC list"
+        "Up goes back into the PC list (the cold header is its last line)"
     );
     assert_ne!(deck.state.selected, Some(servers::server_pick("rdekeys2")));
 }

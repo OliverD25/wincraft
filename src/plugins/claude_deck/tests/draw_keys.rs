@@ -22,6 +22,7 @@ fn selected(deck: &Deck) -> String {
     match &deck.state.selected {
         Some(Pick::Chat(id)) => format!("chat {id}"),
         Some(Pick::Group(id)) => format!("group {id}"),
+        Some(Pick::Cold) => "cold".into(),
         None => "none".into(),
     }
 }
@@ -342,4 +343,31 @@ fn delete_does_nothing_in_claudedeck() {
     deck.key(Key::Delete);
     assert!(deck.requests().is_empty(), "no request for Delete");
     assert_eq!(selected(&deck), "chat f");
+}
+
+#[test]
+fn the_arrows_reach_the_cold_header_and_fold_it() {
+    let mut deck = deck();
+    let picks = crate::plugins::claude_deck::keys::picks(&deck.lines());
+    let at = picks.iter().position(|p| *p == Pick::Cold);
+    let at = at.expect("the cold header can be picked");
+    deck.state.selected = Some(picks[at - 1].clone());
+    deck.key(Key::ArrowDown);
+    assert_eq!(selected(&deck), "cold");
+    assert!(!deck.state.saved.cold_open, "folded the first time");
+    deck.key(Key::ArrowRight);
+    assert!(deck.state.saved.cold_open, "Right opens");
+    deck.key(Key::ArrowRight);
+    assert!(deck.state.saved.cold_open, "and stays open");
+    deck.key(Key::ArrowLeft);
+    assert!(!deck.state.saved.cold_open, "Left folds");
+    deck.key(Key::Space);
+    assert!(deck.state.saved.cold_open, "Space opens");
+    deck.key(Key::Space);
+    assert!(!deck.state.saved.cold_open, "and folds");
+    deck.key(Key::Enter);
+    assert!(deck.state.saved.cold_open, "Enter opens");
+    assert!(deck.settle().has("Chat old"));
+    deck.key(Key::Enter);
+    assert!(!deck.state.saved.cold_open, "and folds");
 }

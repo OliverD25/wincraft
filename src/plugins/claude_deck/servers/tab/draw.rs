@@ -150,7 +150,7 @@ pub fn show(ui: &mut Ui, look: &Look, state: &mut DeckUi) {
                         Rect::from_min_max(
                             pos2(
                                 whole.left(),
-                                whole.bottom() - crate::plugins::claude_deck::rows::GROUP,
+                                whole.bottom() - crate::plugins::claude_deck::rows::FOLD_LINE,
                             ),
                             whole.max,
                         )

@@ -40,6 +40,7 @@ mod quick_view;
 mod reading;
 mod reveal;
 mod rows;
+mod sections;
 mod select;
 mod servers;
 mod stats;

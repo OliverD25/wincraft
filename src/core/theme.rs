@@ -658,6 +658,15 @@ impl Tokens {
         }
     }
 
+    /// A ground darker than the window, for an area set below the rest of
+    /// a list (ClaudeDeck's cold chats). Worked out from `window_bg`, so
+    /// every theme has one. Classic comes within a step of the design's
+    /// #141312 in dark and #e4e2e1 in light.
+    pub fn sunken_bg(&self) -> Color32 {
+        let amount = if self.dark { 0.29 } else { 0.06 };
+        mix(self.window_bg, Color32::BLACK, amount)
+    }
+
     /// Falls back to Classic dark before `apply` has run, which only happens
     /// in the first frame on startup.
     pub fn get(ctx: &egui::Context) -> Self {

@@ -18,7 +18,8 @@ use crate::core::theme;
 use crate::plugins::claude_deck::hover;
 use crate::plugins::claude_deck::menu::{COPY, FORK, HIDE, PIN, SHOW, UNPIN};
 use crate::plugins::claude_deck::model::{ChatLine, ColdLine, Fold, HiddenLine, Line};
-use crate::plugins::claude_deck::rows::{self, Look, GROUP, GROUP_GAP, ROW, ROW_TWO};
+use crate::plugins::claude_deck::rows::{self, Look, FOLD_GAP, FOLD_LINE, ROW, ROW_TWO};
+use crate::plugins::claude_deck::sections;
 use crate::plugins::claude_deck::window::{DeckUi, Pick};
 use crate::ui::widgets::text;
 
@@ -41,7 +42,7 @@ pub(super) fn height(line: &ServerLine, two: bool) -> f32 {
     match line {
         ServerLine::Chat { .. } if two => ROW_TWO,
         ServerLine::Chat { .. } => ROW,
-        _ => GROUP + GROUP_GAP,
+        _ => FOLD_LINE + FOLD_GAP,
     }
 }
 
@@ -105,7 +106,7 @@ pub fn section(ui: &mut Ui, look: &Look, state: &mut DeckUi) {
         top += whole.height();
         let rect = match line {
             ServerLine::Chat { .. } => whole,
-            _ => Rect::from_min_max(pos2(whole.left(), whole.bottom() - GROUP), whole.max),
+            _ => Rect::from_min_max(pos2(whole.left(), whole.bottom() - FOLD_LINE), whole.max),
         };
         if !ui.is_rect_visible(rect) {
             continue;
@@ -259,7 +260,8 @@ pub(super) fn row(
                 days: *days,
                 open: *open,
             };
-            rows::cold(painter, rect, &cold, look, response.hovered() || selected);
+            let hovered = response.hovered() || selected;
+            sections::cold(painter, rect, &cold, look, hovered, false);
             if response.clicked() {
                 toggle(&mut state.servers.quiet_open, server);
             }
