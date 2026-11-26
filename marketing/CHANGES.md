@@ -16,3 +16,4 @@ When /marketing update handles a line, `open` becomes `done <date>`.
 - 2026-11-22 | claudedeck | a chat in the cold line can be dragged into a group; it shows there for a day | 758ed98 | open
 - 2026-11-23 | claudedeck | a note on a chat: right-click → Add a note… (or N) puts one line of your own text under the row; the × on hover or Remove the note takes it away; the hover panel shows all of it | be9abb9 | open
 - 2026-11-24 | palette | a folder path typed or pasted with no prefix lists that folder, and Enter opens it in File Explorer; a path that is not there offers the nearest folder that exists | e2bfefd | open
+- 2026-11-26 | claudedeck | groups stand apart: a bigger group name and a line above each group; the cold chats sit in their own darker area under a Cold chats header with their count and age ("3 chats · 1 – 3 days"), which folds with a click or the arrow keys, Space and Enter | c26f69b | open
