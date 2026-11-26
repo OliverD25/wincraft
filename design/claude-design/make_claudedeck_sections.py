@@ -115,13 +115,13 @@ def cap(text):
 REC = '<span class="rec">Recommended</span>'
 
 section = (
-    '<section><h2>18. Groups and cold chats: clearer sections (options for review 2026-11-26)</h2>'
+    '<section><h2>18. Groups and cold chats: clearer sections (decided 2026-11-26: Option A)</h2>'
     "<p>Asked on 2026-11-26: (1) set the cold chats clearly apart from the active chats, (2) make the cold chats "
     "foldable, (3) a clear line between groups, with bigger group names. Today a group header is 12 px grey text with "
     "only 4 px of space above it, so groups run into each other, and the cold chats start after one dashed line that "
     "is easy to miss. The same chats in every drawing: three groups from the real list and three cold chats.</p>"
 
-    + f'<h3 style="margin-top:24px">Option A: a line between groups and a cold shelf {REC}</h3>'
+    + f'<h3 style="margin-top:24px">Option A: a line between groups and a cold shelf <span class="rec">Picked 2026-11-26</span></h3>'
     "<p><b>Groups:</b> the name is 14 px, semibold, in normal text colour (rows stay 13 px, so the name is the biggest "
     "text in the list). The header is 30 px high. Above every group but the first: 8 px of space and a full-width 1 px "
     "line. The count stays small and grey at the right.</p>"
@@ -156,8 +156,8 @@ section = (
     "<li>Hidden chats keep their own line after the cold area. Mini mode does not change: it leaves cold chats out.</li>"
     "<li>The Servers tab uses the same cold header in each server card, so the look is one family.</li></ul>"
 
-    + '<h3 style="margin-top:28px">My recommendation</h3>'
-    "<p>Option A. The line and the bigger name split the groups without making the list taller by much (about 10 px "
+    + '<h3 style="margin-top:28px">Decision</h3>'
+    "<p>Picked by you on 2026-11-26: Option A. Option B stays here only as the road not taken. The line and the bigger name split the groups without making the list taller by much (about 10 px "
     "per group). The darker shelf makes the cold chats a separate place you can fold away, so the top of the list is "
     "only the chats that are alive.</p></section>"
 )

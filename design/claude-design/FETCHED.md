@@ -428,3 +428,4 @@ note in the hover panel only. For the user's pick; nothing is built yet.
 - Artifact v62. Changed: `ClaudeDeck.dc.html` (530982 bytes), new section 18 "Groups and cold chats: clearer sections (options for review 2026-11-26)".
 - Option A (recommended): 14 px group names with a 1 px line above each group; the cold chats in a darker shelf with a foldable "Cold chats" header. Option B: header bands and a centred cold divider.
 - Built on the live page (same as the repo copy, sha 64d25f25…) by `make_claudedeck_sections.py`. Waits for the user's pick; no code yet.
+- Later on 2026-11-26, artifact v63 (531055 bytes): the user picked Option A ("Option A, approved"). Section 18's heading now says "decided 2026-11-26: Option A"; Option B stays on the page as the option not taken. Ready to build.
