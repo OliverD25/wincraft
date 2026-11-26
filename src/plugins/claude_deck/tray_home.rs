@@ -12,8 +12,8 @@ use std::sync::{Arc, Mutex};
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetWindowLongPtrW, IsWindowVisible, KillTimer, SetTimer, SetWindowLongPtrW, SetWindowPos,
-    ShowWindow, GWL_EXSTYLE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SW_HIDE, SW_SHOWNA, WM_TIMER,
+    ShowWindow, GWL_EXSTYLE, HWND_NOTOPMOST, HWND_TOPMOST, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOWNA, WM_TIMER,
 };
 
 use crate::core::plugin_tray::OwnTray;
@@ -50,6 +50,8 @@ pub struct Home {
     pub counts: Option<(usize, usize)>,
     /// The window and the style it was given last.
     styled: Option<(isize, bool)>,
+    /// The window and whether it was put on top last (`keep_level`).
+    leveled: Option<(isize, bool)>,
 }
 
 /// The plugin's side, on the host thread.
@@ -381,6 +383,35 @@ pub(super) fn keep_style(shared: &mut Shared, hwnd: isize) -> bool {
         unsafe { ShowWindow(handle, SW_SHOWNA) };
     }
     visible
+}
+
+/// Puts the window on top, or takes it off, when the pin changed. This is
+/// done here and not with egui's window level: winit rewrites the whole
+/// window style for a new level, which drops the tray style, and putting
+/// that back needs a hide and show, so the window blinked on every pin.
+/// `SetWindowPos` changes only the level.
+pub(super) fn keep_level(shared: &mut Shared, hwnd: isize, on_top: bool) {
+    if hwnd == 0 || !level_changed(shared.home.leveled, hwnd, on_top) {
+        return;
+    }
+    shared.home.leveled = Some((hwnd, on_top));
+    let after = if on_top { HWND_TOPMOST } else { HWND_NOTOPMOST };
+    unsafe {
+        SetWindowPos(
+            hwnd as HWND,
+            after,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    }
+}
+
+/// A new window, or the pin flipped since the level was set last.
+pub(super) fn level_changed(last: Option<(isize, bool)>, hwnd: isize, on_top: bool) -> bool {
+    last != Some((hwnd, on_top))
 }
 
 #[cfg(test)]

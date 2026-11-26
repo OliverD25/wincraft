@@ -244,13 +244,14 @@ impl PluginWindow for DeckWindow {
         // Never waits for a lock: the host thread may hold one (`reveal`).
         if let Some(look) = reveal::main_frame(ctx, &self.shared, &self.state, frame.palette_hwnd) {
             if look != self.look {
-                // A new pin makes winit write its own window style; the
-                // window's next frame puts the tray style back (`keep_style`).
+                // The window's next frame sets the new pin (`keep_level`).
                 ctx.request_repaint_of(viewport_id());
             }
             self.look = look;
         }
         let (on_top, mini) = self.look;
+        // No window level here: `keep_level` sets it without the blink a
+        // level change through winit causes.
         let mut builder = egui::ViewportBuilder::default()
             .with_title(TITLE)
             .with_decorations(false)
@@ -258,12 +259,7 @@ impl PluginWindow for DeckWindow {
             .with_inner_size(SIZE)
             .with_min_inner_size(min_size(mini))
             // Shown by `reveal` once it is in its place.
-            .with_visible(false)
-            .with_window_level(if on_top {
-                egui::WindowLevel::AlwaysOnTop
-            } else {
-                egui::WindowLevel::Normal
-            });
+            .with_visible(false);
         builder = builder.with_icon(taskbar::window_icon());
         let shared = Arc::clone(&self.shared);
         let state = Arc::clone(&self.state);
@@ -284,6 +280,7 @@ impl PluginWindow for DeckWindow {
             if tray_home::keep_style(&mut shared, state.window) {
                 reveal::covered_again(&mut state);
             }
+            tray_home::keep_level(&mut shared, state.window, on_top);
             reveal::on_window_frame(ui.ctx(), &mut state, &to_host);
             let repaint = ui.ctx().clone();
             let wake = Arc::new(move || repaint.request_repaint_of(viewport_id()));

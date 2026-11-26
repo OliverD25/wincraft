@@ -244,3 +244,17 @@ fn a_new_window_or_a_changed_setting_is_styled_and_not_counted_as_lost() {
         plan(true, true, false)
     );
 }
+
+#[test]
+fn the_level_is_set_once_per_window_and_again_only_when_the_pin_flips() {
+    assert!(level_changed(None, 5, true), "a new window gets its level");
+    assert!(
+        !level_changed(Some((5, true)), 5, true),
+        "same pin, nothing to do"
+    );
+    assert!(level_changed(Some((5, true)), 5, false), "unpinned");
+    assert!(
+        level_changed(Some((5, false)), 7, false),
+        "a new window after a close"
+    );
+}
