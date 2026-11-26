@@ -421,3 +421,10 @@ line), dark and light, with a long note and a fork; adding and editing
 (Add a note… / Edit the note…, key N, a one-line box, Enter saves, Esc
 cancels, a count to 120); removing (Remove the note, a × on hover); the
 note in the hover panel only. For the user's pick; nothing is built yet.
+
+## 2026-11-26: ClaudeDeck, groups and cold chats (options)
+
+- Asked by the user on 2026-11-26: set the cold chats apart from the active chats, make them foldable, and split the groups with a line and bigger names.
+- Artifact v62. Changed: `ClaudeDeck.dc.html` (530982 bytes), new section 18 "Groups and cold chats: clearer sections (options for review 2026-11-26)".
+- Option A (recommended): 14 px group names with a 1 px line above each group; the cold chats in a darker shelf with a foldable "Cold chats" header. Option B: header bands and a centred cold divider.
+- Built on the live page (same as the repo copy, sha 64d25f25…) by `make_claudedeck_sections.py`. Waits for the user's pick; no code yet.
