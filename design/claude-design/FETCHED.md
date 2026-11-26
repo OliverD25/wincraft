@@ -429,3 +429,4 @@ note in the hover panel only. For the user's pick; nothing is built yet.
 - Option A (recommended): 14 px group names with a 1 px line above each group; the cold chats in a darker shelf with a foldable "Cold chats" header. Option B: header bands and a centred cold divider.
 - Built on the live page (same as the repo copy, sha 64d25f25…) by `make_claudedeck_sections.py`. Waits for the user's pick; no code yet.
 - Later on 2026-11-26, artifact v63 (531055 bytes): the user picked Option A ("Option A, approved"). Section 18's heading now says "decided 2026-11-26: Option A"; Option B stays on the page as the option not taken. Ready to build.
+- Later on 2026-11-26, artifact v64 (531267 bytes): section 18 matches 0.20.144. The shelf colour is the window colour 29% toward black in dark and 6% in light. The 4 px padding under the shelf is gone. The Servers tab keeps a 24 px Cold chats header with no shelf. The CODE-CHANGES row of 2026-11-26 is marked in design.

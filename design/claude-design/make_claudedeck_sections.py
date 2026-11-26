@@ -31,7 +31,9 @@ CSS = """
 .gh2.ln{border-top:1px solid var(--border);margin-top:8px}
 .gh2.band{background:var(--panel);border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-top:6px}
 .gh2.band.first{border-top:0;margin-top:0}
-.shelf{margin-top:12px;border-top:2px solid var(--border);background:var(--bg);padding-bottom:4px}
+.shelf{margin-top:12px;border-top:2px solid var(--border)}
+.dark .shelf{background:color-mix(in srgb,var(--win) 71%,#000)}
+.light .shelf{background:color-mix(in srgb,var(--win) 94%,#000)}
 .shelf .ch{height:30px;display:flex;align-items:center;gap:7px;padding:0 10px;font-size:13px;font-weight:600;color:var(--info)}
 .shelf .ch .gc{margin-left:auto;font-size:12px;font-weight:400;color:var(--text2)}
 .shelf .row .nm{color:var(--text2)}
@@ -125,8 +127,8 @@ section = (
     "<p><b>Groups:</b> the name is 14 px, semibold, in normal text colour (rows stay 13 px, so the name is the biggest "
     "text in the list). The header is 30 px high. Above every group but the first: 8 px of space and a full-width 1 px "
     "line. The count stays small and grey at the right.</p>"
-    "<p><b>Cold chats:</b> after the last group, 12 px of space and a 2 px line, then a darker area (the window's "
-    "background colour) that holds the header and the cold rows. The header has the fold arrow, the snowflake mark, "
+    "<p><b>Cold chats:</b> after the last group, 12 px of space and a 2 px line, then a darker area (the window "
+    "colour 29% toward black in dark, 6% in light) that holds the header and the cold rows. The header has the fold arrow, the snowflake mark, "
     "<b>Cold chats</b> in the blue of the cold status, and at the right the count and the age range. Cold chat names "
     "are grey, so the eye goes to the active chats first.</p>"
     '<div class="side">'
@@ -154,12 +156,13 @@ section = (
     "<li>Dragging a cold chat onto a group still works and puts it there for a day, as today.</li>"
     "<li>The setting <b>Fold chats idle for over 1 day</b> keeps its job: off, there is no cold area at all.</li>"
     "<li>Hidden chats keep their own line after the cold area. Mini mode does not change: it leaves cold chats out.</li>"
-    "<li>The Servers tab uses the same cold header in each server card, so the look is one family.</li></ul>"
+    "<li>The Servers tab uses the same <b>Cold chats</b> header in each server card, but at 24 px and without the "
+    "darker shelf, so the cards stay compact (as built in 0.20.144).</li></ul>"
 
     + '<h3 style="margin-top:28px">Decision</h3>'
     "<p>Picked by you on 2026-11-26: Option A. Option B stays here only as the road not taken. The line and the bigger name split the groups without making the list taller by much (about 10 px "
     "per group). The darker shelf makes the cold chats a separate place you can fold away, so the top of the list is "
-    "only the chats that are alive.</p></section>"
+    "only the chats that are alive. Built in 0.20.144.</p></section>"
 )
 
 anchor = "<section><h2>Rules</h2>"
