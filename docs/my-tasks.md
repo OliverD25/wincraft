@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 64. Look at the new ClaudeDeck groups and cold chats
 
-- **State:** Wait: 0.20.144 is being built on GitHub.
+- **State:** Ready to test. 0.20.144 is released (checked 2026-11-26).
 - **Kind:** test · **Added:** 2026-11-26 (PC)
 - **Why:** you approved design option A for clearer groups and a
   foldable cold chats area. Built in 0.20.144. Nobody has seen it on a
