@@ -10,7 +10,7 @@ Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ### 66. Try the ClaudeDeck "Cold after" setting
 
-- **State:** Wait: 0.20.146 is being built on GitHub.
+- **State:** Ready to test. 0.20.146 is released (checked 2026-11-28).
 - **Kind:** test · **Added:** 2026-11-28 (PC)
 - **Why:** you asked to make the time before a chat goes to Cold chats a
   setting, and to set it to 48 hours. Built in 0.20.146.
