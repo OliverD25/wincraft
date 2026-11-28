@@ -596,7 +596,7 @@ fn an_unchanged_transcript_is_not_sent_again_and_a_failed_call_keeps_the_chats()
         (NOW, DAY_MS),
     );
     assert_eq!(host.chats.len(), 2);
-    let script = poll::script_for(&cache, &[]);
+    let script = poll::script_for(&cache, &[], 0);
     assert!(
         script.contains("-home-rde-projects-verdict-ai:"),
         "{script}"
@@ -942,6 +942,17 @@ fn a_running_remote_control_chat_is_never_cold() {
     let ready = vec![("-home-rde-projects-oriondb".to_string(), NOW_S - DAYS_13)];
     let rows = status::ready_chats("s", Some("/home/rde"), &running, &ready, &[], NOW, NOW);
     assert_eq!(rows[0].mark, Mark::Idle(Age::Cooling));
+}
+
+#[test]
+fn server_transcripts_are_listed_for_a_day_or_the_cold_time_if_longer() {
+    for hours in [1, 12, 24] {
+        assert_eq!(probe::window_s(hours * 3_600_000), 24 * 3600, "{hours} h");
+    }
+    assert_eq!(probe::window_s(2 * DAY_MS), 48 * 3600);
+    let script = probe::script_with(&[], &[], 2 * DAY_MS);
+    assert!(script.contains("window=172800"), "{script}");
+    assert!(script.contains("-le \"$window\" ] && keep=1"));
 }
 
 #[test]

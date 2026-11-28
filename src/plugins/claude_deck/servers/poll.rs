@@ -102,13 +102,14 @@ fn end_busy(host: &str) {
 pub type Asks = Arc<Mutex<HashMap<String, Vec<String>>>>;
 
 /// The script for a server, told which transcripts it need not send and
-/// which units to print systemd's data of.
-pub fn script_for(cache: &Cache, units: &[String]) -> String {
+/// which units to print systemd's data of; `cold_ms` sets how old a
+/// transcript may be and still be listed.
+pub fn script_for(cache: &Cache, units: &[String], cold_ms: u64) -> String {
     let known: Vec<(String, u64, u64)> = cache
         .values()
         .map(|(raw, _)| (raw.dir.clone(), raw.mtime, raw.size))
         .collect();
-    probe::script_with(&known, units)
+    probe::script_with(&known, units, cold_ms)
 }
 
 /// Puts one call's result into the server's view. A failed call keeps
@@ -269,7 +270,7 @@ fn poll(
             .ok()
             .and_then(|asks| asks.get(server).cloned())
             .unwrap_or_default();
-        let result = runner.run(server, &script_for(&cache, &units));
+        let result = runner.run(server, &script_for(&cache, &units, cold.get()));
         end_busy(server);
         if stop.load(Ordering::SeqCst) {
             return;

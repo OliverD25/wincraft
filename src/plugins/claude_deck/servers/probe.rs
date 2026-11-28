@@ -147,7 +147,7 @@ for d in */; do
   fi
   m=$(stat -c %Y -- "$f") || continue
   s=$(stat -c %s -- "$f") || continue
-  [ $((now - m)) -le 86400 ] && keep=1
+  [ $((now - m)) -le "$window" ] && keep=1
   [ -n "$keep" ] || continue
   case " $known " in *" $d:$m:$s "*) echo "SAME $d ${f##*/} $m $s"; continue;; esac
   echo "CHAT $d ${f##*/} $m $s"
@@ -170,11 +170,19 @@ pub fn plain_dir(dir: &str) -> bool {
 /// send again.
 #[cfg(test)]
 pub fn script(known: &[(String, u64, u64)]) -> String {
-    script_with(known, &[])
+    script_with(known, &[], 0)
 }
 
-/// The same, also told which user units to print systemd's data of.
-pub fn script_with(known: &[(String, u64, u64)], units: &[String]) -> String {
+/// How long ago, in seconds, a transcript may have been written and still
+/// be listed: a day, or the cold time when it is longer, so a chat stays
+/// listed until it turns cold and then shows under Cold chats.
+pub fn window_s(cold_ms: u64) -> u64 {
+    (cold_ms / 1000).max(24 * 3600)
+}
+
+/// The same, also told which user units to print systemd's data of and
+/// the cold time `cold_ms`.
+pub fn script_with(known: &[(String, u64, u64)], units: &[String], cold_ms: u64) -> String {
     let names: Vec<String> = known
         .iter()
         .filter(|(dir, _, _)| plain_dir(dir))
@@ -187,9 +195,10 @@ pub fn script_with(known: &[(String, u64, u64)], units: &[String]) -> String {
         .take(40)
         .collect();
     format!(
-        "known='{}'\nunits='{}'\n{BODY}",
+        "known='{}'\nunits='{}'\nwindow={}\n{BODY}",
         names.join(" "),
-        units.join(" ")
+        units.join(" "),
+        window_s(cold_ms)
     )
 }
 

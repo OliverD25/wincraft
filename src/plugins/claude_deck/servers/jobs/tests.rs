@@ -73,7 +73,7 @@ fn the_probe_asks_only_about_plain_unit_names() {
         "verdict-archive-write.service".to_string(),
         "x'; rm -rf ~; '".to_string(),
     ];
-    let script = probe::script_with(&[], &units);
+    let script = probe::script_with(&[], &units, 0);
     assert!(script.contains("units='verdict-archive-write.service'\n"));
     assert!(!script.contains("rm -rf"));
     assert!(script.contains("JOB %s"));
