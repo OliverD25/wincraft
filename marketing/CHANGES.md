@@ -19,3 +19,4 @@ When /marketing update handles a line, `open` becomes `done <date>`.
 - 2026-11-26 | claudedeck | groups stand apart: a bigger group name and a line above each group; the cold chats sit in their own darker area under a Cold chats header with their count and age ("3 chats · 1 – 3 days"), which folds with a click or the arrow keys, Space and Enter | c26f69b | open
 - 2026-11-27 | claudedeck | pinning or unpinning the window no longer makes it blink | ea3e6ee | open
 - 2026-11-28 | claudedeck | new setting Cold after (hours), 48 by default: a chat with no activity that long goes to Cold chats (Chats and Servers tabs), and the idle mark turns blue then; the Settings toggle is now Fold idle chats, the quick settings row says the time ("Fold chats idle for over 2 days") | 675a1de | open
+- 2026-11-28 | claudedeck | Servers tab: a server chat stays listed until it turns cold (Cold after), then shows under Cold chats, instead of dropping off after 24 h | 26ffbd5 | open
