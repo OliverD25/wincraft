@@ -1,12 +1,42 @@
 # Tasks on you: WinCraft
 
-Updated: 2026-11-27. Kept by the my-tasks skill. `/my-tasks` shows this
+Updated: 2026-11-28. Kept by the my-tasks skill. `/my-tasks` shows this
 list; say "done 1" to close task 1. Secret values never go here, only names.
 
-Next number: 66
+Next number: 67
 Done tasks: [my-tasks-done.md](my-tasks-done.md)
 
 ## Open
+
+### 66. Try the ClaudeDeck "Cold after" setting
+
+- **State:** Wait: 0.20.146 is being built on GitHub.
+- **Kind:** test · **Added:** 2026-11-28 (PC)
+- **Why:** you asked to make the time before a chat goes to Cold chats a
+  setting, and to set it to 48 hours. Built in 0.20.146.
+- **Agent can check:** nothing; only you can see the window.
+
+**Steps**
+
+1. Update WinCraft: press `Alt+Space`, type "update", pick
+   **Update WinCraft**, press `Enter`. The palette's bottom line should
+   say v0.20.146.
+2. Press `Win+Alt+X` to bring ClaudeDeck to the front. Chats idle for
+   less than 2 days are back in their groups; only older ones are under
+   **Cold chats**.
+3. Click the gear in the ClaudeDeck header (tooltip **Quick settings**).
+   The fold row now reads "Fold chats idle for over 2 days".
+4. Press `Alt+Space`, type "open settings", press `Enter`. In the
+   Settings window click **Plugins**, then the **ClaudeDeck** tile.
+   Under **Settings** you see **Fold idle chats** and under it
+   **Cold after (hours)** showing 48.
+5. Change **Cold after (hours)** to 24. ClaudeDeck moves chats idle over
+   1 day back under **Cold chats**. Set it back to 48 (or the value you
+   like).
+6. Tell this chat "done 66", or what looked wrong.
+
+**Done when:** the setting changes which chats are cold, and 48 hours
+is the default.
 
 ### 65. Check that the ClaudeDeck pin no longer blinks
 
