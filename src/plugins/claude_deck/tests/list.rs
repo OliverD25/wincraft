@@ -90,7 +90,7 @@ fn a_folded_group_shows_its_count_and_most_urgent_status() {
         chat("b", Some(r"E:\NewsHQ"), 2),
     ];
     chats[1].mark = Mark::Background;
-    let mut saved = arrange(&Saved::default(), &chats, NOW);
+    let mut saved = arrange(&Saved::default(), &chats, NOW, DAY_MS);
     saved.groups[0].folded = true;
     let view = View {
         saved,
@@ -222,6 +222,7 @@ fn a_chat_dragged_from_the_cold_line_shows_in_its_group_for_a_day() {
     ];
     let mut view = View {
         fold_cold: true,
+        cold_ms: DAY_MS,
         ..View::default()
     };
     view.saved.warm.insert("old".into(), NOW - 1_000);
@@ -234,6 +235,75 @@ fn a_chat_dragged_from_the_cold_line_shows_in_its_group_for_a_day() {
         shape(&got),
         ["G a 1", "C live 0", "~ 1"],
         "cold again after a day"
+    );
+}
+
+#[test]
+fn a_dragged_chat_stays_warm_for_the_cold_time() {
+    let chats = vec![
+        chat("live", Some(r"E:\a"), 1),
+        cold("old", Some(r"E:\a"), 3),
+    ];
+    let mut view = View {
+        fold_cold: true,
+        cold_ms: 2 * DAY_MS,
+        ..View::default()
+    };
+    view.saved.warm.insert("old".into(), NOW - DAY_MS);
+    let got = lines(&chats, &Archived::new(), &view, NOW);
+    assert_eq!(
+        shape(&got),
+        ["G a 2", "C live 0", "C old 0"],
+        "warm after 1 day"
+    );
+
+    view.saved.warm.insert("old".into(), NOW - 2 * DAY_MS);
+    let got = lines(&chats, &Archived::new(), &view, NOW);
+    assert_eq!(
+        shape(&got),
+        ["G a 1", "C live 0", "~ 1"],
+        "cold after 2 days"
+    );
+}
+
+#[test]
+fn the_cold_time_decides_which_idle_chats_go_to_the_cold_area() {
+    const HOUR: u64 = 60 * MIN;
+    let idle_for = |id: &str, hours: u64, cold_ms: u64| {
+        let mut session = session(id);
+        session.lineage.forked_from = None;
+        let at = NOW - hours * HOUR;
+        session.latest_user = Some(at - 5 * MIN);
+        session.last_turn_edge = Some(at);
+        session.last_activity = Some(at);
+        crate::plugins::claude_deck::model::chat(&session, None, (0, None), (NOW, cold_ms))
+    };
+    let list = |cold_ms: u64| {
+        let chats = vec![idle_for("a", 30, cold_ms), idle_for("b", 50, cold_ms)];
+        let view = View {
+            fold_cold: true,
+            cold_ms,
+            ..View::default()
+        };
+        lines(&chats, &Archived::new(), &view, NOW)
+    };
+    let two_days = list(2 * DAY_MS);
+    assert_eq!(shape(&two_days), ["G WinCraft 1", "C a 0", "~ 1"]);
+    assert_eq!(
+        chat_line(&two_days, "a").chat.mark,
+        Mark::Idle(Age::Cooling)
+    );
+    let cold_days = two_days.iter().find_map(|line| match line {
+        Line::Cold(cold) => Some(cold.days),
+        _ => None,
+    });
+    assert_eq!(cold_days, Some((2, 2)), "50 h is 2 whole days");
+
+    let one_day = list(DAY_MS);
+    assert_eq!(
+        shape(&one_day),
+        ["~ 2"],
+        "with 24 h the 30 h chat is cold too"
     );
 }
 

@@ -22,19 +22,19 @@ fn the_first_run_groups_by_project_folder_with_new_on_top() {
         fork("w2", "w1", 4),
         chat("w3", Some(WC), 5),
     ];
-    let saved = arrange(&Saved::default(), &chats, NOW);
+    let saved = arrange(&Saved::default(), &chats, NOW, DAY_MS);
     assert_eq!(names(&saved), ["New: x", "NewsHQ: n1", "WinCraft: w1 w3"]);
     assert_eq!(saved.groups[0].id, NEW_ID);
     assert_eq!(saved.groups[2].folder.as_deref(), Some(r"e:\code\wincraft"));
     assert_eq!(saved.version, VERSION);
     // Arranging again changes nothing.
-    assert_eq!(arrange(&saved, &chats, NOW), saved);
+    assert_eq!(arrange(&saved, &chats, NOW, DAY_MS), saved);
 }
 
 #[test]
 fn a_new_chat_goes_to_the_end_of_the_group_that_holds_its_project() {
     let mut chats = vec![chat("w1", Some(WC), 1), chat("n1", Some(NEWS), 2)];
-    let mut saved = arrange(&Saved::default(), &chats, NOW);
+    let mut saved = arrange(&Saved::default(), &chats, NOW, DAY_MS);
     // The user moved the WinCraft chat into the NewsHQ group, before n1.
     crate::plugins::claude_deck::edit::place_chat(
         &mut saved,
@@ -43,55 +43,55 @@ fn a_new_chat_goes_to_the_end_of_the_group_that_holds_its_project() {
     );
     chats.push(chat("w2", Some(WC), 3));
     chats.push(fork("w1f", "w1", 4));
-    let saved = arrange(&saved, &chats, NOW);
+    let saved = arrange(&saved, &chats, NOW, DAY_MS);
     assert_eq!(names(&saved), ["NewsHQ: w1 n1 w2"]);
 }
 
 #[test]
 fn a_chat_of_a_project_no_group_holds_goes_to_new_at_the_top() {
     let chats = vec![chat("w1", Some(WC), 1)];
-    let saved = arrange(&Saved::default(), &chats, NOW);
+    let saved = arrange(&Saved::default(), &chats, NOW, DAY_MS);
     let more = vec![
         chat("w1", Some(WC), 1),
         chat("p1", Some(r"E:\Playwise"), 2),
         chat("q", None, 3),
     ];
-    let saved = arrange(&saved, &more, NOW);
+    let saved = arrange(&saved, &more, NOW, DAY_MS);
     assert_eq!(names(&saved), ["New: p1 q", "WinCraft: w1"]);
 }
 
 #[test]
 fn a_group_made_for_a_folder_takes_its_chats_back_when_it_is_empty() {
     let chats = vec![chat("w1", Some(WC), 1)];
-    let mut saved = arrange(&Saved::default(), &chats, NOW);
+    let mut saved = arrange(&Saved::default(), &chats, NOW, DAY_MS);
     saved.groups[0].keep = true;
-    let saved = arrange(&saved, &[], NOW);
+    let saved = arrange(&saved, &[], NOW, DAY_MS);
     assert_eq!(names(&saved), ["WinCraft: w1"]);
     let mut empty = saved.clone();
     empty.groups[0].chats.clear();
-    let back = arrange(&empty, &[chat("w2", Some(WC), 2)], NOW);
+    let back = arrange(&empty, &[chat("w2", Some(WC), 2)], NOW, DAY_MS);
     assert_eq!(names(&back), ["WinCraft: w2"]);
 }
 
 #[test]
 fn a_chat_that_is_gone_keeps_its_place_for_30_days() {
     let chats = vec![chat("a", Some(WC), 1), chat("b", Some(WC), 2)];
-    let mut saved = arrange(&Saved::default(), &chats, NOW);
+    let mut saved = arrange(&Saved::default(), &chats, NOW, DAY_MS);
     saved.pinned.insert("a".into());
     saved.hidden.insert("a".into());
     let only_b = vec![chat("b", Some(WC), 2)];
-    let later = arrange(&saved, &only_b, NOW);
+    let later = arrange(&saved, &only_b, NOW, DAY_MS);
     assert_eq!(names(&later), ["WinCraft: a b"]);
     assert_eq!(later.gone.get("a"), Some(&NOW));
     // Back after 29 days: the same place, and no longer counted as gone.
     let day29 = NOW + 29 * DAY_MS;
-    let still = arrange(&later, &only_b, day29);
+    let still = arrange(&later, &only_b, day29, DAY_MS);
     assert_eq!(still.gone.get("a"), Some(&NOW));
-    let back = arrange(&still, &chats, day29);
+    let back = arrange(&still, &chats, day29, DAY_MS);
     assert_eq!(names(&back), ["WinCraft: a b"]);
     assert!(back.gone.is_empty());
     // Gone for 30 days: dropped everywhere.
-    let dropped = arrange(&later, &only_b, NOW + 30 * DAY_MS);
+    let dropped = arrange(&later, &only_b, NOW + 30 * DAY_MS, DAY_MS);
     assert_eq!(names(&dropped), ["WinCraft: b"]);
     assert!(dropped.gone.is_empty() && dropped.pinned.is_empty() && dropped.hidden.is_empty());
 }
@@ -99,13 +99,16 @@ fn a_chat_that_is_gone_keeps_its_place_for_30_days() {
 #[test]
 fn an_empty_group_goes_unless_the_user_made_or_changed_it() {
     let chats = vec![chat("a", Some(WC), 1), chat("n", Some(NEWS), 2)];
-    let mut saved = arrange(&Saved::default(), &chats, NOW);
+    let mut saved = arrange(&Saved::default(), &chats, NOW, DAY_MS);
     saved.groups[0].chats.clear();
     let only_a = &chats[..1];
-    assert_eq!(names(&arrange(&saved, only_a, NOW)), ["WinCraft: a"]);
+    assert_eq!(
+        names(&arrange(&saved, only_a, NOW, DAY_MS)),
+        ["WinCraft: a"]
+    );
     saved.groups[0].keep = true;
     assert_eq!(
-        names(&arrange(&saved, only_a, NOW)),
+        names(&arrange(&saved, only_a, NOW, DAY_MS)),
         ["NewsHQ: ", "WinCraft: a"]
     );
 }
@@ -117,9 +120,9 @@ fn pinned_chats_stay_on_top_of_their_group() {
         chat("b", Some(WC), 2),
         chat("c", Some(WC), 3),
     ];
-    let mut saved = arrange(&Saved::default(), &chats, NOW);
+    let mut saved = arrange(&Saved::default(), &chats, NOW, DAY_MS);
     saved.pinned.insert("c".into());
-    let saved = arrange(&saved, &chats, NOW);
+    let saved = arrange(&saved, &chats, NOW, DAY_MS);
     assert_eq!(names(&saved), ["WinCraft: c a b"]);
     let lines = lines(
         &chats,
@@ -173,7 +176,7 @@ fn groups_and_chats_show_in_the_saved_order_with_colour_and_fold() {
         chat("b", Some(WC), 2),
         chat("n", Some(NEWS), 3),
     ];
-    let mut saved = arrange(&Saved::default(), &chats, NOW);
+    let mut saved = arrange(&Saved::default(), &chats, NOW, DAY_MS);
     saved.groups.reverse();
     saved.groups[0].chats.reverse();
     saved.groups[0].colour = Some(Colour::Red);
@@ -195,7 +198,7 @@ fn groups_and_chats_show_in_the_saved_order_with_colour_and_fold() {
 #[test]
 fn an_empty_group_the_user_made_shows_unless_only_open_windows_is_on() {
     let chats = vec![chat("a", Some(WC), 1)];
-    let mut saved = arrange(&Saved::default(), &chats, NOW);
+    let mut saved = arrange(&Saved::default(), &chats, NOW, DAY_MS);
     crate::plugins::claude_deck::edit::new_group(&mut saved, None, None);
     let mut view = View {
         saved,
@@ -213,14 +216,14 @@ fn a_renamed_new_group_no_longer_takes_chats_of_new_projects() {
     // The user renamed "New" to "Litpolibat" and folded it; a chat of a
     // project no group knows must still show, in a fresh unfolded "New".
     let mut chats = vec![chat("w1", Some(WC), 1), chat("x", None, 2)];
-    let mut saved = arrange(&Saved::default(), &chats, NOW);
+    let mut saved = arrange(&Saved::default(), &chats, NOW, DAY_MS);
     crate::plugins::claude_deck::edit::rename(&mut saved, NEW_ID, "Litpolibat");
     let mine = saved.groups[0].id.clone();
     crate::plugins::claude_deck::edit::fold_group(&mut saved, &mine);
     assert!(saved.groups[0].folded);
     assert_ne!(saved.groups[0].id, NEW_ID);
     chats.push(chat("pay", Some(r"E:\projects\agentic_payment_test"), 3));
-    let saved = arrange(&saved, &chats, NOW);
+    let saved = arrange(&saved, &chats, NOW, DAY_MS);
     let new = saved
         .groups
         .iter()
@@ -236,10 +239,10 @@ fn a_renamed_new_group_no_longer_takes_chats_of_new_projects() {
 fn a_saved_renamed_new_group_gets_its_own_id_on_load() {
     // A list saved before 0.20.140: "New" renamed, still with the id "new".
     let chats = vec![chat("x", None, 1), chat("pay", Some(WC), 2)];
-    let mut saved = arrange(&Saved::default(), &chats[..1], NOW);
+    let mut saved = arrange(&Saved::default(), &chats[..1], NOW, DAY_MS);
     saved.groups[0].name = "Litpolibat".into();
     saved.groups[0].folded = true;
-    let saved = arrange(&saved, &chats, NOW);
+    let saved = arrange(&saved, &chats, NOW, DAY_MS);
     let mine = saved
         .groups
         .iter()

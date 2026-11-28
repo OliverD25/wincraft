@@ -37,6 +37,23 @@ fn settings_read_with_defaults_for_what_is_missing() {
     assert_eq!(listed.servers, vec!["rdehome1", "rdehome2"]);
 }
 
+#[test]
+fn the_cold_time_is_48_hours_unless_saved_and_stays_in_range() {
+    use crate::core::traits::WinCraftPlugin;
+    use crate::plugins::claude_deck::Settings;
+    let missing = Settings::read(&serde_json::json!({}));
+    assert_eq!(missing.cold_hours, 48);
+    assert_eq!(missing.cold_ms(), 48 * 60 * 60 * 1000);
+    let saved = Settings::read(&serde_json::json!({ "cold_after_hours": 36 }));
+    assert_eq!(saved.cold_hours, 36);
+    let low = Settings::read(&serde_json::json!({ "cold_after_hours": 0 }));
+    let high = Settings::read(&serde_json::json!({ "cold_after_hours": 9999 }));
+    assert_eq!((low.cold_hours, high.cold_hours), (1, 720));
+    let deck = crate::plugins::claude_deck::ClaudeDeck::new();
+    let defaults = Settings::read(&deck.default_settings());
+    assert_eq!(defaults.cold_hours, 48, "the defaults file says 48 too");
+}
+
 /// The heading "On each row" became "View" (2026-11-18); the keys in the
 /// settings file stayed, so a file saved before reads the same.
 #[test]
@@ -75,7 +92,8 @@ fn every_setting_of_the_design_page_is_there_and_mini_mode_is_not_one() {
             "Stay on top",
             "Only open windows",
             "Fade when the mouse is away",
-            "Fold chats idle for over 1 day",
+            "Fold idle chats",
+            "Cold after (hours)",
             "Live in the tray (no taskbar button)",
             "Show a count on the tray icon",
             "Status mark",

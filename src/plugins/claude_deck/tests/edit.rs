@@ -21,7 +21,7 @@ fn start() -> (Vec<Chat>, Saved) {
         chat("c", Some(WC), 3),
         chat("n", Some(NEWS), 4),
     ];
-    let saved = arrange(&Saved::default(), &chats, NOW);
+    let saved = arrange(&Saved::default(), &chats, NOW, DAY_MS);
     (chats, saved)
 }
 
@@ -142,7 +142,7 @@ fn ungroup_sends_each_chat_back_to_its_folder_and_loses_none() {
         ["NewsHQ: ", "New group: a n", "WinCraft: b c"]
     );
     ungroup(&mut saved, &mixed, &families);
-    let saved = arrange(&saved, &chats, NOW);
+    let saved = arrange(&saved, &chats, NOW, DAY_MS);
     assert_eq!(names(&saved), ["NewsHQ: n", "WinCraft: b c a"]);
 
     // A group made for a folder is made again for its chats.
@@ -154,7 +154,7 @@ fn ungroup_sends_each_chat_back_to_its_folder_and_loses_none() {
 
     // Chats with no folder go to "New"; in "New" itself they stay.
     let odd = vec![chat("x", None, 9), chat("n", Some(NEWS), 4)];
-    let mut saved = arrange(&Saved::default(), &odd, NOW);
+    let mut saved = arrange(&Saved::default(), &odd, NOW, DAY_MS);
     let families = families_of(&odd);
     let other = new_group(&mut saved, None, Some("x"));
     assert_eq!(names(&saved), ["New: ", "NewsHQ: n", "New group: x"]);

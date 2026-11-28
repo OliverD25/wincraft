@@ -5,6 +5,7 @@
 use super::load::{self, Kind, State};
 use super::poll::{self, Cache, HostView};
 use super::reply;
+use crate::plugins::claude_deck::model::DAY_MS;
 
 const REPLY: &str = "NOW 100\nCPU 2\nMEM 1000 400\n\
 PROC /home/rde/projects/wincraft\n\
@@ -98,11 +99,23 @@ fn broken_tab_lines_are_skipped() {
 fn the_view_keeps_the_tab_data_while_the_server_is_offline() {
     let mut cache = Cache::new();
     let mut view = HostView::default();
-    poll::take_reply("s", Ok(REPLY.to_string()), &mut cache, &mut view, 1_000);
+    poll::take_reply(
+        "s",
+        Ok(REPLY.to_string()),
+        &mut cache,
+        &mut view,
+        (1_000, DAY_MS),
+    );
     assert_eq!(view.claude.len(), 2);
     assert_eq!(view.busiest.len(), 5);
     assert_eq!(view.services.len(), 9);
-    poll::take_reply("s", Err("down".to_string()), &mut cache, &mut view, 2_000);
+    poll::take_reply(
+        "s",
+        Err("down".to_string()),
+        &mut cache,
+        &mut view,
+        (2_000, DAY_MS),
+    );
     assert!(!view.online);
     assert_eq!(view.claude.len(), 2, "the last data stays");
     assert_eq!(view.services.len(), 9);

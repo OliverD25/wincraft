@@ -99,13 +99,13 @@ fn a_note_is_one_line_of_at_most_120_characters_and_an_empty_one_changes_nothing
 #[test]
 fn a_note_stays_while_its_chat_is_gone_and_goes_after_30_days() {
     let chats = vec![chat("a", Some(r"E:\a\Alpha"), 1), chat("b", None, 2)];
-    let mut saved = arrange(&Saved::default(), &chats, NOW);
+    let mut saved = arrange(&Saved::default(), &chats, NOW, DAY_MS);
     saved.notes.insert("a".into(), "Keep me".into());
     let only_b = vec![chat("b", None, 2)];
-    let later = arrange(&saved, &only_b, NOW);
-    let day29 = arrange(&later, &only_b, NOW + 29 * DAY_MS);
+    let later = arrange(&saved, &only_b, NOW, DAY_MS);
+    let day29 = arrange(&later, &only_b, NOW + 29 * DAY_MS, DAY_MS);
     assert_eq!(day29.notes.get("a").map(String::as_str), Some("Keep me"));
-    let dropped = arrange(&later, &only_b, NOW + 30 * DAY_MS);
+    let dropped = arrange(&later, &only_b, NOW + 30 * DAY_MS, DAY_MS);
     assert!(dropped.notes.is_empty());
     assert!(dropped.gone.is_empty());
 }

@@ -3,7 +3,7 @@
 use crate::core::claude_sessions::Age;
 use crate::core::claude_turns::{End, Turn};
 use crate::plugins::claude_deck::menu::{chat_items, Item};
-use crate::plugins::claude_deck::model::{Chat, ChatLine, Fold, Mark};
+use crate::plugins::claude_deck::model::{Chat, ChatLine, Fold, Mark, DAY_MS};
 use crate::plugins::claude_deck::servers::status::Parsed;
 
 use super::*;
@@ -107,7 +107,13 @@ fn a_broken_or_missing_file_gives_no_records() {
 fn a_fork_with_a_window_is_a_row_under_its_chat() {
     let record = record(ID, None, NOW - 5 * HOUR_MS / 10);
     let windows = vec![(77, title_of(&record))];
-    let (shown, kept) = rows(&[record], &windows, &[parent()], NOW, &no_transcript);
+    let (shown, kept) = rows(
+        &[record],
+        &windows,
+        &[parent()],
+        (NOW, DAY_MS),
+        &no_transcript,
+    );
     assert_eq!(kept.len(), 1);
     let fork = &shown[0];
     assert_eq!(fork.id, format!("fork/{ID}"));
@@ -121,7 +127,7 @@ fn a_fork_with_a_window_is_a_row_under_its_chat() {
 fn a_fork_with_no_listed_parent_stands_on_its_own() {
     let record = record(ID, None, NOW - HOUR_MS);
     let windows = vec![(77, title_of(&record))];
-    let (shown, _) = rows(&[record], &windows, &[], NOW, &no_transcript);
+    let (shown, _) = rows(&[record], &windows, &[], (NOW, DAY_MS), &no_transcript);
     assert_eq!(shown[0].parent, None);
     assert_eq!(shown[0].folder.as_deref(), Some("E:\\code\\app"));
 }
@@ -130,7 +136,13 @@ fn a_fork_with_no_listed_parent_stands_on_its_own() {
 fn a_fork_without_a_window_gives_no_row_and_the_record_goes() {
     let old = record("aaaa-1", None, NOW - HOUR_MS);
     let fresh = record("bbbb-2", None, NOW - 5_000);
-    let (shown, kept) = rows(&[old, fresh.clone()], &[], &[parent()], NOW, &no_transcript);
+    let (shown, kept) = rows(
+        &[old, fresh.clone()],
+        &[],
+        &[parent()],
+        (NOW, DAY_MS),
+        &no_transcript,
+    );
     assert!(shown.is_empty());
     assert_eq!(kept, [fresh], "one just started keeps its record");
 }
@@ -139,7 +151,13 @@ fn a_fork_without_a_window_gives_no_row_and_the_record_goes() {
 fn a_fork_older_than_a_day_is_dropped_even_with_a_window() {
     let record = record(ID, None, 1);
     let windows = vec![(1, title_of(&record))];
-    let (shown, kept) = rows(&[record], &windows, &[], 2 * KEEP_MS, &no_transcript);
+    let (shown, kept) = rows(
+        &[record],
+        &windows,
+        &[],
+        (2 * KEEP_MS, DAY_MS),
+        &no_transcript,
+    );
     assert!(shown.is_empty() && kept.is_empty());
 }
 
@@ -162,7 +180,7 @@ fn the_row_takes_its_status_from_the_transcript() {
             quiet_ms: 4_000,
         })
     };
-    let (shown, _) = rows(&[record], &windows, &[], NOW, &read);
+    let (shown, _) = rows(&[record], &windows, &[], (NOW, DAY_MS), &read);
     assert_eq!(shown[0].mark, Mark::Working);
     assert_eq!(shown[0].title, "Named by Claude");
     assert_eq!(shown[0].since, Some(NOW - 4_000));
@@ -172,7 +190,13 @@ fn the_row_takes_its_status_from_the_transcript() {
 fn a_server_fork_says_where_it_runs() {
     let record = record(ID, Some("rdehome2"), NOW - 60_000);
     let windows = vec![(9, title_of(&record))];
-    let (shown, _) = rows(&[record], &windows, &[parent()], NOW, &no_transcript);
+    let (shown, _) = rows(
+        &[record],
+        &windows,
+        &[parent()],
+        (NOW, DAY_MS),
+        &no_transcript,
+    );
     assert_eq!(
         shown[0].text.as_deref(),
         Some("Runs on home2 in a terminal")
@@ -186,7 +210,13 @@ fn a_server_fork_says_where_it_runs() {
 fn the_menu_of_a_terminal_fork_is_open_and_copy_only() {
     let record = record(ID, None, NOW - 60_000);
     let windows = vec![(9, title_of(&record))];
-    let (shown, _) = rows(&[record], &windows, &[parent()], NOW, &no_transcript);
+    let (shown, _) = rows(
+        &[record],
+        &windows,
+        &[parent()],
+        (NOW, DAY_MS),
+        &no_transcript,
+    );
     let line = ChatLine {
         chat: shown[0].clone(),
         stand_in: false,

@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use crate::core::claude_sessions::Age;
 use crate::core::claude_turns::{End, SshCall, Turn};
 use crate::plugins::claude_deck::data;
-use crate::plugins::claude_deck::model::{Chat, Mark};
+use crate::plugins::claude_deck::model::{Chat, Mark, DAY_MS};
 
 use super::poll::{self, Cache, HostView, Runner};
 use super::reply::{self, RawChat};
@@ -207,7 +207,7 @@ fn status_of(lines: &[String], rc: &[&str], procs: &[&str], quiet_s: u64) -> Cha
         &parsed,
         &running,
         NOW,
-        NOW + 5_000,
+        (NOW + 5_000, DAY_MS),
     )
 }
 
@@ -588,7 +588,13 @@ fn the_reader_runs_only_while_the_window_is_open() {
 fn an_unchanged_transcript_is_not_sent_again_and_a_failed_call_keeps_the_chats() {
     let mut cache = Cache::new();
     let mut host = HostView::default();
-    poll::take_reply("s", Ok(two_chat_reply()), &mut cache, &mut host, NOW);
+    poll::take_reply(
+        "s",
+        Ok(two_chat_reply()),
+        &mut cache,
+        &mut host,
+        (NOW, DAY_MS),
+    );
     assert_eq!(host.chats.len(), 2);
     let script = poll::script_for(&cache, &[]);
     assert!(
@@ -602,7 +608,7 @@ fn an_unchanged_transcript_is_not_sent_again_and_a_failed_call_keeps_the_chats()
         NOW_S - 10
     );
     let before = host.chats.clone();
-    poll::take_reply("s", Ok(same), &mut cache, &mut host, NOW);
+    poll::take_reply("s", Ok(same), &mut cache, &mut host, (NOW, DAY_MS));
     assert_eq!(host.chats.len(), 2);
     assert_eq!(host.chats[0].mark, before[0].mark);
     // ssh failed: offline, the chats as last known.
@@ -611,7 +617,7 @@ fn an_unchanged_transcript_is_not_sent_again_and_a_failed_call_keeps_the_chats()
         Err("timed out".to_string()),
         &mut cache,
         &mut host,
-        NOW + 1,
+        (NOW + 1, DAY_MS),
     );
     assert!(!host.online);
     assert_eq!(host.last_seen, Some(NOW));
@@ -639,7 +645,7 @@ fn a_failed_remote_control_unit_makes_its_chat_failed() {
         &parsed,
         &running,
         NOW,
-        NOW,
+        (NOW, DAY_MS),
     );
     assert_eq!(chat.mark, Mark::Failed);
     assert_eq!(chat.text.as_deref(), Some(status::RC_STOPPED));
@@ -649,7 +655,7 @@ fn a_failed_remote_control_unit_makes_its_chat_failed() {
         &parsed,
         &running,
         NOW,
-        NOW,
+        (NOW, DAY_MS),
     );
     assert_eq!(other.mark, Mark::Stopped, "another unit is not touched");
     assert!(probe::script(&[]).contains("RCFAIL"));
@@ -776,7 +782,7 @@ fn a_remote_control_folder_with_no_transcript_is_a_ready_row() {
     );
     let mut cache = Cache::new();
     let mut host = HostView::default();
-    poll::take_reply("rdehome2", Ok(text), &mut cache, &mut host, NOW);
+    poll::take_reply("rdehome2", Ok(text), &mut cache, &mut host, (NOW, DAY_MS));
     let find = |title: &str| {
         host.chats
             .iter()
@@ -809,7 +815,7 @@ fn a_remote_control_folder_with_a_transcript_gets_no_second_row() {
     let mut cache = Cache::new();
     let mut host = HostView::default();
     let text = two_chat_reply().replace("NOW ", "HOME /home/rde\nNOW ");
-    poll::take_reply("s", Ok(text), &mut cache, &mut host, NOW);
+    poll::take_reply("s", Ok(text), &mut cache, &mut host, (NOW, DAY_MS));
     let verdict = host
         .chats
         .iter()
@@ -877,7 +883,13 @@ fn real_health_values_from_the_three_servers_read_right() {
     let office1 = format!("NOW {NOW_S}\nCPU 2\nMEM 1000 500\nDONE\n");
     let mut cache = Cache::new();
     let mut host = HostView::default();
-    poll::take_reply("rdeoffice1", Ok(office1), &mut cache, &mut host, NOW);
+    poll::take_reply(
+        "rdeoffice1",
+        Ok(office1),
+        &mut cache,
+        &mut host,
+        (NOW, DAY_MS),
+    );
     assert!(host.online && host.chats.is_empty());
     assert_eq!(view::line_text(&host, 0, NOW), "No Claude chats");
 }
@@ -933,6 +945,23 @@ fn a_running_remote_control_chat_is_never_cold() {
 }
 
 #[test]
+fn a_server_chat_turns_cold_after_the_cold_time() {
+    let done = [user("Run"), said("All tests pass.")];
+    let parsed = status::parse_tail(&tail(&done), true);
+    let procs = vec!["/home/rde/projects/verdict-ai".to_string()];
+    let running = Running {
+        rc: &[],
+        procs: &procs,
+        rc_failed: &[],
+    };
+    let quiet_30_h = 30 * 3600;
+    let raw = raw("-home-rde-projects-verdict-ai", quiet_30_h);
+    let at = |cold_ms| status::chat("s", &raw, &parsed, &running, NOW, (NOW, cold_ms));
+    assert_eq!(at(2 * DAY_MS).mark, Mark::Idle(Age::Cooling));
+    assert_eq!(at(DAY_MS).mark, Mark::Idle(Age::Cold));
+}
+
+#[test]
 fn a_server_line_says_when_pc_chats_wait_on_it() {
     let host = view_of(vec![server_chat("s/a", Mark::Idle(Age::Fresh))], true);
     assert_eq!(view::line_text(&host, 1, NOW), "1 PC chat waits");
@@ -971,14 +1000,14 @@ fn a_server_chat_with_a_transcript_can_be_forked_but_a_ready_row_cannot() {
     };
     let mut named = raw("-home-rde-projects-verdict-ai", 60);
     named.file = format!("{FORK_ID}.jsonl");
-    let chat = status::chat("rdehome2", &named, &parsed, &running, NOW, NOW);
+    let chat = status::chat("rdehome2", &named, &parsed, &running, NOW, (NOW, DAY_MS));
     let fork = chat.fork.expect("a chat with a transcript");
     assert_eq!(fork.session, FORK_ID);
     assert_eq!(fork.folder, "/home/rde/projects/verdict-ai");
 
     // A file name that is not a session id gives no fork.
     named.file = "x; rm -rf.jsonl".to_string();
-    let odd = status::chat("rdehome2", &named, &parsed, &running, NOW, NOW);
+    let odd = status::chat("rdehome2", &named, &parsed, &running, NOW, (NOW, DAY_MS));
     assert_eq!(odd.fork, None);
 
     let text = format!(
@@ -987,7 +1016,7 @@ fn a_server_chat_with_a_transcript_can_be_forked_but_a_ready_row_cannot() {
     );
     let mut cache = Cache::new();
     let mut host = HostView::default();
-    poll::take_reply("rdehome2", Ok(text), &mut cache, &mut host, NOW);
+    poll::take_reply("rdehome2", Ok(text), &mut cache, &mut host, (NOW, DAY_MS));
     let ready = host
         .chats
         .iter()
@@ -1042,7 +1071,13 @@ fn a_server_chats_replies_come_in_the_pcs_clock() {
     let mut cache = Cache::new();
     let mut view = HostView::default();
     // The PC's clock is 5 s ahead of the server's.
-    poll::take_reply("rdehome2", Ok(text), &mut cache, &mut view, NOW + 5_000);
+    poll::take_reply(
+        "rdehome2",
+        Ok(text),
+        &mut cache,
+        &mut view,
+        (NOW + 5_000, DAY_MS),
+    );
     let replies = &view.replies["rdehome2/-home-rde-projects-verdict-ai"];
     assert_eq!(replies.len(), 1);
     assert_eq!(replies[0].text, "Deployed.");

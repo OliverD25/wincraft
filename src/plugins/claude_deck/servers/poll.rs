@@ -118,7 +118,7 @@ pub fn take_reply(
     result: Result<String, String>,
     cache: &mut Cache,
     view: &mut HostView,
-    now: u64,
+    (now, cold_ms): (u64, u64),
 ) {
     view.checked = Some(now);
     let Some(reply) = result.ok().as_deref().and_then(reply::parse) else {
@@ -179,7 +179,7 @@ pub fn take_reply(
             &parsed,
             &running,
             reply.now * 1000,
-            now,
+            (now, cold_ms),
         ));
         cache.insert(raw.dir.clone(), (meta, parsed));
     }
@@ -224,6 +224,7 @@ impl Poller {
         servers: &[String],
         runner: Arc<dyn Runner>,
         wake: Arc<dyn Fn() + Send + Sync>,
+        cold: &super::super::cold::Shared,
     ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let views: Views = Arc::default();
@@ -231,9 +232,10 @@ impl Poller {
         for name in servers {
             let (server, runner, wake) = (name.clone(), runner.clone(), wake.clone());
             let (stop, views, asks) = (stop.clone(), views.clone(), asks.clone());
+            let cold = cold.clone();
             let spawned = std::thread::Builder::new()
                 .name(format!("deck-server-{server}"))
-                .spawn(move || poll(&server, &*runner, &*wake, &stop, (&views, &asks)));
+                .spawn(move || poll(&server, &*runner, &*wake, &stop, (&views, &asks, &cold)));
             if let Err(err) = spawned {
                 log::warn!("ClaudeDeck: could not start reading {name}: {err}");
             }
@@ -253,7 +255,7 @@ fn poll(
     runner: &dyn Runner,
     wake: &dyn Fn(),
     stop: &AtomicBool,
-    (views, asks): (&Views, &Asks),
+    (views, asks, cold): (&Views, &Asks, &super::super::cold::Shared),
 ) {
     let mut cache = Cache::new();
     while !stop.load(Ordering::SeqCst) {
@@ -274,7 +276,8 @@ fn poll(
         }
         if let Ok(mut views) = views.lock() {
             let view = views.entry(server.to_string()).or_default();
-            take_reply(server, result, &mut cache, view, claude_sessions::now_ms());
+            let now = (claude_sessions::now_ms(), cold.get());
+            take_reply(server, result, &mut cache, view, now);
         }
         wake();
         let mut waited = Duration::ZERO;

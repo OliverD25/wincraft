@@ -45,8 +45,9 @@ fn lower(folder: &Option<String>) -> Option<String> {
     folder.as_deref().map(str::to_lowercase)
 }
 
-/// The saved arrangement with every listed family placed.
-pub fn arrange(saved: &Saved, chats: &[Chat], now: u64) -> Saved {
+/// The saved arrangement with every listed family placed. A chat dragged
+/// out of the cold area stays warm for the cold time `cold_ms`.
+pub fn arrange(saved: &Saved, chats: &[Chat], now: u64, cold_ms: u64) -> Saved {
     let found = families_of(chats);
     let mut out = saved.clone();
     out.version = out.version.max(VERSION);
@@ -58,7 +59,7 @@ pub fn arrange(saved: &Saved, chats: &[Chat], now: u64) -> Saved {
         .collect();
     forget_gone(&mut out, &live, now);
     out.warm
-        .retain(|_, since| now.saturating_sub(*since) < super::model::DAY_MS);
+        .retain(|_, since| now.saturating_sub(*since) < cold_ms);
     let first = out.groups.is_empty();
     let folders: HashMap<&str, String> = found
         .iter()

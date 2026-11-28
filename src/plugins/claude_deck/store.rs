@@ -81,7 +81,7 @@ pub struct Saved {
     /// missed (Unix ms). Dropped after `KEEP_GONE_MS`.
     pub gone: BTreeMap<String, u64>,
     /// Chats the user dragged, with when (Unix ms). Such a chat stays out
-    /// of the cold line for a day, so a drag from the cold line shows.
+    /// of the cold line for the cold time, so a drag from the cold line shows.
     pub warm: BTreeMap<String, u64>,
     /// The user's one-line note on a chat, by chat id. Older versions
     /// ignore the field.

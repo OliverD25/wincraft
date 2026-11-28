@@ -14,13 +14,14 @@ use super::model::{self, Archived, Chat, Mark};
 use super::servers::{self, Aliases, Wait};
 use super::status::{self, Seen};
 
-/// The chats, and the waits on servers among them.
+/// The chats, and the waits on servers among them. An idle chat's age
+/// follows the cold time `cold_ms`.
 pub fn chats(
     sessions: &[Session],
     windows: &[ChatWindow],
     seen: &Seen,
     aliases: &Aliases,
-    now: u64,
+    (now, cold_ms): (u64, u64),
 ) -> (Vec<Chat>, Vec<Wait>) {
     let mut waits = Vec::new();
     let windowless = claude_windows::waits();
@@ -32,7 +33,7 @@ pub fn chats(
             let jobs = claude_jobs::running(&session.cli_session_id, now);
             let turn = claude_jobs::turn(&session.cli_session_id);
             let wait = window.or_else(|| claude_windows::of(&windowless, &session.id));
-            let mut chat = model::chat(session, wait, jobs, now);
+            let mut chat = model::chat(session, wait, jobs, (now, cold_ms));
             chat.window = window.map(|w| w.hwnd);
             chat.context = turn.as_ref().and_then(|turn| {
                 context::fill(&turn.context, setting, session.lineage.model.as_deref())

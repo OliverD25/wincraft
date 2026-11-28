@@ -47,7 +47,12 @@ fn each_mark_has_its_word_and_the_ones_that_want_you_are_bold() {
 
 #[test]
 fn a_session_becomes_a_chat_with_windowdecks_status() {
-    let idle = crate::plugins::claude_deck::model::chat(&session("local_a"), None, (0, None), NOW);
+    let idle = crate::plugins::claude_deck::model::chat(
+        &session("local_a"),
+        None,
+        (0, None),
+        (NOW, DAY_MS),
+    );
     assert_eq!(idle.mark, Mark::Idle(Age::Fresh));
     assert_eq!(idle.since, Some(NOW - 5 * MIN));
     assert_eq!(idle.folder.as_deref(), Some(r"E:\code\WinCraft"));
@@ -66,7 +71,7 @@ fn a_session_becomes_a_chat_with_windowdecks_status() {
         &session("local_a"),
         Some(&window),
         (0, None),
-        NOW,
+        (NOW, DAY_MS),
     );
     assert_eq!(asks.mark, Mark::AsksYou);
     assert_eq!(asks.since, Some(NOW - 2 * MIN));
@@ -79,7 +84,7 @@ fn a_session_becomes_a_chat_with_windowdecks_status() {
         &session("local_a"),
         Some(&prompt),
         (0, None),
-        NOW,
+        (NOW, DAY_MS),
     );
     assert_eq!(approve.mark, Mark::NeedsApproval);
     assert_eq!(approve.since, Some(NOW - 2 * MIN));
@@ -88,15 +93,19 @@ fn a_session_becomes_a_chat_with_windowdecks_status() {
         waiting_since: None,
         ..prompt
     };
-    let idle =
-        crate::plugins::claude_deck::model::chat(&session("local_a"), Some(&stale), (0, None), NOW);
+    let idle = crate::plugins::claude_deck::model::chat(
+        &session("local_a"),
+        Some(&stale),
+        (0, None),
+        (NOW, DAY_MS),
+    );
     assert!(matches!(idle.mark, Mark::Idle(_)));
 
     let background = crate::plugins::claude_deck::model::chat(
         &session("local_a"),
         None,
         (2, Some(NOW - 3 * MIN)),
-        NOW,
+        (NOW, DAY_MS),
     );
     assert_eq!(background.mark, Mark::Background);
     assert_eq!(background.jobs, 2);
@@ -105,24 +114,28 @@ fn a_session_becomes_a_chat_with_windowdecks_status() {
     let mut busy = session("local_a");
     busy.latest_user = Some(NOW - MIN);
     busy.last_turn_edge = Some(NOW - MIN);
-    let working = crate::plugins::claude_deck::model::chat(&busy, None, (0, None), NOW);
+    let working = crate::plugins::claude_deck::model::chat(&busy, None, (0, None), (NOW, DAY_MS));
     assert_eq!(working.mark, Mark::Working);
     assert_eq!(working.since, Some(NOW - MIN));
 
     let mut old = session("local_a");
     old.last_activity = Some(NOW - 2 * DAY_MS);
     assert_eq!(
-        crate::plugins::claude_deck::model::chat(&old, None, (0, None), NOW).mark,
+        crate::plugins::claude_deck::model::chat(&old, None, (0, None), (NOW, DAY_MS)).mark,
         Mark::Idle(Age::Cold)
     );
     old.last_activity = None;
     assert_eq!(
-        crate::plugins::claude_deck::model::chat(&old, None, (0, None), NOW).mark,
+        crate::plugins::claude_deck::model::chat(&old, None, (0, None), (NOW, DAY_MS)).mark,
         Mark::Idle(Age::Fresh)
     );
 
-    let unknown =
-        crate::plugins::claude_deck::model::chat(&Session::default(), None, (0, None), NOW);
+    let unknown = crate::plugins::claude_deck::model::chat(
+        &Session::default(),
+        None,
+        (0, None),
+        (NOW, DAY_MS),
+    );
     assert_eq!(unknown.mark, Mark::Unknown);
     assert_eq!(unknown.since, None);
     assert_eq!(unknown.folder, None);
@@ -132,11 +145,12 @@ fn a_session_becomes_a_chat_with_windowdecks_status() {
         last_activity: Some(NOW - 3 * 60 * MIN),
         ..Session::default()
     };
-    let quiet = crate::plugins::claude_deck::model::chat(&unloaded, None, (0, None), NOW);
+    let quiet = crate::plugins::claude_deck::model::chat(&unloaded, None, (0, None), (NOW, DAY_MS));
     assert_eq!(quiet.mark, Mark::Idle(Age::Cooling));
     assert_eq!(quiet.since, unloaded.last_activity);
     unloaded.last_activity = Some(NOW - 10 * MIN);
-    let recent = crate::plugins::claude_deck::model::chat(&unloaded, None, (0, None), NOW);
+    let recent =
+        crate::plugins::claude_deck::model::chat(&unloaded, None, (0, None), (NOW, DAY_MS));
     assert_eq!(recent.mark, Mark::Unknown);
 }
 

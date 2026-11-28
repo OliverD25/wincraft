@@ -135,12 +135,13 @@ const QUIET_MEANS_IDLE_MS: u64 = 60 * 60 * 1000;
 
 /// The chat for a session, with its window (if open) and its running
 /// background jobs (how many, and the start of the oldest). The status is
-/// WindowDeck's card, so both show the same.
+/// WindowDeck's card, so both show the same; the age of an idle chat
+/// follows the cold time `cold_ms`.
 pub fn chat(
     session: &Session,
     window: Option<&ChatWindow>,
     jobs: (usize, Option<u64>),
-    now: u64,
+    (now, cold_ms): (u64, u64),
 ) -> Chat {
     let card = claude_sessions::card(Some(session), window.and_then(|w| w.waiting_since), jobs);
     let (mark, since) = match card.status {
@@ -155,9 +156,9 @@ pub fn chat(
             (Mark::ServerJob(busy), card.since)
         }
         Some(Status::Idle) => {
-            let age = session
-                .last_activity
-                .map_or(Age::Fresh, |at| Age::of(now.saturating_sub(at)));
+            let age = session.last_activity.map_or(Age::Fresh, |at| {
+                Age::of_with(now.saturating_sub(at), cold_ms)
+            });
             (Mark::Idle(age), session.last_activity)
         }
         None => match session.last_activity {
@@ -165,7 +166,7 @@ pub fn chat(
             // times are missing. A running chat keeps its activity time
             // fresh, so a quiet hour means it is idle.
             Some(at) if now.saturating_sub(at) >= QUIET_MEANS_IDLE_MS => {
-                (Mark::Idle(Age::of(now - at)), Some(at))
+                (Mark::Idle(Age::of_with(now - at, cold_ms)), Some(at))
             }
             _ => (Mark::Unknown, None),
         },
@@ -223,13 +224,28 @@ pub const NEW_GROUP: &str = "New";
 
 /// Which parts of the list the user folded or switched, and the user's
 /// arrangement of it.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct View {
     pub only_open: bool,
     pub fold_cold: bool,
     /// The hidden chats are listed under their line.
     pub hidden_open: bool,
     pub saved: Saved,
+    /// The cold time ("Cold after"): a chat dragged out of the cold area
+    /// stays in its group this long.
+    pub cold_ms: u64,
+}
+
+impl Default for View {
+    fn default() -> Self {
+        View {
+            only_open: false,
+            fold_cold: false,
+            hidden_open: false,
+            saved: Saved::default(),
+            cold_ms: super::cold::ms(super::cold::DEFAULT_HOURS),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -327,7 +343,7 @@ fn key_of(tree: &Tree, family: &Family) -> String {
 /// the line of hidden chats. `archived` names the chats forks came from
 /// that are no longer listed.
 pub fn lines(chats: &[Chat], archived: &Archived, view: &View, now: u64) -> Vec<Line> {
-    let saved = arrange(&view.saved, chats, now);
+    let saved = arrange(&view.saved, chats, now, view.cold_ms);
     let hidden = hidden_chats(chats, &saved.hidden);
     let shown: Vec<Chat> = chats
         .iter()

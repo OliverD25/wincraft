@@ -445,20 +445,30 @@ pub fn match_by_size(
 pub enum Age {
     /// Under 1 hour: the picture as always.
     Fresh,
-    /// 1 hour to 1 day: the picture at 85 %.
+    /// 1 hour to the cold time (1 day in `of`): the picture at 85 %.
     Cooling,
-    /// 1 to 3 days: the picture at 60 %, a light blue tint.
+    /// The cold time to 2 days after it: the picture at 60 %, a light blue
+    /// tint.
     Cold,
-    /// 3 days or more: the picture at 40 %, a snowflake.
+    /// 2 days after the cold time or more: the picture at 40 %, a
+    /// snowflake.
     Frozen,
 }
 
 impl Age {
+    /// The age with a cold time of 1 day, as WindowDeck shows it.
     pub fn of(elapsed_ms: u64) -> Age {
+        Age::of_with(elapsed_ms, DAY)
+    }
+
+    /// The age when a chat turns cold after `cold_ms` (ClaudeDeck's "Cold
+    /// after" setting): Fresh under 1 hour, Cooling until `cold_ms`, Cold
+    /// for 2 days from then, Frozen after that.
+    pub fn of_with(elapsed_ms: u64, cold_ms: u64) -> Age {
         match elapsed_ms {
             ms if ms < HOUR => Age::Fresh,
-            ms if ms < DAY => Age::Cooling,
-            ms if ms < 3 * DAY => Age::Cold,
+            ms if ms < cold_ms => Age::Cooling,
+            ms if ms < cold_ms.saturating_add(2 * DAY) => Age::Cold,
             _ => Age::Frozen,
         }
     }
@@ -473,8 +483,8 @@ impl Age {
         }
     }
 
-    /// Idle for 1 day or more: the "Cold" counter and the Board's Cold
-    /// column.
+    /// Idle for the cold time or more: WindowDeck's "Cold" counter and its
+    /// Board's Cold column, and ClaudeDeck's Cold chats.
     pub fn is_cold(self) -> bool {
         matches!(self, Age::Cold | Age::Frozen)
     }

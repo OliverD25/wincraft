@@ -56,7 +56,7 @@ impl Deck {
     pub fn new(chats: Vec<Chat>, settings: Settings) -> Self {
         let mut state = DeckUi::default();
         state.chats = chats;
-        state.saved = arrange(&state.saved, &state.chats, NOW);
+        state.saved = arrange(&state.saved, &state.chats, NOW, DAY_MS);
         let mut deck = Self {
             screen: Screen::new(ThemeChoice::Dark),
             state,

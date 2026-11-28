@@ -85,7 +85,7 @@ fn the_window_object_opens_and_closes_without_a_native_window() {
 fn building_the_lines_is_cached_until_the_chats_or_the_view_change() {
     let mut state = DeckUi::default();
     state.chats = sample();
-    state.saved = arrange(&state.saved, &state.chats, NOW);
+    state.saved = arrange(&state.saved, &state.chats, NOW, DAY_MS);
     let settings = Settings::default();
     state.built = Some(std::time::Instant::now());
     window::build(&mut state, &settings, NOW);
@@ -140,7 +140,7 @@ fn the_next_paint_is_soon_while_a_ring_turns_and_each_second_for_a_young_time() 
     state.chats = sample();
     let slow = window::next_frame(&state, &none, NOW);
     assert!(slow >= Duration::from_secs(1));
-    state.saved = arrange(&state.saved, &state.chats, NOW);
+    state.saved = arrange(&state.saved, &state.chats, NOW, DAY_MS);
     let settings = Settings::default();
     window::build(&mut state, &settings, NOW);
     let lines = std::sync::Arc::clone(&state.cache.lines);
@@ -156,7 +156,7 @@ fn the_next_paint_is_soon_while_a_ring_turns_and_each_second_for_a_young_time() 
     let mut fresh = state.chats.clone();
     fresh[1].since = Some(NOW - 10_000);
     state.chats = fresh;
-    state.saved = arrange(&state.saved, &state.chats, NOW);
+    state.saved = arrange(&state.saved, &state.chats, NOW, DAY_MS);
     state.built = Some(std::time::Instant::now());
     window::build(&mut state, &settings, NOW);
     let lines = std::sync::Arc::clone(&state.cache.lines);
@@ -312,7 +312,7 @@ fn the_kept_place_saves_loads_and_ignores_what_is_too_small_or_broken() {
 fn the_chat_list_of_an_empty_read_is_empty_and_needs_no_archive() {
     let seen = status::Seen::default();
     let aliases = crate::plugins::claude_deck::servers::Aliases::default();
-    let (none, waits) = data::chats(&[], &[], &seen, &aliases, NOW);
+    let (none, waits) = data::chats(&[], &[], &seen, &aliases, (NOW, DAY_MS));
     assert!(none.is_empty() && waits.is_empty());
     assert!(data::archived(&none).is_empty());
     let whole = vec![chat("a", None, 1), fork("f", "a", 2)];

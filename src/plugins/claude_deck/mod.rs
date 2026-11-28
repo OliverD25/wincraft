@@ -8,6 +8,7 @@
 //! (`HostRequest::ClaudeDeckRefresh`); when it is closed nothing runs.
 
 mod arrange;
+mod cold;
 mod context;
 mod data;
 mod drop;
@@ -126,6 +127,8 @@ pub struct Settings {
     pub stay_on_top: bool,
     pub only_open: bool,
     pub fold_cold: bool,
+    /// Idle this many hours, a chat is cold ("Cold after").
+    pub cold_hours: u32,
     pub mark: MarkStyle,
     pub time: bool,
     pub project: bool,
@@ -157,6 +160,7 @@ impl Default for Settings {
             stay_on_top: true,
             only_open: false,
             fold_cold: true,
+            cold_hours: cold::DEFAULT_HOURS,
             mark: MarkStyle::Shapes,
             time: true,
             project: true,
@@ -177,6 +181,11 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// The cold time in ms.
+    pub fn cold_ms(&self) -> u64 {
+        cold::ms(self.cold_hours)
+    }
+
     fn read(settings: &Value) -> Self {
         let defaults = Settings::default();
         let flag = |key: &str, default: bool| {
@@ -195,6 +204,7 @@ impl Settings {
             stay_on_top: flag(STAY_ON_TOP_KEY, defaults.stay_on_top),
             only_open: flag(ONLY_OPEN_KEY, defaults.only_open),
             fold_cold: flag(FOLD_COLD_KEY, defaults.fold_cold),
+            cold_hours: cold::read(settings),
             mark,
             time: flag(TIME_KEY, defaults.time),
             project: flag(PROJECT_KEY, defaults.project),
@@ -333,6 +343,7 @@ impl WinCraftPlugin for ClaudeDeck {
             STAY_ON_TOP_KEY: true,
             ONLY_OPEN_KEY: false,
             FOLD_COLD_KEY: true,
+            cold::KEY: cold::DEFAULT_HOURS,
             MARK_KEY: MARK_SHAPES,
             TIME_KEY: true,
             PROJECT_KEY: true,

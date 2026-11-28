@@ -198,6 +198,23 @@ fn age_steps_change_at_their_borders() {
 }
 
 #[test]
+fn age_with_a_cold_time_moves_cold_and_frozen_with_it() {
+    for cold in [DAY_MS, 2 * DAY_MS] {
+        assert_eq!(Age::of_with(59 * MIN, cold), Age::Fresh);
+        assert_eq!(Age::of_with(HOUR_MS, cold), Age::Cooling);
+        assert_eq!(Age::of_with(cold - 1, cold), Age::Cooling);
+        assert_eq!(Age::of_with(cold, cold), Age::Cold);
+        assert_eq!(Age::of_with(cold + 2 * DAY_MS - 1, cold), Age::Cold);
+        assert_eq!(Age::of_with(cold + 2 * DAY_MS, cold), Age::Frozen);
+    }
+    assert_eq!(Age::of_with(30 * HOUR_MS, 2 * DAY_MS), Age::Cooling);
+    assert_eq!(Age::of_with(30 * HOUR_MS, DAY_MS), Age::Cold);
+    for elapsed in [0, HOUR_MS, DAY_MS, 3 * DAY_MS - 1, 3 * DAY_MS, 9 * DAY_MS] {
+        assert_eq!(Age::of(elapsed), Age::of_with(elapsed, DAY_MS));
+    }
+}
+
+#[test]
 fn age_and_duration_texts_are_short_and_plain() {
     assert_eq!(age_text(30_000), "now");
     assert_eq!(age_text(12 * MIN), "12 min");

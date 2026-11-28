@@ -61,7 +61,7 @@ fn a_folded_group_shows_one_mark_in_the_column() {
         chat("b1", Some(r"E:\b\Beta"), 2),
     ];
     let first = lines(&chats, &Archived::new(), &View::default(), NOW);
-    let mut saved = arrange(&Saved::default(), &chats, NOW);
+    let mut saved = arrange(&Saved::default(), &chats, NOW, DAY_MS);
     saved.groups[0].folded = true;
     let view = View {
         saved,

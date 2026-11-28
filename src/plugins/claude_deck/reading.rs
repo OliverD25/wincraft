@@ -15,8 +15,9 @@ use super::servers;
 use super::store;
 use super::window::DeckUi;
 
-/// Builds the chats again from what was read last.
-pub(super) fn read(state: &mut DeckUi) {
+/// Builds the chats again from what was read last. `cold_ms` is the cold
+/// time ("Cold after").
+pub(super) fn read(state: &mut DeckUi, cold_ms: u64) {
     state.built = Some(Instant::now());
     state.started.get_or_insert_with(Instant::now);
     state.animate = animations::on();
@@ -29,12 +30,12 @@ pub(super) fn read(state: &mut DeckUi) {
         &windows,
         &state.seen,
         state.servers.aliases(),
-        now,
+        (now, cold_ms),
     );
     state.chats = chats;
     state.servers.waits = waits;
     servers::jobs::refresh(&mut state.servers, &mut state.chats, &sessions, now);
-    forks::add_rows(&mut state.chats, now);
+    forks::add_rows(&mut state.chats, now, cold_ms);
     servers::busy::warn_pc(&mut state.chats, &state.servers.views());
     state.archived = data::archived(&state.chats);
     news::refresh(state, &sessions, now);
@@ -49,6 +50,6 @@ pub(super) fn read(state: &mut DeckUi) {
     // Before the first read there are no chats yet; arranging then would
     // count every saved chat as gone.
     if !state.chats.is_empty() {
-        state.saved = arrange(&state.saved, &state.chats, now);
+        state.saved = arrange(&state.saved, &state.chats, now, cold_ms);
     }
 }

@@ -32,6 +32,18 @@ pub struct Toggle {
     pub(super) set: fn(&mut Settings, bool),
 }
 
+impl Toggle {
+    /// The label in the menu. The fold toggle says the cold time: "Fold
+    /// chats idle for over 2 days".
+    pub fn text(&self, settings: &Settings) -> String {
+        if self.key == super::FOLD_COLD_KEY {
+            super::cold::fold_label(settings.cold_hours)
+        } else {
+            self.label.to_string()
+        }
+    }
+}
+
 /// The settings the menu lists, in its order. The row settings follow in
 /// the **View** submenu.
 pub const TOGGLES: [Toggle; 6] = [
@@ -60,7 +72,7 @@ pub const TOGGLES: [Toggle; 6] = [
         set: |s, on| s.mini = on,
     },
     Toggle {
-        label: "Fold chats idle for over 1 day",
+        label: super::fields::FOLD_LABEL,
         key: super::FOLD_COLD_KEY,
         get: |s| s.fold_cold,
         set: |s, on| s.fold_cold = on,
@@ -135,7 +147,7 @@ fn rows(
     let mut picked = None;
     for (at, toggle) in TOGGLES.iter().enumerate() {
         let mut on = (toggle.get)(settings);
-        let response = ui.checkbox(&mut on, toggle.label);
+        let response = ui.checkbox(&mut on, toggle.text(settings));
         if at == 0 && focus_first {
             response.request_focus();
         }
@@ -323,6 +335,19 @@ mod tests {
             assert_eq!(field.map(|field| field.label), Some(toggle.label));
         }
         assert_eq!(TOGGLES[3].label, super::super::header::MINI_TIP);
+    }
+
+    #[test]
+    fn the_fold_row_says_the_cold_time() {
+        let fold = TOGGLES
+            .iter()
+            .find(|t| t.key == super::super::FOLD_COLD_KEY);
+        let fold = fold.expect("the fold toggle is in the menu");
+        let mut settings = Settings::default();
+        assert_eq!(fold.text(&settings), "Fold chats idle for over 2 days");
+        settings.cold_hours = 36;
+        assert_eq!(fold.text(&settings), "Fold chats idle for over 36 h");
+        assert_eq!(TOGGLES[0].text(&settings), TOGGLES[0].label);
     }
 
     #[test]

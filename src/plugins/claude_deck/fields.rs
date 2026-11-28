@@ -9,6 +9,11 @@ use super::*;
 /// keys stayed the same.
 const VIEW_GROUP: &str = super::quick_view::VIEW;
 
+/// The fold toggle on the Settings page. A field's label is fixed, so the
+/// cold time shows in the "Cold after" field right under it; the quick
+/// settings say it in the label (`cold::fold_label`).
+pub(super) const FOLD_LABEL: &str = "Fold idle chats";
+
 pub(super) fn fields() -> Vec<SettingField> {
     vec![
         SettingField {
@@ -31,9 +36,18 @@ pub(super) fn fields() -> Vec<SettingField> {
         },
         SettingField {
             key: FOLD_COLD_KEY,
-            label: "Fold chats idle for over 1 day",
-            help: "Old idle chats go into one grey line at the end.",
+            label: FOLD_LABEL,
+            help: "Chats idle for longer than Cold after go into one grey line at the end.",
             kind: FieldKind::Toggle,
+        },
+        SettingField {
+            key: cold::KEY,
+            label: cold::LABEL,
+            help: "A chat with no activity for this many hours goes to Cold chats.",
+            kind: FieldKind::Number {
+                min: cold::MIN_HOURS as f64,
+                max: cold::MAX_HOURS as f64,
+            },
         },
         SettingField {
             key: LIVE_KEY,

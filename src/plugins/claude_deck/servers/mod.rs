@@ -142,6 +142,8 @@ pub struct Deck {
     pub jobs: Vec<jobs::Job>,
     /// The jobs of the last 24 h that ended.
     pub history: jobs::history::History,
+    /// The cold time ("Cold after"), which the server threads read.
+    pub cold: super::cold::Shared,
 }
 
 impl Deck {
@@ -170,7 +172,7 @@ impl Deck {
                     .runner
                     .clone()
                     .unwrap_or_else(|| Arc::new(poll::Ssh) as Arc<dyn Runner>);
-                self.poller = Some(Poller::start(servers, runner, wake));
+                self.poller = Some(Poller::start(servers, runner, wake, &self.cold));
             }
         }
     }

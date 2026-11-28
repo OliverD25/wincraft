@@ -148,7 +148,7 @@ fn a_waiting_chat_out_of_sight_is_picked_by_the_line_that_holds_it() {
         waiting("near", Mark::AsksYou, 2),
     ];
     chats[0].folder = Some(r"E:\NewsHQ".into());
-    let mut saved = arrange(&Saved::default(), &chats, NOW);
+    let mut saved = arrange(&Saved::default(), &chats, NOW, DAY_MS);
     for group in &mut saved.groups {
         group.folded = group.name == "NewsHQ";
     }

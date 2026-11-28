@@ -228,8 +228,9 @@ fn read_while_hidden(shared: &Arc<Mutex<Shared>>, state: &Arc<Mutex<DeckUi>>) {
         },
         |state, settings| {
             state.servers.tick(&settings.servers, Arc::new(|| {}));
+            state.servers.cold.set(settings.cold_ms());
             let now = claude_sessions::now_ms();
-            reading::read(state);
+            reading::read(state, settings.cold_ms());
             window::build(state, settings, now);
             let lines = Arc::clone(&state.cache.lines);
             front::follow(state, &lines);

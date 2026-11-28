@@ -197,7 +197,7 @@ pub struct Transcript {
     pub quiet_ms: u64,
 }
 
-fn mark_of(transcript: &Transcript) -> Mark {
+fn mark_of(transcript: &Transcript, cold_ms: u64) -> Mark {
     let turn = &transcript.parsed.turn;
     let recent = transcript.quiet_ms < HOUR_MS;
     if turn.question.is_some() {
@@ -209,7 +209,7 @@ fn mark_of(transcript: &Transcript) -> Mark {
     } else if recent && turn.end == End::Failed {
         Mark::Failed
     } else {
-        Mark::Idle(Age::of(transcript.quiet_ms))
+        Mark::Idle(Age::of_with(transcript.quiet_ms, cold_ms))
     }
 }
 
@@ -217,7 +217,7 @@ fn row(
     record: &Record,
     window: isize,
     chats: &[Chat],
-    now: u64,
+    (now, cold_ms): (u64, u64),
     transcript: Option<Transcript>,
 ) -> Chat {
     let on_pc = record.server.is_none();
@@ -258,7 +258,7 @@ fn row(
             chat.text = Some(format!("Runs on {name} in a terminal"));
         }
         (None, Some(transcript)) => {
-            chat.mark = mark_of(&transcript);
+            chat.mark = mark_of(&transcript, cold_ms);
             chat.since = Some(now.saturating_sub(transcript.quiet_ms));
             chat.text = line_text(chat.mark, Some(&transcript.parsed.turn));
             chat.full = full_text(chat.mark, Some(&transcript.parsed.turn));
@@ -278,7 +278,7 @@ pub fn rows(
     records: &[Record],
     windows: &[(isize, String)],
     chats: &[Chat],
-    now: u64,
+    (now, cold_ms): (u64, u64),
     read: &dyn Fn(&str) -> Option<Transcript>,
 ) -> (Vec<Chat>, Vec<Record>) {
     let mut shown = Vec::new();
@@ -289,7 +289,8 @@ pub fn rows(
         let window = windows.iter().find(|(_, title)| title.contains(&wanted));
         match window {
             Some((hwnd, _)) if age < KEEP_MS => {
-                shown.push(row(record, *hwnd, chats, now, read(&record.id)));
+                let transcript = read(&record.id);
+                shown.push(row(record, *hwnd, chats, (now, cold_ms), transcript));
                 kept.push(record.clone());
             }
             None if age < GRACE_MS => kept.push(record.clone()),
@@ -327,7 +328,7 @@ fn read_transcript(id: &str) -> Option<Transcript> {
 
 /// Adds the rows of the open terminal forks to the chats, and forgets the
 /// forks whose window is gone. Reads nothing when no fork was started.
-pub fn add_rows(chats: &mut Vec<Chat>, now: u64) {
+pub fn add_rows(chats: &mut Vec<Chat>, now: u64, cold_ms: u64) {
     let path = path();
     let records = load(&path);
     if records.is_empty() {
@@ -337,7 +338,7 @@ pub fn add_rows(chats: &mut Vec<Chat>, now: u64) {
         .into_iter()
         .map(|(hwnd, record)| (hwnd as isize, record.title))
         .collect();
-    let (shown, kept) = rows(&records, &windows, chats, now, &read_transcript);
+    let (shown, kept) = rows(&records, &windows, chats, (now, cold_ms), &read_transcript);
     if kept != records && !cfg!(test) && !instance::is_test() {
         save(&path, &kept);
     }

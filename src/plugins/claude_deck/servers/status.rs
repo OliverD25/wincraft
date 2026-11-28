@@ -201,6 +201,7 @@ fn is_cold_idle(mark: Mark) -> bool {
 
 /// Idle for a running Remote Control service: its own age, but never cold
 /// (cold chats fold away, and a running service must stay in sight).
+/// The cold time does not change it: past it the age shows as Cooling.
 fn rc_idle(quiet_ms: u64) -> Mark {
     match Age::of(quiet_ms) {
         age if age.is_cold() => Mark::Idle(Age::Cooling),
@@ -218,14 +219,15 @@ fn base_name(path: &str) -> &str {
 }
 
 /// The row of one server chat. `server_now` is the server's clock and
-/// `now` the PC's, both in ms, so a clock that is off does not matter.
+/// `now` the PC's, both in ms, so a clock that is off does not matter;
+/// `cold_ms` is the cold time ("Cold after").
 pub fn chat(
     server: &str,
     raw: &RawChat,
     parsed: &Parsed,
     running: &Running,
     server_now: u64,
-    now: u64,
+    (now, cold_ms): (u64, u64),
 ) -> Chat {
     let rc = running.rc_of(&raw.dir);
     let alive = rc || running.proc_in(&raw.dir, parsed.cwd.as_deref());
@@ -243,7 +245,7 @@ pub fn chat(
     } else if open_tool || quiet_ms < RECENT_WRITE * 1000 {
         Mark::Working
     } else {
-        Mark::Idle(Age::of(quiet_ms))
+        Mark::Idle(Age::of_with(quiet_ms, cold_ms))
     };
     // A running Remote Control service is never cold: past the cold limit
     // it shows as ready, with the time of its last activity.

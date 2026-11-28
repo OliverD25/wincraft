@@ -92,7 +92,7 @@ pub(super) struct Rename {
 pub(super) struct Cache {
     built: Option<Instant>,
     saved: Saved,
-    view: (bool, bool, bool),
+    view: (bool, bool, bool, u64),
     pub(super) lines: Arc<Vec<Line>>,
     pub(super) counts: Vec<(Mark, usize)>,
     pub(super) waiting: usize,
@@ -285,7 +285,8 @@ impl PluginWindow for DeckWindow {
             let repaint = ui.ctx().clone();
             let wake = Arc::new(move || repaint.request_repaint_of(viewport_id()));
             state.servers.tick(&shared.settings.servers, wake);
-            refresh(&mut state, &to_host);
+            state.servers.cold.set(shared.settings.cold_ms());
+            refresh(&mut state, &to_host, shared.settings.cold_ms());
             let settings = shared.settings.clone();
             let now = claude_sessions::now_ms();
             build(&mut state, &settings, now);
@@ -404,7 +405,12 @@ impl PluginWindow for DeckWindow {
 /// Builds the lines again when the chats, the arrangement or the view
 /// changed since they were built last.
 pub(super) fn build(state: &mut DeckUi, settings: &super::Settings, now: u64) {
-    let view_now = (settings.only_open, settings.fold_cold, state.hidden_open);
+    let view_now = (
+        settings.only_open,
+        settings.fold_cold,
+        state.hidden_open,
+        settings.cold_ms(),
+    );
     let cache = &state.cache;
     let same = cache.built.is_some() && cache.built == state.built && cache.view == view_now;
     if same && cache.saved == state.saved {
@@ -415,6 +421,7 @@ pub(super) fn build(state: &mut DeckUi, settings: &super::Settings, now: u64) {
         fold_cold: settings.fold_cold,
         hidden_open: state.hidden_open,
         saved: state.saved.clone(),
+        cold_ms: settings.cold_ms(),
     };
     open_app::show_opening(&mut state.chats);
     let lines = model::lines(&state.chats, &state.archived, &view, now);
@@ -464,7 +471,7 @@ fn save(to_host: &HostChannel, key: &str, on: bool) {
 
 /// Asks the host for fresh data, and builds the chats again from what was
 /// read last.
-fn refresh(state: &mut DeckUi, to_host: &HostChannel) {
+fn refresh(state: &mut DeckUi, to_host: &HostChannel, cold_ms: u64) {
     if state.asked.is_none_or(|at| at.elapsed() >= ASK_EVERY) {
         state.asked = Some(Instant::now());
         claude_windows::set_wanted(true);
@@ -473,7 +480,7 @@ fn refresh(state: &mut DeckUi, to_host: &HostChannel) {
     if state.built.is_some_and(|at| at.elapsed() < BUILD_EVERY) {
         return;
     }
-    reading::read(state);
+    reading::read(state, cold_ms);
     open_app::send_pending_clears(to_host);
     keep_place(state);
 }

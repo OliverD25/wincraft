@@ -4,6 +4,7 @@
 use super::super::poll::{self, Cache, HostView};
 use super::super::{probe, reply};
 use super::load;
+use crate::plugins::claude_deck::model::DAY_MS;
 
 const JOBS_REPLY: &str = "NOW 1794532915\nHOME /home/rde\n\
 JOB verdict-archive-write.service t 170233 7309 2.4 2774592\t/home/rde/projects/verdict-ai-archive/api\t/home/rde/projects/verdict-ai-archive/api/.venv/bin/python -m tools.archive write --time-limit 19800 \n\
@@ -59,7 +60,7 @@ fn unit_times_move_to_the_pcs_clock() {
         Ok(JOBS_REPLY.to_string()),
         &mut Cache::new(),
         &mut view,
-        now,
+        (now, DAY_MS),
     );
     assert_eq!(view.jobs.len(), 4);
     assert_eq!(view.home.as_deref(), Some("/home/rde"));
